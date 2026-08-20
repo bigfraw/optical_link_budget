@@ -1,0 +1,23 @@
+[project]
+name = "optical-link-budget"
+version = "0.1.0"
+description = "Optical (laser) ground-to-space link budgets with atmospheric propagation, fade statistics and Monte Carlo."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "skyfield",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+# FAST (Fast Atmospheric Scintillation Tool) supplies HV57 Cn2 profiles.
+turbulence = ["fast-atmosphere"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["olb*"]
