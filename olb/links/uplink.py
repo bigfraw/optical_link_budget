@@ -21,6 +21,7 @@ from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
 from ..models.geometric import geometric_loss_term
 from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
+from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.coupled_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 
@@ -155,6 +156,10 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
+    # The transmit Gaussian-efficiency term only exists when the launch aperture
+    # is specified. Without it, the beam is treated as an untruncated Gaussian.
+    if scenario.link.tx_aperture_m is not None:
+        terms.append(tx_gaussian_efficiency_term(scenario, geometry))
     if turbulence:
         if cn2_profile is None:
             cn2_profile = default_cn2_profile(scenario.site)
@@ -254,8 +259,23 @@ if __name__ == '__main__':
     up_margin = up_mc["margin_db"][0.99]
     assert np.isfinite(up_margin), up_margin
 
+    # Setting a launch aperture adds the transmit Gaussian-efficiency term.
+    ap_scn = Scenario(
+        link=Link(wavelength_m=1550e-9, direction="uplink", tx_power_dbm=40,
+                  tx_waist_m=0.2, tx_aperture_m=0.15, tx_obscuration_ratio=0.3,
+                  rx_sensitivity_dbm=-40, pointing_jitter_rad=2e-6),
+        altitude_m=600e3,
+    )
+    up_ap = uplink_budget(ap_scn, budget_geom,
+                          cn2_profile=default_cn2_profile(ap_scn.site))
+    assert up_ap.to_frame().shape[0] == 5, up_ap.to_frame().shape
+    eff = next(t for t in up_ap.terms if t.category == "system")
+    assert eff.mean_db > 0                       # truncation is a loss
+    assert up_ap.total_loss_db() > up.total_loss_db()   # aperture truncation costs margin
+
     print('\n' + '=' * 40)
     print(up.to_frame().to_string(index=False))
     print(f"\nuplink 60 deg 99% margin: {up_margin:.2f} dB")
+    print(f"with aperture: +{eff.mean_db:.2f} dB transmit truncation ({eff.note})")
     print(f"fast_available={fast_available}")
     print("self-check passed.")

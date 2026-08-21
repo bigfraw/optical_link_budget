@@ -23,6 +23,8 @@ class Link:
     wavelength_m: float = 1550e-9
     direction: Direction = "uplink"
     tx_waist_m: float = 0.1              # transmit 1/e^2 beam waist w0 [m]
+    tx_aperture_m: Optional[float] = None  # transmit aperture diameter [m]; enables the Gaussian-efficiency (truncation) term
+    tx_obscuration_ratio: float = 0.0    # transmit central obscuration / aperture diameter
     tx_power_dbm: Optional[float] = None  # launch power [dBm]; None if only losses matter
     m2: float = 1.0                      # beam quality M^2 (>= 1)
     rx_diameter_m: float = 0.08          # receive aperture diameter [m]
