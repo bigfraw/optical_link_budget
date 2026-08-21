@@ -45,8 +45,8 @@ def main():
     # overlap (needs fast-aosim). A compensation stack maps to the FAST correction:
     # TipTilt -> tip-tilt mode, AO(n_modes) -> modal AO with ZMAX=n_modes, and an
     # empty stack -> no correction. For the bucket-detector return, swap the
-    # detector for Aperture(sensitivity_dbm=-50); to use the wavefront-free
-    # reciprocity/Dikmelik models, drop smf_fidelity or set it to "reciprocity".
+    # detector for Aperture(sensitivity_dbm=-50); for the analytic mean-only
+    # coupling loss (no fade), set smf_fidelity="mean".
     ground = Terminal(
         aperture_m=0.7,                  # receive telescope
         obscuration_ratio=0.3,           # 30% central obscuration (receive)
@@ -56,7 +56,7 @@ def main():
                                 aperture_m=0.15,          # small beam director
                                 obscuration_ratio=0.3),   # obscured director
         detector=SMF(sensitivity_dbm=-110.0),             # coherent / fibre return
-        # compensation=[TipTilt()]#, AO(n_modes=2)],         # AO for fibre coupling
+        compensation=[TipTilt()]#, AO(n_modes=2)],         # AO for fibre coupling
     )
 
     # --- 2. The satellite (a passive retroreflector) ----------------------
@@ -72,7 +72,7 @@ def main():
     retro = Scenario(ground=ground, space=space, direction="retro",
                      channel=channel)
 
-    for elevation_deg in (30.0, 60.0, 90):
+    for elevation_deg in (30.0, 45.0, 90.0):
         geom = CircularOrbit(channel.altitude_m, elevation_deg=elevation_deg)
 
         # The retro direction makes the ground both transmit and receive.
@@ -93,12 +93,6 @@ def main():
             f"fade 99% {float(mc['fade_db'][0.99]):6.2f} dB\n")
 
         print("=" * 62)
-        print("One ground station transmits AND receives, so it is a single Terminal "
-            "with both a Transmitter and a Detector. It is bistatic: the up-leg "
-            "launch truncation reads the 0.15 m beam director on the Transmitter, "
-            "not the 0.7 m receive telescope. The retro link pays BOTH legs -- it "
-            "is the up-leg and the down-leg stacked, because the retro just "
-            "re-transmits the power it catches.")
 
         af = retro_b.assumptions_frame()
         broken = af[~af["ok"]]

@@ -1,18 +1,20 @@
 '''
-Benchmark the SMF coupling models: reciprocity Strehl proxy vs FAST fidelity-1.
+Benchmark the SMF coupling fidelities: analytic mean-only vs FAST fidelity-1.
 
-The downlink single-mode-fibre coupling has two turbulence models in olb:
+The downlink single-mode-fibre coupling has two fidelities in olb:
 
-- "reciprocity": a Strehl proxy. eta = eta_max * on-axis Strehl, where the Strehl
-  comes from the Dios coupled-flux of the back-projected fibre mode. It captures
-  the tip-tilt / angle-of-arrival fade but is NOT a true modal overlap.
+- "mean": a cheap analytic estimate of the EXPECTED coupling loss (extended
+  Marechal for a small residual, Dikmelik-Davidson for a large residual). It is
+  DETERMINISTIC: it gives the mean loss only and models NO fade.
 - "fast": fidelity-1. The true LP01 Gaussian-mode overlap under turbulence, from
-  FAST (the fast-aosim package). This is the reference.
+  FAST (the fast-aosim package). It is the only statistical model: it gives the
+  mean, the quantile, and the fade. This is the reference.
 
 This script runs a no-AO fibre downlink over a set of elevations and prints the
-mean and 99% coupling loss from each model, so you can see where the proxy agrees
-with the reference and where it does not. The reference needs fast-aosim; install
-it with `pip install fast-aosim`.
+mean loss from each, plus the FAST 99% loss, so you can see how close the cheap
+mean is to the FAST mean, and how much deep-fade margin the mean-only model
+misses. The FAST reference needs fast-aosim; install it with
+`pip install fast-aosim`.
 
 Run from the repo root:
     python -m examples.smf_fidelity_benchmark
@@ -20,8 +22,6 @@ Run from the repo root:
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
-
-import numpy as np
 
 from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  SMF)
@@ -40,31 +40,33 @@ def main():
                         channel=Channel(site=Site(cn2_ground=1.7e-14),
                                         altitude_m=1500e3))
 
-    rng = np.random.default_rng(0)
-    print(f"{'elev':>5} | {'reciprocity mean':>16} {'99%':>7} | "
-          f"{'FAST mean':>10} {'99%':>7}")
-    print("-" * 56)
-    for elevation_deg in (30.0, 45.0, 60.0, 90.0):
+    print(f"{'elev':>5} | {'mean-only loss':>14} | "
+          f"{'FAST mean':>10} {'99%':>7} | {'amp sig2_I':>10} {'regime':>6}")
+    print("-" * 64)
+    for elevation_deg in (15.0, 30.0, 45.0, 60.0, 90.0):
         geom = CircularOrbit(scenario.channel.altitude_m,
                              elevation_deg=elevation_deg)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            recip = rx_coupling_term(scenario, geom, n_samples=2000,
-                                     smf_fidelity="reciprocity")
-            fast = rx_coupling_term(scenario, geom, n_samples=2000,
+            mean = rx_coupling_term(scenario, geom, smf_fidelity="mean")
+            fast = rx_coupling_term(scenario, geom, n_samples=1e5,
                                     smf_fidelity="fast")
-        # The reciprocity term is Monte-Carlo-only; use samples for the 99%.
-        recip_99 = float(np.percentile(recip.sample_db(8000, rng), 99))
-        print(f"{elevation_deg:5.0f} | {recip.mean_db:16.2f} {recip_99:7.2f} | "
-              f"{fast.mean_db:10.2f} {fast.quantile_db(0.99):7.2f}")
+        regime = "weak" if fast.meta["amplitude_regime_weak"] else "SAT"
+        print(f"{elevation_deg:5.0f} | {mean.mean_db:14.2f} | "
+              f"{fast.mean_db:10.2f} {fast.quantile_db(0.99):7.2f} | "
+              f"{fast.meta['amplitude_sigma2_I']:10.3f} {regime:>6}")
 
-    print("\nThe reciprocity Strehl proxy tracks the FAST modal overlap on the "
-          "MEAN, but its deep-fade tail (99%) is far heavier: the Dios on-axis "
-          "intensity saturates where the FAST aperture-integrated overlap stays "
-          "bounded. So the proxy is a fair mean estimate but pessimistic on the "
-          "tail. FAST is the reference (with subharmonics, so the tilt is "
-          "captured); the proxy is the cheap, wavefront-free estimate. Neither "
-          "models point-ahead here.")
+    print("\nThe analytic mean-only loss is the cheap, wavefront-free estimate of "
+          "the EXPECTED coupling loss; it has no fade, so the 99% link margin can "
+          "never be read from it. FAST is the reference (with subharmonics, so the "
+          "tilt is captured): it gives the mean AND the deep-fade tail (99%).\n"
+          "The 99% sits ~20 dB below the mean and is nearly FLAT across elevation. "
+          "This is NOT amplitude saturation: the plane-wave amplitude sigma2_I is "
+          "weak at every elevation here (< 0.25, the 'weak' column). The deep tail "
+          "is PHASE-driven modal-coupling speckle -- an uncorrected 0.7 m fibre "
+          "sees D/r0 ~ 4-6 across this whole sweep, so the fibre-mode overlap is "
+          "deeply speckled and the tail barely tracks elevation while the MEAN "
+          "still improves. Add AO/tip-tilt to lift the tail. No point-ahead here.")
 
 
 if __name__ == "__main__":

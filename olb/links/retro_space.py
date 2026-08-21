@@ -47,7 +47,7 @@ from .downlink import downlink_scintillation_term
 
 def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
                        n_samples=3000, cn2_profile=None, retro_loss_db=0.0,
-                       smf_fidelity="reciprocity", fast_params=None):
+                       smf_fidelity="fast", fast_params=None):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 

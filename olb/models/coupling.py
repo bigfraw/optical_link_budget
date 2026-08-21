@@ -16,17 +16,21 @@ Two detector front ends:
   downlink behaviour.
 
   SMF (single-mode fibre): the fibre couples only the field that matches the
-  fibre mode. The coupling efficiency eta falls with the residual phase variance
-  sigma^2_res that the Compensation stack leaves. Two limits of one overlap
-  physics:
-    small residual (sigma^2_res < SMF_SMALL_RESIDUAL_LIMIT): extended Marechal,
-        eta = eta_max * exp(-sigma^2_res).
-    large residual (sigma^2_res >= the limit): the Dikmelik-Davidson uncorrected
-        single-mode-fibre coupling curve against D/r0. See _smf_large_residual.
-  The mean loss is -10*log10(eta). The Term also carries a fade: it adds the
-  aperture-averaged lognormal scintillation fade on top of the constant coupling
-  loss. This is the fidelity-0 fade model. Fidelity 1 would sample the
-  residual-phase PSD (ResidualWavefront.psd) instead.
+  fibre mode. Two fidelities:
+    smf_fidelity="fast" (the default, and the ONLY statistical model): the true
+        LP01 modal overlap from FAST. It gives the mean, the quantile, and the
+        fade. See olb.models.coupling_fast.
+    smf_fidelity="mean": a cheap analytic MEAN-ONLY estimate, for when only the
+        expected coupling loss is wanted (no fade). The coupling efficiency eta
+        falls with the residual phase variance sigma^2_res that the Compensation
+        stack leaves. Two limits of one overlap physics:
+          small residual (sigma^2_res < SMF_SMALL_RESIDUAL_LIMIT): extended
+              Marechal, eta = eta_max * exp(-sigma^2_res).
+          large residual (sigma^2_res >= the limit): the Dikmelik-Davidson
+              uncorrected single-mode-fibre coupling curve against D/r0. See
+              _smf_large_residual.
+        The mean loss is -10*log10(eta). The Term is DETERMINISTIC: it carries no
+        fade (no sampler, no quantile). For the fade, use smf_fidelity="fast".
 
 How the SMF Term avoids double-counting the geometric aperture capture:
   The geometric spreading Term already carries the free-space spread and the
@@ -49,40 +53,14 @@ Sources:
 
 import numpy as np
 
-from dataclasses import replace
-
 from ..results import Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, BEAM_GAUSSIAN,
+from ..assumptions import (Assumptions, BEAM_PLANE_WAVE,
                            REGIME_WEAK, SPECTRUM_KOLMOGOROV)
-from ..terminal import Aperture, SMF, TipTilt, AO, Transmitter
+from ..terminal import Aperture, SMF
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.ao import (plane_wave_fried_parameter, apply_compensation,
                             NOLL_PISTON)
 from ..links.downlink import downlink_scintillation_term
-
-# Optimal single-mode-fibre coupling. The back-projected fibre mode is a Gaussian.
-# The coupling into an unobscured circular aperture is a maximum when the ratio of
-# the aperture radius to the aperture-plane Gaussian 1/e^2 radius is
-# BETA_SMF_OPT = 1.12, which gives eta_max = 0.8145. So the fibre-mode waist is
-# w = (aperture/2)/BETA_SMF_OPT. Source: S. Shaklan and F. Roddier, "Coupling
-# starlight into single-mode fiber optics," Appl. Opt. 27(11), 2334 (1988);
-# C. Ruilier, SPIE 3350 (1998).
-BETA_SMF_OPT = 1.12
-
-
-def smf_mode_waist(aperture_m):
-    '''
-    Aperture-plane Gaussian waist of the back-projected single-mode-fibre mode.
-
-    Parameters:
-        aperture_m : float
-            Receive aperture diameter [m].
-
-    Returns:
-        float
-            The 1/e^2 Gaussian radius [m] at the aperture (see BETA_SMF_OPT).
-    '''
-    return (aperture_m / 2.0) / BETA_SMF_OPT
 
 # Residual-variance threshold [rad^2] that selects the SMF coupling limit. Below
 # it the extended Marechal approximation holds. Above it the beam is far from a
@@ -171,14 +149,15 @@ def _aperture_term(scenario, geometry, *, hs, cn2_profile):
     return term
 
 
-def _smf_term(scenario, geometry, *, hs, cn2_profile):
+def _smf_mean_term(scenario, geometry, *, hs, cn2_profile):
     '''
-    Build the receive-coupling Term for a single-mode-fibre detector.
+    Build the MEAN-ONLY receive-coupling Term for a single-mode-fibre detector.
 
     Get r0 from the plane-wave Fried parameter. Get the residual phase variance
     from the compensation stack. Convert it to the coupling efficiency eta, then
-    to the mean coupling loss. Add the aperture-averaged lognormal scintillation
-    fade on top (the fidelity-0 fade model).
+    to the mean coupling loss -10*log10(eta). The Term is DETERMINISTIC: it has no
+    sampler and no quantile, so it carries no fade. For the fade (and the true
+    modal overlap) use smf_fidelity="fast" (olb.models.coupling_fast).
     '''
     terminal = scenario.rx_terminal
     detector = terminal.detector
@@ -193,55 +172,26 @@ def _smf_term(scenario, geometry, *, hs, cn2_profile):
     eta = _smf_coupling_efficiency(sigma2_res, detector.eta_max)
     coupling_loss = -10.0 * np.log10(eta)     # positive dB, scalar or per-elevation
     dr0_eff = _effective_dr0(sigma2_res)
-
-    # The fade reuses the downlink aperture-averaged lognormal scintillation. The
-    # coupling loss is a constant offset on the fluctuating scintillation. So the
-    # Term keeps a closed-form quantile and a sampler.
-    scint = downlink_scintillation_term(scenario, geometry, model="lognormal",
-                                        aperture_average=True, hs=hs,
-                                        cn2_profile=cn2_profile)
-    offset = coupling_loss
-    base_shape = np.shape(offset)
-
-    mean_db = np.asarray(scint.mean_db) + offset
-
-    def quantile(p):
-        return scint.quantile(p) + offset
-
-    def sampler(n, rng):
-        return scint.sampler(n, rng) + offset
+    base_shape = np.shape(coupling_loss)
 
     assumptions = Assumptions(
         beam_type=BEAM_PLANE_WAVE,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Single-mode-fibre coupling. Extended Marechal for a small "
-                 "residual; Dikmelik-Davidson uncorrected coupling for a large "
-                 "residual. The Dikmelik-Davidson coupling assumes a uniform "
-                 "circular aperture with no central obscuration. FIDELITY-0 FADE: "
-                 "the fade uses the aperture-averaged lognormal scintillation as a "
-                 "stand-in for the residual-coupling fluctuation, so every fade "
-                 "margin EXCLUDES the residual fibre-coupling fade and is "
-                 "optimistic on the fibre side. Weak fluctuation: sigma2_I < 0.25.",
+        validity="MEAN-ONLY single-mode-fibre coupling loss. Extended Marechal for "
+                 "a small residual; Dikmelik-Davidson uncorrected coupling for a "
+                 "large residual. The Dikmelik-Davidson coupling assumes a uniform "
+                 "circular aperture with no central obscuration. This Term is "
+                 "DETERMINISTIC: it gives the expected coupling loss only and models "
+                 "NO fade. For the fade and the true modal overlap use "
+                 "smf_fidelity='fast'.",
     )
-    # Carry over any scintillation-side flag (weak-fluctuation, obscuration).
-    if scint.assumptions is not None:
-        for reason in scint.assumptions.violations:
-            assumptions.flag(reason)
-    # FIDELITY-0 FADE. The fade is aperture-averaged scintillation shifted by a
-    # CONSTANT mean coupling loss (eta at the mean residual variance). The true
-    # time-varying fibre-coupling fluctuation -- the residual wavefront coupling
-    # into the single fibre mode (AO/tip-tilt residual jitter, speckle) -- is NOT
-    # modelled. So the quantile and every fade margin (for example the 99% link
-    # margin) EXCLUDE the residual fibre-coupling fade and are OPTIMISTIC on the
-    # fibre side. Always flag it. The fidelity-1 upgrade samples the residual-
-    # phase PSD (olb.turbulence.ao.ResidualWavefront.psd).
+    # MEAN-ONLY. The Term carries no coupling fade. Always flag it, so a fade
+    # margin (for example a 99% link margin) is never read off this Term.
     assumptions.flag(
-        "Fidelity-0 fade: the fibre-coupling loss is a constant offset on the "
-        "aperture-averaged scintillation fade. The 99% (and every) fade margin "
-        "EXCLUDES the residual fibre-coupling fluctuation (speckle / AO-residual "
-        "jitter into the single mode), so the margin is optimistic on the fibre "
-        "side. Fidelity 1 samples ResidualWavefront.psd (olb.turbulence.ao)."
+        "Mean-only SMF coupling: this Term is the expected coupling loss and models "
+        "NO fade (no sampler, no quantile). Every fade margin read from it is wrong. "
+        "Use smf_fidelity='fast' for the statistical (fidelity-1) coupling."
     )
     # Dikmelik-Davidson assumes a uniform circular aperture. A central obscuration
     # on the receive aperture breaks the coupling curve. Flag the violation.
@@ -257,23 +207,24 @@ def _smf_term(scenario, geometry, *, hs, cn2_profile):
     if dr0_max > SMF_DEEP_TURBULENCE_DR0:
         assumptions.flag(
             f"effective D/r0={dr0_max:.1f} exceeds {SMF_DEEP_TURBULENCE_DR0:.0f}; "
-            "the practical uncorrected coupling curve is extrapolated. Use the "
-            "exact Dikmelik-Davidson integral (fidelity 1)."
+            "the practical uncorrected coupling curve is extrapolated. Use "
+            "smf_fidelity='fast'."
         )
 
-    note = (f"SMF coupling, eta_max={detector.eta_max:g}, "
+    note = (f"SMF coupling (mean-only), eta_max={detector.eta_max:g}, "
             f"n_comp_modes={residual.n_modes}")
     return Term(
         name="receive coupling (SMF)",
         category="coupling",
-        mean_db=float(mean_db) if base_shape == () else mean_db,
-        sampler=sampler,
-        quantile=quantile,
+        mean_db=float(coupling_loss) if base_shape == () else coupling_loss,
+        sampler=None,       # deterministic: mean-only, no fade
+        quantile=None,
         note=note,
         meta={
             "detector": "SMF",
+            "model": "mean-only",
             "eta": float(eta) if base_shape == () else np.asarray(eta),
-            "coupling_loss_db": float(offset) if base_shape == () else np.asarray(offset),
+            "coupling_loss_db": float(coupling_loss) if base_shape == () else np.asarray(coupling_loss),
             "sigma2_res": float(sigma2_res) if np.ndim(sigma2_res) == 0 else np.asarray(sigma2_res),
             "effective_D_over_r0": float(dr0_eff) if np.ndim(dr0_eff) == 0 else np.asarray(dr0_eff),
             "r0_m": float(r0) if np.ndim(r0) == 0 else np.asarray(r0),
@@ -283,150 +234,22 @@ def _smf_term(scenario, geometry, *, hs, cn2_profile):
     )
 
 
-def _smf_reciprocity_term(scenario, geometry, *, hs, cn2_profile, n_samples):
-    '''
-    Build the SMF receive-coupling Term with the reciprocity Strehl proxy.
-
-    Approach (no adaptive optics; tip-tilt at most). By Shapiro reciprocity the
-    downlink fibre-coupling Strehl equals the on-axis Strehl of the back-projected
-    fibre-mode Gaussian launched up the same turbulent column. The Dios coupled-
-    flux (see olb.links.uplink) already gives that fluctuating on-axis Strehl
-    S(t). The coupling efficiency is
-
-        eta(t) = eta_max * S(t),
-
-    where eta_max is the static (flat-wavefront) mode match and S(t) carries the
-    turbulence coupling fade -- most importantly the beam-wander (angle-of-arrival)
-    tip-tilt fade that the fidelity-0 model drops. The fibre mode is a Gaussian of
-    aperture-plane waist w = smf_mode_waist(aperture) (see BETA_SMF_OPT).
-
-    IMPORTANT. This is a Strehl PROXY, NOT a true LP01 modal overlap. The on-axis
-    Strehl and the coherent mode overlap agree well for a tip-tilt-dominated fade,
-    but not for scintillation and high-order aberration. So the Term is best for
-    the no-AO / tip-tilt regime. The Monte-Carlo-only fidelity-1 upgrade is the
-    true Gaussian-mode overlap (for example the FAST tool). Because the coupled-
-    flux is Monte-Carlo-only, this Term gives a sampler and sets quantile=None.
-
-    Parameters:
-        scenario : Scenario
-            The downlink case. Reads rx_terminal (aperture, wavelength, detector,
-            compensation) and the site Cn2 profile.
-        geometry : CircularOrbit or TLEPass
-            The link geometry (elevation, slant range).
-        hs : numpy.ndarray
-            Height grid [m].
-        cn2_profile : numpy.ndarray
-            Zenith Cn2(h) profile matching hs (fast-free, from default_cn2_profile).
-        n_samples : int
-            Monte Carlo draws for the reciprocal coupled-flux mean estimate.
-
-    Returns:
-        Term
-            name="receive coupling (SMF)", category="coupling", Monte-Carlo-only.
-    '''
-    # Import here to break the coupling <-> uplink import cycle.
-    from ..links.uplink import uplink_turbulence_term
-
-    rx = scenario.rx_terminal
-    detector = rx.detector
-    eta_max = detector.eta_max
-    w_fib = smf_mode_waist(rx.aperture_m)
-    floor_db = -10.0 * np.log10(eta_max)   # static mode-match loss, a constant
-
-    # The reciprocal uplink: launch the back-projected fibre-mode Gaussian from
-    # the receive aperture, collimated, up the same column. Only the transmit
-    # waist matters to the coupled-flux; the satellite receiver is on-axis.
-    recip_ground = replace(rx, transmitter=Transmitter(waist_m=w_fib))
-    recip_scn = replace(scenario, direction="uplink", ground=recip_ground)
-    turb = uplink_turbulence_term(recip_scn, geometry, n_samples=n_samples,
-                                  cn2_profile=cn2_profile)
-
-    base_shape = np.shape(turb.mean_db)
-    mean_db = np.asarray(turb.mean_db) + floor_db
-
-    def sampler(n, rng):
-        return turb.sampler(n, rng) + floor_db
-
-    assumptions = Assumptions(
-        beam_type=BEAM_GAUSSIAN,
-        turbulence_regime=REGIME_WEAK,
-        spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Reciprocity Strehl proxy for single-mode-fibre coupling: "
-                 "eta = eta_max * S(t), where S(t) is the on-axis Strehl of the "
-                 "back-projected fibre-mode Gaussian launched up the same column "
-                 "(Dios coupled-flux, olb.links.uplink). The fibre mode is a "
-                 f"Gaussian of aperture-plane waist w = (aperture/2)/{BETA_SMF_OPT} "
-                 "(Shaklan-Roddier optimum, eta_max=0.8145). Weak fluctuation: "
-                 "sigma2_x < 0.6.",
-    )
-    # STREHL PROXY, not a true modal overlap. Always flag it.
-    assumptions.flag(
-        "Strehl proxy: the fade is eta_max * on-axis Strehl, NOT a coherent LP01 "
-        "modal overlap. It captures the tip-tilt / angle-of-arrival coupling fade "
-        "but approximates scintillation and high-order coupling. The fidelity-1 "
-        "upgrade is the true Gaussian-mode overlap (for example the FAST tool)."
-    )
-    # Reciprocity assumes the up and down columns coincide. Always flag it.
-    assumptions.flag(
-        "Reciprocity assumes the up-leg and down-leg columns coincide. For a LEO "
-        "the point-ahead angle can exceed the isoplanatic angle, so the coupling "
-        "statistics are approximate."
-    )
-    # Tip-tilt receiver: the reciprocity fade still carries the full wander.
-    if any(isinstance(c, TipTilt) for c in rx.compensation):
-        assumptions.flag(
-            "Tip-tilt correction present: the reciprocity fade still includes the "
-            "full angle-of-arrival (beam-wander) fluctuation, which a tip-tilt "
-            "tracker partly removes. So the fade is conservative for a tip-tilt "
-            "receiver. Wander removal is not yet modelled."
-        )
-    # Carry the weak-fluctuation flag from the reciprocal up-leg.
-    wf = turb.meta.get("weak_fluctuation_valid")
-    if wf is not None and not np.all(wf):
-        assumptions.flag(
-            "Rytov weak-fluctuation limit exceeded on the reciprocal up-leg; "
-            "the scintillation approaches saturation and the Strehl is not "
-            "trustworthy."
-        )
-
-    note = (f"SMF reciprocity Strehl proxy, w_fibre={w_fib:.3g} m, "
-            f"eta_max={eta_max:g}")
-    return Term(
-        name="receive coupling (SMF)",
-        category="coupling",
-        mean_db=float(mean_db) if base_shape == () else mean_db,
-        sampler=sampler,
-        quantile=None,   # MC-only: coupled-flux has no closed form -> monte_carlo()
-        note=note,
-        meta={
-            "detector": "SMF",
-            "model": "reciprocity-strehl",
-            "eta_max": float(eta_max),
-            "w_fibre_mode_m": float(w_fib),
-            "beta_smf_opt": BETA_SMF_OPT,
-            "floor_db": float(floor_db),
-            "n_samples": n_samples,
-            "sigma2_x": turb.meta.get("sigma2_x"),
-        },
-        assumptions=assumptions,
-    )
-
-
 def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
-                     n_samples=2000, smf_fidelity="reciprocity", fast_params=None):
+                     n_samples=2000, smf_fidelity="fast", fast_params=None):
     '''
     Build the ONE receive-coupling Term of a downlink receive terminal.
 
-    Read scenario.rx_terminal. Dispatch on the detector type and the correction.
-    An Aperture detector reuses the downlink aperture-averaged scintillation, so it
-    is parity with the plain downlink. An SMF detector splits by the correction:
+    Read scenario.rx_terminal. Dispatch on the detector type. An Aperture detector
+    reuses the downlink aperture-averaged scintillation, so it is parity with the
+    plain downlink. An SMF detector picks the fidelity with smf_fidelity:
 
-    - No adaptive optics (empty stack or tip-tilt only): the reciprocity Strehl
-      proxy. It reuses the Dios coupled-flux to carry the tip-tilt / angle-of-
-      arrival coupling fade. Monte-Carlo-only. See _smf_reciprocity_term.
-    - Adaptive optics present: the extended-Marechal / Dikmelik-Davidson coupling
-      from the residual wavefront, with the aperture-averaged scintillation as the
-      fidelity-0 fade. See _smf_term.
+    - "fast" (the default): the fidelity-1 true LP01 modal overlap from FAST. It
+      gives the mean, the quantile, and the fade. Needs fast-aosim. See
+      olb.models.coupling_fast.
+    - "mean": a cheap analytic MEAN-ONLY estimate (extended-Marechal / Dikmelik-
+      Davidson from the residual wavefront). The Term is DETERMINISTIC and models
+      no fade. Use it when only the expected coupling loss is wanted. See
+      _smf_mean_term.
 
     Parameters:
         scenario : Scenario
@@ -438,12 +261,11 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
         cn2_profile : numpy.ndarray, optional
             Zenith Cn2(h) profile. Defaults to the site profile.
         n_samples : int
-            Monte Carlo draws for the reciprocity Strehl proxy (SMF, no AO) and
-            for the FAST fidelity-1 term (its NITER).
+            FAST Monte Carlo draws (NITER) for smf_fidelity="fast". Ignored for an
+            Aperture detector and for smf_fidelity="mean".
         smf_fidelity : str
-            The SMF coupling model. "reciprocity" (default) uses the Strehl proxy
-            for a no-AO fibre and the Dikmelik/Marechal model for an AO fibre.
-            "fast" uses the FAST fidelity-1 true modal overlap (needs fast-aosim).
+            The SMF coupling model: "fast" (default, fidelity-1 true modal overlap,
+            needs fast-aosim) or "mean" (analytic mean-only, no fade).
         fast_params : dict, optional
             Extra FAST parameters, passed through when smf_fidelity="fast".
 
@@ -476,17 +298,11 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
             from .coupling_fast import smf_fast_term
             return smf_fast_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile,
                                  n_samples=n_samples, fast_params=fast_params)
-        if smf_fidelity != "reciprocity":
-            raise ValueError(
-                f"unknown smf_fidelity {smf_fidelity!r}. Use 'reciprocity' or 'fast'."
-            )
-        # No AO -> reciprocity Strehl proxy (carries the tip-tilt fade). AO
-        # present -> extended-Marechal / Dikmelik coupling (fidelity-0 fade).
-        has_ao = any(isinstance(c, AO) for c in terminal.compensation)
-        if has_ao:
-            return _smf_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile)
-        return _smf_reciprocity_term(scenario, geometry, hs=hs,
-                                     cn2_profile=cn2_profile, n_samples=n_samples)
+        if smf_fidelity == "mean":
+            return _smf_mean_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile)
+        raise ValueError(
+            f"unknown smf_fidelity {smf_fidelity!r}. Use 'fast' or 'mean'."
+        )
     raise ValueError(
         f"unknown detector {type(detector).__name__!r}. Use Aperture or SMF."
     )
@@ -526,8 +342,10 @@ if __name__ == '__main__':
     slope = np.log(e2 / e1) / np.log(4000.0 / 2000.0)
     assert abs(slope - (-6.0 / 5.0)) < 1e-3, slope
 
+    # The SMF tests use the analytic mean-only fidelity (the "fast" default needs
+    # fast-aosim, which is optional). The Aperture detector ignores smf_fidelity.
     def build(scn):
-        return rx_coupling_term(scn, geom, hs=hs, n_samples=800,
+        return rx_coupling_term(scn, geom, hs=hs, smf_fidelity="mean",
                                 cn2_profile=default_cn2_profile(scn.channel.site, hs))
 
     # --- Aperture detector: parity with the plain downlink scintillation ---
@@ -542,51 +360,33 @@ if __name__ == '__main__':
     assert np.isclose(t_ap.mean_db, t_scint.mean_db)    # exact parity
     assert np.isclose(t_ap.quantile_db(0.99), t_scint.quantile_db(0.99))
 
-    # --- SMF, no AO: reciprocity Strehl proxy (Monte-Carlo-only) -----------
-    # A 0.7 m fibre receiver with no correction. The reciprocity path launches the
-    # back-projected fibre mode (waist = (aperture/2)/1.12) up the same column and
-    # reads the on-axis Strehl.
+    # --- SMF, no AO: mean-only Marechal / Dikmelik coupling loss ------------
+    # A 0.7 m fibre receiver with no correction. Deterministic: mean loss only.
     scn_smf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF()))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_smf = build(scn_smf)
     assert t_smf.name == "receive coupling (SMF)"
-    assert t_smf.meta["model"] == "reciprocity-strehl"
-    assert t_smf.quantile is None and t_smf.stochastic      # Monte-Carlo-only
-    # Fibre-mode sizing relative to the aperture (deliberate).
-    assert np.isclose(t_smf.meta["w_fibre_mode_m"], (0.7 / 2) / BETA_SMF_OPT)
-    assert t_smf.meta["beta_smf_opt"] == BETA_SMF_OPT
-    # The mean loss is at least the static mode-match floor.
-    assert t_smf.mean_db >= t_smf.meta["floor_db"] - 1e-9
-    # Strehl-proxy and reciprocity caveats are always flagged, so it is never ok.
-    assert any("Strehl proxy" in v for v in t_smf.assumptions.violations)
-    assert any("point-ahead" in v for v in t_smf.assumptions.violations)
+    assert t_smf.meta["model"] == "mean-only"
+    assert t_smf.quantile is None and not t_smf.stochastic   # deterministic
+    assert t_smf.meta["coupling_loss_db"] > 0.0
+    # Mean-only caveat is always flagged, so it is never ok.
+    assert any("Mean-only" in v for v in t_smf.assumptions.violations)
     assert not t_smf.assumptions.ok
 
-    # --- SMF, tip-tilt only: still reciprocity, plus a conservative flag ----
-    scn_tt = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF(),
-                                compensation=[TipTilt()]))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_tt = build(scn_tt)
-    assert t_tt.meta["model"] == "reciprocity-strehl"
-    assert any("Tip-tilt correction present" in v for v in t_tt.assumptions.violations)
-
-    # --- SMF with AO: extended-Marechal / Dikmelik coupling (fidelity-0) ----
+    # --- SMF with AO: AO buys back coupling (less mean loss than no AO) -----
     scn_ao = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF(),
                                 compensation=[TipTilt(), AO(200)]))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_ao = build(scn_ao)
-    assert t_ao.meta.get("model") is None                  # the Marechal/Dikmelik path
+    assert t_ao.meta["model"] == "mean-only"
     assert t_ao.meta["coupling_loss_db"] > 0.0
-    # AO buys back coupling: the AO mean loss is far below the no-AO reciprocity mean.
     assert float(t_ao.mean_db) < float(t_smf.mean_db), (t_ao.mean_db, t_smf.mean_db)
 
-    # --- Dikmelik-Davidson circular-aperture assumption (AO path) ----------
+    # --- Dikmelik-Davidson circular-aperture assumption --------------------
     # A central obscuration on the receive aperture flags a violation naming the
-    # coupling curve; an unobscured aperture does not. This flag lives on the AO
-    # (Marechal/Dikmelik) path.
+    # coupling curve; an unobscured aperture does not.
     scn_obsc = _downlink(Terminal(aperture_m=0.7, obscuration_ratio=0.3,
                                   wavelength_m=lam, detector=SMF(),
                                   compensation=[TipTilt(), AO(200)]))
@@ -597,42 +397,41 @@ if __name__ == '__main__':
         t_obsc.assumptions.violations
     assert not any("uniform circular aperture" in v for v in t_ao.assumptions.violations)
 
-    # --- Fidelity-0 fade: flagged on the AO (Marechal/Dikmelik) path -------
-    # An AO SMF term flags that the fade excludes the residual fibre-coupling
-    # fluctuation, so it is never fully ok.
-    for t in (t_ao, t_obsc):
-        assert any("Fidelity-0 fade" in v for v in t.assumptions.violations), \
+    # --- Mean-only: deterministic, no fade ---------------------------------
+    # Every SMF mean-only term flags that it carries no fade, so it is never ok.
+    rng = np.random.default_rng(0)
+    for t in (t_smf, t_ao, t_obsc):
+        assert any("Mean-only" in v for v in t.assumptions.violations), \
             t.assumptions.violations
         assert not t.assumptions.ok
+        # Deterministic: the quantile is the constant mean, and samples broadcast it.
+        assert not t.stochastic and t.quantile is None
+        assert np.isclose(t.quantile_db(0.99), t.mean_db)
+        draws = t.sample_db(1000, rng)
+        assert draws.shape == (1000,) and np.allclose(draws, t.mean_db)
 
-    # The AO SMF term is stochastic with a closed-form quantile deeper than the mean.
-    rng = np.random.default_rng(0)
-    assert t_ao.stochastic and t_ao.quantile is not None
-    assert t_ao.quantile_db(0.99) > t_ao.mean_db
-    draws = t_ao.sample_db(50_000, rng)
-    assert abs(draws.mean() - t_ao.mean_db) < 0.05, (draws.mean(), t_ao.mean_db)
-
-    # The reciprocity SMF term samples too (Monte-Carlo-only, no quantile).
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        r_draws = t_smf.sample_db(1000, rng)
-    assert r_draws.shape == (1000,) and np.all(np.isfinite(r_draws))
-
-    # An elevation sweep broadcasts on the AO path.
+    # An elevation sweep broadcasts the mean-only term.
     sweep = CircularOrbit(600e3, np.array([40.0, 60.0, 90.0]))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        t_sweep = rx_coupling_term(scn_ao, sweep, hs=hs,
+        t_sweep = rx_coupling_term(scn_ao, sweep, hs=hs, smf_fidelity="mean",
                                    cn2_profile=default_cn2_profile(scn_ao.channel.site, hs))
     assert np.shape(t_sweep.mean_db) == (3,)
     assert t_sweep.sample_db(100, rng).shape == (100, 3)
 
+    # An unknown fidelity is refused.
+    try:
+        rx_coupling_term(scn_smf, geom, hs=hs, smf_fidelity="reciprocity",
+                         cn2_profile=default_cn2_profile(scn_smf.channel.site, hs))
+        raise AssertionError("unknown smf_fidelity must raise")
+    except ValueError as e:
+        assert "smf_fidelity" in str(e)
+
     print(f"aperture coupling mean = {float(t_ap.mean_db):.4f} dB "
           f"(= scintillation {float(t_scint.mean_db):.4f} dB)")
-    print(f"SMF no-AO (reciprocity): mean {float(t_smf.mean_db):.2f} dB  "
-          f"w_fibre={t_smf.meta['w_fibre_mode_m']:.3f} m  "
-          f"floor={t_smf.meta['floor_db']:.2f} dB")
-    print(f"SMF +AO200 (Dikmelik):   eta={t_ao.meta['eta']:.4f}  "
+    print(f"SMF no-AO (mean-only):   coupling loss {float(t_smf.mean_db):.2f} dB  "
+          f"eta={t_smf.meta['eta']:.4f}")
+    print(f"SMF +AO200 (mean-only):  eta={t_ao.meta['eta']:.4f}  "
           f"coupling loss={t_ao.meta['coupling_loss_db']:.2f} dB  "
           f"sigma2_res={t_ao.meta['sigma2_res']:.4f}")
     print("self-check passed")

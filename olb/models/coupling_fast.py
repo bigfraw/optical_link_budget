@@ -1,8 +1,8 @@
 '''
 Fidelity-1 single-mode-fibre coupling from FAST (the true LP01 modal overlap).
 
-The fidelity-0 (Dikmelik/Marechal) and the reciprocity Strehl-proxy models do NOT
-compute the true fibre-mode overlap. This module does. It drives FAST (the
+The analytic mean-only (Dikmelik/Marechal) model does NOT compute the true fibre-
+mode overlap, and it carries no fade. This module does both. It drives FAST (the
 `fast-aosim` package) to get the downlink single-mode-fibre coupling as the
 coherent overlap of the turbulent aperture field with the back-projected fibre
 mode:
@@ -43,6 +43,8 @@ from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                            SPECTRUM_KOLMOGOROV)
 from ..terminal import TipTilt, AO
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
+from ..turbulence.scintillation import (plane_wave_scintillation_index,
+                                        WEAK_FLUCTUATION_LIMIT)
 
 
 def _load_fast():
@@ -53,8 +55,8 @@ def _load_fast():
     except ImportError as e:
         raise ImportError(
             "the fidelity-1 SMF coupling needs the `fast-aosim` package. "
-            "Run `pip install fast-aosim`, or use a lower fidelity "
-            "(rx_coupling_term smf_fidelity='reciprocity')."
+            "Run `pip install fast-aosim`, or use the analytic mean-only model "
+            "(rx_coupling_term smf_fidelity='mean'), which carries no fade."
         ) from e
 
 
@@ -186,6 +188,16 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     loss_db = floor_db - np.asarray(result.dB_rel, dtype=float)
     mean_db = float(loss_db.mean())
 
+    # AMPLITUDE-regime check. FAST models the phase with real Monte-Carlo screens
+    # (the phase-driven modal-coupling fade is fidelity-1), but it models the log-
+    # AMPLITUDE as an aperture-averaged log-normal, which only holds in the weak
+    # fluctuation regime. The regime is set by the plane-wave scintillation index
+    # sigma2_I (NOT by result.scintillation_index, which is the COUPLED-power index
+    # -- for a no-AO fibre that is dominated by phase speckle and is routinely > 1
+    # even when the amplitude is weak). So flag on the amplitude sigma2_I only.
+    sigma2_I_amp = float(plane_wave_scintillation_index(
+        elev, rx.wavelength_m, hs, cn2_profile))
+
     def quantile(p):
         return float(np.quantile(loss_db, p))
 
@@ -214,6 +226,18 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         "moving satellite is not modelled. Pass fast_params={'DTHETA': [x, y]} in "
         "arcsec to include it."
     )
+    # AMPLITUDE saturation: only here does FAST's log-normal scintillation break.
+    # A large coupled-power fade (deep 99% tail) does NOT trip this -- that fade is
+    # phase-driven and modelled correctly by the screens.
+    if sigma2_I_amp > WEAK_FLUCTUATION_LIMIT:
+        assumptions.flag(
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} exceeds "
+            f"the weak-fluctuation limit {WEAK_FLUCTUATION_LIMIT}; FAST's log-normal "
+            "scintillation (the amplitude part) departs from data in saturation. The "
+            "phase-driven coupling fade is still modelled by the screens, but the "
+            "amplitude contribution to the fade tail is not trustworthy. Raise the "
+            "elevation, or note the amplitude regime."
+        )
 
     zmax = params.get("ZMAX")
     ao_desc = params["AO_MODE"] + (f"(ZMAX={zmax})" if zmax is not None else "")
@@ -234,7 +258,9 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "floor_db": floor_db,
             "subharmonics": bool(params.get("SUBHARM", False)),
             "npxls": int(getattr(sim, "Npxls", 0)),
-            "scintillation_index": float(result.scintillation_index),
+            "coupled_scintillation_index": float(result.scintillation_index),
+            "amplitude_sigma2_I": sigma2_I_amp,
+            "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
             "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
             "n_samples": int(params["NITER"]),
         },

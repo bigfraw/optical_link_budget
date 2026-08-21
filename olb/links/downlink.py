@@ -234,7 +234,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
 
 
 def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
-                    n_samples=2000, smf_fidelity="reciprocity", fast_params=None):
+                    n_samples=2000, smf_fidelity="fast", fast_params=None):
     '''
     Assemble the downlink budget: geometric, atmospheric, pointing, scintillation.
 
@@ -254,11 +254,12 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
         scintillation : bool
             Add the lognormal downlink scintillation Term when true.
         n_samples : int
-            Monte Carlo draws for the SMF reciprocity Strehl proxy (no-AO fibre
-            receiver). Ignored for an Aperture detector or an AO fibre receiver.
+            FAST Monte Carlo draws (NITER) for the SMF fidelity-1 coupling.
+            Ignored for an Aperture detector and for smf_fidelity="mean".
         smf_fidelity : str
-            SMF coupling model: "reciprocity" (default) or "fast" (fidelity-1 true
-            modal overlap, needs fast-aosim). See olb.models.coupling.
+            SMF coupling model: "fast" (default, fidelity-1 true modal overlap,
+            needs fast-aosim) or "mean" (analytic mean-only, no fade). See
+            olb.models.coupling.
         fast_params : dict, optional
             Extra FAST parameters when smf_fidelity="fast".
 
