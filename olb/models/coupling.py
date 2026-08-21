@@ -156,7 +156,7 @@ def _smf_term(scenario, geometry, *, hs, cn2_profile):
     '''
     terminal = scenario.rx_terminal
     detector = terminal.detector
-    wavelength = terminal.wavelength_m or scenario.link.wavelength_m
+    wavelength = terminal.wavelength_m
     D = terminal.aperture_m
     elev = geometry.elevation_deg
 
@@ -267,7 +267,7 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None):
         )
     hs = DEFAULT_HS if hs is None else hs
     if cn2_profile is None:
-        cn2_profile = default_cn2_profile(scenario.site, hs)
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
 
     detector = terminal.detector
     if isinstance(detector, Aperture):
@@ -282,13 +282,21 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None):
 if __name__ == '__main__':
     import warnings
 
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario, Channel
     from ..geometry import CircularOrbit
-    from ..terminal import Terminal, TipTilt, AO
+    from ..terminal import Terminal, Transmitter, TipTilt, AO
 
     lam = 1550e-9
     hs = DEFAULT_HS
     geom = CircularOrbit(600e3, 60.0)
+
+    def _downlink(ground):
+        '''Build a downlink Scenario: tx=space (satellite), rx=ground.'''
+        return Scenario(
+            ground=ground,
+            space=Terminal(aperture_m=0.05, wavelength_m=lam,
+                           transmitter=Transmitter(waist_m=0.035)),
+            direction="downlink", channel=Channel(altitude_m=600e3))
 
     # --- SMF efficiency limits --------------------------------------------
     # Small residual -> Marechal. Large residual -> Dikmelik-Davidson branch.
@@ -307,26 +315,22 @@ if __name__ == '__main__':
 
     def build(scn):
         return rx_coupling_term(scn, geom, hs=hs,
-                                cn2_profile=default_cn2_profile(scn.site, hs))
-
-    base_link = dict(wavelength_m=lam, direction="downlink", tx_waist_m=0.035,
-                     rx_diameter_m=0.7)
+                                cn2_profile=default_cn2_profile(scn.channel.site, hs))
 
     # --- Aperture detector: parity with the plain downlink scintillation ---
-    scn_ap = Scenario(link=Link(**base_link), altitude_m=600e3,
-                      rx_terminal=Terminal(aperture_m=0.7, detector=Aperture()))
+    scn_ap = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam,
+                                detector=Aperture()))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_ap = build(scn_ap)
         t_scint = downlink_scintillation_term(
-            scn_ap, geom, cn2_profile=default_cn2_profile(scn_ap.site, hs))
+            scn_ap, geom, cn2_profile=default_cn2_profile(scn_ap.channel.site, hs))
     assert t_ap.category == "coupling"
     assert np.isclose(t_ap.mean_db, t_scint.mean_db)    # exact parity
     assert np.isclose(t_ap.quantile_db(0.99), t_scint.quantile_db(0.99))
 
     # --- SMF, no correction: large coupling loss ---------------------------
-    scn_smf = Scenario(link=Link(**base_link), altitude_m=600e3,
-                       rx_terminal=Terminal(aperture_m=0.7, detector=SMF()))
+    scn_smf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF()))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_smf = build(scn_smf)
@@ -334,9 +338,8 @@ if __name__ == '__main__':
     assert t_smf.meta["coupling_loss_db"] > 3.0         # 0.7 m, no AO -> big loss
 
     # --- SMF with AO: much lower coupling loss ------------------------------
-    scn_ao = Scenario(link=Link(**base_link), altitude_m=600e3,
-                      rx_terminal=Terminal(aperture_m=0.7, detector=SMF(),
-                                           compensation=[TipTilt(), AO(200)]))
+    scn_ao = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF(),
+                                compensation=[TipTilt(), AO(200)]))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_ao = build(scn_ao)
@@ -355,7 +358,7 @@ if __name__ == '__main__':
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         t_sweep = rx_coupling_term(scn_ao, sweep, hs=hs,
-                                   cn2_profile=default_cn2_profile(scn_ao.site, hs))
+                                   cn2_profile=default_cn2_profile(scn_ao.channel.site, hs))
     assert np.shape(t_sweep.mean_db) == (3,)
     assert t_sweep.sample_db(100, rng).shape == (100, 3)
 

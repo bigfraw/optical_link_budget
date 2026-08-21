@@ -64,7 +64,9 @@ def pointing_loss_term(scenario, geometry):
 
     Parameters:
         scenario : Scenario
-            Provides link.tx_waist_m, wavelength_m, pointing_jitter_rad.
+            Reads the transmit terminal (waist, divergence, wavelength,
+            pointing_jitter_rad) and the receive terminal (aperture). See
+            olb.scenario.
         geometry : geometry object
             Provides slant_range_m (float or ndarray).
 
@@ -72,9 +74,10 @@ def pointing_loss_term(scenario, geometry):
         Term
             category="pointing".
     '''
-    link = scenario.link
+    tx = scenario.tx_terminal
+    rx = scenario.rx_terminal
     range_m = geometry.slant_range_m
-    sigma_theta = link.pointing_jitter_rad
+    sigma_theta = tx.pointing_jitter_rad
 
     def _assumptions():
         return Assumptions(
@@ -89,9 +92,9 @@ def pointing_loss_term(scenario, geometry):
         return Term(name="pointing jitter", category="pointing", mean_db=0.0,
                     note="no jitter", assumptions=_assumptions())
 
-    mean = pointing_loss_mean_db(range_m, link.tx_waist_m, sigma_theta,
-                                 wavelength=link.wavelength_m,
-                                 divergence_rad=link.divergence_rad)
+    mean = pointing_loss_mean_db(range_m, tx.transmitter.waist_m, sigma_theta,
+                                 wavelength=tx.wavelength_m,
+                                 divergence_rad=tx.transmitter.divergence_rad)
     shape = np.shape(mean)
 
     def quantile(p):
@@ -101,9 +104,9 @@ def pointing_loss_term(scenario, geometry):
         return rng.exponential(scale=mean, size=(n, *shape))
 
     a = _assumptions()
-    w_z = free_space_radius(link.tx_waist_m, range_m, link.divergence_rad,
-                            link.wavelength_m)
-    a_rx = link.rx_diameter_m / 2.0
+    w_z = free_space_radius(tx.transmitter.waist_m, range_m,
+                            tx.transmitter.divergence_rad, tx.wavelength_m)
+    a_rx = rx.aperture_m / 2.0
     if np.any(a_rx > 0.5 * w_z):
         a.flag("Receive aperture is not small relative to the beam; the on-axis "
                "approximation is weak.")
@@ -115,12 +118,22 @@ def pointing_loss_term(scenario, geometry):
 
 if __name__ == '__main__':
     from ..geometry import CircularOrbit
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario
+    from ..terminal import Terminal, Transmitter
 
     geom = CircularOrbit(altitude_m=550e3, elevation_deg=[30, 60, 90])
 
+    def _uplink(tx_waist, jitter, rx_aperture=0.08, wavelength=1550e-9):
+        '''Build an uplink Scenario: tx=ground, rx=space.'''
+        return Scenario(
+            ground=Terminal(aperture_m=0.3, wavelength_m=wavelength,
+                            pointing_jitter_rad=jitter,
+                            transmitter=Transmitter(waist_m=tx_waist)),
+            space=Terminal(aperture_m=rx_aperture, wavelength_m=wavelength),
+            direction="uplink")
+
     # zero jitter -> deterministic 0 dB term, no sampler/quantile
-    z = pointing_loss_term(Scenario(link=Link(pointing_jitter_rad=0.0)), geom)
+    z = pointing_loss_term(_uplink(0.1, 0.0), geom)
     assert z.mean_db == 0.0 and not z.stochastic and z.quantile is None
     assert z.assumptions is not None
 
@@ -140,8 +153,7 @@ if __name__ == '__main__':
                        m_collimated)
 
     # statistical term: sampled mean ~= mean_loss_db, quantile(0.99) > mean
-    scn = Scenario(link=Link(tx_waist_m=0.035, wavelength_m=1550e-9,
-                             pointing_jitter_rad=10e-6))
+    scn = _uplink(0.035, 10e-6)
     term = pointing_loss_term(scn, geom)
     assert term.stochastic and term.quantile is not None
     assert term.assumptions is not None

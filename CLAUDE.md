@@ -10,6 +10,21 @@ downlink, and retroreflected links to a LEO satellite.
 
 ## Architecture (one-way dependency: turbulence <- models and links)
 
+- `olb/terminal.py` — pure data. ALL terminal hardware lives here. A `Terminal`
+  holds `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`,
+  an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`), an
+  optional `Detector` (`Aperture` or `SMF`, each with `sensitivity_dbm`), and a
+  `compensation` stack (`TipTilt`, `AO`). A terminal parameter can only be set
+  through a Terminal.
+- `olb/scenario.py` — pure data. A `Scenario` holds two terminals (`ground`,
+  `space`), a `Channel`, the `direction` ("uplink" | "downlink" | "retro"), and
+  `availability_target`. A `Channel` is the propagation channel: `site` plus the
+  orbit `altitude_m`. It holds NO hardware. It is the seam for a later
+  terrestrial (horizontal-path) channel. Readers use `scenario.channel.site` and
+  `scenario.channel.altitude_m`. The models read the resolved roles
+  `scenario.tx_terminal` and `scenario.rx_terminal`, which the direction sets:
+  uplink -> tx=ground, rx=space; downlink -> tx=space, rx=ground; retro ->
+  tx=rx=ground. There is no `Link` dataclass. `Site` stays.
 - `olb/turbulence/` — pure physics. It imports only numpy, scipy, and `_deps`.
   It does not import Scenario or Term. Files: `profiles.py` (Cn2 profiles,
   `default_cn2_profile`, `DEFAULT_HS`), `scintillation.py` (scintillation

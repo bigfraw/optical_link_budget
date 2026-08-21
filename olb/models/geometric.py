@@ -59,8 +59,8 @@ def geometric_loss_term(scenario, geometry):
 
     Parameters:
         scenario : Scenario
-            Provides link.tx_waist_m, rx_diameter_m, rx_obscuration_ratio,
-            wavelength_m.
+            Reads the transmit terminal (waist, divergence, wavelength) and the
+            receive terminal (aperture, obscuration). See olb.scenario.
         geometry : geometry object
             Provides slant_range_m (float or ndarray).
 
@@ -68,14 +68,15 @@ def geometric_loss_term(scenario, geometry):
         Term
             category="geometric", mean_db = the loss over the geometry.
     '''
-    link = scenario.link
+    tx = scenario.tx_terminal
+    rx = scenario.rx_terminal
     loss = geometric_loss_db(
         geometry.slant_range_m,
-        link.tx_waist_m,
-        link.rx_diameter_m,
-        wavelength=link.wavelength_m,
-        obscuration_ratio=link.rx_obscuration_ratio,
-        divergence_rad=link.divergence_rad,
+        tx.transmitter.waist_m,
+        rx.aperture_m,
+        wavelength=tx.wavelength_m,
+        obscuration_ratio=rx.obscuration_ratio,
+        divergence_rad=tx.transmitter.divergence_rad,
     )
     return Term(name="geometric spreading", category="geometric", mean_db=loss,
                 assumptions=Assumptions(
@@ -89,7 +90,8 @@ def geometric_loss_term(scenario, geometry):
 
 if __name__ == '__main__':
     from ..geometry import CircularOrbit
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario
+    from ..terminal import Terminal, Transmitter
 
     geom = CircularOrbit(altitude_m=550e3, elevation_deg=[30, 60, 90])
 
@@ -109,9 +111,12 @@ if __name__ == '__main__':
     assert np.allclose(geometric_loss_db(r, 0.02, 0.08, divergence_rad=theta_min),
                        geometric_loss_db(r, 0.02, 0.08))      # limit == collimated
 
-    # Term path
-    scn = Scenario(link=Link(tx_waist_m=0.035, rx_diameter_m=0.7,
-                             rx_obscuration_ratio=0.3, wavelength_m=1550e-9))
+    # Term path: uplink -> tx=ground (waist), rx=space (aperture, obscuration).
+    scn = Scenario(
+        ground=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                        transmitter=Transmitter(waist_m=0.035)),
+        space=Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=1550e-9),
+        direction="uplink")
     term = geometric_loss_term(scn, geom)
     assert term.category == "geometric"
     assert np.shape(term.mean_db) == (3,)

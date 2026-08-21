@@ -26,23 +26,30 @@ import warnings
 
 import numpy as np
 
-from olb import (Scenario, Link, Site, CircularOrbit, downlink_budget,
-                 Terminal, Aperture, SMF, TipTilt, AO)
+from olb import (Scenario, Site, Channel, CircularOrbit, downlink_budget,
+                 Terminal, Transmitter, Aperture, SMF, TipTilt, AO)
 
 warnings.simplefilter("ignore")
 
 APERTURE_M = 0.7   # ground telescope diameter [m]
+WAVELENGTH_M = 1550e-9
+SENSITIVITY_DBM = -45.0
+
+
+def _ground(detector, compensation=()):
+    '''Build the ground receive terminal: shared telescope, varied detector.'''
+    return Terminal(APERTURE_M, wavelength_m=WAVELENGTH_M,
+                    detector=detector, compensation=list(compensation))
 
 
 def main():
-    link = Link(
-        direction="downlink",
-        wavelength_m=1550e-9,
-        tx_waist_m=0.035,           # satellite transmit beam waist [m]
-        tx_power_dbm=30.0,          # 1 W downlink
-        rx_diameter_m=APERTURE_M,   # ground telescope aperture [m]
+    # The satellite transmits; the ground station receives. All hardware lives
+    # on the two terminals.
+    space = Terminal(
+        aperture_m=0.05,            # satellite telescope [m]
+        wavelength_m=WAVELENGTH_M,
         pointing_jitter_rad=1e-6,
-        rx_sensitivity_dbm=-45.0,
+        transmitter=Transmitter(waist_m=0.035, power_dbm=30.0),  # 1 W downlink
     )
     site = Site(cn2_ground=1.7e-14)
     altitude_m = 600e3
@@ -51,20 +58,20 @@ def main():
     # Each receive terminal shares the same telescope; only the detector and the
     # compensation stack change.
     terminals = [
-        ("aperture (bucket)",   Terminal(APERTURE_M, detector=Aperture())),
-        ("SMF, no correction",  Terminal(APERTURE_M, detector=SMF())),
-        ("SMF + tip-tilt",      Terminal(APERTURE_M, detector=SMF(),
-                                         compensation=[TipTilt()])),
-        ("SMF + AO(60)",        Terminal(APERTURE_M, detector=SMF(),
-                                         compensation=[TipTilt(), AO(n_modes=60)])),
-        ("SMF + AO(200)",       Terminal(APERTURE_M, detector=SMF(),
-                                         compensation=[TipTilt(), AO(n_modes=200)])),
+        ("aperture (bucket)",   _ground(Aperture(sensitivity_dbm=SENSITIVITY_DBM))),
+        ("SMF, no correction",  _ground(SMF(sensitivity_dbm=SENSITIVITY_DBM))),
+        ("SMF + tip-tilt",      _ground(SMF(sensitivity_dbm=SENSITIVITY_DBM),
+                                        [TipTilt()])),
+        ("SMF + AO(60)",        _ground(SMF(sensitivity_dbm=SENSITIVITY_DBM),
+                                        [TipTilt(), AO(n_modes=60)])),
+        ("SMF + AO(200)",       _ground(SMF(sensitivity_dbm=SENSITIVITY_DBM),
+                                        [TipTilt(), AO(n_modes=200)])),
     ]
 
     rows = []
-    for label, terminal in terminals:
-        scn = Scenario(link=link, site=site, altitude_m=altitude_m,
-                       rx_terminal=terminal)
+    for label, ground in terminals:
+        scn = Scenario(ground=ground, space=space, direction="downlink",
+                       channel=Channel(site=site, altitude_m=altitude_m))
         budget = downlink_budget(scn, geom)
 
         # The receive-coupling Term carries the receive-side turbulence.

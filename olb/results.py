@@ -74,12 +74,17 @@ class Budget:
                  scenario=None):
         self.terms = list(terms) if terms else []
         self.scenario = scenario
-        # use the scenario's link top-line values when the caller does not give them
-        link = getattr(scenario, "link", None)
+        # Use the scenario terminals' top-line values when the caller gives none.
+        # The launch power lives on the transmit terminal's Transmitter; the
+        # sensitivity lives on the receive terminal's Detector. Both are optional.
+        tx = getattr(scenario, "tx_terminal", None)
+        rx = getattr(scenario, "rx_terminal", None)
+        transmitter = getattr(tx, "transmitter", None)
+        detector = getattr(rx, "detector", None)
         self.tx_power_dbm = tx_power_dbm if tx_power_dbm is not None \
-            else getattr(link, "tx_power_dbm", None)
+            else getattr(transmitter, "power_dbm", None)
         self.rx_sensitivity_dbm = rx_sensitivity_dbm if rx_sensitivity_dbm is not None \
-            else getattr(link, "rx_sensitivity_dbm", None)
+            else getattr(detector, "sensitivity_dbm", None)
 
     def add(self, term: Term):
         '''Append a Term and return self (chainable).'''

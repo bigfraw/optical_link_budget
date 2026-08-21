@@ -46,9 +46,9 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     and the weak_fluctuation_valid flag in Term.meta. Warn when sigma2_I exceeds
     the weak-fluctuation limit.
     '''
-    link = scenario.link
-    wavelength = link.wavelength_m
-    D = link.rx_diameter_m
+    rx = scenario.rx_terminal
+    wavelength = rx.wavelength_m
+    D = rx.aperture_m
     elev = geometry.elevation_deg
 
     sigma2_I = plane_wave_scintillation_index(elev, wavelength, hs, cn2_profile)
@@ -91,7 +91,7 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     )
     # The circular-aperture filter models an unobscured aperture. A central
     # obscuration (Cassegrain secondary) breaks that. Flag the violation.
-    obscuration = getattr(scenario.link, "rx_obscuration_ratio", 0.0)
+    obscuration = rx.obscuration_ratio
     if aperture_average and obscuration > 0.0:
         assumptions.flag(
             f"The receive aperture has a central obscuration "
@@ -197,7 +197,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
 
     Parameters:
         scenario : Scenario
-            Reads link.wavelength_m and link.rx_diameter_m. Reads the site to
+            Reads the receive terminal wavelength and aperture. Reads the site to
             build the default Cn2 profile with get_c2n.
         geometry : CircularOrbit or TLEPass
             Reads elevation_deg. A scalar elevation gives a scalar Term. An
@@ -228,7 +228,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
         )
     hs = DEFAULT_HS if hs is None else hs
     if cn2_profile is None:
-        cn2_profile = default_cn2_profile(scenario.site, hs)
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
     return _MODELS[model](scenario, geometry, aperture_average=aperture_average,
                           hs=hs, cn2_profile=cn2_profile)
 
@@ -284,16 +284,23 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario, Channel
     from ..geometry import CircularOrbit
+    from ..terminal import Terminal, Transmitter, Aperture, SMF, TipTilt, AO
 
-    scenario = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7),
-        altitude_m=600e3,
-    )
+    lam = 1550e-9
+
+    def _dl(ground, *, jitter=0.0, power=None):
+        '''Build a downlink Scenario: tx=space (satellite waist 0.035), rx=ground.'''
+        space = Terminal(aperture_m=0.05, wavelength_m=lam,
+                         pointing_jitter_rad=jitter,
+                         transmitter=Transmitter(waist_m=0.035, power_dbm=power))
+        return Scenario(ground=ground, space=space, direction="downlink",
+                        channel=Channel(altitude_m=600e3))
+
+    scenario = _dl(Terminal(aperture_m=0.7, wavelength_m=lam))
     hs = DEFAULT_HS
-    cn2 = default_cn2_profile(scenario.site, hs)
+    cn2 = default_cn2_profile(scenario.channel.site, hs)
 
     # The lognormal Term gives a working quantile deeper than the mean loss.
     geom = CircularOrbit(600e3, 30.0)
@@ -337,24 +344,17 @@ if __name__ == '__main__':
 
     # A central obscuration flags a filter-validity violation at 60 deg (weak
     # fluctuation holds). A zero obscuration does not flag it.
-    scen_obs = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7, rx_obscuration_ratio=0.3),
-        altitude_m=600e3,
-    )
-    cn2_obs = default_cn2_profile(scen_obs.site, hs)
+    scen_obs = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
+                            obscuration_ratio=0.3))
+    cn2_obs = default_cn2_profile(scen_obs.channel.site, hs)
     t_obs = downlink_scintillation_term(scen_obs, CircularOrbit(600e3, 60.0),
                                         cn2_profile=cn2_obs)
     assert not t_obs.assumptions.ok, "obscuration=0.3 must flag a violation"
     assert t60.assumptions.ok, "obscuration=0.0 must not flag a violation"
 
     # --- downlink budget self-check -----------------------------------------
-    budget_scn = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
-                  pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-    )
+    budget_scn = _dl(Terminal(aperture_m=0.7, wavelength_m=lam),
+                     jitter=2e-6, power=40)
     down = downlink_budget(budget_scn, CircularOrbit(altitude_m=600e3,
                                                     elevation_deg=60.0))
     assert down.to_frame().shape[0] == 4, down.to_frame().shape
@@ -365,10 +365,8 @@ if __name__ == '__main__':
     assert "scintillation" in [t.name for t in down.terms], [t.name for t in down.terms]
 
     # --- opt-in receive terminal --------------------------------------------
-    from ..terminal import Terminal, Aperture, SMF, TipTilt, AO
-
-    # The no-terminal budget is unchanged: 4 terms, base scintillation name.
-    assert scenario.rx_terminal is None
+    # The no-detector budget is unchanged: 4 terms, base scintillation name.
+    assert scenario.rx_terminal.detector is None
     assert down.to_frame().shape[0] == 4
     assert "scintillation" in [t.name for t in down.terms]
 
@@ -376,13 +374,9 @@ if __name__ == '__main__':
 
     # Aperture detector: the receive-coupling Term replaces the scintillation
     # Term, but reproduces it exactly, so the total loss is byte-for-byte parity.
-    scn_ap = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
-                  pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-        rx_terminal=Terminal(aperture_m=0.7, detector=Aperture()),
-    )
+    scn_ap = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
+                          detector=Aperture(sensitivity_dbm=-40)),
+                 jitter=2e-6, power=40)
     down_ap = downlink_budget(scn_ap, geom60)
     assert down_ap.to_frame().shape[0] == 4                 # same count as plain
     assert "receive coupling (aperture)" in [t.name for t in down_ap.terms]
@@ -390,13 +384,9 @@ if __name__ == '__main__':
         down_ap.total_loss_db(), down.total_loss_db())     # parity
 
     # SMF detector, no AO: the coupling loss deepens the total over the aperture.
-    scn_smf = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
-                  pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-        rx_terminal=Terminal(aperture_m=0.7, detector=SMF()),
-    )
+    scn_smf = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
+                           detector=SMF(sensitivity_dbm=-40)),
+                  jitter=2e-6, power=40)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         down_smf = downlink_budget(scn_smf, geom60)
@@ -405,14 +395,10 @@ if __name__ == '__main__':
 
     # SMF detector with tip-tilt + AO: the coupling loss shrinks toward the
     # aperture case.
-    scn_ao = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
-                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
-                  pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-        rx_terminal=Terminal(aperture_m=0.7, detector=SMF(),
-                             compensation=[TipTilt(), AO(200)]),
-    )
+    scn_ao = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
+                          detector=SMF(sensitivity_dbm=-40),
+                          compensation=[TipTilt(), AO(200)]),
+                 jitter=2e-6, power=40)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         down_ao = downlink_budget(scn_ao, geom60)

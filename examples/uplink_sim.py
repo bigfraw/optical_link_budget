@@ -21,7 +21,8 @@ import warnings
 
 import numpy as np
 
-from olb import Scenario, Link, Site, CircularOrbit, uplink_budget
+from olb import (Scenario, Site, Channel, CircularOrbit, uplink_budget,
+                 Terminal, Transmitter, Aperture)
 
 # The weak-fluctuation guard warns at low elevation. This script reports the
 # same information through budget.check(), so silence the duplicate warning.
@@ -29,19 +30,25 @@ warnings.simplefilter("ignore")
 
 
 def main():
-    # The ground station transmits. The satellite receives.
+    # The ground station transmits. The satellite receives. All hardware lives
+    # on the two terminals; the direction resolves which one transmits.
     scenario = Scenario(
-        link=Link(
-            direction="uplink",
+        ground=Terminal(
+            aperture_m=0.4,                 # ground telescope; wide, no launch truncation
             wavelength_m=1550e-9,
-            tx_waist_m=0.06,             # ground transmit beam waist w0 [m]
-            tx_power_dbm=42,          # 10 W launch power
-            rx_diameter_m=0.05,         # satellite receive aperture [m]
-            pointing_jitter_rad=2e-6,   # 2 urad tracking jitter
-            rx_sensitivity_dbm=-40.0,   # required received power
+            pointing_jitter_rad=2e-6,       # 2 urad tracking jitter
+            transmitter=Transmitter(
+                waist_m=0.06,               # ground transmit beam waist w0 [m]
+                power_dbm=42,               # ~16 W launch power
+            ),
         ),
-        site=Site(cn2_ground=5.7e-14),
-        altitude_m=1500e3,
+        space=Terminal(
+            aperture_m=0.05,                # satellite receive aperture [m]
+            wavelength_m=1550e-9,
+            detector=Aperture(sensitivity_dbm=-40.0),  # required received power
+        ),
+        direction="uplink",
+        channel=Channel(site=Site(cn2_ground=5.7e-14), altitude_m=1500e3),
     )
     rng = np.random.default_rng(0)
 

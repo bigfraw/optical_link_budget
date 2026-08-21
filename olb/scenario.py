@@ -6,38 +6,34 @@ models read. A "case" is a value that you build, copy, change, and sweep. The
 models read a Scenario and a geometry and return Terms. The Scenario does not
 import the models. The data moves in one direction, from the inputs to the
 models.
+
+Data model: all terminal hardware lives on a Terminal (see olb.terminal). A
+Scenario holds two terminals, `ground` and `space`, a `Channel` (the propagation
+channel), and the link `direction`. The channel holds no hardware.
+
+The models do not read `ground` or `space` directly. They read the resolved
+roles `tx_terminal` and `rx_terminal`, which the `direction` sets:
+
+    direction   tx_terminal   rx_terminal
+    uplink      ground        space
+    downlink    space         ground
+    retro       ground        ground
+
+So one Terminal serves both link directions, and a terminal parameter can only
+be set through a Terminal.
 '''
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import Literal
 
-if TYPE_CHECKING:
-    from .terminal import Terminal   # pure data; the annotation only, no cycle
+from .terminal import Terminal
 
-Direction = Literal["uplink", "downlink"]
-
-
-@dataclass
-class Link:
-    '''Optical link hardware and beam parameters.'''
-    wavelength_m: float = 1550e-9
-    direction: Direction = "uplink"
-    tx_waist_m: float = 0.1              # transmit 1/e^2 beam waist w0 [m]
-    tx_aperture_m: Optional[float] = None  # transmit aperture diameter [m]; enables the Gaussian-efficiency (truncation) term
-    tx_obscuration_ratio: float = 0.0    # transmit central obscuration / aperture diameter
-    tx_power_dbm: Optional[float] = None  # launch power [dBm]; None if only losses matter
-    m2: float = 1.0                      # beam quality M^2 (>= 1)
-    rx_diameter_m: float = 0.08          # receive aperture diameter [m]
-    rx_obscuration_ratio: float = 0.0    # central obscuration / aperture diameter
-    rx_sensitivity_dbm: Optional[float] = None  # required received power [dBm]
-    pointing_jitter_rad: float = 0.0     # 1-sigma tracking jitter [rad]
-    divergence_rad: Optional[float] = None  # transmit far-field 1/e^2 HALF-angle divergence [rad]; None = collimated (diffraction limit)
-    retro_aperture_m: Optional[float] = None  # satellite retroreflector aperture diameter [m]; used by retro_budget
+Direction = Literal["uplink", "downlink", "retro"]
 
 
 @dataclass
 class Site:
-    '''Ground station location and atmosphere.'''
+    '''Ground station location and atmosphere (the propagation medium).'''
     lat_deg: float = -29.0468           # TN-2 default (Kepler OGS)
     lon_deg: float = 115.3467
     alt_m: float = 269.0
@@ -47,10 +43,59 @@ class Site:
 
 
 @dataclass
-class Scenario:
-    '''A full link case: hardware + site + orbit.'''
-    link: Link = field(default_factory=Link)
+class Channel:
+    '''
+    The propagation channel: the ground site plus the satellite orbit.
+
+    The channel holds no terminal hardware. It is the intended seam for a later
+    terrestrial (horizontal-path) channel. Do not build that variant now.
+
+    Parameters:
+        site : Site
+            The ground station location and atmosphere (the medium).
+        altitude_m : float
+            The satellite altitude [m], for the analytic orbit geometry.
+    '''
     site: Site = field(default_factory=Site)
-    altitude_m: float = 600e3           # satellite altitude, for analytic geometry
+    altitude_m: float = 600e3
+
+
+@dataclass
+class Scenario:
+    '''A full link case: two terminals + a Channel + direction.'''
+    ground: Terminal
+    space: Terminal
+    direction: Direction = "uplink"
+    channel: Channel = field(default_factory=Channel)
     availability_target: float = 0.99   # target link availability (0-1)
-    rx_terminal: Optional["Terminal"] = None  # receive terminal; None = plain aperture path (opt-in)
+
+    @property
+    def tx_terminal(self) -> Terminal:
+        '''The transmit terminal for the link direction (see the module docstring).'''
+        return self.space if self.direction == "downlink" else self.ground
+
+    @property
+    def rx_terminal(self) -> Terminal:
+        '''The receive terminal for the link direction (see the module docstring).'''
+        return self.space if self.direction == "uplink" else self.ground
+
+
+if __name__ == '__main__':
+    from .terminal import Transmitter, Aperture
+
+    ground = Terminal(aperture_m=0.7, transmitter=Transmitter(waist_m=0.1))
+    space = Terminal(aperture_m=0.05, detector=Aperture())
+
+    up = Scenario(ground=ground, space=space, direction="uplink")
+    assert up.tx_terminal is ground and up.rx_terminal is space
+
+    down = Scenario(ground=ground, space=space, direction="downlink")
+    assert down.tx_terminal is space and down.rx_terminal is ground
+
+    retro = Scenario(ground=ground, space=space, direction="retro")
+    assert retro.tx_terminal is ground and retro.rx_terminal is ground
+
+    assert up.channel.altitude_m == 600e3 and up.availability_target == 0.99
+    assert up.channel.site.cn2_ground == 1.7e-14
+    print("Scenario:", up)
+    print("self-check passed")

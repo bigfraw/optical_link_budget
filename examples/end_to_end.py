@@ -15,7 +15,8 @@ whether or not the `fast` package is installed.
 
 import numpy as np
 
-from olb import Scenario, Link, Site, CircularOrbit, Budget
+from olb import (Scenario, Site, Channel, CircularOrbit, Budget,
+                 Terminal, Transmitter, Aperture)
 from olb.turbulence.profiles import DEFAULT_HS, get_c2n
 from olb.models.geometric import geometric_loss_term
 from olb.models.transmittance import atmospheric_loss_term
@@ -28,11 +29,13 @@ def main():
     cn2 = get_c2n(DEFAULT_HS, 21, 1.7e-14)
 
     scenario = Scenario(
-        link=Link(direction="uplink", wavelength_m=1550e-9, tx_waist_m=0.1,
-                  tx_power_dbm=40.0, rx_diameter_m=0.08,
-                  pointing_jitter_rad=0, rx_sensitivity_dbm=-40.0),
-        site=Site(cn2_ground=1.7e-14),
-        altitude_m=1500e3,
+        ground=Terminal(aperture_m=0.5, wavelength_m=1550e-9,
+                        pointing_jitter_rad=0,
+                        transmitter=Transmitter(waist_m=0.1, power_dbm=40.0)),
+        space=Terminal(aperture_m=0.08, wavelength_m=1550e-9,
+                       detector=Aperture(sensitivity_dbm=-40.0)),
+        direction="uplink",
+        channel=Channel(site=Site(cn2_ground=1.7e-14), altitude_m=1500e3),
     )
     geom = CircularOrbit(1500e3, 60.0)   # single elevation
 

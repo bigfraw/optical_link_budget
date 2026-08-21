@@ -17,6 +17,7 @@ from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_NA, SPECTRUM_NA)
 from ..models.geometric import geometric_loss_term
 from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
+from ..terminal import Terminal, Transmitter
 from ..turbulence.profiles import default_cn2_profile
 from .uplink import uplink_turbulence_term
 from .downlink import downlink_scintillation_term
@@ -36,7 +37,8 @@ def retro_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
 
     Parameters:
         scenario : Scenario
-            The link case. link.retro_aperture_m must not be None.
+            The link case. The `space` Terminal is the passive retroreflector;
+            its aperture_m is the retro aperture. The direction is "retro".
         geometry : CircularOrbit or TLEPass
             The link geometry.
         turbulence : bool
@@ -54,31 +56,26 @@ def retro_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
         Budget
             The budget with the original scenario set.
     '''
-    link = scenario.link
-    if link.retro_aperture_m is None:
-        raise ValueError(
-            "retro_budget needs the retroreflector aperture. "
-            "Set scenario.link.retro_aperture_m."
-        )
-    retro_aperture_m = link.retro_aperture_m
+    retro_aperture_m = scenario.space.aperture_m
+    wavelength = scenario.space.wavelength_m
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
 
-    # The retro aperture is the uplink receiver. A corner-cube retro has no
-    # central obscuration.
-    up_link = replace(link, direction="uplink",
-                      rx_diameter_m=retro_aperture_m,
-                      rx_obscuration_ratio=0.0)
-    # The retro is the plane-wave transmitter. The Gaussian-equivalent waist is
-    # half the aperture diameter. The ground stays the receiver. The retro is
-    # passive, so there is no active pointing jitter on the return.
-    down_link = replace(link, direction="downlink",
-                        tx_waist_m=retro_aperture_m / 2.0,
-                        pointing_jitter_rad=0.0)
-    up_scn = replace(scenario, link=up_link)
-    down_scn = replace(scenario, link=down_link)
+    # The retro is the uplink receiver. A corner-cube retro has no central
+    # obscuration. The up-leg keeps the ground transmit terminal.
+    retro_rx = Terminal(aperture_m=retro_aperture_m, obscuration_ratio=0.0,
+                        wavelength_m=wavelength)
+    up_scn = replace(scenario, direction="uplink", space=retro_rx)
+    # The retro is the plane-wave transmitter on the return. The
+    # Gaussian-equivalent waist is half the aperture diameter. The retro is
+    # passive, so there is no active pointing jitter. The ground stays the
+    # receiver.
+    retro_tx = Terminal(aperture_m=retro_aperture_m, obscuration_ratio=0.0,
+                        wavelength_m=wavelength,
+                        transmitter=Transmitter(waist_m=retro_aperture_m / 2.0))
+    down_scn = replace(scenario, direction="downlink", space=retro_tx)
 
     if cn2_profile is None:
-        cn2_profile = default_cn2_profile(scenario.site)
+        cn2_profile = default_cn2_profile(scenario.channel.site)
 
     up_terms = [
         geometric_loss_term(up_scn, geometry),
@@ -117,25 +114,21 @@ def retro_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario, Channel
+    from ..terminal import Terminal, Transmitter, Aperture
     from ..geometry import CircularOrbit
 
+    # The ground terminal transmits up and receives the return. The space
+    # terminal is the passive retroreflector (aperture only).
     retro_scn = Scenario(
-        link=Link(wavelength_m=1550e-9, tx_waist_m=0.06, retro_aperture_m=0.05,
-                  rx_diameter_m=0.7, rx_obscuration_ratio=0.3,
-                  pointing_jitter_rad=2e-6, tx_power_dbm=40,
-                  rx_sensitivity_dbm=-50),
-        altitude_m=1500e3,
+        ground=Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=1550e-9,
+                        pointing_jitter_rad=2e-6,
+                        transmitter=Transmitter(waist_m=0.06, power_dbm=40),
+                        detector=Aperture(sensitivity_dbm=-50)),
+        space=Terminal(aperture_m=0.05, wavelength_m=1550e-9),
+        direction="retro", channel=Channel(altitude_m=1500e3),
     )
     retro_geom = CircularOrbit(altitude_m=1500e3, elevation_deg=45.0)
-
-    no_aperture = replace(retro_scn, link=replace(retro_scn.link,
-                                                  retro_aperture_m=None))
-    try:
-        retro_budget(no_aperture, retro_geom)
-        raise AssertionError("retro_budget must reject a None retro aperture")
-    except ValueError:
-        pass
 
     retro = retro_budget(retro_scn, retro_geom)
     assert retro.to_frame().shape[0] == 8, retro.to_frame().shape

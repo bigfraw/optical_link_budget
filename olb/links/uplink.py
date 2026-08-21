@@ -25,6 +25,10 @@ from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.coupled_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 
+# Below this launch-truncation loss the beam is an untruncated Gaussian, so the
+# transmit Gaussian-efficiency term is skipped [dB].
+TX_TRUNCATION_MIN_DB = 1e-2
+
 
 def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
                            hs=None, cn2_profile=None):
@@ -37,8 +41,8 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
 
     Parameters:
         scenario : Scenario
-            Reads link.wavelength_m, link.tx_waist_m (w0) and site.cn2_ground
-            (passed as the HV57 ground scale hv57_A).
+            Reads the transmit terminal (waist w0, divergence, wavelength) and
+            site.cn2_ground (passed as the HV57 ground scale hv57_A).
         geometry : CircularOrbit or TLEPass
             Reads elevation_deg and slant_range_m. Scalar elevation -> the
             sampler returns shape (n,); an elevation array -> shape (n, E),
@@ -59,10 +63,11 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
             name="turbulence (coupled-flux)", category="turbulence".
     '''
     hs = DEFAULT_HS if hs is None else hs
-    w0 = scenario.link.tx_waist_m
-    wavelength = scenario.link.wavelength_m
-    hv57_A = scenario.site.cn2_ground
-    divergence_rad = scenario.link.divergence_rad
+    tx = scenario.tx_terminal
+    w0 = tx.transmitter.waist_m
+    wavelength = tx.wavelength_m
+    hv57_A = scenario.channel.site.cn2_ground
+    divergence_rad = tx.transmitter.divergence_rad
 
     elev = np.atleast_1d(np.asarray(geometry.elevation_deg, dtype=float))
     ranges = np.atleast_1d(np.asarray(geometry.slant_range_m, dtype=float))
@@ -156,24 +161,43 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
-    # The transmit Gaussian-efficiency term only exists when the launch aperture
-    # is specified. Without it, the beam is treated as an untruncated Gaussian.
-    if scenario.link.tx_aperture_m is not None:
-        terms.append(tx_gaussian_efficiency_term(scenario, geometry))
+    # The transmit Gaussian-efficiency term is opt-in. It fires only when the
+    # transmit terminal has a Transmitter and its launch aperture truncates the
+    # beam by more than TX_TRUNCATION_MIN_DB. A wide aperture leaves the beam an
+    # untruncated Gaussian, so the term is skipped.
+    tx = scenario.tx_terminal
+    if tx.transmitter is not None:
+        eff = tx_gaussian_efficiency_term(scenario, geometry)
+        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+            terms.append(eff)
     if turbulence:
         if cn2_profile is None:
-            cn2_profile = default_cn2_profile(scenario.site)
+            cn2_profile = default_cn2_profile(scenario.channel.site)
         terms.append(uplink_turbulence_term(scenario, geometry, n_samples=n_samples,
                                             cn2_profile=cn2_profile))
     return Budget(terms, scenario=scenario)
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Link
+    from ..scenario import Scenario, Channel
     from ..geometry import CircularOrbit
+    from ..terminal import Terminal, Transmitter, Aperture
 
-    scenario = Scenario(link=Link(wavelength_m=1550e-9, tx_waist_m=0.1),
-                        altitude_m=600e3)
+    def _uplink(w0, *, divergence=None, power=None, jitter=0.0,
+                ground_aperture=0.5, ground_obscuration=0.0,
+                space_aperture=0.05, sensitivity=None):
+        '''Build an uplink Scenario: tx=ground, rx=space (satellite).'''
+        detector = None if sensitivity is None else Aperture(sensitivity_dbm=sensitivity)
+        return Scenario(
+            ground=Terminal(aperture_m=ground_aperture, obscuration_ratio=ground_obscuration,
+                            wavelength_m=1550e-9, pointing_jitter_rad=jitter,
+                            transmitter=Transmitter(waist_m=w0, power_dbm=power,
+                                                    divergence_rad=divergence)),
+            space=Terminal(aperture_m=space_aperture, wavelength_m=1550e-9,
+                           detector=detector),
+            direction="uplink", channel=Channel(altitude_m=600e3))
+
+    scenario = _uplink(0.1)
     rng = np.random.default_rng(0)
 
     # Is the `fast` package available? Try a build without an explicit profile.
@@ -227,9 +251,9 @@ if __name__ == '__main__':
     # the broadening loss and scintillates less. Neither link raises a
     # divergence-specific violation, because the model no longer approximates it.
     from .._deps import w0_to_div
-    theta_min = w0_to_div(scenario.link.tx_waist_m, scenario.link.wavelength_m)
-    div_scn = Scenario(link=Link(wavelength_m=1550e-9, tx_waist_m=0.1,
-                                 divergence_rad=5 * theta_min), altitude_m=600e3)
+    tx0 = scenario.tx_terminal
+    theta_min = w0_to_div(tx0.transmitter.waist_m, tx0.wavelength_m)
+    div_scn = _uplink(0.1, divergence=5 * theta_min)
     moderate_cn2 = 1e-16 * np.ones_like(DEFAULT_HS)
     np.random.seed(0)
     coll_term = uplink_turbulence_term(scenario, geom, n_samples=4000, cn2_profile=moderate_cn2)
@@ -246,28 +270,24 @@ if __name__ == '__main__':
           f"diverged sigma2_x={div_term.meta['sigma2_x']:.4f}")
 
     # --- uplink budget self-check -------------------------------------------
-    budget_scn = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="uplink", tx_power_dbm=40, tx_waist_m=0.2,
-                  rx_sensitivity_dbm=-40, pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-    )
+    # A wide launch aperture (1.5 m for a 0.2 m waist) leaves the beam untruncated,
+    # so the transmit Gaussian-efficiency term does not fire.
+    budget_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                         ground_aperture=1.5)
     budget_geom = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
     up = uplink_budget(budget_scn, budget_geom,
-                       cn2_profile=default_cn2_profile(budget_scn.site))
+                       cn2_profile=default_cn2_profile(budget_scn.channel.site))
     assert up.to_frame().shape[0] == 4, up.to_frame().shape
     up_mc = up.monte_carlo(2000, rng=np.random.default_rng(0), availabilities=(0.99,))
     up_margin = up_mc["margin_db"][0.99]
     assert np.isfinite(up_margin), up_margin
 
-    # Setting a launch aperture adds the transmit Gaussian-efficiency term.
-    ap_scn = Scenario(
-        link=Link(wavelength_m=1550e-9, direction="uplink", tx_power_dbm=40,
-                  tx_waist_m=0.2, tx_aperture_m=0.15, tx_obscuration_ratio=0.3,
-                  rx_sensitivity_dbm=-40, pointing_jitter_rad=2e-6),
-        altitude_m=600e3,
-    )
+    # A narrow launch aperture (0.15 m for a 0.2 m waist) truncates the beam, so
+    # the transmit Gaussian-efficiency term fires.
+    ap_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                     ground_aperture=0.15, ground_obscuration=0.3)
     up_ap = uplink_budget(ap_scn, budget_geom,
-                          cn2_profile=default_cn2_profile(ap_scn.site))
+                          cn2_profile=default_cn2_profile(ap_scn.channel.site))
     assert up_ap.to_frame().shape[0] == 5, up_ap.to_frame().shape
     eff = next(t for t in up_ap.terms if t.category == "system")
     assert eff.mean_db > 0                       # truncation is a loss
