@@ -233,7 +233,8 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
                           hs=hs, cn2_profile=cn2_profile)
 
 
-def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
+def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
+                    n_samples=2000):
     '''
     Assemble the downlink budget: geometric, atmospheric, pointing, scintillation.
 
@@ -252,6 +253,9 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
             Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
         scintillation : bool
             Add the lognormal downlink scintillation Term when true.
+        n_samples : int
+            Monte Carlo draws for the SMF reciprocity Strehl proxy (no-AO fibre
+            receiver). Ignored for an Aperture detector or an AO fibre receiver.
 
     A receive terminal is opt-in. When scenario.rx_terminal has a detector, the
     receive-coupling Term owns the receive-side turbulence physics. It REPLACES
@@ -275,7 +279,7 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
     if terminal is not None and terminal.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
         from ..models.coupling import rx_coupling_term
-        terms.append(rx_coupling_term(scenario, geometry))
+        terms.append(rx_coupling_term(scenario, geometry, n_samples=n_samples))
     elif scintillation:
         terms.append(downlink_scintillation_term(scenario, geometry,
                                                  model="lognormal",

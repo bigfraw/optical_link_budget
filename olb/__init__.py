@@ -25,7 +25,7 @@ from .beam import virtual_waist, free_space_radius
 from .results import Term, Budget
 from .assumptions import Assumptions
 from .terminal import Terminal, Transmitter, Aperture, SMF, TipTilt, AO
-from .links import uplink_budget, downlink_budget, retro_budget
+from .links import uplink_budget, downlink_budget, retro_space_budget, retro_budget
 from . import units
 
 __all__ = [
@@ -35,6 +35,6 @@ __all__ = [
     "Term", "Budget",
     "Assumptions",
     "Terminal", "Transmitter", "Aperture", "SMF", "TipTilt", "AO",
-    "uplink_budget", "downlink_budget", "retro_budget",
+    "uplink_budget", "downlink_budget", "retro_space_budget", "retro_budget",
     "units",
 ]

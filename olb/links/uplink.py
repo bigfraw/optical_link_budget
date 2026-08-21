@@ -87,13 +87,28 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         spectrum=SPECTRUM_KOLMOGOROV,
         validity="Rytov weak fluctuation: sigma2_x < 0.6 (WEAK_FLUCTUATION_LIMIT). "
                  "Divergence enters the beam broadening AND the scintillation "
-                 "index (through the diverged receiver-plane Lambda and Theta).",
+                 "index (through the diverged receiver-plane Lambda and Theta). "
+                 "The Dios coupled-flux analysis assumes an untruncated Gaussian "
+                 "launch beam, so it does not model a central obscuration on the "
+                 "launch aperture.",
     )
     if not np.all(valid):
         worst = float(sigma2_x[~valid].max())
         assumptions.flag(
             f"sigma2_x={worst:.2f} exceeds the weak-fluctuation limit "
             f"{WEAK_FLUCTUATION_LIMIT}; scintillation approaches saturation."
+        )
+    # Dios assumes an untruncated Gaussian launch beam. A central obscuration on
+    # the launch aperture (the Transmitter override, else the Terminal value)
+    # breaks that. Flag the violation.
+    tx_obsc = (tx.transmitter.obscuration_ratio
+               if tx.transmitter.obscuration_ratio is not None
+               else tx.obscuration_ratio)
+    if tx_obsc > 0.0:
+        assumptions.flag(
+            f"The launch aperture has a central obscuration (ratio={tx_obsc:.3f}); "
+            "the Dios coupled-flux analysis assumes an untruncated Gaussian beam "
+            "and does not model it."
         )
 
     def sampler(n, rng):
@@ -268,6 +283,15 @@ if __name__ == '__main__':
         div_term.meta["sigma2_x"], coll_term.meta["sigma2_x"])
     print(f"collimated sigma2_x={coll_term.meta['sigma2_x']:.4f}, "
           f"diverged sigma2_x={div_term.meta['sigma2_x']:.4f}")
+
+    # Dios assumes an untruncated Gaussian launch beam. A central obscuration on
+    # the launch aperture flags a violation; a clean launch does not.
+    obsc_scn = _uplink(0.1, ground_aperture=0.15, ground_obscuration=0.3)
+    obsc_term = uplink_turbulence_term(obsc_scn, geom, n_samples=500, cn2_profile=weak_cn2)
+    assert any("untruncated Gaussian" in v for v in obsc_term.assumptions.violations), \
+        obsc_term.assumptions.violations
+    clean_term = uplink_turbulence_term(scenario, geom, n_samples=500, cn2_profile=weak_cn2)
+    assert not any("untruncated Gaussian" in v for v in clean_term.assumptions.violations)
 
     # --- uplink budget self-check -------------------------------------------
     # A wide launch aperture (1.5 m for a 0.2 m waist) leaves the beam untruncated,

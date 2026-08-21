@@ -23,7 +23,7 @@ olb.models.coupling.
 '''
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 
 # --- Transmitter ------------------------------------------------------------
@@ -33,9 +33,17 @@ class Transmitter:
     '''
     The transmit source of a terminal.
 
-    The transmitter launches a Gaussian beam through the owning Terminal
-    aperture. The launch truncation reads the owning Terminal aperture_m and
-    obscuration_ratio, so the transmitter does not repeat them.
+    The transmitter launches a Gaussian beam through a launch aperture. By
+    default the launch aperture is the owning Terminal aperture: the launch
+    truncation reads the Terminal aperture_m and obscuration_ratio. This is a
+    MONOSTATIC terminal, where one aperture transmits and receives.
+
+    For a BISTATIC terminal the transmit beam director is a different aperture
+    from the receive telescope. Set aperture_m (and, if it applies,
+    obscuration_ratio) on the Transmitter. The launch truncation then reads these
+    values, and the Terminal aperture_m and obscuration_ratio describe the
+    RECEIVE telescope only. A value of None keeps the monostatic default (the
+    Terminal value).
 
     Parameters:
         waist_m : float
@@ -47,11 +55,21 @@ class Transmitter:
         divergence_rad : float, optional
             Transmit far-field 1/e^2 HALF-angle divergence [rad]. None means
             collimated (the diffraction limit).
+        aperture_m : float, optional
+            Transmit (beam director) aperture diameter [m]. None means the
+            transmitter shares the owning Terminal aperture (monostatic).
+        obscuration_ratio : float, optional
+            Central obscuration ratio of the transmit aperture. None means the
+            transmitter shares the owning Terminal obscuration_ratio. Set 0.0 for
+            an unobscured beam director on a terminal whose receive telescope is
+            obscured.
     '''
     waist_m: float
     power_dbm: Optional[float] = None
     m2: float = 1.0
     divergence_rad: Optional[float] = None
+    aperture_m: Optional[float] = None
+    obscuration_ratio: Optional[float] = None
 
 
 # --- Detector front ends ----------------------------------------------------
@@ -115,6 +133,13 @@ class AO:
     n_modes: int = 20
 
 
+# A detector is one of the front ends; a compensation stage is one of the
+# correctors. These aliases give the Terminal fields a concrete type, so a
+# type checker knows the members (e.g. detector.eta_max, detector.sensitivity_dbm).
+Detector = Union[Aperture, SMF]
+Compensation = Union[TipTilt, AO]
+
+
 # --- The terminal -----------------------------------------------------------
 
 @dataclass
@@ -147,8 +172,8 @@ class Terminal:
     wavelength_m: float = 1550e-9
     pointing_jitter_rad: float = 0.0
     transmitter: Optional[Transmitter] = None
-    detector: Optional[object] = None
-    compensation: list = field(default_factory=list)
+    detector: Optional[Detector] = None
+    compensation: list[Compensation] = field(default_factory=list)
 
 
 if __name__ == '__main__':
@@ -163,6 +188,19 @@ if __name__ == '__main__':
                   transmitter=Transmitter(waist_m=0.12, power_dbm=40.0))
     assert tx.transmitter.waist_m == 0.12 and tx.transmitter.power_dbm == 40.0
     assert tx.transmitter.divergence_rad is None and tx.transmitter.m2 == 1.0
+    # Monostatic default: the transmitter borrows the Terminal launch aperture.
+    assert tx.transmitter.aperture_m is None
+    assert tx.transmitter.obscuration_ratio is None
+
+    # A bistatic terminal: a small beam director transmits, a large telescope
+    # receives. The Transmitter carries its own aperture, so the launch
+    # truncation does not read the receive-telescope aperture.
+    bistatic = Terminal(aperture_m=0.7, obscuration_ratio=0.3,
+                        transmitter=Transmitter(waist_m=0.06, aperture_m=0.15,
+                                                obscuration_ratio=0.0))
+    assert bistatic.aperture_m == 0.7 and bistatic.obscuration_ratio == 0.3
+    assert bistatic.transmitter.aperture_m == 0.15
+    assert bistatic.transmitter.obscuration_ratio == 0.0
 
     # A detector carries the receive sensitivity.
     smf = Terminal(aperture_m=0.7, detector=SMF(sensitivity_dbm=-40.0),

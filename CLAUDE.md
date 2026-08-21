@@ -34,8 +34,10 @@ downlink, and retroreflected links to a LEO satellite.
   Term`: `geometric.py`, `transmittance.py`, `pointing.py`.
 - `olb/links/` — per-direction Terms and budget assembly: `uplink.py`
   (`uplink_turbulence_term`, `uplink_budget`), `downlink.py`
-  (`downlink_scintillation_term`, `downlink_budget`), `retro.py`
-  (`retro_budget`).
+  (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
+  (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
+  `retro.py` is a backward-compatible alias that re-exports `retro_budget =
+  retro_space_budget`. A short terrestrial retro link needs its own module.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.

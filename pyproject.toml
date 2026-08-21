@@ -21,3 +21,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["olb*"]
+
+[tool.pyright]
+# olb/_deps.py adds my_analysis_modules to sys.path at RUNTIME, so Pylance
+# (static) cannot see `fields`, `conversions`, `satellite`, `coupled_flux`,
+# `general_atmospherics`. Point it at that repo so those imports resolve.
+# The path is relative to this file. If my_analysis_modules lives elsewhere
+# (e.g. the MY_ANALYSIS_MODULES env var), change this path to match.
+extraPaths = ["../my_analysis_modules"]
