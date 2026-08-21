@@ -253,6 +253,14 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
         scintillation : bool
             Add the lognormal downlink scintillation Term when true.
 
+    A receive terminal is opt-in. When scenario.rx_terminal has a detector, the
+    receive-coupling Term owns the receive-side turbulence physics. It REPLACES
+    the standalone scintillation Term. The geometric spreading Term stays (it
+    carries the free-space spread and the aperture power-in-bucket capture). An
+    Aperture detector reproduces the plain scintillation, so the total is
+    unchanged. An SMF detector adds the fibre-coupling loss and the coupling
+    fade. When rx_terminal is None the budget is unchanged.
+
     Returns:
         Budget
             The budget with the scenario set.
@@ -263,7 +271,12 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True):
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
-    if scintillation:
+    terminal = getattr(scenario, "rx_terminal", None)
+    if terminal is not None and terminal.detector is not None:
+        # Import here to break the downlink <-> coupling import cycle.
+        from ..models.coupling import rx_coupling_term
+        terms.append(rx_coupling_term(scenario, geometry))
+    elif scintillation:
         terms.append(downlink_scintillation_term(scenario, geometry,
                                                  model="lognormal",
                                                  aperture_average=True))
@@ -351,7 +364,68 @@ if __name__ == '__main__':
     # The plain downlink budget shows the base Term name "scintillation".
     assert "scintillation" in [t.name for t in down.terms], [t.name for t in down.terms]
 
+    # --- opt-in receive terminal --------------------------------------------
+    from ..terminal import Terminal, Aperture, SMF, TipTilt, AO
+
+    # The no-terminal budget is unchanged: 4 terms, base scintillation name.
+    assert scenario.rx_terminal is None
+    assert down.to_frame().shape[0] == 4
+    assert "scintillation" in [t.name for t in down.terms]
+
+    geom60 = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
+
+    # Aperture detector: the receive-coupling Term replaces the scintillation
+    # Term, but reproduces it exactly, so the total loss is byte-for-byte parity.
+    scn_ap = Scenario(
+        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
+                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
+                  pointing_jitter_rad=2e-6),
+        altitude_m=600e3,
+        rx_terminal=Terminal(aperture_m=0.7, detector=Aperture()),
+    )
+    down_ap = downlink_budget(scn_ap, geom60)
+    assert down_ap.to_frame().shape[0] == 4                 # same count as plain
+    assert "receive coupling (aperture)" in [t.name for t in down_ap.terms]
+    assert np.isclose(down_ap.total_loss_db(), down.total_loss_db()), (
+        down_ap.total_loss_db(), down.total_loss_db())     # parity
+
+    # SMF detector, no AO: the coupling loss deepens the total over the aperture.
+    scn_smf = Scenario(
+        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
+                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
+                  pointing_jitter_rad=2e-6),
+        altitude_m=600e3,
+        rx_terminal=Terminal(aperture_m=0.7, detector=SMF()),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        down_smf = downlink_budget(scn_smf, geom60)
+    assert "receive coupling (SMF)" in [t.name for t in down_smf.terms]
+    assert down_smf.total_loss_db() > down_ap.total_loss_db()
+
+    # SMF detector with tip-tilt + AO: the coupling loss shrinks toward the
+    # aperture case.
+    scn_ao = Scenario(
+        link=Link(wavelength_m=1550e-9, direction="downlink", tx_waist_m=0.035,
+                  rx_diameter_m=0.7, tx_power_dbm=40, rx_sensitivity_dbm=-40,
+                  pointing_jitter_rad=2e-6),
+        altitude_m=600e3,
+        rx_terminal=Terminal(aperture_m=0.7, detector=SMF(),
+                             compensation=[TipTilt(), AO(200)]),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        down_ao = downlink_budget(scn_ao, geom60)
+    assert down_ao.total_loss_db() < down_smf.total_loss_db()
+    # The SMF budget still has a closed-form analytic fade (coupling + fade).
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert np.isfinite(down_ao.fade_margin_db(0.99))
+
     print(f"mean loss = {term.mean_db:.4f} dB   99% fade = {q99:.4f} dB")
     print(f"sampled mean = {sampled.mean():.4f} dB (n=200000)")
     print(down.to_frame().to_string(index=False))
+    print(f"terminal totals @60deg: aperture={down_ap.total_loss_db():.3f} dB  "
+          f"SMF no-AO={down_smf.total_loss_db():.3f} dB  "
+          f"SMF+AO200={down_ao.total_loss_db():.3f} dB")
     print("self-check passed")

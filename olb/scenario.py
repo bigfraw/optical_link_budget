@@ -9,7 +9,10 @@ models.
 '''
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
+
+if TYPE_CHECKING:
+    from .terminal import Terminal   # pure data; the annotation only, no cycle
 
 Direction = Literal["uplink", "downlink"]
 
@@ -48,3 +51,4 @@ class Scenario:
     site: Site = field(default_factory=Site)
     altitude_m: float = 600e3           # satellite altitude, for analytic geometry
     availability_target: float = 0.99   # target link availability (0-1)
+    rx_terminal: Optional["Terminal"] = None  # receive terminal; None = plain aperture path (opt-in)

@@ -20,6 +20,7 @@ from .geometry import CircularOrbit, TLEPass
 from .beam import virtual_waist, free_space_radius
 from .results import Term, Budget
 from .assumptions import Assumptions
+from .terminal import Terminal, Aperture, SMF, TipTilt, AO
 from .links import uplink_budget, downlink_budget, retro_budget
 from . import units
 
@@ -29,6 +30,7 @@ __all__ = [
     "virtual_waist", "free_space_radius",
     "Term", "Budget",
     "Assumptions",
+    "Terminal", "Aperture", "SMF", "TipTilt", "AO",
     "uplink_budget", "downlink_budget", "retro_budget",
     "units",
 ]
