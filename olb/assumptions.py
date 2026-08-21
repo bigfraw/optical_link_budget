@@ -33,6 +33,7 @@ REGIME_NA = "not applicable"
 
 # Turbulence spectrum.
 SPECTRUM_KOLMOGOROV = "Kolmogorov, no inner or outer scale"
+SPECTRUM_VON_KARMAN = "von Karman, finite inner or outer scale"
 SPECTRUM_NA = "not applicable"
 
 

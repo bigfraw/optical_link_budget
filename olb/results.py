@@ -28,7 +28,7 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
-from .assumptions import Assumptions
+from .assumptions import Assumptions, SPECTRUM_NA
 
 
 @dataclass
@@ -153,7 +153,8 @@ class Budget:
 
         Returns:
             list of (str, str)
-                One (term name, reason) pair for each violation.
+                One (term name, reason) pair for each violation. A mixed-spectrum
+                budget adds one ("budget", reason) pair (see below).
         '''
         found = []
         for t in self.terms:
@@ -167,6 +168,22 @@ class Budget:
                         f"{t.name}: the scenario breaks a model assumption. "
                         f"{reason} The analytic result can be misrepresentative."
                     )
+
+        # Cross-term spectrum consistency. Every turbulence-bearing term models
+        # the SAME atmosphere, so they must agree on the spectrum. A budget that
+        # mixes, say, a Kolmogorov analytic term with a von Karman FAST term is
+        # physically inconsistent. Terms with SPECTRUM_NA (no turbulence spectrum,
+        # such as geometric or pointing) do not constrain this.
+        spectra = {t.assumptions.spectrum for t in self.terms
+                   if t.assumptions is not None
+                   and t.assumptions.spectrum not in ("", SPECTRUM_NA)}
+        if len(spectra) > 1:
+            reason = ("the budget mixes turbulence spectra "
+                      f"({', '.join(sorted(spectra))}); the terms model the same "
+                      "atmosphere and must assume one spectrum.")
+            found.append(("budget", reason))
+            if warn:
+                warnings.warn(f"budget: {reason}")
         return found
 
     # --- analytic fade ------------------------------------------------------

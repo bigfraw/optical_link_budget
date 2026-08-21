@@ -40,7 +40,7 @@ import numpy as np
 
 from ..results import Term
 from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
-                           SPECTRUM_KOLMOGOROV)
+                           SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
 from ..terminal import TipTilt, AO
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.scintillation import (plane_wave_scintillation_index,
@@ -160,12 +160,14 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         WIND_DIR=np.zeros_like(hs),
         DTHETA=[0, 0],                       # first cut: no point-ahead
         SUBHARM=True,                        # capture low-order tilt (see below)
+        L0=np.inf,                           # outer scale: infinite -> Kolmogorov
+        l0=1e-6,                             # inner scale: 1 um, below any optical scale
         NITER=int(n_samples),
         LOGLEVEL="ERROR",
     )
     params.update(ao_params)                 # AO_MODE (+ MODAL/ZMAX from n_modes)
     if fast_params:
-        params.update(fast_params)
+        params.update(fast_params)           # a finite L0/l0 here makes it von Karman
 
     # Quiet the FAST logger (it logs each init step at INFO) and its tqdm progress
     # bar. run() wraps the chunk loop in tqdm with no disable argument, so replace
@@ -204,10 +206,25 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     def sampler(n, rng):
         return rng.choice(loss_db, size=n, replace=True)
 
+    # FAST is a von Karman engine (it always calls turb_powerspectrum_vonKarman).
+    # olb sets the scales itself (L0=inf, l0=1e-6 above), so the spectrum is
+    # Kolmogorov by our own choice, not inherited from FAST's conf.py. A finite
+    # L0 (or a large l0) from fast_params makes it a true von Karman spectrum, so
+    # read the label from the RESOLVED scales, not from a fixed constant.
+    L0 = float(params["L0"])
+    l0 = float(params["l0"])
+    kolmogorov = np.isinf(L0) and l0 <= 1e-3
+    spectrum = SPECTRUM_KOLMOGOROV if kolmogorov else SPECTRUM_VON_KARMAN
+    scale_note = (
+        "The outer scale is infinite and the inner scale is 1 um (the Kolmogorov "
+        "limit); pass fast_params={'L0': ...} [m] or {'l0': ...} for a finite "
+        "von Karman scale." if kolmogorov else
+        f"von Karman spectrum with outer scale L0={L0:g} m and inner scale "
+        f"l0={l0:g} m.")
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
-        spectrum=SPECTRUM_KOLMOGOROV,
+        spectrum=spectrum,
         validity="Fidelity-1 single-mode-fibre coupling: the true LP01 Gaussian-"
                  "mode overlap under turbulence, from FAST (fast-aosim). The "
                  "received field is the aperture times the fibre mode, propagated "
@@ -215,10 +232,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
                  "normal scintillation. eta_max and the fibre-mode size come from "
                  "FAST (W0='opt'). Low-order tilt is captured with subharmonics "
                  "(SUBHARM=True); without them the small auto grid undersamples the "
-                 "tilt and understates the loss by several dB. The outer scale is "
-                 "infinite (Kolmogorov), matching the olb spectrum; pass "
-                 "fast_params={'L0': ...} [m] for a finite outer scale. Weak-to-"
-                 "moderate fluctuation (log-normal scintillation).",
+                 "tilt and understates the loss by several dB. " + scale_note +
+                 " Weak-to-moderate fluctuation (log-normal scintillation).",
     )
     # First-cut limitation: no point-ahead.
     assumptions.flag(
@@ -262,6 +277,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "amplitude_sigma2_I": sigma2_I_amp,
             "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
             "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
+            "L0_m": L0,
+            "l0_m": l0,
             "n_samples": int(params["NITER"]),
         },
         assumptions=assumptions,
@@ -313,6 +330,20 @@ if __name__ == '__main__':
     # Subharmonics on (captures the tilt); point-ahead caveat flagged.
     assert term.meta["subharmonics"] is True
     assert "subharmonics" in term.assumptions.validity
+
+    # Spectrum label follows the RESOLVED scales, not a fixed constant. The
+    # default (L0=inf, l0=1e-6) is the Kolmogorov limit; a finite L0 flips the
+    # label to von Karman and names the scale.
+    from ..assumptions import SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN
+    assert term.assumptions.spectrum == SPECTRUM_KOLMOGOROV
+    assert np.isinf(term.meta["L0_m"]) and term.meta["l0_m"] == 1e-6
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        term_vk = smf_fast_term(scn, geom, n_samples=200,
+                                fast_params={"L0": 25.0})
+    assert term_vk.assumptions.spectrum == SPECTRUM_VON_KARMAN
+    assert term_vk.meta["L0_m"] == 25.0
+    assert "von Karman" in term_vk.assumptions.validity
     assert any("Point-ahead" in v for v in term.assumptions.violations)
     # No correction -> NOAO, no ZMAX.
     assert term.meta["ao_mode"] == "NOAO" and term.meta["zmax"] is None

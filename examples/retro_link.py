@@ -30,6 +30,32 @@ from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  SMF, TipTilt, AO, retro_space_budget)
 
 
+def print_regime(budget):
+    '''
+    Show the weak-fluctuation regime status of each turbulence leg.
+
+    The up leg and the down leg each carry their own regime check, with
+    different metrics and different limits. This reads the numbers from the
+    Term meta and prints whether each leg holds the weak-fluctuation regime.
+    The up leg uses the Dios log-amplitude variance sigma2_x (limit 0.6). The
+    down leg uses the plane-wave scintillation index sigma2_I (limit 0.25).
+    '''
+    print("fluctuation regime (weak-fluctuation validity per leg):")
+    for t in budget.terms:
+        m = t.meta or {}
+        if "sigma2_x" in m:                       # up-leg coupled-flux turbulence
+            s2, lim, ok = (m["sigma2_x"], m["weak_fluctuation_limit"],
+                           m["weak_fluctuation_valid"])
+            metric = "sigma2_x"
+        elif "amplitude_sigma2_I" in m:           # down-leg fibre/aperture coupling
+            s2, lim, ok = (m["amplitude_sigma2_I"], 0.25, m["amplitude_regime_weak"])
+            metric = "sigma2_I"
+        else:
+            continue
+        print(f"  {t.name:35s} {metric}={s2:5.3f} / {lim:.2f}  "
+              f"{'weak OK' if ok else 'REGIME BROKEN'}")
+
+
 def main():
     wavelength_m = 1550e-9
 
@@ -56,7 +82,7 @@ def main():
                                 aperture_m=0.15,          # small beam director
                                 obscuration_ratio=0.3),   # obscured director
         detector=SMF(sensitivity_dbm=-110.0),             # coherent / fibre return
-        compensation=[TipTilt()]#, AO(n_modes=2)],         # AO for fibre coupling
+        compensation=[]
     )
 
     # --- 2. The satellite (a passive retroreflector) ----------------------
@@ -72,7 +98,7 @@ def main():
     retro = Scenario(ground=ground, space=space, direction="retro",
                      channel=channel)
 
-    for elevation_deg in (30.0, 45.0, 90.0):
+    for elevation_deg in (45, 60, 90):
         geom = CircularOrbit(channel.altitude_m, elevation_deg=elevation_deg)
 
         # The retro direction makes the ground both transmit and receive.
@@ -83,6 +109,7 @@ def main():
         # down-leg (retro -> ground), because the retro re-transmits the power it
         # catches.
         retro_b = retro_space_budget(retro, geom, n_samples=4000, smf_fidelity="fast")
+        # print(retro_b.to_frame())
 
         rng = np.random.default_rng(0)
         print("=" * 62)
@@ -99,6 +126,14 @@ def main():
         print("assumptions:", "all hold" if broken.empty else "BROKEN below")
         if not broken.empty:
             print(broken[["name", "violations"]].to_string(index=False))
+
+        # --- 5. Fluctuation-regime status per leg -----------------------------
+        # Each leg is valid only in the weak-fluctuation regime, but the two legs
+        # use different metrics and limits. The up leg uses the Dios log-amplitude
+        # variance sigma2_x (limit 0.6). The down leg uses the plane-wave
+        # scintillation index sigma2_I (limit 0.25). Read each leg's own numbers
+        # from its Term meta and show whether the regime holds.
+        print_regime(retro_b)
 
 
 if __name__ == "__main__":

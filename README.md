@@ -153,6 +153,13 @@ This ladder is the downlink fibre coupling. Monte Carlo is not unique to it: the
 uplink turbulence Term is its own Dios coupled-flux Monte Carlo (beam wander +
 scintillation), sampled the same way — the Budget asks every Term for samples.
 
+A **temporal** side-step runs across the fidelity tiers, not along them (planned,
+NT6). Each statistical tier draws independent snapshots today, which give the
+correct marginal fade depth but no time correlation. FAST has a `TEMPORAL` flag
+that advects the phase screens with frozen-flow wind, so the same tier gives a
+correlated time series and thus fade duration and fade rate. The temporal option
+does NOT change the mean, the quantile, or the availability — those are marginal.
+
 ```mermaid
 flowchart LR
   FL["Fibre-coupling fidelity"]
@@ -177,6 +184,7 @@ flowchart LR
   NT --> NT3["Obscuration in coupled-flux<br/>& mean-only fibre ⬚"]:::planned
   NT --> NT4["Tip-tilt wander removal ⬚"]:::planned
   NT --> NT5["Validate diverged<br/>coupled-flux feed ⬚"]:::planned
+  NT --> NT6["Temporal statistics side-step ⬚<br/>FAST TEMPORAL flag · frozen flow<br/>fade duration &amp; rate · applies to F1/F2"]:::planned
 
   N --> NC["Channels"]
   NC --> NC1["Terrestrial horizontal path ⬚"]:::planned

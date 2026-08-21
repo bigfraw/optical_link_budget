@@ -83,18 +83,20 @@ def main():
 
         mc = budget.monte_carlo(8000, rng=np.random.default_rng(0),
                                 availabilities=(0.99,))
-        margin99 = float(mc["margin_db"][0.99])
+        fade99 = float(mc["fade_db"][0.99])
         print(f"coupling loss {coupling.mean_db:6.2f} dB   "
-              f"99% margin {margin99:6.2f} dB\n")
-        rows.append((label, coupling.mean_db, float(mc["mean_loss_db"]), margin99))
+              f"99% fade {fade99:6.2f} dB\n")
+        rows.append((label, coupling.mean_db, float(mc["mean_loss_db"]), fade99))
 
     print("=" * 62)
     print("Summary (45 deg elevation, 0.7 m telescope)")
-    print(f"{'receive terminal':<22}{'coupling':>10}{'total':>9}{'99% margin':>12}")
-    for label, coupling_db, total_db, margin99 in rows:
-        print(f"{label:<22}{coupling_db:>10.2f}{total_db:>9.2f}{margin99:>12.2f}")
+    print(f"{'receive terminal':<22}{'coupling':>10}{'total':>9}{'99% fade':>12}")
+    for label, coupling_db, total_db, fade99 in rows:
+        print(f"{label:<22}{coupling_db:>10.2f}{total_db:>9.2f}{fade99:>12.2f}")
+    
     print("\nA single-mode fibre needs the wavefront cleaned up: with no "
           "correction it costs many dB, but adaptive optics recovers most of it.")
+    
 
 
 if __name__ == "__main__":

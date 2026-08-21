@@ -52,7 +52,7 @@ def main():
     )
     site = Site(cn2_ground=5.7e-14)
     altitude_m = 1500e3
-    geom = CircularOrbit(altitude_m, elevation_deg=60.0)
+    geom = CircularOrbit(altitude_m, elevation_deg=30.0)
 
     # The diffraction-limited half-angle sets the floor for the divergence.
     theta_min = wavelength_m / (np.pi * waist_m)
@@ -60,7 +60,7 @@ def main():
           f"half-angle {theta_min * 1e6:.2f} urad\n")
 
     # Collimated, then two deliberate divergences.
-    cases = [("collimated", None), ("15 urad", 15e-6), ("30 urad", 30e-6)]
+    cases = [("collimated", None), ("15 urad", 15e-6), ("30 urad", 30e-6), ("60 urad", 60e-6)]
 
     rows = []
     for label, divergence in cases:
