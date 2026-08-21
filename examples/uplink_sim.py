@@ -34,14 +34,14 @@ def main():
         link=Link(
             direction="uplink",
             wavelength_m=1550e-9,
-            tx_waist_m=0.1,             # ground transmit beam waist w0 [m]
-            tx_power_dbm=40.0,          # 10 W launch power
-            rx_diameter_m=0.08,         # satellite receive aperture [m]
+            tx_waist_m=0.06,             # ground transmit beam waist w0 [m]
+            tx_power_dbm=42,          # 10 W launch power
+            rx_diameter_m=0.05,         # satellite receive aperture [m]
             pointing_jitter_rad=2e-6,   # 2 urad tracking jitter
             rx_sensitivity_dbm=-40.0,   # required received power
         ),
-        site=Site(cn2_ground=1.7e-14),
-        altitude_m=600e3,
+        site=Site(cn2_ground=5.7e-14),
+        altitude_m=1500e3,
     )
     rng = np.random.default_rng(0)
 
