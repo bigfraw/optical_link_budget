@@ -26,6 +26,7 @@ class Link:
     rx_obscuration_ratio: float = 0.0    # central obscuration / aperture diameter
     rx_sensitivity_dbm: Optional[float] = None  # required received power [dBm]
     pointing_jitter_rad: float = 0.0     # 1-sigma tracking jitter [rad]
+    divergence_rad: Optional[float] = None  # transmit far-field 1/e^2 HALF-angle divergence [rad]; None = collimated (diffraction limit)
     retro_aperture_m: Optional[float] = None  # satellite retroreflector aperture diameter [m]; used by retro_budget
 
 

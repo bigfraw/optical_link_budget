@@ -17,6 +17,7 @@ not a separate path. It is the Budget that asks each Term for samples, not means
 
 from .scenario import Scenario, Link, Site
 from .geometry import CircularOrbit, TLEPass
+from .beam import virtual_waist, free_space_radius
 from .results import Term, Budget
 from .assumptions import Assumptions
 from .links import uplink_budget, downlink_budget, retro_budget
@@ -25,6 +26,7 @@ from . import units
 __all__ = [
     "Scenario", "Link", "Site",
     "CircularOrbit", "TLEPass",
+    "virtual_waist", "free_space_radius",
     "Term", "Budget",
     "Assumptions",
     "uplink_budget", "downlink_budget", "retro_budget",

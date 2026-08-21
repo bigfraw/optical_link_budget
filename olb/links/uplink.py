@@ -61,6 +61,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     w0 = scenario.link.tx_waist_m
     wavelength = scenario.link.wavelength_m
     hv57_A = scenario.site.cn2_ground
+    divergence_rad = scenario.link.divergence_rad
 
     elev = np.atleast_1d(np.asarray(geometry.elevation_deg, dtype=float))
     ranges = np.atleast_1d(np.asarray(geometry.slant_range_m, dtype=float))
@@ -68,7 +69,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
 
     # Representative draw per elevation -> table mean + validity metadata.
     reps = [_flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
-                         n_samples, n_apertures)
+                         n_samples, n_apertures, divergence_rad=divergence_rad)
             for e, r in zip(elev, ranges)]
     mean_db = np.array([-10 * np.log10(np.mean(rep["Is_summed"])) for rep in reps])
     sigma2_x = np.array([rep["sigma2_x_mean"] for rep in reps])
@@ -78,7 +79,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Rytov weak fluctuation: sigma2_x < 0.6 (WEAK_FLUCTUATION_LIMIT).",
+        validity="Rytov weak fluctuation: sigma2_x < 0.6 (WEAK_FLUCTUATION_LIMIT). "
+                 "Divergence enters the beam broadening AND the scintillation "
+                 "index (through the diverged receiver-plane Lambda and Theta).",
     )
     if not np.all(valid):
         worst = float(sigma2_x[~valid].max())
@@ -94,7 +97,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         np.random.seed(int(rng.integers(0, 2 ** 32 - 1)))
         cols = [-10 * np.log10(
                     _flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
-                                 n, n_apertures)["Is_summed"])
+                                 n, n_apertures, divergence_rad=divergence_rad)["Is_summed"])
                 for e, r in zip(elev, ranges)]   # one MC per elevation (expensive)
         return cols[0] if scalar else np.stack(cols, axis=1)
 
@@ -213,6 +216,29 @@ if __name__ == '__main__':
 
     print(f"weak Cn2  -> weak_fluctuation_valid={valid_term.meta['weak_fluctuation_valid']}")
     print(f"strong Cn2 -> weak_fluctuation_valid={invalid_term.meta['weak_fluctuation_valid']}")
+
+    # Divergence: it now enters the beam broadening AND the scintillation index.
+    # A diverged beam is wider and more spherical-wave-like, so it both dilutes
+    # the broadening loss and scintillates less. Neither link raises a
+    # divergence-specific violation, because the model no longer approximates it.
+    from .._deps import w0_to_div
+    theta_min = w0_to_div(scenario.link.tx_waist_m, scenario.link.wavelength_m)
+    div_scn = Scenario(link=Link(wavelength_m=1550e-9, tx_waist_m=0.1,
+                                 divergence_rad=5 * theta_min), altitude_m=600e3)
+    moderate_cn2 = 1e-16 * np.ones_like(DEFAULT_HS)
+    np.random.seed(0)
+    coll_term = uplink_turbulence_term(scenario, geom, n_samples=4000, cn2_profile=moderate_cn2)
+    np.random.seed(0)
+    div_term = uplink_turbulence_term(div_scn, geom, n_samples=4000, cn2_profile=moderate_cn2)
+    assert not any("Divergence" in v for v in div_term.assumptions.violations)
+    # Diverging widens the free-space baseline and dilutes the turbulence loss.
+    assert div_term.meta["w_diffraction_limited"] > coll_term.meta["w_diffraction_limited"]
+    assert div_term.mean_db < coll_term.mean_db, (div_term.mean_db, coll_term.mean_db)
+    # The diverged beam scintillates less (lower log-amplitude variance).
+    assert div_term.meta["sigma2_x"] < coll_term.meta["sigma2_x"], (
+        div_term.meta["sigma2_x"], coll_term.meta["sigma2_x"])
+    print(f"collimated sigma2_x={coll_term.meta['sigma2_x']:.4f}, "
+          f"diverged sigma2_x={div_term.meta['sigma2_x']:.4f}")
 
     # --- uplink budget self-check -------------------------------------------
     budget_scn = Scenario(

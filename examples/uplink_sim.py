@@ -46,7 +46,7 @@ def main():
     rng = np.random.default_rng(0)
 
     # --- one elevation: itemised budget, assumptions, Monte Carlo ----------
-    budget = uplink_budget(scenario, CircularOrbit(600e3, 60.0), n_samples=4000)
+    budget = uplink_budget(scenario, CircularOrbit(1500e3, 60.0), n_samples=4000)
 
     print("Itemised uplink budget at 60 deg elevation:")
     print(budget.to_frame().to_string(index=False))
@@ -67,7 +67,7 @@ def main():
     print("\nElevation sweep (99 % availability):")
     print(" elev   mean-loss   99%-fade   99%-margin   assumptions")
     for elevation_deg in [20, 30, 45, 60, 90]:
-        b = uplink_budget(scenario, CircularOrbit(600e3, float(elevation_deg)),
+        b = uplink_budget(scenario, CircularOrbit(1500e3, float(elevation_deg)),
                           n_samples=3000)
         m = b.monte_carlo(5000, rng=rng, availabilities=(0.99,))
         state = "flagged" if b.check(warn=False) else "ok"

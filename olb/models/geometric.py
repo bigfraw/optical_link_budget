@@ -15,13 +15,13 @@ the obscuration radius, and w(z) is the 1/e^2 Gaussian beam radius at range z
 
 import numpy as np
 
-from .._deps import gaussz
+from ..beam import free_space_radius
 from ..results import Term
 from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
 
 
 def geometric_loss_db(range_m, w0, rx_diameter, wavelength=1550e-9,
-                      obscuration_ratio=0.0):
+                      obscuration_ratio=0.0, divergence_rad=None):
     '''
     Geometric spreading loss of a Gaussian beam into a circular aperture.
 
@@ -37,12 +37,16 @@ def geometric_loss_db(range_m, w0, rx_diameter, wavelength=1550e-9,
         obscuration_ratio : float
             Ratio of central obscuration diameter to rx_diameter (e.g. the
             secondary mirror of a Cassegrain telescope). 0 = unobscured.
+        divergence_rad : float, optional
+            Transmit far-field half-angle divergence [rad]. None means
+            collimated (the diffraction limit). A larger value spreads the beam
+            more and adds loss.
 
     Returns:
         float or ndarray
             Geometric loss [dB], positive.
     '''
-    w_z = gaussz(w0, range_m, wavelength)
+    w_z = free_space_radius(w0, range_m, divergence_rad, wavelength)
     a_rx = rx_diameter / 2
     b_obs = obscuration_ratio * a_rx
     eta = np.exp(-2 * b_obs**2 / w_z**2) - np.exp(-2 * a_rx**2 / w_z**2)
@@ -71,6 +75,7 @@ def geometric_loss_term(scenario, geometry):
         link.rx_diameter_m,
         wavelength=link.wavelength_m,
         obscuration_ratio=link.rx_obscuration_ratio,
+        divergence_rad=link.divergence_rad,
     )
     return Term(name="geometric spreading", category="geometric", mean_db=loss,
                 assumptions=Assumptions(
@@ -94,6 +99,15 @@ if __name__ == '__main__':
     assert np.all(geometric_loss_db(r, 0.02, 1e-6) > 100)     # rx <<< beam -> huge loss
     assert np.all(geometric_loss_db(r, 0.02, 0.7, obscuration_ratio=0.3)
                   > geometric_loss_db(r, 0.02, 0.7))          # obscuration adds loss
+
+    # A diverged beam spreads more, so it costs more geometric loss than a
+    # collimated beam of the same w0.
+    from .._deps import w0_to_div
+    theta_min = w0_to_div(0.02, 1550e-9)
+    assert np.all(geometric_loss_db(r, 0.02, 0.08, divergence_rad=5 * theta_min)
+                  > geometric_loss_db(r, 0.02, 0.08))         # divergence adds loss
+    assert np.allclose(geometric_loss_db(r, 0.02, 0.08, divergence_rad=theta_min),
+                       geometric_loss_db(r, 0.02, 0.08))      # limit == collimated
 
     # Term path
     scn = Scenario(link=Link(tx_waist_m=0.035, rx_diameter_m=0.7,

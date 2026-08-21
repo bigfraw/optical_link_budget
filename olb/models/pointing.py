@@ -20,14 +20,15 @@ aperture, on-axis Gaussian beam (no aperture averaging of the fade).
 
 import numpy as np
 
-from .._deps import gaussz
+from ..beam import free_space_radius
 from ..results import Term
 from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
 
 _K = 20.0 / np.log(10.0)   # dB per (r^2 / w_z^2)
 
 
-def pointing_loss_mean_db(range_m, w0, sigma_theta_rad, wavelength=1550e-9):
+def pointing_loss_mean_db(range_m, w0, sigma_theta_rad, wavelength=1550e-9,
+                          divergence_rad=None):
     '''
     Expected pointing-jitter loss E[loss].
 
@@ -40,12 +41,15 @@ def pointing_loss_mean_db(range_m, w0, sigma_theta_rad, wavelength=1550e-9):
             1-sigma pointing (tracking) jitter angle [rad].
         wavelength : float
             Wavelength [m].
+        divergence_rad : float, optional
+            Transmit far-field half-angle divergence [rad]. None means
+            collimated. A wider (diverged) beam lowers the pointing loss.
 
     Returns:
         float or ndarray
             Mean pointing loss [dB], positive.
     '''
-    w_z = gaussz(w0, range_m, wavelength)
+    w_z = free_space_radius(w0, range_m, divergence_rad, wavelength)
     sigma_r = sigma_theta_rad * np.asarray(range_m)
     return _K * 2.0 * sigma_r**2 / w_z**2
 
@@ -86,7 +90,8 @@ def pointing_loss_term(scenario, geometry):
                     note="no jitter", assumptions=_assumptions())
 
     mean = pointing_loss_mean_db(range_m, link.tx_waist_m, sigma_theta,
-                                 wavelength=link.wavelength_m)
+                                 wavelength=link.wavelength_m,
+                                 divergence_rad=link.divergence_rad)
     shape = np.shape(mean)
 
     def quantile(p):
@@ -96,7 +101,8 @@ def pointing_loss_term(scenario, geometry):
         return rng.exponential(scale=mean, size=(n, *shape))
 
     a = _assumptions()
-    w_z = gaussz(link.tx_waist_m, range_m, link.wavelength_m)
+    w_z = free_space_radius(link.tx_waist_m, range_m, link.divergence_rad,
+                            link.wavelength_m)
     a_rx = link.rx_diameter_m / 2.0
     if np.any(a_rx > 0.5 * w_z):
         a.flag("Receive aperture is not small relative to the beam; the on-axis "
@@ -123,6 +129,15 @@ if __name__ == '__main__':
     m_small = pointing_loss_mean_db(r, 0.035, 5e-6)
     m_big = pointing_loss_mean_db(r, 0.035, 20e-6)
     assert np.all(m_big > m_small)
+
+    # A wider (diverged) beam gives LESS pointing loss than a collimated one.
+    from .._deps import w0_to_div
+    theta_min = w0_to_div(0.035, 1550e-9)
+    m_diverged = pointing_loss_mean_db(r, 0.035, 10e-6, divergence_rad=5 * theta_min)
+    m_collimated = pointing_loss_mean_db(r, 0.035, 10e-6)
+    assert np.all(m_diverged < m_collimated)
+    assert np.allclose(pointing_loss_mean_db(r, 0.035, 10e-6, divergence_rad=theta_min),
+                       m_collimated)
 
     # statistical term: sampled mean ~= mean_loss_db, quantile(0.99) > mean
     scn = Scenario(link=Link(tx_waist_m=0.035, wavelength_m=1550e-9,

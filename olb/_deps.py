@@ -45,7 +45,14 @@ from satellite import Satellite, SatellitePass                   # noqa: E402
 # that we do not own. This code stops the print here. It does not edit those
 # modules.
 with contextlib.redirect_stdout(io.StringIO()):
-    from coupled_flux import coupled_flux_montecarlo             # noqa: E402
+    from coupled_flux import (                                   # noqa: E402
+        coupled_flux_montecarlo,
+        # Lower-level kernels: olb.turbulence.coupled_flux composes these into a
+        # short uplink MC loop with a diverged free-space beam width (w_free).
+        spherical_wave_coherence_diameter, short_term_beam_waist,
+        long_term_beam_waist, beam_wander_variance,
+        coupled_flux_sample, on_axis_irradiance,
+    )
     from general_atmospherics import get_c2n, v_wind            # noqa: E402
 
 __all__ = [
@@ -54,5 +61,8 @@ __all__ = [
     "arcsec_to_rad", "rad_to_arcsec",
     "Satellite", "SatellitePass",
     "coupled_flux_montecarlo",
+    "spherical_wave_coherence_diameter", "short_term_beam_waist",
+    "long_term_beam_waist", "beam_wander_variance",
+    "coupled_flux_sample", "on_axis_irradiance",
     "get_c2n", "v_wind",
 ]
