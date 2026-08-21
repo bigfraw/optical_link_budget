@@ -145,6 +145,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         WIND_SPD=wind * np.ones_like(hs),
         WIND_DIR=np.zeros_like(hs),
         DTHETA=[0, 0],                       # first cut: no point-ahead
+        SUBHARM=True,                        # capture low-order tilt (see below)
         NITER=int(n_samples),
         LOGLEVEL="ERROR",
     )
@@ -187,8 +188,12 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
                  "received field is the aperture times the fibre mode, propagated "
                  "through Monte-Carlo phase screens with an aperture-averaged log-"
                  "normal scintillation. eta_max and the fibre-mode size come from "
-                 "FAST (W0='opt'). Weak-to-moderate fluctuation (log-normal "
-                 "scintillation).",
+                 "FAST (W0='opt'). Low-order tilt is captured with subharmonics "
+                 "(SUBHARM=True); without them the small auto grid undersamples the "
+                 "tilt and understates the loss by several dB. The outer scale is "
+                 "infinite (Kolmogorov), matching the olb spectrum; pass "
+                 "fast_params={'L0': ...} [m] for a finite outer scale. Weak-to-"
+                 "moderate fluctuation (log-normal scintillation).",
     )
     # First-cut limitation: no point-ahead.
     assumptions.flag(
@@ -196,13 +201,6 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         "moving satellite is not modelled. Pass fast_params={'DTHETA': [x, y]} in "
         "arcsec to include it."
     )
-    # NOAO tilt sampling depends on the FAST grid.
-    if ao_mode == "NOAO":
-        assumptions.flag(
-            "NOAO low-order (tilt) accuracy depends on the FAST grid (NPXLS); the "
-            "auto grid may undersample tilt. Pass fast_params={'NPXLS': ...} for "
-            "production accuracy."
-        )
 
     note = (f"FAST fidelity-1 modal coupling, AO_MODE={ao_mode}, "
             f"floor={floor_db:.2f} dB, NITER={params['NITER']}")
@@ -218,6 +216,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "model": "fast-modal",
             "ao_mode": ao_mode,
             "floor_db": floor_db,
+            "subharmonics": bool(params.get("SUBHARM", False)),
+            "npxls": int(getattr(sim, "Npxls", 0)),
             "scintillation_index": float(result.scintillation_index),
             "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
             "n_samples": int(params["NITER"]),
@@ -268,9 +268,10 @@ if __name__ == '__main__':
     assert term.quantile_db(0.99) > term.mean_db
     draws = term.sample_db(5000, rng)
     assert draws.shape == (5000,) and np.all(np.isfinite(draws))
-    # Point-ahead and NOAO-grid caveats are flagged.
+    # Subharmonics on (captures the tilt); point-ahead caveat flagged.
+    assert term.meta["subharmonics"] is True
+    assert "subharmonics" in term.assumptions.validity
     assert any("Point-ahead" in v for v in term.assumptions.violations)
-    assert any("NOAO" in v for v in term.assumptions.violations)
 
     # An elevation array is refused in this first cut.
     try:

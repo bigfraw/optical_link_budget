@@ -32,10 +32,10 @@ def main():
     wavelength_m = 1550e-9
 
     # A no-AO fibre ground receiver. The satellite transmits the downlink.
-    ground = Terminal(aperture_m=0.5, wavelength_m=wavelength_m,
+    ground = Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=wavelength_m,
                       detector=SMF(sensitivity_dbm=-110.0))
     space = Terminal(aperture_m=0.08, wavelength_m=wavelength_m,
-                     transmitter=Transmitter(waist_m=0.03, power_dbm=30.0))
+                     transmitter=Transmitter(waist_m=0.05, power_dbm=30.0))
     scenario = Scenario(ground=ground, space=space, direction="downlink",
                         channel=Channel(site=Site(cn2_ground=1.7e-14),
                                         altitude_m=1500e3))
@@ -58,10 +58,13 @@ def main():
         print(f"{elevation_deg:5.0f} | {recip.mean_db:16.2f} {recip_99:7.2f} | "
               f"{fast.mean_db:10.2f} {fast.quantile_db(0.99):7.2f}")
 
-    print("\nThe reciprocity Strehl proxy tracks the FAST modal overlap in the "
-          "tip-tilt-dominated regime but drifts where scintillation and high-order "
-          "coupling matter. FAST is the reference; the proxy is the cheap, "
-          "wavefront-free estimate. Neither models point-ahead here.")
+    print("\nThe reciprocity Strehl proxy tracks the FAST modal overlap on the "
+          "MEAN, but its deep-fade tail (99%) is far heavier: the Dios on-axis "
+          "intensity saturates where the FAST aperture-integrated overlap stays "
+          "bounded. So the proxy is a fair mean estimate but pessimistic on the "
+          "tail. FAST is the reference (with subharmonics, so the tilt is "
+          "captured); the proxy is the cheap, wavefront-free estimate. Neither "
+          "models point-ahead here.")
 
 
 if __name__ == "__main__":
