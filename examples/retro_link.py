@@ -40,22 +40,23 @@ def main():
     # the beam-director aperture, so the launch truncation reads 0.15 m, not the
     # 0.7 m receive telescope. Retro forces one ground object, so this is the
     # only way to give the station different transmit and receive apertures.
-    # The return couples into a single-mode fibre behind an adaptive-optics
-    # stage. AO makes the fibre coupling tractable: without it, a single-mode
-    # fibre on a 0.7 m aperture in strong turbulence saturates (the reciprocity
-    # Strehl proxy trips the weak-fluctuation limit). With AO the coupling uses
-    # the bounded extended-Marechal / Dikmelik model. For the bucket-detector
-    # return, swap the detector for Aperture(sensitivity_dbm=-50).
+    # The return couples into a single-mode fibre. The budget below runs with
+    # smf_fidelity="fast", so the coupling is the FAST fidelity-1 true LP01 modal
+    # overlap (needs fast-aosim). A compensation stack maps to the FAST correction:
+    # TipTilt -> tip-tilt mode, AO(n_modes) -> modal AO with ZMAX=n_modes, and an
+    # empty stack -> no correction. For the bucket-detector return, swap the
+    # detector for Aperture(sensitivity_dbm=-50); to use the wavefront-free
+    # reciprocity/Dikmelik models, drop smf_fidelity or set it to "reciprocity".
     ground = Terminal(
         aperture_m=0.7,                  # receive telescope
         obscuration_ratio=0.3,           # 30% central obscuration (receive)
         wavelength_m=wavelength_m,
-        pointing_jitter_rad=1e-6,
+        pointing_jitter_rad=0,
         transmitter=Transmitter(waist_m=0.06, power_dbm=40.0, divergence_rad=None,
                                 aperture_m=0.15,          # small beam director
                                 obscuration_ratio=0.3),   # obscured director
         detector=SMF(sensitivity_dbm=-110.0),             # coherent / fibre return
-        compensation=[TipTilt(), AO(n_modes=2)],         # AO for fibre coupling
+        # compensation=[TipTilt()]#, AO(n_modes=2)],         # AO for fibre coupling
     )
 
     # --- 2. The satellite (a passive retroreflector) ----------------------
@@ -81,7 +82,7 @@ def main():
         # The budget carries both legs: the up-leg (ground -> retro) and the
         # down-leg (retro -> ground), because the retro re-transmits the power it
         # catches.
-        retro_b = retro_space_budget(retro, geom, n_samples=4000)
+        retro_b = retro_space_budget(retro, geom, n_samples=4000, smf_fidelity="fast")
 
         rng = np.random.default_rng(0)
         print("=" * 62)

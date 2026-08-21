@@ -68,13 +68,26 @@ def _cn2_layers(cn2_zenith, hs):
     return np.asarray(cn2_zenith, float) * np.gradient(np.asarray(hs, float))
 
 
-def _ao_mode(compensation):
-    '''Map the olb compensation stack to a FAST AO_MODE (first cut: NOAO/TT/AO).'''
-    if any(isinstance(c, AO) for c in compensation):
-        return "AO"
+def _ao_params(compensation):
+    '''
+    Map the olb compensation stack to FAST adaptive-optics parameters.
+
+    olb AO(n_modes) removes the first n_modes Zernike (Noll) modes, and TipTilt
+    removes the first three (piston, tip, tilt). FAST corrects modally up to ZMAX
+    Zernikes when MODAL is set. So an AO stage maps to AO_MODE="AO", MODAL=True,
+    ZMAX=max(n_modes); a tip-tilt-only stack maps to AO_MODE="TT" (Zmax=3); an
+    empty stack maps to AO_MODE="NOAO".
+
+    Returns:
+        dict
+            The AO-related FAST parameters (AO_MODE, and MODAL/ZMAX for AO).
+    '''
+    ao_modes = [c.n_modes for c in compensation if isinstance(c, AO)]
+    if ao_modes:
+        return {"AO_MODE": "AO", "MODAL": True, "ZMAX": int(max(ao_modes))}
     if any(isinstance(c, TipTilt) for c in compensation):
-        return "TT"
-    return "NOAO"
+        return {"AO_MODE": "TT"}
+    return {"AO_MODE": "NOAO"}
 
 
 def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
@@ -128,7 +141,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     hs = np.asarray(hs, dtype=float)
     cn2_layer = _cn2_layers(cn2_profile, hs)
     wind = float(scenario.channel.site.wind_rms_m_s)
-    ao_mode = _ao_mode(rx.compensation)
+    ao_params = _ao_params(rx.compensation)   # AO_MODE, and MODAL/ZMAX for AO
 
     params = dict(
         WVL=rx.wavelength_m,
@@ -136,7 +149,6 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         OBSC_GROUND=obsc_ratio * D,          # FAST wants the obscuration DIAMETER
         SMF=True,
         PROP_DIR="down",                     # SMF coupling is a receive-side quantity
-        AO_MODE=ao_mode,
         W0="opt",                            # FAST optimises the fibre-mode size
         H_SAT=scenario.channel.altitude_m,
         ZENITH_ANGLE=90.0 - elev,
@@ -149,6 +161,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         NITER=int(n_samples),
         LOGLEVEL="ERROR",
     )
+    params.update(ao_params)                 # AO_MODE (+ MODAL/ZMAX from n_modes)
     if fast_params:
         params.update(fast_params)
 
@@ -202,7 +215,9 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         "arcsec to include it."
     )
 
-    note = (f"FAST fidelity-1 modal coupling, AO_MODE={ao_mode}, "
+    zmax = params.get("ZMAX")
+    ao_desc = params["AO_MODE"] + (f"(ZMAX={zmax})" if zmax is not None else "")
+    note = (f"FAST fidelity-1 modal coupling, AO={ao_desc}, "
             f"floor={floor_db:.2f} dB, NITER={params['NITER']}")
     return Term(
         name="receive coupling (SMF)",
@@ -214,7 +229,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         meta={
             "detector": "SMF",
             "model": "fast-modal",
-            "ao_mode": ao_mode,
+            "ao_mode": params["AO_MODE"],
+            "zmax": params.get("ZMAX"),
             "floor_db": floor_db,
             "subharmonics": bool(params.get("SUBHARM", False)),
             "npxls": int(getattr(sim, "Npxls", 0)),
@@ -231,7 +247,7 @@ if __name__ == '__main__':
 
     from ..scenario import Scenario, Channel, Site
     from ..geometry import CircularOrbit
-    from ..terminal import Terminal, Transmitter, SMF
+    from ..terminal import Terminal, Transmitter, SMF, TipTilt, AO
 
     try:
         _load_fast()
@@ -272,6 +288,27 @@ if __name__ == '__main__':
     assert term.meta["subharmonics"] is True
     assert "subharmonics" in term.assumptions.validity
     assert any("Point-ahead" in v for v in term.assumptions.violations)
+    # No correction -> NOAO, no ZMAX.
+    assert term.meta["ao_mode"] == "NOAO" and term.meta["zmax"] is None
+
+    # AO order is honoured: AO(n_modes) -> FAST MODAL ZMAX=n_modes, and more
+    # corrected modes give less coupling loss. Tip-tilt sits between NOAO and AO.
+    def build(comp, n=400):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return smf_fast_term(_downlink(Terminal(
+                aperture_m=0.7, wavelength_m=lam, detector=SMF(),
+                compensation=comp)), geom, n_samples=n)
+
+    t_tt = build([TipTilt()])
+    t_ao20 = build([TipTilt(), AO(20)])
+    t_ao6 = build([TipTilt(), AO(6)])
+    assert t_tt.meta["ao_mode"] == "TT" and t_tt.meta["zmax"] is None
+    assert t_ao20.meta["ao_mode"] == "AO" and t_ao20.meta["zmax"] == 20
+    assert t_ao6.meta["zmax"] == 6                        # n_modes maps to ZMAX
+    # More corrected modes -> less loss. NOAO > TT > AO(6) > AO(20).
+    assert term.mean_db > t_tt.mean_db > t_ao6.mean_db > t_ao20.mean_db, (
+        term.mean_db, t_tt.mean_db, t_ao6.mean_db, t_ao20.mean_db)
 
     # An elevation array is refused in this first cut.
     try:
@@ -280,7 +317,7 @@ if __name__ == '__main__':
     except ValueError:
         pass
 
-    print(f"FAST fidelity-1 SMF (0.7 m, no AO, 30 deg): mean {term.mean_db:.2f} dB, "
-          f"99% {term.quantile_db(0.99):.2f} dB, floor {term.meta['floor_db']:.2f} dB, "
-          f"S.I. {term.meta['scintillation_index']:.2f}")
+    print(f"FAST fidelity-1 SMF (0.7 m, 30 deg): "
+          f"NOAO {term.mean_db:.2f} dB | TT {t_tt.mean_db:.2f} dB | "
+          f"AO(6) {t_ao6.mean_db:.2f} dB | AO(20) {t_ao20.mean_db:.2f} dB")
     print("self-check passed")
