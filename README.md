@@ -82,6 +82,104 @@ The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
   spectrum) that each Term declares, and the check that flags a broken
   assumption.
 
+## Roadmap
+
+A living map of what the package models. Each section is a branching tree.
+Update the leaves and their status as the code moves.
+
+Legend: ✅ done · ◑ partial (works, with a listed gap) · ⬚ planned.
+
+### Link types
+
+```mermaid
+flowchart LR
+  L["Link types"]
+  L --> U["Uplink ✅<br/>ground → space"]:::done
+  L --> D["Downlink ✅<br/>space → ground"]:::done
+  D --> DB["bucket receive ✅"]:::done
+  D --> DF["single-mode fibre ✅"]:::done
+  L --> R["Retro · space ✅<br/>long slant"]:::done
+  L --> TH["Terrestrial ⬚<br/>horizontal path"]:::planned
+  L --> RT["Retro · terrestrial ⬚<br/>short path"]:::planned
+
+  classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
+  classDef partial fill:#78350f,color:#fde68a,stroke:#f59e0b;
+  classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
+```
+
+### Modelling approaches
+
+```mermaid
+flowchart LR
+  A["Modelling approaches"]
+
+  A --> GEO["Geometry"]
+  GEO --> G1["Antenna gain / spreading ✅"]:::done
+  GEO --> G2["Transmit truncation ✅"]:::done
+  GEO --> G3["Beam divergence ✅"]:::done
+
+  A --> ATM["Atmosphere"]
+  ATM --> M1["Extinction · 1-param Beer-Lambert ◑"]:::partial
+
+  A --> PNT["Pointing"]
+  PNT --> P1["Tracking-jitter fade ✅"]:::done
+
+  A --> TUR["Turbulence"]
+  TUR --> T1["Cn2 profiles ✅"]:::done
+  TUR --> T2["Uplink coupled-flux MC ◑"]:::partial
+  TUR --> T3["Downlink scintillation ✅"]:::done
+  TUR --> T4["Wavefront / AO residual ✅"]:::done
+
+  A --> FIB["Fibre coupling"]
+  FIB --> F1["FAST phase screens · fidelity-1 ◑"]:::partial
+  FIB --> F2["Analytic mean-only ✅"]:::done
+
+  classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
+  classDef partial fill:#78350f,color:#fde68a,stroke:#f59e0b;
+  classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
+```
+
+### Fidelity ladder (fibre coupling)
+
+One `Terminal(SMF + AO(N))` drives any tier; only the wavefront backing changes.
+The jump from 1 to 2 is real optical propagation: FAST draws phase screens from
+power spectra and applies a log-normal amplitude — it does NOT propagate a field.
+
+```mermaid
+flowchart LR
+  FL["Fibre-coupling fidelity"]
+  FL --> F0["Fidelity 0 · Analytic ✅<br/>mean-only · NO fade<br/>Marechal / Dikmelik"]:::done
+  FL --> F1["Fidelity 1 · Statistical ◑<br/>FAST · PSD phase screens<br/>+ log-normal amplitude<br/>true LP01 overlap · the fade"]:::partial
+  FL --> F2["Fidelity 2 · End-to-end ⬚<br/>split-step field propagation<br/>|∫ E·M*fibre|² per draw"]:::planned
+
+  classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
+  classDef partial fill:#78350f,color:#fde68a,stroke:#f59e0b;
+  classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
+```
+
+### Next / planned
+
+```mermaid
+flowchart LR
+  N["Next / planned"]
+
+  N --> NT["Turbulence & coupling"]
+  NT --> NT1["Point-ahead in FAST ⬚<br/>DTHETA = 0 today"]:::planned
+  NT --> NT2["Elevation-array FAST ⬚<br/>scalar only today"]:::planned
+  NT --> NT3["Obscuration in coupled-flux<br/>& mean-only fibre ⬚"]:::planned
+  NT --> NT4["Tip-tilt wander removal ⬚"]:::planned
+  NT --> NT5["Validate diverged<br/>coupled-flux feed ⬚"]:::planned
+
+  N --> NC["Channels"]
+  NC --> NC1["Terrestrial horizontal path ⬚"]:::planned
+  NC --> NC2["Short terrestrial retro module ⬚"]:::planned
+
+  N --> NA["Atmosphere"]
+  NA --> NA1["Wavelength-resolved /<br/>MODTRAN extinction ⬚"]:::planned
+
+  classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
+```
+
 ## Documentation convention
 
 All documentation uses ASD-STE100 Simplified Technical English. See
