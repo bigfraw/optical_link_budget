@@ -115,8 +115,13 @@ flowchart LR
 
   A --> GEO["Geometry"]
   GEO --> G1["Antenna gain / spreading ✅"]:::done
-  GEO --> G2["Transmit truncation ✅"]:::done
-  GEO --> G3["Beam divergence ✅"]:::done
+
+  A --> TXB["Transmit beam"]
+  TXB --> TB0["Single Gaussian ✅<br/>truncated / untruncated<br/>— the ONLY beam modelled"]:::done
+  TB0 --> TB1["Truncation loss ✅<br/>Gaussian efficiency"]:::done
+  TB0 --> TB2["Deliberate divergence ✅<br/>virtual waist"]:::done
+  TXB --> TB3["Other beam types ⬚<br/>provision · M² field unused"]:::planned
+  TXB --> TB4["Incoherent aperture diversity ⬚<br/>provision"]:::planned
 
   A --> ATM["Atmosphere"]
   ATM --> M1["Extinction · 1-param Beer-Lambert ◑"]:::partial
@@ -144,6 +149,9 @@ flowchart LR
 One `Terminal(SMF + AO(N))` drives any tier; only the wavefront backing changes.
 The jump from 1 to 2 is real optical propagation: FAST draws phase screens from
 power spectra and applies a log-normal amplitude — it does NOT propagate a field.
+This ladder is the downlink fibre coupling. Monte Carlo is not unique to it: the
+uplink turbulence Term is its own Dios coupled-flux Monte Carlo (beam wander +
+scintillation), sampled the same way — the Budget asks every Term for samples.
 
 ```mermaid
 flowchart LR
@@ -176,6 +184,10 @@ flowchart LR
 
   N --> NA["Atmosphere"]
   NA --> NA1["Wavelength-resolved /<br/>MODTRAN extinction ⬚"]:::planned
+
+  N --> NTX["Transmit beam"]
+  NTX --> NTX1["Non-Gaussian beam types ⬚<br/>flat-top, higher-order · wire M²"]:::planned
+  NTX --> NTX2["Incoherent aperture diversity ⬚"]:::planned
 
   classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
 ```
