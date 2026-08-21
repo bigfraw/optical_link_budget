@@ -28,9 +28,6 @@ import numpy as np
 from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  Aperture, SMF, TipTilt, AO, uplink_budget, downlink_budget)
 
-warnings.simplefilter("ignore")   # budget.check() reports the same weak-fluctuation flags
-
-
 def main():
     wavelength_m = 1550e-9
 
@@ -40,11 +37,11 @@ def main():
     ground = Terminal(
         aperture_m=0.7,
         wavelength_m=wavelength_m,
-        pointing_jitter_rad=2e-6,
-        transmitter=Transmitter(waist_m=0.06, power_dbm=42.0,   # ~16 W launch
-                                divergence_rad=15e-6),          # deliberate divergence
+        pointing_jitter_rad=1e-6,
+        transmitter=Transmitter(waist_m=0.08, power_dbm=42.0,   # ~16 W launch
+                                divergence_rad=10e-6),          # deliberate divergence
         detector=SMF(sensitivity_dbm=-45.0),                    # coherent / fibre front end
-        compensation=[TipTilt(), AO(n_modes=60)],               # clean the wavefront for the fibre
+        compensation=[TipTilt()],               # clean the wavefront for the fibre
     )
 
     # --- 2. The satellite --------------------------------------------------
@@ -62,7 +59,7 @@ def main():
     channel = Channel(site=Site(cn2_ground=1.7e-14), altitude_m=600e3)
     uplink = Scenario(ground=ground, space=space, direction="uplink",
                       channel=channel)
-    geom = CircularOrbit(channel.altitude_m, elevation_deg=45.0)
+    geom = CircularOrbit(channel.altitude_m, elevation_deg=30.0)
 
     # The direction resolves the roles. Read them back to make the point:
     assert uplink.tx_terminal is ground and uplink.rx_terminal is space
