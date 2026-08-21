@@ -13,9 +13,11 @@ This package reuses proven physics kernels from a sibling repository,
 - Set the environment variable `MY_ANALYSIS_MODULES` to the location of
   `my_analysis_modules`, or place it at `D:\repos\my_analysis_modules` (the
   default path).
-- `fast-atmosphere` is optional. It supplies the Hufnagel-Valley HV57 Cn2
-  profile. Without it, pass an explicit `cn2_profile`, or use the built-in
-  `default_cn2_profile`, which uses `get_c2n`.
+- `fast-aosim` is optional (`pip install fast-aosim`). It supplies the
+  Hufnagel-Valley HV57 Cn2 profile, and the fidelity-1 single-mode-fibre modal
+  coupling (`smf_fidelity="fast"`). Without it, pass an explicit `cn2_profile`,
+  or use the built-in `default_cn2_profile` (which uses `get_c2n`), and use the
+  default `smf_fidelity="reciprocity"`.
 
 ## Install
 

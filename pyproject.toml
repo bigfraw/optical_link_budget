@@ -12,8 +12,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# FAST (Fast Atmospheric Scintillation Tool) supplies HV57 Cn2 profiles.
-turbulence = ["fast-atmosphere"]
+# FAST (fast-aosim) supplies HV57 Cn2 profiles (olb.turbulence) and the
+# fidelity-1 single-mode-fibre modal coupling (olb.models.coupling_fast).
+turbulence = ["fast-aosim"]
 
 [build-system]
 requires = ["setuptools>=61"]

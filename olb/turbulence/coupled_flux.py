@@ -140,7 +140,7 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
         except (ImportError, ModuleNotFoundError) as e:
             raise ImportError(
                 "the coupled-flux MC needs the `fast` package to build the "
-                "HV57 Cn2 profile. Run `pip install fast-atmosphere`, or pass an "
+                "HV57 Cn2 profile. Run `pip install fast-aosim`, or pass an "
                 "explicit cn2_profile to uplink_turbulence_term()."
             ) from e
 

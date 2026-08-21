@@ -46,7 +46,8 @@ from .downlink import downlink_scintillation_term
 
 
 def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
-                       n_samples=3000, cn2_profile=None, retro_loss_db=0.0):
+                       n_samples=3000, cn2_profile=None, retro_loss_db=0.0,
+                       smf_fidelity="reciprocity", fast_params=None):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 
@@ -156,7 +157,9 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     if rx is not None and rx.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
         from ..models.coupling import rx_coupling_term
-        down_terms.append(rx_coupling_term(down_scn, geometry, n_samples=n_samples))
+        down_terms.append(rx_coupling_term(down_scn, geometry, n_samples=n_samples,
+                                           smf_fidelity=smf_fidelity,
+                                           fast_params=fast_params))
     else:
         down_terms.append(downlink_scintillation_term(down_scn, geometry))
     for t in down_terms:

@@ -413,7 +413,7 @@ def _smf_reciprocity_term(scenario, geometry, *, hs, cn2_profile, n_samples):
 
 
 def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
-                     n_samples=2000):
+                     n_samples=2000, smf_fidelity="reciprocity", fast_params=None):
     '''
     Build the ONE receive-coupling Term of a downlink receive terminal.
 
@@ -438,7 +438,14 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
         cn2_profile : numpy.ndarray, optional
             Zenith Cn2(h) profile. Defaults to the site profile.
         n_samples : int
-            Monte Carlo draws for the reciprocity Strehl proxy (SMF, no AO).
+            Monte Carlo draws for the reciprocity Strehl proxy (SMF, no AO) and
+            for the FAST fidelity-1 term (its NITER).
+        smf_fidelity : str
+            The SMF coupling model. "reciprocity" (default) uses the Strehl proxy
+            for a no-AO fibre and the Dikmelik/Marechal model for an AO fibre.
+            "fast" uses the FAST fidelity-1 true modal overlap (needs fast-aosim).
+        fast_params : dict, optional
+            Extra FAST parameters, passed through when smf_fidelity="fast".
 
     Returns:
         Term
@@ -447,7 +454,7 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
     Raises:
         ValueError
             If rx_terminal is None or has no detector, or the detector type is
-            unknown.
+            unknown, or smf_fidelity is unknown.
     '''
     terminal = getattr(scenario, "rx_terminal", None)
     if terminal is None or terminal.detector is None:
@@ -463,6 +470,16 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
     if isinstance(detector, Aperture):
         return _aperture_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile)
     if isinstance(detector, SMF):
+        if smf_fidelity == "fast":
+            # Fidelity-1: the true LP01 modal overlap from FAST. Lazy import keeps
+            # the fast-aosim dependency optional.
+            from .coupling_fast import smf_fast_term
+            return smf_fast_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile,
+                                 n_samples=n_samples, fast_params=fast_params)
+        if smf_fidelity != "reciprocity":
+            raise ValueError(
+                f"unknown smf_fidelity {smf_fidelity!r}. Use 'reciprocity' or 'fast'."
+            )
         # No AO -> reciprocity Strehl proxy (carries the tip-tilt fade). AO
         # present -> extended-Marechal / Dikmelik coupling (fidelity-0 fade).
         has_ao = any(isinstance(c, AO) for c in terminal.compensation)
