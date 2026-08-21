@@ -28,16 +28,32 @@ pip install -e .
 
 ## Quickstart
 
+All hardware lives on a `Terminal`. A `Scenario` pairs two terminals (`ground`,
+`space`) with a `Channel` (the propagation channel: site plus orbit) and a
+`direction`. The direction resolves which terminal transmits and which receives.
+
 ```python
 import numpy as np
-from olb import Scenario, Link, Site, CircularOrbit, uplink_budget, retro_budget
+from olb import (Scenario, Channel, Site, CircularOrbit,
+                 Terminal, Transmitter, Aperture, uplink_budget)
 
-# Uplink budget over an analytic circular orbit.
-scenario = Scenario(
-    link=Link(tx_power_dbm=40.0, rx_sensitivity_dbm=-40.0, pointing_jitter_rad=2e-6),
-    altitude_m=600e3,
+# An uplink: a ground beam director launches to a satellite bucket receiver.
+# The launch power sits on the Transmitter, the sensitivity on the Detector;
+# the Budget reads them for the link margin.
+ground_tx = Terminal(
+    aperture_m=0.15, wavelength_m=1550e-9, pointing_jitter_rad=1e-6,
+    transmitter=Transmitter(waist_m=0.06, power_dbm=30.0),   # 1 W launch
 )
-budget = uplink_budget(scenario, CircularOrbit(600e3, 60.0))
+space_rx = Terminal(
+    aperture_m=0.05, wavelength_m=1550e-9,
+    detector=Aperture(sensitivity_dbm=-40.0),                # power-in-bucket
+)
+scenario = Scenario(
+    ground=ground_tx, space=space_rx, direction="uplink",
+    channel=Channel(site=Site(cn2_ground=1.7e-14), altitude_m=600e3),
+)
+
+budget = uplink_budget(scenario, CircularOrbit(600e3, elevation_deg=60.0))
 print(budget.to_frame())                 # itemised terms
 print(budget.assumptions_frame())        # model constraints per term
 print(budget.check())                    # flags a scenario that breaks an assumption
@@ -45,6 +61,10 @@ print(budget.check())                    # flags a scenario that breaks an assum
 mc = budget.monte_carlo(20000, rng=np.random.default_rng(0), availabilities=(0.99,))
 print(mc["margin_db"][0.99])             # 99 % link margin [dB]
 ```
+
+For a bistatic station (different transmit and receive apertures), a downlink
+into a single-mode fibre, and the retroreflected link, see the runnable
+examples in `examples/` (`build_a_link.py`, `retro_link.py`).
 
 ## Structure
 
