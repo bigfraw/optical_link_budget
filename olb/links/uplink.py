@@ -68,6 +68,11 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     wavelength = tx.wavelength_m
     hv57_A = scenario.channel.site.cn2_ground
     divergence_rad = tx.transmitter.divergence_rad
+    # Mechanical pointing jitter folds into the beam-wander displacement inside
+    # the coupled-flux MC, so this Term now carries BOTH the turbulence wander
+    # and the tracking jitter. uplink_budget therefore drops the standalone
+    # pointing-loss Term when turbulence is on (adding both double-counts it).
+    sigma_theta = tx.pointing_jitter_rad
 
     elev = np.atleast_1d(np.asarray(geometry.elevation_deg, dtype=float))
     ranges = np.atleast_1d(np.asarray(geometry.slant_range_m, dtype=float))
@@ -75,7 +80,8 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
 
     # Representative draw per elevation -> table mean + validity metadata.
     reps = [_flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
-                         n_samples, n_apertures, divergence_rad=divergence_rad)
+                         n_samples, n_apertures, divergence_rad=divergence_rad,
+                         sigma_theta_rad=sigma_theta)
             for e, r in zip(elev, ranges)]
     mean_db = np.array([-10 * np.log10(np.mean(rep["Is_summed"])) for rep in reps])
     sigma2_x = np.array([rep["sigma2_x_mean"] for rep in reps])
@@ -88,6 +94,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         validity="Rytov weak fluctuation: sigma2_x < 0.6 (WEAK_FLUCTUATION_LIMIT). "
                  "Divergence enters the beam broadening AND the scintillation "
                  "index (through the diverged receiver-plane Lambda and Theta). "
+                 "Mechanical pointing jitter folds into the beam-wander "
+                 "displacement, so this Term carries the tracking-jitter loss and "
+                 "fade too (no separate uplink pointing Term). "
                  "The Dios coupled-flux analysis assumes an untruncated Gaussian "
                  "launch beam, so it does not model a central obscuration on the "
                  "launch aperture.",
@@ -118,7 +127,8 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         np.random.seed(int(rng.integers(0, 2 ** 32 - 1)))
         cols = [-10 * np.log10(
                     _flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
-                                 n, n_apertures, divergence_rad=divergence_rad)["Is_summed"])
+                                 n, n_apertures, divergence_rad=divergence_rad,
+                                 sigma_theta_rad=sigma_theta)["Is_summed"])
                 for e, r in zip(elev, ranges)]   # one MC per elevation (expensive)
         return cols[0] if scalar else np.stack(cols, axis=1)
 
@@ -128,7 +138,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         mean_db=float(mean_db[0]) if scalar else mean_db,
         sampler=sampler,
         quantile=None,   # MC-only: no closed form -> budget must monte_carlo()
-        note="uplink beam wander + scintillation, coupled-flux Monte Carlo",
+        note="uplink beam wander + jitter + scintillation, coupled-flux Monte Carlo",
         meta={
             "weak_fluctuation_valid": bool(valid[0]) if scalar else valid,
             "sigma2_x": float(sigma2_x[0]) if scalar else sigma2_x,
@@ -146,11 +156,17 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
 def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
                   n_samples=3000, cn2_profile=None):
     '''
-    Assemble the uplink budget: geometric, atmospheric, pointing, turbulence.
+    Assemble the uplink budget: geometric, atmospheric, turbulence.
 
     Add the coupled-flux turbulence Term when `turbulence` is true. Build a
     default Cn2 profile when `cn2_profile` is None, so the budget runs without
     the `fast` package.
+
+    Pointing jitter is NOT a separate Term here. Mechanical tracking jitter and
+    turbulence beam wander share the same receiver-plane displacement, so the
+    turbulence Term carries both (see uplink_turbulence_term). A standalone
+    pointing-loss Term is added ONLY when `turbulence` is False, so the jitter is
+    never lost and never double-counted.
 
     Parameters:
         scenario : SpaceScenario
@@ -174,8 +190,12 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     terms = [
         geometric_loss_term(scenario, geometry),
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
-        pointing_loss_term(scenario, geometry),
     ]
+    # Pointing jitter folds into the coupled-flux turbulence Term (it shares the
+    # beam-wander displacement). So add the standalone pointing-loss Term ONLY
+    # when the turbulence Term is off; adding both would double-count the jitter.
+    if not turbulence:
+        terms.append(pointing_loss_term(scenario, geometry))
     # The transmit Gaussian-efficiency term is opt-in. It fires only when the
     # transmit terminal has a Transmitter and its launch aperture truncates the
     # beam by more than TX_TRUNCATION_MIN_DB. A wide aperture leaves the beam an
@@ -301,10 +321,31 @@ if __name__ == '__main__':
     budget_geom = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
     up = uplink_budget(budget_scn, budget_geom,
                        cn2_profile=default_cn2_profile(budget_scn.channel.site))
-    assert up.to_frame().shape[0] == 4, up.to_frame().shape
+    # With turbulence on there is NO separate pointing Term: geometric,
+    # atmospheric, turbulence. The jitter lives inside the turbulence Term.
+    assert up.to_frame().shape[0] == 3, up.to_frame().shape
+    assert not any(t.category == "pointing" for t in up.terms)
     up_mc = up.monte_carlo(2000, rng=np.random.default_rng(0), availabilities=(0.99,))
     up_margin = up_mc["margin_db"][0.99]
     assert np.isfinite(up_margin), up_margin
+
+    # Jitter is not lost: a larger tracking jitter deepens the turbulence Term's
+    # loss, and so costs budget margin, WITHOUT any standalone pointing Term.
+    calm_scn = _uplink(0.2, power=40, jitter=0.0, sensitivity=-40, ground_aperture=1.5)
+    up_calm = uplink_budget(calm_scn, budget_geom,
+                            cn2_profile=default_cn2_profile(calm_scn.channel.site))
+    jitt_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40, ground_aperture=1.5)
+    up_jitt = uplink_budget(jitt_scn, budget_geom,
+                            cn2_profile=default_cn2_profile(jitt_scn.channel.site))
+    turb_calm = next(t for t in up_calm.terms if t.category == "turbulence")
+    turb_jitt = next(t for t in up_jitt.terms if t.category == "turbulence")
+    assert np.isfinite(turb_jitt.mean_db) and np.isfinite(turb_calm.mean_db)
+    assert turb_jitt.mean_db > turb_calm.mean_db, (turb_jitt.mean_db, turb_calm.mean_db)
+
+    # With turbulence OFF the standalone pointing Term returns, so jitter is
+    # never silently dropped.
+    up_noturb = uplink_budget(budget_scn, budget_geom, turbulence=False)
+    assert any(t.category == "pointing" for t in up_noturb.terms)
 
     # A narrow launch aperture (0.15 m for a 0.2 m waist) truncates the beam, so
     # the transmit Gaussian-efficiency term fires.
@@ -312,7 +353,7 @@ if __name__ == '__main__':
                      ground_aperture=0.15, ground_obscuration=0.3)
     up_ap = uplink_budget(ap_scn, budget_geom,
                           cn2_profile=default_cn2_profile(ap_scn.channel.site))
-    assert up_ap.to_frame().shape[0] == 5, up_ap.to_frame().shape
+    assert up_ap.to_frame().shape[0] == 4, up_ap.to_frame().shape
     eff = next(t for t in up_ap.terms if t.category == "system")
     assert eff.mean_db > 0                       # truncation is a loss
     assert up_ap.total_loss_db() > up.total_loss_db()   # aperture truncation costs margin

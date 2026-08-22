@@ -107,8 +107,13 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     up_terms = [
         geometric_loss_term(up_scn, geometry),
         atmospheric_loss_term(up_scn, geometry, tau_zenith=tau),
-        pointing_loss_term(up_scn, geometry),
     ]
+    # Up-leg pointing jitter folds into the coupled-flux turbulence Term (it
+    # shares the beam-wander displacement), so add the standalone pointing Term
+    # only when the turbulence Term is off. Adding both double-counts the jitter.
+    # See olb.links.uplink.uplink_budget.
+    if not turbulence:
+        up_terms.append(pointing_loss_term(up_scn, geometry))
     # The launch aperture truncates the up-leg beam, exactly as uplink_budget
     # does. Opt-in: it fires only when the ground transmitter truncates the beam
     # by more than TX_TRUNCATION_MIN_DB. A bistatic ground reads its beam-director
@@ -206,9 +211,12 @@ if __name__ == '__main__':
     retro_geom = CircularOrbit(altitude_m=1500e3, elevation_deg=45.0)
 
     retro = retro_space_budget(retro_scn, retro_geom)
-    # 10 terms: the up-leg carries the opt-in launch-truncation term because the
-    # 0.15 m beam director truncates the 0.06 m waist beam.
-    assert retro.to_frame().shape[0] == 10, retro.to_frame().shape
+    # 9 terms: the up-leg carries the opt-in launch-truncation term because the
+    # 0.15 m beam director truncates the 0.06 m waist beam. With turbulence on
+    # there is NO standalone up-leg pointing Term (the jitter folds into the
+    # coupled-flux turbulence Term).
+    assert retro.to_frame().shape[0] == 9, retro.to_frame().shape
+    assert not any(t.category == "pointing" for t in retro.terms)
     names = [t.name for t in retro.terms]
     assert "uplink transmit Gaussian efficiency" in names, names
     # The truncation reads the director aperture (0.15 m), not the receive

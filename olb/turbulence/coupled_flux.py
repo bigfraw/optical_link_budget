@@ -108,7 +108,8 @@ def _scintillation_beam(w0, L, wavelength, divergence_rad):
 
 
 def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
-                 hv57_A, n_samples, n_apertures, divergence_rad=None):
+                 hv57_A, n_samples, n_apertures, divergence_rad=None,
+                 sigma_theta_rad=0.0):
     '''
     Run the coupled-flux MC for one elevation and rescale to the free-space
     baseline (see module docstring).
@@ -126,6 +127,11 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     Parameters:
         divergence_rad : float, optional
             Transmit far-field half-angle divergence [rad]. None = collimated.
+        sigma_theta_rad : float
+            Mechanical pointing (tracking) jitter, per-axis 1-sigma angle [rad].
+            It adds to the SAME receiver-plane displacement as the turbulence
+            beam wander, so it folds into the wander variance beta2 before the
+            per-sample offset is drawn (see below). 0.0 = perfect tracking.
 
     Returns:
         dict
@@ -163,6 +169,18 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     # w_free override -> waists broaden relative to the DIVERGED free-space beam.
     w_st = short_term_beam_waist(w0, L, Z0, k, r0s, w_free=w_free_div)
     beta2 = beam_wander_variance(L, cn2_slant, ws_div, hs)
+    # Mechanical pointing jitter shares the receiver-plane displacement with the
+    # turbulence beam wander, as an independent 2-D Gaussian offset. So sum the
+    # displacement variances here: the combined per-sample offset then feeds BOTH
+    # the Gaussian power falloff (on_axis_irradiance) AND the off-axis Dios
+    # scintillation (coupled_flux_sample). beta2 is the total 2-D variance
+    # <r^2>; a per-axis 1-sigma jitter angle sigma_theta gives a per-axis
+    # displacement sigma_r = sigma_theta*L, which adds 2*sigma_r^2 to the 2-D
+    # total. This is variance addition of independent offsets, not new physics,
+    # so no extra citation: the wander-offset mechanism itself is Dios (Applied
+    # Optics 43 (2004) 3866). This replaces a standalone pointing-loss term on
+    # the uplink; adding both would double-count the jitter displacement.
+    beta2 = beta2 + 2.0 * (sigma_theta_rad * L) ** 2
     w_lt = long_term_beam_waist(w_st, beta2)
 
     xis = np.zeros(n_samples)
@@ -281,6 +299,31 @@ if __name__ == '__main__':
     wL_c, Z0_c = _scintillation_beam(w0, range_m, lam, None)
     assert np.isclose(wL_c, gaussz(w0, range_m, lam))
     assert np.isclose(Z0_c, zR(w0, lam))
+
+    # Pointing jitter: it folds into the wander displacement, so a larger jitter
+    # widens the offset distribution -> a deeper mean loss AND a deeper fade,
+    # with no separate pointing term. Zero jitter reproduces the no-jitter run.
+    np.random.seed(2)
+    r_nojit = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14,
+                           8000, 1)
+    np.random.seed(2)
+    r_jit = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14,
+                         8000, 1, sigma_theta_rad=5e-6)
+    loss_nojit = -10 * np.log10(np.mean(r_nojit["Is_summed"]))
+    loss_jit = -10 * np.log10(np.mean(r_jit["Is_summed"]))
+    fade99_nojit = -10 * np.log10(np.percentile(r_nojit["Is_summed"], 1))
+    fade99_jit = -10 * np.log10(np.percentile(r_jit["Is_summed"], 1))
+    assert loss_jit > loss_nojit, (loss_jit, loss_nojit)
+    assert fade99_jit > fade99_nojit, (fade99_jit, fade99_nojit)
+    # Zero jitter is a no-op: same displacement variance -> same result.
+    np.random.seed(3)
+    r_a = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14, 2000, 1)
+    np.random.seed(3)
+    r_b = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14, 2000, 1,
+                       sigma_theta_rad=0.0)
+    assert np.allclose(r_a["Is_summed"], r_b["Is_summed"])
+    print(f"no jitter   -> loss {loss_nojit:.3f} dB, 99% fade {fade99_nojit:.3f} dB")
+    print(f"5 urad jit  -> loss {loss_jit:.3f} dB, 99% fade {fade99_jit:.3f} dB")
 
     print(f"collimated -> w_free={r_coll['w_diffraction_limited']:.2f} m, "
           f"turbulence loss {loss_coll:.3f} dB, sigma2_x={m_coll['sigma2_x_mean']:.4f}")

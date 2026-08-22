@@ -281,6 +281,13 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
+    # NOTE: the downlink keeps its standalone pointing Term (above) because it has
+    # no coupled-flux/Dios beam-wave machinery -- unlike the uplink, which folds
+    # jitter into the wander displacement. Nothing physical stops the downlink
+    # from using that machinery: the Dios derivations are NOT uplink/far-field
+    # specific, they are just generalised that way. If a Dios beam-wave downlink
+    # term is added, fold the jitter into r=beta there too and drop this pointing
+    # Term (as uplink_budget does). See memory dios-scintillation-convergence.
     terminal = getattr(scenario, "rx_terminal", None)
     if terminal is not None and terminal.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
