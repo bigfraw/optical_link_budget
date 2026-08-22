@@ -1,9 +1,9 @@
 # optical_link_budget (olb)
 
-Optical (laser) ground-to-space link budgets with atmospheric propagation, fade
+Optical (laser) link budgets with atmospheric propagation, fade
 statistics, and Monte Carlo. The package models uplink, downlink, and
-retroreflected links at optical wavelengths (for example 1550 nm) to a LEO
-satellite.
+retroreflected links (as well as terrestrial ones) at optical 
+wavelengths (for example 1550 nm).
 
 ## Dependency
 
