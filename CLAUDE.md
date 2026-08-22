@@ -46,9 +46,10 @@ downlink, and retroreflected links to a LEO satellite.
   `retro.py` is a backward-compatible alias that re-exports `retro_budget =
   retro_space_budget`. A short terrestrial retro link needs its own module.
   `terrestrial.py` (`terrestrial_budget`; horizontal ground-to-ground link;
-  the geometric, horizontal-extinction, and pointing Terms are exact, but
-  `terrestrial_scintillation_term` is a RESERVED SLOT that raises
-  NotImplementedError until the Andrews Gaussian-beam forms are added).
+  the geometric, horizontal-extinction, and pointing Terms are exact.
+  `terrestrial_scintillation_term` gives a real lognormal fade with three faces.
+  It uses the Dios on-axis Gaussian-beam scintillation index and the weak
+  aperture-averaging factor. `terrestrial_budget` turns it on by default).
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
@@ -82,22 +83,20 @@ downlink, and retroreflected links to a LEO satellite.
 
 ## Next task (ASAP)
 
-Add deliberate uplink beam divergence, the way `tn2_kepler` did it. Recast a
-diverged beam of aperture radius `w0` and far-field half-angle divergence
-`theta` as a Gaussian from a virtual waist behind the aperture:
+Generalise the Gaussian-beam Fried parameter past the collimated case. The
+single-path form `gaussian_fried_parameter` in
+`olb/turbulence/gaussian_fried.py` fixes the input curvature `Theta0 = 1`
+through the constant `COLLIMATED_THETA0`. So it holds only for a collimated
+beam. The profile form `gaussian_fried_parameter_profile` already accepts a
+phase-front radius of curvature `f0` and computes `Theta0 = 1 - L/f0`. But its
+default `f0 = inf` keeps the beam collimated, and the one call site (the
+terrestrial single-mode-fibre coupling in `olb/models/coupling.py`) does not
+pass `f0`.
 
-    w_v = lambda / (pi * theta)
-    d   = zR(w_v) * sqrt((w0/w_v)^2 - 1)      # virtual distance behind aperture
-    free-space radius at range z = gaussz(w_v, d + z)
-
-`theta` must be at least the diffraction limit `lambda/(pi*w0)`. Reference:
-`D:/misc code/tn2_kepler/fso_spot_size.py` (`virtual_waist`,
-`free_space_radius`, `spot_sizes`).
-
-Plan: add `divergence_rad` (half-angle) to `Link`; port `virtual_waist` and
-`free_space_radius` into `olb/turbulence/beam.py`; wire the diverged beam size
-into the geometric, pointing, and turbulence uplink terms. The shared
-`coupled_flux_montecarlo` has no divergence argument, but the lower-level shared
-functions accept a `w_free` override. Recommended: reimplement the short uplink
-Monte Carlo loop in olb by composing those lower-level functions with
-`free_space_radius`, without editing `my_analysis_modules`.
+Plan: add a curvature argument to `gaussian_fried_parameter`. Thread it through
+`output_beam_params`, the way the profile form already does. A diverged beam has
+`f0 < 0`, so `Theta0 > 1`. A focused beam has `0 < f0`, so `Theta0 < 1`. Then
+feed the diverged-beam curvature into the coupling call. So a deliberately
+diverged uplink beam also drives the Fried parameter. The package already
+recasts that beam through a virtual waist in `olb/beam.py` for the geometric and
+the scintillation Terms. See the flag in `docs/physics.md` section 5e.

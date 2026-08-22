@@ -103,7 +103,7 @@ flowchart LR
   D --> DB["bucket receive ✅"]:::done
   D --> DF["single-mode fibre ✅"]:::done
   L --> R["Retro · space ✅<br/>long slant"]:::done
-  L --> TH["Terrestrial ⬚<br/>horizontal path"]:::planned
+  L --> TH["Terrestrial ✅<br/>horizontal path"]:::done
   L --> RT["Retro · terrestrial ⬚<br/>short path"]:::planned
 
   classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
@@ -191,7 +191,6 @@ flowchart LR
   NT --> NT6["Temporal statistics side-step ⬚<br/>FAST TEMPORAL flag · frozen flow<br/>fade duration &amp; rate · applies to F1/F2"]:::planned
 
   N --> NC["Channels"]
-  NC --> NC1["Terrestrial horizontal path ⬚"]:::planned
   NC --> NC2["Short terrestrial retro module ⬚"]:::planned
 
   N --> NA["Atmosphere"]
