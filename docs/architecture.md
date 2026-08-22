@@ -1,0 +1,226 @@
+# Architecture of `olb` (optical_link_budget)
+
+This is a reference document. It explains how the `olb` package builds optical
+laser link budgets. The package models uplink, downlink, and retroreflected
+links to a LEO satellite, plus horizontal ground-to-ground links. It adds
+atmospheric propagation, fade statistics, and Monte Carlo.
+
+Read `CLAUDE.md` for the authoritative architecture rules. This document
+explains the design that the code carries.
+
+## 1. Layers and the one-way dependency
+
+The package has four layers. The data moves in one direction, from the inputs
+to the result:
+
+```
+pure data   ->   models      ->   links       ->   results
+(scenario)       (Terms from       (per-link         (Term, Budget)
+(terminal)        scenario)         assembly)
+```
+
+The turbulence physics sits under the models and the links:
+
+```
+turbulence/   <-   models/  and  links/
+```
+
+The dependency is one-way. The `turbulence/` package is pure physics. It
+imports only numpy, scipy, and [`_deps.py`](../olb/_deps.py). It does NOT
+import a scenario, a terminal, a Term, the models, or the links. See
+[`olb/turbulence/__init__.py`](../olb/turbulence/__init__.py).
+
+This rule keeps the physics reusable and testable. A turbulence function takes
+numeric arrays and returns numeric arrays. The models add the domain objects
+around that physics. So the same scintillation integral serves the downlink
+term and the terrestrial term, with no coupling between them.
+
+The turbulence files are:
+- [`profiles.py`](../olb/turbulence/profiles.py) — Cn2(h) profiles, `default_cn2_profile`, `DEFAULT_HS`.
+- [`scintillation.py`](../olb/turbulence/scintillation.py) — plane-wave scintillation index and the aperture-averaging integral.
+- [`gaussian_fried.py`](../olb/turbulence/gaussian_fried.py) — Gaussian-beam Fried parameter.
+- [`beam_scintillation.py`](../olb/turbulence/beam_scintillation.py) — Dios Gaussian-beam scintillation index, on axis and off axis.
+- [`ao.py`](../olb/turbulence/ao.py) — plane-wave r0 and the Noll residual wavefront variance.
+- [`coupled_flux.py`](../olb/turbulence/coupled_flux.py) — the coupled-flux Monte Carlo wrapper for the uplink.
+
+## 2. The pure-data layer
+
+The pure-data layer holds the inputs. It computes no physics. It is the values
+that you build, copy, change, and sweep.
+
+### The Terminal owns all hardware
+
+A [`Terminal`](../olb/terminal.py) is a plain dataclass. ALL terminal hardware
+lives on a Terminal. A Terminal holds:
+- `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`;
+- an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`, and an optional bistatic `aperture_m`);
+- an optional `Detector` (an `Aperture` bucket or an `SMF` fibre, each with a `sensitivity_dbm`);
+- an ordered `compensation` stack (`TipTilt`, `AO`).
+
+A terminal parameter can only be set through a Terminal. One Terminal serves
+both link directions. On an uplink the ground Terminal transmits. On a downlink
+the roles swap. The Terminal does not import the models. The data moves one way.
+
+### Two scenario families, one interface
+
+A link case is a [`SpaceScenario`](../olb/scenario.py) or a
+[`TerrestrialScenario`](../olb/scenario.py). Each family names its two
+terminals for what they physically are:
+
+| Family | Terminals | Channel |
+| --- | --- | --- |
+| `SpaceScenario` | `ground`, `space` | `Channel` (site + orbit `altitude_m`) |
+| `TerrestrialScenario` | `near`, `far` | `TerrestrialChannel` (site + path + Cn2) |
+
+Both families expose the SAME thin interface that the models read:
+
+```
+scenario.tx_terminal   the transmit terminal
+scenario.rx_terminal   the receive terminal
+scenario.channel       the propagation channel
+```
+
+So no model changes between the two families. A `SpaceScenario` resolves the
+two roles from its `direction`:
+
+| direction | tx_terminal | rx_terminal |
+| --- | --- | --- |
+| uplink | ground | space |
+| downlink | space | ground |
+| retro | ground | ground |
+
+A `TerrestrialScenario` is one-way along the path: tx = near, rx = far. It has
+NO `direction`, because "terrestrial" is a channel family, not a tx/rx
+geometry.
+
+### The channel holds no hardware
+
+A `Channel` or a `TerrestrialChannel` is the propagation medium. It holds a
+`Site` (location and atmosphere) and the path (orbit altitude, or horizontal
+path length and extinction and Cn2). A channel holds NO terminal hardware. The
+separation is strict: hardware on the Terminal, medium on the channel.
+
+## 3. The model layer
+
+The [`models/`](../olb/models) package holds direction-agnostic Term factories.
+Every public factory has the same shape, so the budget assembler calls them
+uniformly:
+
+```
+def <term>(scenario, geometry, **kwargs) -> Term
+```
+
+A model reads only the scenario and the geometry. It does not import another
+model or the budget. See [`olb/models/__init__.py`](../olb/models/__init__.py).
+
+The geometry gives two arrays: `elevation_deg` and `slant_range_m`. The backend
+is a `CircularOrbit` (analytic, vectorised, for sweeps and Monte Carlo) or a
+`TLEPass` (a real pass with skyfield). The backend does not change the models.
+
+The model files are direction-agnostic:
+- [`geometric.py`](../olb/models/geometric.py) — free-space spreading loss into a circular aperture.
+- [`transmittance.py`](../olb/models/transmittance.py) — slant airmass extinction AND horizontal Beer-Lambert extinction.
+- [`pointing.py`](../olb/models/pointing.py) — pointing-jitter fade.
+- [`gaussian_efficiency.py`](../olb/models/gaussian_efficiency.py) — transmit truncation loss at the launch aperture.
+- [`coupling.py`](../olb/models/coupling.py) and [`coupling_fast.py`](../olb/models/coupling_fast.py) — the downlink receive-coupling Term.
+
+The [`links/`](../olb/links) package assembles the per-link budget. It composes
+the model factories and the turbulence physics: [`uplink.py`](../olb/links/uplink.py),
+[`downlink.py`](../olb/links/downlink.py), [`retro_space.py`](../olb/links/retro_space.py),
+and [`terrestrial.py`](../olb/links/terrestrial.py).
+
+## 4. The result layer
+
+### A Term has three faces
+
+A [`Term`](../olb/results.py) is one line of the link budget. It gives three
+views of the same contribution. The choice of analytic or Monte Carlo is the
+choice of view:
+
+- `term.mean_db` — the deterministic value, or the expected loss. Loss is positive dB; gain is negative dB.
+- `term.quantile_db(p)` — the analytic loss at availability `p`, if a closed form exists. It returns `None` for a term that has only samples.
+- `term.sample_db(n, rng)` — `n` Monte Carlo draws of the contribution.
+
+A deterministic term, such as geometric loss, sets only `mean_db`. The budget
+broadcasts it into samples and uses a constant quantile. A statistical term
+with a closed form, such as the log-normal scintillation, gives a quantile and
+a sampler. A term with only a Monte Carlo model, such as the coupled-flux beam
+wander and scintillation, gives only a sampler, and `quantile_db` returns
+`None`. That `None` tells the budget to use Monte Carlo, not the analytic sum.
+
+### The Budget asks each Term for samples
+
+A [`Budget`](../olb/results.py) is a list of Terms with the optional top-line
+values (tx power, rx sensitivity). It reports four views:
+- `total_loss_db()` — the deterministic total.
+- `to_frame()` — the itemised table, one row per Term.
+- `fade_margin_db(p)` — the analytic fade, the sum of the per-term p-quantile losses.
+- `monte_carlo(n)` — the full joint distribution.
+
+Monte Carlo is NOT a separate path. The Budget asks each Term for samples, not
+means. `monte_carlo()` samples every term with the same rng and sums the
+samples per draw. This keeps the correlations inside a term (for example the
+coupled-flux wander and scintillation). Independent terms combine correctly by
+construction.
+
+## 5. The assumptions mechanism
+
+Each model is valid only in a regime. A model attaches an
+[`Assumptions`](../olb/assumptions.py) record to its Term. The record states
+three constraints:
+- `beam_type` — plane wave, spherical wave, or Gaussian beam.
+- `turbulence_regime` — weak, moderate, or strong, tied to a bound on the scintillation index.
+- `spectrum` — the turbulence spectrum, for example Kolmogorov with no inner or outer scale.
+
+A model adds a reason to `violations` when the scenario breaks an assumption.
+`Budget.check()` collects the violations and warns for each one. It also flags a
+budget that MIXES turbulence spectra, because the terms model the same
+atmosphere and must assume one spectrum. `Budget.assumptions_frame()` prints the
+regime table, one row per Term.
+
+### The fidelity-0 fade lock
+
+A Term can set `mean_only=True`. This marks a fidelity-0 model. Such a Term
+gives the expected loss of a quantity that really fluctuates (for example a
+fibre-coupling loss from the mean residual wavefront). It carries no
+trustworthy fade.
+
+A mean-only Term locks the whole budget out of fade results.
+`Budget.provides_fade` is False when any Term is mean-only.
+`fade_margin_db()` then raises a `ValueError`. `monte_carlo()` reports the mean,
+but it suppresses the fade and the margin and warns. This stops a misleading
+tail, where the budget would add the other terms' fades to a coupling mean. To
+get the coupling fade, use a statistical (fidelity-1) coupling model.
+
+## 6. The single seam to `my_analysis_modules`
+
+[`_deps.py`](../olb/_deps.py) is the ONLY module that imports the shared physics
+kernels from the sibling `my_analysis_modules` repo. Every other olb module
+imports its borrowed physics from here. The module sets the path once. Set the
+`MY_ANALYSIS_MODULES` environment variable, or place that repo at
+`D:\repos\my_analysis_modules`.
+
+`_deps.py` re-exports the exact symbols that olb borrows: the Gaussian-beam
+helpers (`gaussz`, `zR`), the dB conversions, the satellite geometry, and the
+coupled-flux kernels. If any of these move, this one import breaks. That is a
+deliberate single point of failure. The `fast` package (FAST fibre coupling) is
+an optional dependency that the coupling model imports lazily.
+
+## Data-flow diagram
+
+```mermaid
+flowchart LR
+    S[Scenario<br/>tx_terminal / rx_terminal / channel] --> M
+    G[Geometry<br/>elevation, slant range] --> M
+    M[Model factories<br/>f scenario, geometry -> Term] --> T[Terms<br/>mean_db / quantile / sampler]
+    T --> B[Budget]
+    B --> TAB[Itemised table<br/>total_loss_db]
+    B --> FADE[Analytic fade<br/>fade_margin_db]
+    B --> MC[Monte Carlo<br/>joint distribution]
+    TURB[turbulence/<br/>pure physics] -.-> M
+```
+
+The scenario and the geometry feed the model factories. The factories return
+Terms. The Budget collects the Terms. It reports the table, the analytic fade,
+or the Monte Carlo. The turbulence physics feeds the model factories, but it
+never depends on them.
