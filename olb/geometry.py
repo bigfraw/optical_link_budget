@@ -57,6 +57,32 @@ class CircularOrbit:
         return self._pass.apparent_slew_rate()
 
 
+class HorizontalPath:
+    '''
+    Horizontal (terrestrial) path geometry: a constant range, no elevation.
+
+    A terrestrial link runs ground-to-ground along a horizontal path. The range
+    is the path length and it does not change with any elevation angle. So this
+    geometry exposes only slant_range_m; it has no elevation_deg. The
+    range-only models (geometric spreading, pointing) read slant_range_m and
+    work unchanged. The horizontal extinction and scintillation terms read the
+    path length and the constant Cn2 from the TerrestrialChannel, not from an
+    elevation, so they do not need an elevation here.
+    '''
+
+    def __init__(self, path_length_m):
+        '''
+        Parameters:
+            path_length_m : float or array
+                Horizontal path length L [m]. Use an array to sweep the range.
+        '''
+        self.path_length_m = np.asarray(path_length_m, dtype=float)
+
+    @property
+    def slant_range_m(self):
+        return self.path_length_m
+
+
 class TLEPass:
     '''A real satellite pass from a TLE, propagated with skyfield.'''
 

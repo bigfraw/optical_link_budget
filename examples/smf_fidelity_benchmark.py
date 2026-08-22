@@ -23,7 +23,7 @@ Run from the repo root:
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
+from olb import (SpaceScenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  SMF)
 from olb.models.coupling import rx_coupling_term
 
@@ -36,7 +36,7 @@ def main():
                       detector=SMF(sensitivity_dbm=-110.0))
     space = Terminal(aperture_m=0.08, wavelength_m=wavelength_m,
                      transmitter=Transmitter(waist_m=0.05, power_dbm=30.0))
-    scenario = Scenario(ground=ground, space=space, direction="downlink",
+    scenario = SpaceScenario(ground=ground, space=space, direction="downlink",
                         channel=Channel(site=Site(cn2_ground=1.7e-14),
                                         altitude_m=1500e3))
 

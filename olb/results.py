@@ -42,6 +42,7 @@ class Term:
     note: str = ""
     meta: dict = field(default_factory=dict)
     assumptions: Optional[Assumptions] = None   # the regime the model is valid in
+    mean_only: bool = False   # fidelity-0: models only E[loss] of a fluctuating quantity, no fade
 
     @property
     def stochastic(self) -> bool:
@@ -90,6 +91,33 @@ class Budget:
         '''Append a Term and return self (chainable).'''
         self.terms.append(term)
         return self
+
+    # --- fidelity -----------------------------------------------------------
+
+    def mean_only_terms(self):
+        '''
+        Return the Terms that model only a mean (fidelity-0, no fade).
+
+        A mean-only Term gives the expected loss of a quantity that really
+        fluctuates (for example a fibre-coupling loss computed from the mean
+        residual wavefront). It is NOT the same as a deterministic Term such as
+        geometric spreading, whose mean IS its whole distribution. A mean-only
+        Term therefore has no trustworthy fade, and it locks the whole budget to
+        fidelity 0.
+        '''
+        return [t for t in self.terms if t.mean_only]
+
+    @property
+    def provides_fade(self) -> bool:
+        '''
+        False when any Term is mean-only, so a budget fade would mislead.
+
+        A fade margin (or a Monte Carlo fade) adds the fade of every Term. When
+        one Term is a mean-only fidelity-0 approximation, its fade is missing, so
+        the total tail is understated. In that case the budget reports the mean
+        only and refuses the fade.
+        '''
+        return not any(t.mean_only for t in self.terms)
 
     # --- deterministic view -------------------------------------------------
 
@@ -197,9 +225,23 @@ class Budget:
 
         Raises:
             ValueError
+                If any term is mean-only (fidelity-0): the budget then has no
+                trustworthy fade, so it refuses rather than return a misleading
+                number. Read total_loss_db() for the mean.
+            ValueError
                 If any term is Monte-Carlo-only (no closed-form quantile).
                 Evaluate those terms with monte_carlo().
         '''
+        mean_only = self.mean_only_terms()
+        if mean_only:
+            names = ", ".join(repr(t.name) for t in mean_only)
+            raise ValueError(
+                f"Budget has mean-only (fidelity-0) term(s) {names}: they model "
+                "only the expected loss, not the fade. A fade margin would add the "
+                "other terms' fades to a fibre-coupling MEAN and misrepresent the "
+                "tail. Read total_loss_db() for the mean loss, or use a statistical "
+                "(fidelity-1) coupling model to get the coupling fade."
+            )
         total = 0.0
         for t in self.terms:
             q = t.quantile_db(availability)
@@ -242,14 +284,27 @@ class Budget:
         samples = sum(t.sample_db(n, rng) for t in self.terms)
         samples = np.asarray(samples)
 
-        fade = {a: np.percentile(samples, a * 100.0, axis=0)
-                for a in availabilities}
+        # A mean-only (fidelity-0) term broadcasts a constant instead of a fade,
+        # so the joint tail is understated. Report the mean, but refuse the fade
+        # and the fade-based margin rather than show a misleading number.
+        provides_fade = self.provides_fade
+        if provides_fade:
+            fade = {a: np.percentile(samples, a * 100.0, axis=0)
+                    for a in availabilities}
+        else:
+            names = ", ".join(repr(t.name) for t in self.mean_only_terms())
+            warnings.warn(
+                f"budget has mean-only (fidelity-0) term(s) {names}; the fade and "
+                "the fade margin are suppressed. Only the mean is reported. Use a "
+                "statistical (fidelity-1) coupling model for the fade."
+            )
+            fade = None
 
         received = None
         margin = None
         if self.tx_power_dbm is not None:
             received = self.tx_power_dbm - samples
-            if self.rx_sensitivity_dbm is not None:
+            if self.rx_sensitivity_dbm is not None and fade is not None:
                 margin = {a: (self.tx_power_dbm - fade[a]) - self.rx_sensitivity_dbm
                           for a in availabilities}
 
@@ -257,6 +312,7 @@ class Budget:
             "total_loss_samples": samples,
             "mean_loss_db": samples.mean(axis=0),
             "fade_db": fade,
+            "fade_available": provides_fade,
             "received_dbm": received,
             "margin_db": margin,
         }

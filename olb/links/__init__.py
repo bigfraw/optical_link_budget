@@ -10,9 +10,11 @@ from .uplink import uplink_turbulence_term, uplink_budget
 from .downlink import downlink_scintillation_term, downlink_budget
 from .retro_space import retro_space_budget
 from .retro import retro_budget   # backward-compatible alias for retro_space_budget
+from .terrestrial import terrestrial_scintillation_term, terrestrial_budget
 
 __all__ = [
     "uplink_turbulence_term", "uplink_budget",
     "downlink_scintillation_term", "downlink_budget",
     "retro_space_budget", "retro_budget",
+    "terrestrial_scintillation_term", "terrestrial_budget",
 ]

@@ -28,13 +28,16 @@ pip install -e .
 
 ## Quickstart
 
-All hardware lives on a `Terminal`. A `Scenario` pairs two terminals (`ground`,
-`space`) with a `Channel` (the propagation channel: site plus orbit) and a
-`direction`. The direction resolves which terminal transmits and which receives.
+All hardware lives on a `Terminal`. A `SpaceScenario` pairs a `ground` and a
+`space` terminal with a `Channel` (site plus orbit) and a `direction`; the
+direction resolves which terminal transmits and which receives. A horizontal
+ground-to-ground link is a `TerrestrialScenario` (a `near` and a `far` terminal
+with a `TerrestrialChannel`) instead. Both expose the same tx/rx interface, so
+the models are shared.
 
 ```python
 import numpy as np
-from olb import (Scenario, Channel, Site, CircularOrbit,
+from olb import (SpaceScenario, Channel, Site, CircularOrbit,
                  Terminal, Transmitter, Aperture, uplink_budget)
 
 # An uplink: a ground beam director launches to a satellite bucket receiver.
@@ -48,7 +51,7 @@ space_rx = Terminal(
     aperture_m=0.05, wavelength_m=1550e-9,
     detector=Aperture(sensitivity_dbm=-40.0),                # power-in-bucket
 )
-scenario = Scenario(
+scenario = SpaceScenario(
     ground=ground_tx, space=space_rx, direction="uplink",
     channel=Channel(site=Site(cn2_ground=1.7e-14), altitude_m=600e3),
 )
@@ -63,19 +66,20 @@ print(mc["margin_db"][0.99])             # 99 % link margin [dB]
 ```
 
 For a bistatic station (different transmit and receive apertures), a downlink
-into a single-mode fibre, and the retroreflected link, see the runnable
-examples in `examples/` (`build_a_link.py`, `retro_link.py`).
+into a single-mode fibre, the retroreflected link, and a terrestrial
+horizontal-path link, see the runnable examples in `examples/`
+(`build_a_link.py`, `retro_link.py`, `terrestrial_link.py`).
 
 ## Structure
 
 The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
 
-- `olb/turbulence/` — pure physics (no Scenario, no Term): Cn2 profiles,
+- `olb/turbulence/` — pure physics (no scenario, no Term): Cn2 profiles,
   scintillation indices, aperture averaging, coupled-flux Monte Carlo.
 - `olb/models/` — direction-agnostic Term factories: geometric spreading,
-  atmospheric extinction, pointing jitter.
+  atmospheric extinction (slant and horizontal), pointing jitter.
 - `olb/links/` — per-direction Terms and budget assembly: `uplink_budget`,
-  `downlink_budget`, `retro_budget`.
+  `downlink_budget`, `retro_budget`, `terrestrial_budget`.
 - `olb/results.py` — `Term` (mean / analytic quantile / sampler) and `Budget`.
   Monte Carlo is not a separate path. The Budget asks each Term for samples.
 - `olb/assumptions.py` — the model constraints (beam type, turbulence regime,

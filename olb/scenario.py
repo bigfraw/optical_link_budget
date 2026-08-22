@@ -1,26 +1,38 @@
 '''
-Scenario: the pure-data description of a link case.
+Scenario families: the pure-data description of a link case.
 
 This module does not compute values. These dataclasses hold the inputs that the
 models read. A "case" is a value that you build, copy, change, and sweep. The
-models read a Scenario and a geometry and return Terms. The Scenario does not
+models read a scenario and a geometry and return Terms. The scenario does not
 import the models. The data moves in one direction, from the inputs to the
 models.
 
-Data model: all terminal hardware lives on a Terminal (see olb.terminal). A
-Scenario holds two terminals, `ground` and `space`, a `Channel` (the propagation
-channel), and the link `direction`. The channel holds no hardware.
+Two scenario families, one contract. A link is either a SPACE link (a ground
+station and a satellite) or a TERRESTRIAL link (two ground stations on a
+horizontal path). Each family names its two terminals for what they physically
+are, so the field names never lie:
 
-The models do not read `ground` or `space` directly. They read the resolved
-roles `tx_terminal` and `rx_terminal`, which the `direction` sets:
+    SpaceScenario        ground, space   + Channel (site + orbit altitude)
+    TerrestrialScenario  near,   far     + TerrestrialChannel (site + path)
+
+Both families expose the SAME thin interface that the models read:
+
+    scenario.tx_terminal   the transmit terminal
+    scenario.rx_terminal   the receive terminal
+    scenario.channel       the propagation channel
+
+So no model changes between the two families. A SpaceScenario resolves the two
+roles from its `direction`:
 
     direction   tx_terminal   rx_terminal
     uplink      ground        space
     downlink    space         ground
     retro       ground        ground
 
-So one Terminal serves both link directions, and a terminal parameter can only
-be set through a Terminal.
+A TerrestrialScenario is one-way along the path: tx = near (the local end),
+rx = far (the remote end). It has no `direction`, because "terrestrial" is a
+channel family, not a tx/rx geometry. All terminal hardware lives on a Terminal
+(see olb.terminal); a channel holds no hardware.
 '''
 
 from dataclasses import dataclass, field
@@ -45,10 +57,10 @@ class Site:
 @dataclass
 class Channel:
     '''
-    The propagation channel: the ground site plus the satellite orbit.
+    A space propagation channel: the ground site plus the satellite orbit.
 
-    The channel holds no terminal hardware. It is the intended seam for a later
-    terrestrial (horizontal-path) channel. Do not build that variant now.
+    The channel holds no terminal hardware. The space links read `altitude_m`
+    for the analytic orbit geometry and build a Cn2(h) profile from the site.
 
     Parameters:
         site : Site
@@ -61,8 +73,39 @@ class Channel:
 
 
 @dataclass
-class Scenario:
-    '''A full link case: two terminals + a Channel + direction.'''
+class TerrestrialChannel:
+    '''
+    A horizontal (terrestrial) propagation channel: a ground-to-ground path.
+
+    The terrestrial counterpart of Channel. It holds no terminal hardware. The
+    path is horizontal, so there is no orbit altitude and no elevation angle.
+    Turbulence along a horizontal path is roughly uniform, so a single scalar
+    Cn2 describes it. The extinction is a plain Beer-Lambert loss over the path,
+    quoted directly as a dB-per-km coefficient (weather- and visibility-
+    dependent; the user sets it per site).
+
+    Parameters:
+        site : Site
+            The ground atmosphere along the path (the medium).
+        path_length_m : float
+            Horizontal path length L [m] for the terrestrial link.
+        attenuation_db_per_km : float
+            Clear-air / haze extinction coefficient [dB/km]. The Beer-Lambert
+            loss is attenuation_db_per_km * (L / 1000).
+        cn2 : float
+            Constant refractive-index structure parameter Cn2 [m^-2/3] along the
+            path. A single value, because a horizontal path sees ~uniform
+            turbulence. Read by the (pending) terrestrial scintillation term.
+    '''
+    site: Site = field(default_factory=Site)
+    path_length_m: float = 1e3
+    attenuation_db_per_km: float = 0.5
+    cn2: float = 1e-14
+
+
+@dataclass
+class SpaceScenario:
+    '''A space link case: a ground terminal + a space terminal + direction.'''
     ground: Terminal
     space: Terminal
     direction: Direction = "uplink"
@@ -77,7 +120,44 @@ class Scenario:
     @property
     def rx_terminal(self) -> Terminal:
         '''The receive terminal for the link direction (see the module docstring).'''
-        return self.space if self.direction == "uplink" else self.ground
+        return self.ground if self.direction in ("downlink", "retro") else self.space
+
+
+@dataclass
+class TerrestrialScenario:
+    '''
+    A terrestrial (horizontal-path) link case: a near terminal + a far terminal.
+
+    Both ends are on the ground, so the terminals are named for the path ends,
+    not ground/space. The link is one-way: tx = near (the local end), rx = far
+    (the remote end). There is no `direction`; "terrestrial" is the channel
+    family. The models read tx_terminal / rx_terminal / channel, exactly as for
+    a SpaceScenario.
+
+    Parameters:
+        near : Terminal
+            The local (transmit) end of the path.
+        far : Terminal
+            The remote (receive) end of the path.
+        channel : TerrestrialChannel
+            The horizontal propagation channel (path length, attenuation, Cn2).
+        availability_target : float
+            Target link availability (0-1).
+    '''
+    near: Terminal
+    far: Terminal
+    channel: TerrestrialChannel = field(default_factory=TerrestrialChannel)
+    availability_target: float = 0.99
+
+    @property
+    def tx_terminal(self) -> Terminal:
+        '''The transmit terminal: the near (local) end.'''
+        return self.near
+
+    @property
+    def rx_terminal(self) -> Terminal:
+        '''The receive terminal: the far (remote) end.'''
+        return self.far
 
 
 if __name__ == '__main__':
@@ -86,16 +166,35 @@ if __name__ == '__main__':
     ground = Terminal(aperture_m=0.7, transmitter=Transmitter(waist_m=0.1))
     space = Terminal(aperture_m=0.05, detector=Aperture())
 
-    up = Scenario(ground=ground, space=space, direction="uplink")
+    # --- space family -------------------------------------------------------
+    up = SpaceScenario(ground=ground, space=space, direction="uplink")
     assert up.tx_terminal is ground and up.rx_terminal is space
 
-    down = Scenario(ground=ground, space=space, direction="downlink")
+    down = SpaceScenario(ground=ground, space=space, direction="downlink")
     assert down.tx_terminal is space and down.rx_terminal is ground
 
-    retro = Scenario(ground=ground, space=space, direction="retro")
+    retro = SpaceScenario(ground=ground, space=space, direction="retro")
     assert retro.tx_terminal is ground and retro.rx_terminal is ground
 
     assert up.channel.altitude_m == 600e3 and up.availability_target == 0.99
     assert up.channel.site.cn2_ground == 1.7e-14
-    print("Scenario:", up)
+
+    # --- terrestrial family -------------------------------------------------
+    near = Terminal(aperture_m=0.1, transmitter=Transmitter(waist_m=0.02))
+    far = Terminal(aperture_m=0.1, detector=Aperture())
+    terr = TerrestrialScenario(near=near, far=far,
+                               channel=TerrestrialChannel(path_length_m=5e3,
+                                                          attenuation_db_per_km=0.5,
+                                                          cn2=1e-14))
+    assert terr.tx_terminal is near and terr.rx_terminal is far
+    assert terr.channel.path_length_m == 5e3 and terr.channel.cn2 == 1e-14
+    assert terr.channel.attenuation_db_per_km == 0.5
+    # No direction on a terrestrial scenario; both families share the interface.
+    assert not hasattr(terr, "direction")
+    for scn in (up, terr):
+        assert isinstance(scn.tx_terminal, Terminal)
+        assert isinstance(scn.rx_terminal, Terminal)
+
+    print("SpaceScenario:", up)
+    print("TerrestrialScenario:", terr)
     print("self-check passed")

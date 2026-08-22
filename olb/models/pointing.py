@@ -56,14 +56,14 @@ def pointing_loss_mean_db(range_m, w0, sigma_theta_rad, wavelength=1550e-9,
 
 def pointing_loss_term(scenario, geometry):
     '''
-    Pointing-jitter fade Term for a Scenario over a geometry.
+    Pointing-jitter fade Term for a scenario over a geometry.
 
     For zero jitter the term is deterministic 0 dB. For nonzero jitter the loss
     has an exponential distribution, so the Term gives all three views (mean,
     quantile, sampler).
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario or TerrestrialScenario
             Reads the transmit terminal (waist, divergence, wavelength,
             pointing_jitter_rad) and the receive terminal (aperture). See
             olb.scenario.
@@ -118,14 +118,14 @@ def pointing_loss_term(scenario, geometry):
 
 if __name__ == '__main__':
     from ..geometry import CircularOrbit
-    from ..scenario import Scenario
+    from ..scenario import SpaceScenario
     from ..terminal import Terminal, Transmitter
 
     geom = CircularOrbit(altitude_m=550e3, elevation_deg=[30, 60, 90])
 
     def _uplink(tx_waist, jitter, rx_aperture=0.08, wavelength=1550e-9):
-        '''Build an uplink Scenario: tx=ground, rx=space.'''
-        return Scenario(
+        '''Build an uplink SpaceScenario: tx=ground, rx=space.'''
+        return SpaceScenario(
             ground=Terminal(aperture_m=0.3, wavelength_m=wavelength,
                             pointing_jitter_rad=jitter,
                             transmitter=Transmitter(waist_m=tx_waist)),

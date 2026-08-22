@@ -26,7 +26,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from olb import (Scenario, Site, Channel, CircularOrbit, uplink_budget,
+from olb import (SpaceScenario, Site, Channel, CircularOrbit, uplink_budget,
                  Terminal, Transmitter, Aperture)
 
 # The weak-fluctuation guard warns at low elevation. budget.check() reports the
@@ -66,7 +66,7 @@ def main():
     for label, divergence in cases:
         g = replace(ground,
                     transmitter=replace(ground.transmitter, divergence_rad=divergence))
-        scn = Scenario(ground=g, space=space, direction="uplink",
+        scn = SpaceScenario(ground=g, space=space, direction="uplink",
                        channel=Channel(site=site, altitude_m=altitude_m))
         budget = uplink_budget(scn, geom, n_samples=4000)
 

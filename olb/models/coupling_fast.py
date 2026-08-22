@@ -98,7 +98,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     Fidelity-1 SMF receive-coupling Term for a downlink, computed by FAST.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario or TerrestrialScenario
             The downlink case. Reads rx_terminal (aperture, obscuration,
             wavelength, compensation), the site (Cn2, wind), and the orbit.
         geometry : CircularOrbit or TLEPass
@@ -288,7 +288,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
 if __name__ == '__main__':
     import warnings
 
-    from ..scenario import Scenario, Channel, Site
+    from ..scenario import SpaceScenario, Channel, Site
     from ..geometry import CircularOrbit
     from ..terminal import Terminal, Transmitter, SMF, TipTilt, AO
 
@@ -302,7 +302,7 @@ if __name__ == '__main__':
     lam = 1550e-9
 
     def _downlink(ground):
-        return Scenario(
+        return SpaceScenario(
             ground=ground,
             space=Terminal(aperture_m=0.05, wavelength_m=lam,
                            transmitter=Transmitter(waist_m=0.035)),

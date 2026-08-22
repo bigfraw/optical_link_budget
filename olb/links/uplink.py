@@ -40,7 +40,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     at construction, so the budget table still has a value.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario
             Reads the transmit terminal (waist w0, divergence, wavelength) and
             site.cn2_ground (passed as the HV57 ground scale hv57_A).
         geometry : CircularOrbit or TLEPass
@@ -153,7 +153,7 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     the `fast` package.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario
             The link case.
         geometry : CircularOrbit or TLEPass
             The link geometry.
@@ -194,16 +194,16 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Channel
+    from ..scenario import SpaceScenario, Channel
     from ..geometry import CircularOrbit
     from ..terminal import Terminal, Transmitter, Aperture
 
     def _uplink(w0, *, divergence=None, power=None, jitter=0.0,
                 ground_aperture=0.5, ground_obscuration=0.0,
                 space_aperture=0.05, sensitivity=None):
-        '''Build an uplink Scenario: tx=ground, rx=space (satellite).'''
+        '''Build an uplink SpaceScenario: tx=ground, rx=space (satellite).'''
         detector = None if sensitivity is None else Aperture(sensitivity_dbm=sensitivity)
-        return Scenario(
+        return SpaceScenario(
             ground=Terminal(aperture_m=ground_aperture, obscuration_ratio=ground_obscuration,
                             wavelength_m=1550e-9, pointing_jitter_rad=jitter,
                             transmitter=Transmitter(waist_m=w0, power_dbm=power,

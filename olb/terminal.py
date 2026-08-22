@@ -13,8 +13,8 @@ moves in one direction, from the inputs to the models.
 
 One Terminal serves both link directions. On an uplink the ground Terminal
 transmits and the space Terminal receives. On a downlink the roles swap. The
-Scenario resolves which Terminal transmits and which receives from the link
-direction. See olb.scenario.
+scenario resolves which Terminal transmits and which receives (a SpaceScenario
+from its direction; a TerrestrialScenario from near/far). See olb.scenario.
 
 Approach A: the Compensation stack and the Detector are one physical chain. The
 residual wavefront that the Compensation leaves sets the coupling into the

@@ -54,12 +54,13 @@ Sources:
 import numpy as np
 
 from ..results import Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE,
+from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, BEAM_GAUSSIAN,
                            REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..terminal import Aperture, SMF
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.ao import (plane_wave_fried_parameter, apply_compensation,
                             NOLL_PISTON)
+from ..turbulence.gaussian_fried import gaussian_fried_parameter_profile
 from ..links.downlink import downlink_scintillation_term
 
 # Residual-variance threshold [rad^2] that selects the SMF coupling limit. Below
@@ -231,6 +232,7 @@ def _smf_mean_term(scenario, geometry, *, hs, cn2_profile):
             "n_comp_modes": residual.n_modes,
         },
         assumptions=assumptions,
+        mean_only=True,     # fidelity-0: expected coupling loss, no fade
     )
 
 
@@ -252,7 +254,7 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
       _smf_mean_term.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario or TerrestrialScenario
             Reads rx_terminal, link.wavelength_m, and the site Cn2 profile.
         geometry : CircularOrbit or TLEPass
             Reads elevation_deg. A scalar elevation gives a scalar Term.
@@ -308,10 +310,138 @@ def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
     )
 
 
+def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64):
+    '''
+    Fidelity-0 single-mode-fibre coupling Term for a terrestrial link.
+
+    Compute the MEAN fibre-coupling loss of the received Gaussian beam at the far
+    aperture. Get r0 from the horizontal Gaussian-beam Fried parameter (weak
+    turbulence). Get the residual phase variance from the compensation stack
+    (tip-tilt, AO). Convert it to the coupling efficiency eta, then to the mean
+    coupling loss -10*log10(eta). The Term is MEAN-ONLY: it has no fade, so it
+    locks the budget to fidelity 0.
+
+    IMPORTANT (effective-r0 weak-turbulence approximation, well flagged): the Noll
+    residual and the Dikmelik-Davidson coupling are PLANE-WAVE, Kolmogorov,
+    phase-only forms. This Term evaluates them at the GAUSSIAN-beam r0. That
+    substitution holds ONLY in weak turbulence, where the wavefront is
+    phase-dominated. It ignores the beam-wave amplitude scintillation, the beam
+    wander, and the near-field beam curvature that a finite horizontal beam
+    carries. For those a fidelity-2 split-step beam-propagation model is needed
+    (FAST does not model a near-field finite beam). See the Term assumptions.
+
+    Parameters:
+        scenario : TerrestrialScenario
+            tx = near (its Transmitter waist launches the beam); rx = far (its
+            SMF detector, aperture, obscuration, and compensation stack).
+        geometry : HorizontalPath
+            Unused here (path length and Cn2 come from the channel). Kept for the
+            f(scenario, geometry) -> Term signature.
+        n_grid : int
+            Points on the constant-Cn2 path grid for the r0 integral.
+
+    Returns:
+        Term
+            name="receive coupling (SMF)", category="coupling", mean_only=True.
+    '''
+    tx = scenario.tx_terminal
+    rx = scenario.rx_terminal
+    if tx.transmitter is None:
+        raise ValueError(
+            "terrestrial SMF coupling needs a launch beam: set the near terminal "
+            "transmitter = Transmitter(waist_m=...)."
+        )
+    detector = rx.detector
+    if not isinstance(detector, SMF):
+        raise ValueError(
+            "terrestrial_smf_coupling_term needs an SMF detector on the far "
+            "terminal. Set far = Terminal(..., detector=SMF())."
+        )
+    w0 = tx.transmitter.waist_m
+    D = rx.aperture_m
+    wavelength = rx.wavelength_m
+    L = float(scenario.channel.path_length_m)
+    cn2 = float(scenario.channel.cn2)
+
+    # Horizontal Gaussian-beam Fried parameter over the constant-Cn2 path.
+    hs = np.linspace(0.0, L, int(n_grid))
+    cn2_profile = np.full_like(hs, cn2)
+    r0 = gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
+                                          path='terrestrial')
+
+    residual = apply_compensation(rx.compensation, D, r0)
+    sigma2_res = residual.variance
+    eta = _smf_coupling_efficiency(sigma2_res, detector.eta_max)
+    coupling_loss = -10.0 * np.log10(eta)
+    dr0_eff = _effective_dr0(sigma2_res)
+
+    assumptions = Assumptions(
+        beam_type=BEAM_GAUSSIAN,
+        turbulence_regime=REGIME_WEAK,
+        spectrum=SPECTRUM_KOLMOGOROV,
+        validity="Fidelity-0 MEAN-ONLY single-mode-fibre coupling for a horizontal "
+                 "Gaussian beam. eta comes from the residual phase variance "
+                 "(extended Marechal for a small residual, Dikmelik-Davidson "
+                 "uncorrected coupling for a large one), evaluated at the "
+                 "horizontal Gaussian-beam r0. This Term is DETERMINISTIC and "
+                 "models NO fade.",
+    )
+    assumptions.flag(
+        "Mean-only SMF coupling: this Term is the expected coupling loss and models "
+        "NO fade (no sampler, no quantile). It locks the budget to fidelity 0, so "
+        "no budget fade margin is reported."
+    )
+    assumptions.flag(
+        "Effective-r0 weak-turbulence approximation: the Noll residual and the "
+        "Dikmelik-Davidson coupling are plane-wave, Kolmogorov, phase-only forms "
+        "evaluated at the Gaussian-beam r0. Valid only in weak turbulence; it "
+        "ignores beam-wave amplitude scintillation, beam wander, and near-field "
+        "curvature. A fidelity-2 split-step beam-propagation model is needed for "
+        "those."
+    )
+    if rx.obscuration_ratio > 0.0:
+        assumptions.flag(
+            f"The far aperture has a central obscuration "
+            f"(ratio={rx.obscuration_ratio:.3f}); the Dikmelik-Davidson coupling "
+            "curve assumes a uniform circular aperture and does not model it."
+        )
+    dr0_max = float(np.max(dr0_eff))
+    if dr0_max > SMF_DEEP_TURBULENCE_DR0:
+        assumptions.flag(
+            f"effective D/r0={dr0_max:.1f} exceeds {SMF_DEEP_TURBULENCE_DR0:.0f}; "
+            "the practical uncorrected coupling curve is extrapolated."
+        )
+
+    base_shape = np.shape(coupling_loss)
+    note = (f"terrestrial SMF coupling (mean-only), eta_max={detector.eta_max:g}, "
+            f"n_comp_modes={residual.n_modes}, r0={float(r0) * 100:.1f} cm")
+    return Term(
+        name="receive coupling (SMF)",
+        category="coupling",
+        mean_db=float(coupling_loss) if base_shape == () else coupling_loss,
+        sampler=None,       # deterministic: mean-only, no fade
+        quantile=None,
+        note=note,
+        meta={
+            "detector": "SMF",
+            "model": "mean-only",
+            "beam": "gaussian-horizontal",
+            "eta": float(eta) if base_shape == () else np.asarray(eta),
+            "coupling_loss_db": float(coupling_loss) if base_shape == () else np.asarray(coupling_loss),
+            "sigma2_res": float(sigma2_res) if np.ndim(sigma2_res) == 0 else np.asarray(sigma2_res),
+            "effective_D_over_r0": float(dr0_eff) if np.ndim(dr0_eff) == 0 else np.asarray(dr0_eff),
+            "r0_m": float(r0) if np.ndim(r0) == 0 else np.asarray(r0),
+            "n_comp_modes": residual.n_modes,
+        },
+        assumptions=assumptions,
+        mean_only=True,
+    )
+
+
 if __name__ == '__main__':
     import warnings
 
-    from ..scenario import Scenario, Channel
+    from ..scenario import SpaceScenario, Channel
     from ..geometry import CircularOrbit
     from ..terminal import Terminal, Transmitter, TipTilt, AO
 
@@ -320,8 +450,8 @@ if __name__ == '__main__':
     geom = CircularOrbit(600e3, 60.0)
 
     def _downlink(ground):
-        '''Build a downlink Scenario: tx=space (satellite), rx=ground.'''
-        return Scenario(
+        '''Build a downlink SpaceScenario: tx=space (satellite), rx=ground.'''
+        return SpaceScenario(
             ground=ground,
             space=Terminal(aperture_m=0.05, wavelength_m=lam,
                            transmitter=Transmitter(waist_m=0.035)),

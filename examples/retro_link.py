@@ -26,7 +26,7 @@ Run from the repo root:
 '''
 import numpy as np
 
-from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
+from olb import (SpaceScenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  SMF, TipTilt, AO, retro_space_budget)
 
 
@@ -95,7 +95,7 @@ def main():
 
     # --- 3. The channel and the scenario ----------------------------------
     channel = Channel(site=Site(cn2_ground=1.7e-14), altitude_m=1500e3)
-    retro = Scenario(ground=ground, space=space, direction="retro",
+    retro = SpaceScenario(ground=ground, space=space, direction="retro",
                      channel=channel)
 
     for elevation_deg in (45, 60, 90):

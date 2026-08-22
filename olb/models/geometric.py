@@ -55,10 +55,10 @@ def geometric_loss_db(range_m, w0, rx_diameter, wavelength=1550e-9,
 
 def geometric_loss_term(scenario, geometry):
     '''
-    Deterministic geometric-loss Term for a Scenario over a geometry.
+    Deterministic geometric-loss Term for a scenario over a geometry.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario or TerrestrialScenario
             Reads the transmit terminal (waist, divergence, wavelength) and the
             receive terminal (aperture, obscuration). See olb.scenario.
         geometry : geometry object
@@ -90,7 +90,7 @@ def geometric_loss_term(scenario, geometry):
 
 if __name__ == '__main__':
     from ..geometry import CircularOrbit
-    from ..scenario import Scenario
+    from ..scenario import SpaceScenario
     from ..terminal import Terminal, Transmitter
 
     geom = CircularOrbit(altitude_m=550e3, elevation_deg=[30, 60, 90])
@@ -112,7 +112,7 @@ if __name__ == '__main__':
                        geometric_loss_db(r, 0.02, 0.08))      # limit == collimated
 
     # Term path: uplink -> tx=ground (waist), rx=space (aperture, obscuration).
-    scn = Scenario(
+    scn = SpaceScenario(
         ground=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
                         transmitter=Transmitter(waist_m=0.035)),
         space=Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=1550e-9),

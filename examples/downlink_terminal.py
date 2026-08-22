@@ -26,7 +26,7 @@ import warnings
 
 import numpy as np
 
-from olb import (Scenario, Site, Channel, CircularOrbit, downlink_budget,
+from olb import (SpaceScenario, Site, Channel, CircularOrbit, downlink_budget,
                  Terminal, Transmitter, Aperture, SMF, TipTilt, AO)
 
 warnings.simplefilter("ignore")
@@ -70,7 +70,7 @@ def main():
 
     rows = []
     for label, ground in terminals:
-        scn = Scenario(ground=ground, space=space, direction="downlink",
+        scn = SpaceScenario(ground=ground, space=space, direction="downlink",
                        channel=Channel(site=site, altitude_m=altitude_m))
         budget = downlink_budget(scn, geom)
 

@@ -111,13 +111,13 @@ def uniform_aperture_correction_db(obscuration_ratio=0.0):
 
 def tx_gaussian_efficiency_term(scenario, geometry=None):
     '''
-    Transmit Gaussian-efficiency (truncation) Term for a Scenario.
+    Transmit Gaussian-efficiency (truncation) Term for a scenario.
 
     Range-independent, so the geometry is not read. The signature keeps the
     common f(scenario, geometry) -> Term shape.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario or TerrestrialScenario
             Reads the transmit terminal Transmitter waist_m and the launch
             aperture. The launch aperture is the Transmitter aperture_m and
             obscuration_ratio when set (a bistatic beam director), else the owning
@@ -160,7 +160,7 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario
+    from ..scenario import SpaceScenario
     from ..terminal import Terminal, Transmitter
 
     # Limits: wide aperture -> no loss; narrow aperture -> large loss.
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     assert 10.0 < tn2 < 12.0, tn2                            # ~10.8 dB
 
     # Term path: uplink -> tx=ground carries the aperture, obscuration, waist.
-    scn = Scenario(
+    scn = SpaceScenario(
         ground=Terminal(aperture_m=0.150, obscuration_ratio=0.3,
                         transmitter=Transmitter(waist_m=0.12)),
         space=Terminal(aperture_m=0.05),
@@ -201,13 +201,13 @@ if __name__ == '__main__':
     # aperture, NOT the (large) receive telescope aperture. A ground terminal with
     # a 0.7 m receive telescope but a 0.15 m transmit director must give the same
     # loss as a monostatic 0.15 m launch aperture.
-    bistatic = Scenario(
+    bistatic = SpaceScenario(
         ground=Terminal(aperture_m=0.7, obscuration_ratio=0.3,
                         transmitter=Transmitter(waist_m=0.12, aperture_m=0.15,
                                                 obscuration_ratio=0.3)),
         space=Terminal(aperture_m=0.05),
         direction="uplink")
-    monostatic = Scenario(
+    monostatic = SpaceScenario(
         ground=Terminal(aperture_m=0.15, obscuration_ratio=0.3,
                         transmitter=Transmitter(waist_m=0.12)),
         space=Terminal(aperture_m=0.05),

@@ -3,7 +3,7 @@ Uplink simulation example.
 
 This script sets up a ground-to-satellite optical uplink and evaluates it. It
 shows the current API:
-- build a Scenario and an analytic orbit geometry,
+- build a SpaceScenario and an analytic orbit geometry,
 - assemble the uplink budget from olb.links,
 - read the itemised terms and the model assumptions,
 - check whether the scenario breaks any assumption,
@@ -21,7 +21,7 @@ import warnings
 
 import numpy as np
 
-from olb import (Scenario, Site, Channel, CircularOrbit, uplink_budget,
+from olb import (SpaceScenario, Site, Channel, CircularOrbit, uplink_budget,
                  Terminal, Transmitter, Aperture)
 
 # The weak-fluctuation guard warns at low elevation. This script reports the
@@ -32,7 +32,7 @@ warnings.simplefilter("ignore")
 def main():
     # The ground station transmits. The satellite receives. All hardware lives
     # on the two terminals; the direction resolves which one transmits.
-    scenario = Scenario(
+    scenario = SpaceScenario(
         ground=Terminal(
             aperture_m=0.4,                 # ground telescope; wide, no launch truncation
             wavelength_m=1550e-9,

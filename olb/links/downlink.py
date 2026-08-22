@@ -196,7 +196,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
     weak-fluctuation model. The "auto" model is the selector layer.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario
             Reads the receive terminal wavelength and aperture. Reads the site to
             build the default Cn2 profile with get_c2n.
         geometry : CircularOrbit or TLEPass
@@ -245,7 +245,7 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
     supports Monte Carlo.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario
             The link case.
         geometry : CircularOrbit or TLEPass
             The link geometry.
@@ -296,18 +296,18 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Channel
+    from ..scenario import SpaceScenario, Channel
     from ..geometry import CircularOrbit
     from ..terminal import Terminal, Transmitter, Aperture, SMF, TipTilt, AO
 
     lam = 1550e-9
 
     def _dl(ground, *, jitter=0.0, power=None):
-        '''Build a downlink Scenario: tx=space (satellite waist 0.035), rx=ground.'''
+        '''Build a downlink SpaceScenario: tx=space (satellite waist 0.035), rx=ground.'''
         space = Terminal(aperture_m=0.05, wavelength_m=lam,
                          pointing_jitter_rad=jitter,
                          transmitter=Transmitter(waist_m=0.035, power_dbm=power))
-        return Scenario(ground=ground, space=space, direction="downlink",
+        return SpaceScenario(ground=ground, space=space, direction="downlink",
                         channel=Channel(altitude_m=600e3))
 
     scenario = _dl(Terminal(aperture_m=0.7, wavelength_m=lam))

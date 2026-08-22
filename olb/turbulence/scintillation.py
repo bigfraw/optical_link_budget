@@ -221,6 +221,165 @@ def aperture_averaging_factor(rx_diameter_m, elevation_deg, wavelength, hs,
     return num / den
 
 
+# ---------------------------------------------------------------------------
+# Closed-form single-path aperture averaging.
+#
+# The functions above integrate the Cn2 profile over the slant path. They are
+# the rigorous path. The functions below are the closed-form algebraic
+# approximations. They take one path length L and one scalar Cn2. They give a
+# fast answer without an integral. Use them for a horizontal path, or for a
+# quick estimate. Source: Andrews and Phillips, Laser Beam Propagation through
+# Random Media, 2nd ed. (2005), and Churnside, Applied Optics 30 (1991) 1982.
+# ---------------------------------------------------------------------------
+
+
+def _wavenumber(wavelength):
+    '''Return the optical wavenumber k = 2*pi/lambda.'''
+    return 2.0 * np.pi / wavelength
+
+
+def sigma1_rytov(cn2, wavelength, path_length_m):
+    '''
+    Return the plane-wave Rytov standard deviation sigma_1 for a single path.
+
+    formula:
+        sigma_1 = ( 1.23 Cn2 k^(7/6) L^(11/6) )^0.5,   k = 2*pi/lambda
+    The Rytov variance is sigma_1^2. Source: Andrews and Phillips, 2nd ed.
+    (2005), Ch. 5.
+    '''
+    k = _wavenumber(wavelength)
+    return (1.23 * np.asarray(cn2, dtype=float) * k ** (7.0 / 6.0)
+            * np.asarray(path_length_m, dtype=float) ** (11.0 / 6.0)) ** 0.5
+
+
+def coherence_radius(cn2, wavelength, path_length_m):
+    '''
+    Return the plane-wave coherence radius rho_c for a single path.
+
+    formula:
+        rho_c = ( 1.46 Cn2 k^2 L )^(-3/5),   k = 2*pi/lambda
+    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+    '''
+    k = _wavenumber(wavelength)
+    return (1.46 * np.asarray(cn2, dtype=float) * k ** 2
+            * np.asarray(path_length_m, dtype=float)) ** (-3.0 / 5.0)
+
+
+def plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m):
+    '''
+    Return the point plane-wave scintillation index sigma_I^2 for a single path.
+
+    This is the Andrews closed form. It holds for any turbulence strength. It
+    has no inner scale and no outer scale.
+
+    formula:
+        sigma_I^2 = exp[ 0.54 s^2 / (1 + 1.22 s^(12/5))^(7/6)
+                       + 0.509 s^2 / (1 + 0.69 s^(12/5))^(5/6) ] - 1
+    with s = sigma_1 (the Rytov standard deviation). Source: Andrews and
+    Phillips, 2nd ed. (2005), Ch. 9.
+    '''
+    s = sigma1_rytov(cn2, wavelength, path_length_m)
+    s2 = s ** 2
+    s125 = s ** (12.0 / 5.0)
+    term1 = 0.54 * s2 / (1.0 + 1.22 * s125) ** (7.0 / 6.0)
+    term2 = 0.509 * s2 / (1.0 + 0.69 * s125) ** (5.0 / 6.0)
+    return np.exp(term1 + term2) - 1.0
+
+
+def _d_param(rx_diameter_m, wavelength, path_length_m):
+    '''
+    Return the aperture parameter d = ( k D^2 / (4 L) )^0.5.
+
+    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 10.
+    '''
+    k = _wavenumber(wavelength)
+    return (k * np.asarray(rx_diameter_m, dtype=float) ** 2
+            / (4.0 * np.asarray(path_length_m, dtype=float))) ** 0.5
+
+
+def aperture_averaged_index_andrews(rx_diameter_m, cn2, wavelength,
+                                    path_length_m):
+    '''
+    Return the aperture-averaged plane-wave flux scintillation index sigma_I^2(D).
+
+    This is the Andrews closed form for a circular aperture of diameter D. It
+    holds for any turbulence strength. It has no inner scale and no outer scale.
+
+    formula:
+        sigma_I^2(D) = exp[ 0.49 s^2 / (1 + 0.65 d^2 + 1.11 s^(12/5))^(7/6)
+                          + 0.51 s^2 (1 + 0.69 s^(12/5))^(-5/6)
+                            / (1 + 0.90 d^2 + 0.62 d^2 s^(12/5)) ] - 1
+    with s = sigma_1 and d the aperture parameter. Source: Andrews and Phillips,
+    2nd ed. (2005), Ch. 10.
+    '''
+    s = sigma1_rytov(cn2, wavelength, path_length_m)
+    s2 = s ** 2
+    s125 = s ** (12.0 / 5.0)
+    d2 = _d_param(rx_diameter_m, wavelength, path_length_m) ** 2
+    term1 = 0.49 * s2 / (1.0 + 0.65 * d2 + 1.11 * s125) ** (7.0 / 6.0)
+    term2 = (0.51 * s2 * (1.0 + 0.69 * s125) ** (-5.0 / 6.0)
+             / (1.0 + 0.90 * d2 + 0.62 * d2 * s125))
+    return np.exp(term1 + term2) - 1.0
+
+
+def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
+    '''
+    Return the weak-turbulence aperture-averaging factor A for a Kolmogorov path.
+
+    Use this factor for a small inner scale. It holds for weak turbulence.
+
+    formula:
+        A = ( 1 + 1.07 (k D^2 / (4 L))^(7/6) )^(-1)
+    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 10.
+    '''
+    d2 = _d_param(rx_diameter_m, wavelength, path_length_m) ** 2
+    return (1.0 + 1.07 * d2 ** (7.0 / 6.0)) ** (-1.0)
+
+
+def aperture_averaging_factor_weak_inner(rx_diameter_m, inner_scale_m):
+    '''
+    Return the weak-turbulence aperture-averaging factor A for a large inner scale.
+
+    Use this factor when the inner scale is much larger than the Fresnel zone. It
+    holds for weak turbulence.
+
+    formula:
+        A = ( 1 + 2.21 (D / l0)^(7/3) )^(-1)
+    with l0 the inner scale. Source: Andrews and Phillips, 2nd ed. (2005),
+    Ch. 10.
+    '''
+    ratio = np.asarray(rx_diameter_m, dtype=float) / np.asarray(inner_scale_m,
+                                                                dtype=float)
+    return (1.0 + 2.21 * ratio ** (7.0 / 3.0)) ** (-1.0)
+
+
+def aperture_averaging_factor_strong(rx_diameter_m, cn2, wavelength,
+                                     path_length_m):
+    '''
+    Return the strong-turbulence aperture-averaging factor A for a small inner scale.
+
+    Use this factor when the inner scale is much smaller than the coherence
+    length. It holds for strong turbulence.
+
+    formula:
+        A = (sI2 + 1) / (2 sI2) * (1 + 0.908 (D / (2 rho_c))^2)^(-1)
+          + (sI2 - 1) / (2 sI2) * (1 + 0.162 (k rho_c D / (2 L))^(7/3))^(-1)
+    with sI2 the point plane-wave index and rho_c the coherence radius. Source:
+    Churnside, Applied Optics 30 (1991) 1982; Andrews and Phillips, 2nd ed.
+    (2005), Ch. 10.
+    '''
+    k = _wavenumber(wavelength)
+    L = np.asarray(path_length_m, dtype=float)
+    D = np.asarray(rx_diameter_m, dtype=float)
+    si2 = plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m)
+    rho_c = coherence_radius(cn2, wavelength, path_length_m)
+    term1 = ((si2 + 1.0) / (2.0 * si2)
+             * (1.0 + 0.908 * (D / (2.0 * rho_c)) ** 2) ** (-1.0))
+    term2 = ((si2 - 1.0) / (2.0 * si2)
+             * (1.0 + 0.162 * (k * rho_c * D / (2.0 * L)) ** (7.0 / 3.0)) ** (-1.0))
+    return term1 + term2
+
+
 if __name__ == '__main__':
     # Pure-physics self-check. Use plain numeric inputs; this module must not
     # import the scenario or the geometry. The Site defaults set the Cn2 profile
@@ -259,9 +418,26 @@ if __name__ == '__main__':
     slope = np.log(A_D2 / A_D1) / np.log(D2 / D1)
     assert abs(slope - (-7.0 / 3.0)) < 0.3, slope
 
+    # Closed-form single-path aperture averaging. Use one path and one Cn2.
+    L = 2400.0
+    cn2_flat = 1e-15
+    A_w = aperture_averaging_factor_weak(0.7, lam, L)
+    A_s = aperture_averaging_factor_strong(0.7, cn2_flat, lam, L)
+    A_wi = aperture_averaging_factor_weak_inner(0.7, 5e-3)
+    # Each factor stays in (0, 1] and a larger aperture averages more.
+    for A in (A_w, A_s, A_wi):
+        assert 0.0 < A <= 1.0, A
+    assert aperture_averaging_factor_weak(1.4, lam, L) < A_w
+    # The closed-form aperture-averaged index is below the point index.
+    si2 = plane_wave_scintillation_index_closed(cn2_flat, lam, L)
+    si2_D = aperture_averaged_index_andrews(0.7, cn2_flat, lam, L)
+    assert 0.0 < si2_D < si2, (si2_D, si2)
+
     print(f"sigma2_I  30 deg = {s_30:.4f}   90 deg = {s_90:.4f}")
     print(f"index(D->0) 30 deg = {idx0:.4f}   point = {s_30:.4f}   "
           f"conv = {conv_pct:.2f}%")
     print(f"A large-aperture log-log slope = {slope:.3f} (target -2.333)")
     print(f"A(D=0.7m) 30 deg = {A_30:.4f}   sigma2_P = {A_30 * s_30:.4f}")
+    print(f"closed-form A_weak={A_w:.4f} A_strong={A_s:.4f} "
+          f"A_weak_inner={A_wi:.4f}")
     print("self-check passed")

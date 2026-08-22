@@ -63,7 +63,7 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     terrestrial retro link.
 
     Parameters:
-        scenario : Scenario
+        scenario : SpaceScenario
             The link case. The `space` Terminal is the passive retroreflector;
             its aperture_m is the retro aperture. The direction is "retro".
         geometry : CircularOrbit or TLEPass
@@ -186,7 +186,7 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
 
 
 if __name__ == '__main__':
-    from ..scenario import Scenario, Channel
+    from ..scenario import SpaceScenario, Channel
     from ..terminal import Terminal, Transmitter, Aperture
     from ..geometry import CircularOrbit
 
@@ -194,7 +194,7 @@ if __name__ == '__main__':
     # terminal is the passive retroreflector (aperture only). The ground is
     # bistatic: a small beam director (0.15 m) transmits the up-leg, so the launch
     # truncation reads the director aperture, not the 0.7 m receive telescope.
-    retro_scn = Scenario(
+    retro_scn = SpaceScenario(
         ground=Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=1550e-9,
                         pointing_jitter_rad=0e-6,
                         transmitter=Transmitter(waist_m=0.06, power_dbm=40,

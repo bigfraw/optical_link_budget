@@ -15,7 +15,7 @@ whether or not the `fast` package is installed.
 
 import numpy as np
 
-from olb import (Scenario, Site, Channel, CircularOrbit, Budget,
+from olb import (SpaceScenario, Site, Channel, CircularOrbit, Budget,
                  Terminal, Transmitter, Aperture)
 from olb.turbulence.profiles import DEFAULT_HS, get_c2n
 from olb.models.geometric import geometric_loss_term
@@ -28,7 +28,7 @@ def main():
     # FAST-free Cn2 profile (Hufnagel-Valley via get_c2n) so this runs anywhere
     cn2 = get_c2n(DEFAULT_HS, 21, 1.7e-14)
 
-    scenario = Scenario(
+    scenario = SpaceScenario(
         ground=Terminal(aperture_m=0.5, wavelength_m=1550e-9,
                         pointing_jitter_rad=0,
                         transmitter=Transmitter(waist_m=0.1, power_dbm=40.0)),

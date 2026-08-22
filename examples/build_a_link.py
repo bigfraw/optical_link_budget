@@ -16,7 +16,7 @@ serves both links and you flip only the direction. A BISTATIC station does not:
 the transmit beam director and the receive telescope are different apertures. An
 aperture is a Terminal parameter, so a different aperture needs a different
 Terminal. So each role gets its own Terminal, and each direction gets its own
-Scenario.
+SpaceScenario.
 
 This script builds four terminals -- a transmit and a receive terminal at the
 ground, and a transmit and a receive terminal in space -- then wires the correct
@@ -34,7 +34,7 @@ Run from the repo root:
 
 import numpy as np
 
-from olb import (Scenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
+from olb import (SpaceScenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  Aperture, SMF, TipTilt, AO, uplink_budget, downlink_budget)
 
 
@@ -84,16 +84,16 @@ def main():
     assert ground_tx.aperture_m != ground_rx.aperture_m
     assert space_tx.aperture_m != space_rx.aperture_m
 
-    # --- 3. The channel and one Scenario per direction --------------------
+    # --- 3. The channel and one SpaceScenario per direction ---------------
     # The channel (site + orbit) is the same for both directions. The terminals
     # are not: each direction wires in its own transmit and receive Terminal.
     channel = Channel(site=Site(cn2_ground=1.7e-14), altitude_m=1500e3)
 
     geom = CircularOrbit(channel.altitude_m, elevation_deg=45.0)
 
-    uplink = Scenario(ground=ground_tx, space=space_rx, direction="uplink",
+    uplink = SpaceScenario(ground=ground_tx, space=space_rx, direction="uplink",
                     channel=channel)
-    downlink = Scenario(ground=ground_rx, space=space_tx, direction="downlink",
+    downlink = SpaceScenario(ground=ground_rx, space=space_tx, direction="downlink",
                         channel=channel)
 
     # The direction resolves the roles onto the terminals you supplied.
@@ -125,7 +125,7 @@ def main():
           "apertures. An aperture is a Terminal parameter, so each role is its "
           "own Terminal: a small ground beam director launches the uplink, and "
           "a large ground telescope receives the downlink. Because the roles do "
-          "not share hardware, each direction is its own Scenario -- you wire in "
+          "not share hardware, each direction is its own SpaceScenario -- you wire in "
           "the transmit and receive Terminals for that link, not flip one flag.")
 
 
