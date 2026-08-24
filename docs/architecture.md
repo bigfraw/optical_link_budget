@@ -41,6 +41,7 @@ The turbulence files are:
 - [`gaussian_fried.py`](../olb/turbulence/gaussian_fried.py) — Gaussian-beam Fried parameter.
 - [`beam_scintillation.py`](../olb/turbulence/beam_scintillation.py) — Dios Gaussian-beam scintillation index, on axis and off axis.
 - [`ao.py`](../olb/turbulence/ao.py) — plane-wave r0 and the Noll residual wavefront variance.
+- [`angle_of_arrival.py`](../olb/turbulence/angle_of_arrival.py) — the received tip-tilt of a Gaussian beam. The beam-wander arrival tilt is the working model. The aperture angle-of-arrival tilt is a deferred stub.
 - [`anisoplanatism.py`](../olb/turbulence/anisoplanatism.py) — Stone angular anisoplanatic phase variance, with the finite adaptive-optics band.
 - [`coupled_flux.py`](../olb/turbulence/coupled_flux.py) — the coupled-flux Monte Carlo wrapper for the uplink.
 
@@ -129,7 +130,7 @@ The model files are direction-agnostic:
 - [`transmittance.py`](../olb/models/transmittance.py) — slant airmass extinction AND horizontal Beer-Lambert extinction.
 - [`pointing.py`](../olb/models/pointing.py) — pointing-jitter fade.
 - [`gaussian_efficiency.py`](../olb/models/gaussian_efficiency.py) — transmit truncation loss at the launch aperture.
-- [`coupling.py`](../olb/models/coupling.py) and [`coupling_fast.py`](../olb/models/coupling_fast.py) — the downlink receive-coupling Term.
+- [`coupling.py`](../olb/models/coupling.py) and [`coupling_fast.py`](../olb/models/coupling_fast.py) — the receive-coupling Terms: the downlink SMF and aperture coupling, and the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade.
 
 The [`links/`](../olb/links) package assembles the per-link budget. It composes
 the model factories and the turbulence physics: [`uplink.py`](../olb/links/uplink.py),

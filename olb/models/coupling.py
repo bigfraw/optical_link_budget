@@ -139,7 +139,9 @@ def _mmf_focal_length(detector, D, wavelength):
     if detector.focal_length_m is not None:
         return detector.focal_length_m
     if getattr(detector, "optimal_focus", False):
-        return np.pi * (D / 2.0) * detector.core_radius_m / (wavelength * SMF_OPTIMAL_A)
+        # NOTE: for now, optimal focus is based on SMF28 core size
+        core_radius = 5.2e-6
+        return np.pi * (D / 2.0) * core_radius / (wavelength * SMF_OPTIMAL_A)
     return None
 
 

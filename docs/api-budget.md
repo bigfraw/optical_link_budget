@@ -213,9 +213,9 @@ a fixed set of Terms.
 | Function | Module | Link | Keyword defaults |
 |---|---|---|---|
 | `uplink_budget` | `olb/links/uplink.py` | Ground-to-space uplink | `turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None` |
-| `downlink_budget` | `olb/links/downlink.py` | Space-to-ground downlink | `tau_zenith=None, scintillation=True, n_samples=2000, smf_fidelity="fast", fast_params=None` |
+| `downlink_budget` | `olb/links/downlink.py` | Space-to-ground downlink | `tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, smf_fidelity="fast", fast_params=None` |
 | `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, smf_fidelity="fast", fast_params=None` |
-| `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `scintillation=True` |
+| `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `scintillation=True, turbulence=True` |
 
 `tau_zenith=None` selects `transmittance.DEFAULT_TAU_ZENITH`, which is `0.05`
 (the near-IR clear-sky zenith optical depth). All keyword arguments after the
@@ -286,7 +286,7 @@ The budget-building Terms:
 Examples: `examples/uplink_sim.py`, `examples/uplink_divergence.py`,
 `examples/build_a_link.py`.
 
-### `downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True, n_samples=2000, smf_fidelity="fast", fast_params=None)`
+### `downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, smf_fidelity="fast", fast_params=None)`
 
 Assemble the downlink budget. The Terms are the geometric loss, the atmospheric
 loss, the pointing loss, and one turbulence effect. The downlink keeps its
@@ -295,6 +295,10 @@ standalone pointing Term, unlike the uplink.
 - `scintillation` — add the lognormal downlink scintillation Term when `True`.
   Every downlink Term has a closed-form quantile, so the downlink budget
   supports the analytic fade.
+- `turbulence` — the master turbulence switch. When `False`, drop every
+  turbulence quantity. The budget keeps the deterministic Terms (geometric,
+  atmospheric, pointing) and any static coupling loss, but it drops the
+  scintillation and the turbulence part of the receive-coupling Term.
 - The receive terminal is opt-in. When the receive terminal has a detector, the
   receive-coupling Term owns the receive-side turbulence physics. It replaces
   the standalone scintillation Term. An `Aperture` detector reproduces the plain
@@ -356,26 +360,67 @@ new code.
 
 Example: `examples/retro_link.py`.
 
-### `terrestrial_budget(scenario, geometry, *, scintillation=True)`
+### `terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=True)`
 
 Assemble the terrestrial (horizontal-path) budget. The Terms are the geometric
 spreading, the horizontal Beer-Lambert extinction, the pointing jitter, an
-opt-in launch truncation, and one receive-side turbulence effect.
+opt-in launch truncation, and one receive-side turbulence effect. The
+receive-side effect follows the far-terminal detector:
+
+- No detector, or an `Aperture` (bucket) detector: the horizontal Gaussian-beam
+  scintillation Term (`terrestrial_scintillation_term`). It is a real analytic
+  fade.
+- An `SMF` detector: the fidelity-0 mean-only fibre-coupling Term
+  (`terrestrial_smf_coupling_term`) replaces the scintillation Term. When the SMF
+  sets the coupling optics (`focal_length_m` and `mode_field_radius_m`, or
+  `optimal_focus=True`), the budget also adds the receive tip-tilt walk-off fade
+  Term (`smf_walkoff_term`). The walk-off then owns the tip-tilt, so the coupling
+  Term keeps the higher-order residual only (`drop_tiptilt=True`), and the
+  tip-tilt is not counted two times. The coupling Term is mean-only, so it locks
+  the budget to fidelity 0 and the budget refuses a fade margin. The walk-off
+  Term carries a real fade, but the mean-only lock still holds.
+- An `MMF` (light-bucket) detector: the multimode-fibre coupling Term
+  (`mmf_coupling_term`) replaces the scintillation Term. It carries the static
+  spot-in-core overfill loss plus the tip-tilt walk-off fade. It is not mean-only,
+  so an MMF budget keeps its fade.
+
+Flags:
 
 - `scintillation` — add the horizontal Gaussian-beam scintillation Term for an
   `Aperture` or no-detector receiver when `True` (the default). Set it to
   `False` to keep only the deterministic Terms, for example to sweep an array
   path length. The scintillation Term is scalar-only, so it does not broadcast.
-- An `SMF` detector always replaces the scintillation Term with the fidelity-0
-  mean-only fibre-coupling Term. The coupling loss is the turbulence effect for
-  the fibre, so the scintillation Term is not also added. The mean-only coupling
-  Term locks the budget to fidelity 0, so the budget then refuses a fade margin.
+- `turbulence` — the master turbulence switch. When `False`, drop every
+  turbulence quantity: no scintillation Term, and the fibre-coupling Terms keep
+  only their static parts. The SMF coupling Term becomes the static mode-match
+  loss, the MMF Term keeps its spot-overfill loss, and the walk-off Term keeps
+  only the receive mechanical jitter (the beam-wander tilt drops). The
+  deterministic Terms and the transmit pointing jitter stay. So a coupling budget
+  with angular jitter still runs, only without turbulence.
 
-`terrestrial_scintillation_term(scenario, geometry, *, n_grid=400)` builds the
-horizontal Gaussian-beam scintillation Term. It is not a reserved slot: it is a
-full analytic lognormal fade with all three faces. It uses the on-axis Gaussian
-beam-wave scintillation index (Dios et al., Applied Optics 43 (2004) 3866, Eq.
-16) and the Andrews weak-turbulence aperture-averaging factor. It raises
-`ValueError` when the near terminal has no `Transmitter`.
+The receive-side Terms:
 
-Example: `examples/terrestrial_link.py`.
+- `terrestrial_scintillation_term(scenario, geometry, *, n_grid=400)` builds the
+  horizontal Gaussian-beam scintillation Term. It is a full analytic lognormal
+  fade with all three faces. It uses the on-axis Gaussian beam-wave scintillation
+  index (Dios et al., Applied Optics 43 (2004) 3866, Eq. 16) and the Andrews
+  weak-turbulence aperture-averaging factor. It raises `ValueError` when the near
+  terminal has no `Transmitter`.
+- `terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
+  drop_tiptilt=False, turbulence=True)` builds the mean-only single-mode-fibre
+  coupling loss for a horizontal Gaussian beam. `drop_tiptilt=True` removes the
+  tip-tilt from the residual, so the walk-off Term can own it. See `physics.md`
+  section 6c.
+- `smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
+  receive tip-tilt walk-off fade. The received tip-tilt (beam wander plus the
+  receive mechanical jitter) moves the focal spot on the fibre tip by `f*theta`.
+  The fade is exponential in dB. It needs the coupling optics
+  (`focal_length_m` and `mode_field_radius_m`, or `optimal_focus=True`), else it
+  raises `ValueError`. See `physics.md` section 6c.
+- `mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
+  multimode-fibre coupling Term: the static spot-in-core overfill loss plus the
+  walk-off fade. It needs a focal length (`focal_length_m` or
+  `optimal_focus=True`), else it raises `ValueError`. See `physics.md` section 6c.
+
+Examples: `examples/terrestrial_link.py`,
+`examples/terrestrial_coupling_jitter.py`.

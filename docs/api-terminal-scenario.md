@@ -34,7 +34,7 @@ One optical terminal: aperture, transmitter, compensation, and detector.
 | `wavelength_m` | float | m | `1550e-9` | The terminal operating wavelength. |
 | `pointing_jitter_rad` | float | rad | `0.0` | 1-sigma tracking jitter. 0 means no jitter. |
 | `transmitter` | `Transmitter` or None | — | `None` | The transmit source. None means the terminal only receives. |
-| `detector` | `Aperture` or `SMF` or None | — | `None` | The detector front end. None means no receive-coupling Term. |
+| `detector` | `Aperture`, `SMF`, or `MMF`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
 | `compensation` | list of `TipTilt` or `AO` | — | `[]` | The ordered wavefront-compensation stack. It may be empty. |
 
 Constraints:
@@ -93,10 +93,61 @@ Single-mode-fibre detector. A single-mode fibre couples only the field that
 matches the fibre mode. The coupling falls when turbulence distorts the
 wavefront.
 
+A focusing optic of focal length `f` puts the collected beam onto the fibre tip.
+Set `focal_length_m` and `mode_field_radius_m` to derive `eta_max` from the
+optics. The model finds the coupling parameter `a = pi*(D/2)*w_m/(lambda*f)` and
+`eta_max(a)` from the mode-overlap curve. The peak `eta_max=0.8145` is near
+`a=1.12` (see `physics.md` section 6c). With `focal_length_m` None, the model
+uses the `eta_max` field.
+
+A single-mode-fibre subtlety: at a fixed `a` the focal length cancels in the
+tilt-to-coupling response. So `f` is a static knob only. It sets `eta_max`
+through `a`. It does not change the angular sensitivity on its own.
+
 | Field | Type | Unit | Default | Meaning |
 |---|---|---|---|---|
-| `eta_max` | float | — | `0.8145` | Maximum fibre-to-aperture mode match for an unobscured circular aperture with a flat wavefront. |
+| `eta_max` | float | — | `0.8145` | Maximum fibre-to-aperture mode match for an unobscured circular aperture with a flat wavefront. Used when `focal_length_m` is None. |
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
+| `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic. None keeps the `eta_max` field. A value needs `mode_field_radius_m`. |
+| `mode_field_radius_m` | float or None | m | `None` | Fibre mode field RADIUS (about 5.2e-6 m for SMF-28 at 1550 nm). It sets the fibre mode size for `a` and for the walk-off Term. |
+| `optimal_focus` | bool | — | `False` | Design the coupling optic for the best coupling (see below). |
+
+`optimal_focus=True` assumes the optimal coupling parameter `a=1.12`, so
+`eta_max=0.8145`, and derives the focal length from the mode field radius and the
+aperture: `f = pi*(D/2)*w_m/(lambda*1.12)`. A None `mode_field_radius_m` uses the
+SMF-28 value (5.2e-6 m). An explicit `focal_length_m` overrides the derived
+value. A bare `SMF()` (this flag False) does not change: it stays mean-only, with
+no walk-off Term.
+
+#### `MMF`
+
+Multimode-fibre detector: a light bucket in the fibre plane. A multimode fibre
+accepts all the light that the focusing optic puts inside its core. The core is a
+disk of fixed radius `core_radius_m`. So the coupling is a geometric overlap of
+the focal spot with the core, not a modal overlap. A received tip-tilt of angle
+theta moves the spot by `f*theta`, so the spot walks off the core when the
+tip-tilt is large (see `physics.md` section 6c).
+
+Unlike a single-mode fibre, the focal length does NOT cancel. The core is a fixed
+physical size, so it subtends the angular field of view `core_radius_m/f`. So the
+focal length is a genuine free parameter.
+
+| Field | Type | Unit | Default | Meaning |
+|---|---|---|---|---|
+| `core_radius_m` | float | m | (required) | Core RADIUS of the multimode fibre in the fibre plane. |
+| `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic. None needs `optimal_focus=True`. |
+| `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
+| `optimal_focus` | bool | — | `False` | Match the spot to the core (see below). |
+
+`optimal_focus=True` derives the focal length so the spot radius is the core
+radius over 1.12 (the same `a=1.12` that a single-mode fibre uses):
+`f = pi*(D/2)*core_radius_m/(lambda*1.12)`. This gives about 92% static capture.
+It is a geometric spot-to-core match, NOT a mode-overlap optimum: a shorter focal
+length captures more, but the practical limit (aberrations, numerical aperture)
+is not modelled. Set `focal_length_m` to override the derived value.
+
+`MMF` lives in `olb.terminal`. It is not in the top-level `olb` exports yet.
+Import it as `from olb.terminal import MMF`.
 
 ### Compensation stack
 
@@ -259,7 +310,7 @@ single scalar Cn2 describes the path.
 | `site` | `Site` | — | `Site()` | The ground atmosphere along the path (the medium). |
 | `path_length_m` | float | m | `1e3` | Horizontal path length L. |
 | `attenuation_db_per_km` | float | dB/km | `0.5` | Clear-air / haze extinction coefficient. The Beer-Lambert loss is `attenuation_db_per_km * (L / 1000)`. |
-| `cn2` | float | m^-2/3 | `1e-14` | Constant refractive-index structure parameter along the path. Read by the (pending) terrestrial scintillation term. |
+| `cn2` | float | m^-2/3 | `1e-14` | Constant refractive-index structure parameter along the path. Read by the terrestrial scintillation Term and the fibre-coupling Terms. |
 
 ---
 

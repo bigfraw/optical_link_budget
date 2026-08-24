@@ -145,6 +145,25 @@ distance, compensation, and receive aperture.
   of the fibre coupling loss, and an aperture-averaging table.
 - Run: `python -m examples.terrestrial_link`
 
+## [terrestrial_coupling_jitter.py](../examples/terrestrial_coupling_jitter.py)
+
+A terrestrial single-mode-fibre receiver. It splits the coupling loss into three
+pointing mechanisms and keeps the free-space loss apart from the fibre loss:
+
+- The transmit jitter is a free-space loss. The beam misses the far aperture.
+- The beam wander is a fibre-coupling loss. The turbulence tilts the arriving
+  wavefront, so the focal spot walks off the fibre (the walk-off, contribution
+  A).
+- The receive jitter is a fibre-coupling loss. It also moves the focal spot
+  (the walk-off, contribution B).
+
+- API: `terrestrial_budget`, `smf_walkoff_term`, `terrestrial_smf_coupling_term`,
+  and `pointing_loss_term`. The receive terminal is `SMF(optimal_focus=True)`, so
+  the focal length comes from the mode field radius and the aperture at `a=1.12`.
+- Output: a loss breakdown by mechanism, then three sweeps (over Cn2, the receive
+  jitter, and the transmit jitter) that show each mechanism scales on its own.
+- Run: `python -m examples.terrestrial_coupling_jitter`
+
 ---
 
 The four link families map to their example: uplink -> `uplink_sim.py`,

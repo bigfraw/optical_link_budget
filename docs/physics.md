@@ -874,6 +874,100 @@ FAST (`fast-aosim`), the modal-overlap engine, GPLv3. The regime constant comes
 from the plane-wave scintillation index (Section 5b, Andrews and Phillips, 2nd ed.,
 Eq. 12.44).
 
+### 6c. Fibre tip-tilt walk-off (terrestrial SMF and MMF)
+
+File: `olb/models/coupling.py`, `olb/turbulence/angle_of_arrival.py`
+
+#### What the code models
+
+A focusing optic of focal length `f` puts the collected beam onto the fibre tip.
+A received tip-tilt of angle theta moves the focal spot by `f*theta`. When the
+spot moves, less light couples into the fibre. This is the walk-off. The Term
+carries a real fade. This is the terrestrial receive-side effect that the
+mean-only coupling Term (Section 6a) cannot carry.
+
+#### Governing relations
+
+The static mode match sets the flat-wavefront coupling `eta_max`. For a
+single-mode fibre with a mode field radius `w_m`, a spot radius
+`w_s = lambda*f/(pi*(D/2))`, and a coupling parameter `a = w_m/w_s`:
+
+    eta_max(a) = 2 * [ (1 - exp(-a^2)) / a ]^2
+
+It peaks at `eta_max = 0.8145` near `a = 1.12`. This is the mode overlap of a
+uniform circular aperture with a Gaussian fibre mode.
+
+The received tip-tilt has two contributions:
+
+- A. The beam-wander arrival tilt. The turbulence moves the beam centroid at the
+  receiver by an offset `r_c`, so the beam arrives from an apparent direction
+  `r_c/L`. The radial (2-axis) variance is `sigma2_theta = <r_c^2>/L^2`. The code
+  reuses the beam-wander kernel, which integrates the beam width profile along the
+  path (`wander_arrival_angle_variance`). A receive tip-tilt or AO stage tracks
+  this tilt out (all-or-nothing, no bandwidth model).
+- B. The receive mechanical jitter. A per-axis 1-sigma jitter `sigma` adds
+  `2*sigma^2` to the radial variance.
+
+The captured power under a lateral offset is the overlap of two Gaussians, the
+focal spot (`w_s`) and the fibre mode (`w_m`):
+
+    eta(dx)/eta_max = exp( -2 * dx^2 / w_eff^2 ),   w_eff^2 = w_s^2 + w_m^2
+
+The two axes of the offset are i.i.d. Gaussian, so the loss in dB is exponential
+with mean `(20/ln10) * f^2 * sigma2_theta / w_eff^2`. The loss grows without a
+limit as the tilt grows.
+
+A single-mode-fibre subtlety: at a fixed `a` the focal length cancels in this
+mean, because `w_s` scales with `f`. So `f` sets `eta_max` through `a`, but it
+does not change the angular sensitivity on its own.
+
+No double-count with the mean coupling Term: the tip-tilt appears once. When the
+walk-off Term is active, the mean coupling Term (Section 6a) keeps the
+higher-order residual only. A virtual tip-tilt removes the Noll tip-tilt from its
+residual (`drop_tiptilt=True`). The walk-off Term owns the tip-tilt.
+
+For a multimode fibre the core is a disk of fixed radius `a_core`. The coupling
+splits into a static spot-overfill loss and the same walk-off fade, with the core
+radius as the tolerated scale:
+
+    eta_static = 1 - exp( -2 * a_core^2 / w_s^2 )
+
+`optimal_focus` derives the focal length. For a single-mode fibre it picks `f` so
+`a = 1.12` (the eta_max peak). For a multimode fibre it matches the spot to the
+core, `a_core/w_s = 1.12`, which gives about 92% static capture.
+
+#### Inputs and outputs
+
+- Inputs: the receive terminal (aperture, wavelength, fibre optics,
+  `pointing_jitter_rad`, compensation stack), the transmit waist, the path length,
+  and the constant Cn2.
+- Output: an SMF walk-off Term (category `pointing`), or an MMF coupling Term
+  (category `coupling`). Both carry a real fade.
+
+#### Assumptions and limits
+
+- The walk-off falloff uses a Gaussian fit to the focal spot, and the eta_max
+  value uses the more exact Airy-to-Gaussian overlap. The two spot models differ,
+  which is standard practice near the peak.
+- Contribution B of the received tip-tilt is the beam-wander tilt (A) only. The
+  aperture angle-of-arrival "corrugation" tilt is DEFERRED. The stub
+  `aperture_arrival_angle_variance` in `olb/turbulence/angle_of_arrival.py` raises
+  `NotImplementedError`. So the received tip-tilt is a lower bound. See
+  `docs/andrews-crosscheck.md` batch 2.
+- The beam-wander tilt is a weak-fluctuation model, so `sigma2_theta` is valid in
+  weak turbulence only. The walk-off mapping itself has no upper limit.
+- The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap
+  optimum: a shorter focal length captures more.
+
+#### Source
+
+- Shaklan and Roddier, "Coupling starlight into single-mode fiber optics," Appl.
+  Opt. 27(11), 2334-2338 (1988), DOI 10.1364/AO.27.002334, for `eta_max(a)`.
+- Dios et al., Applied Optics 43 (2004) 3866, DOI 10.1364/AO.43.003866, for the
+  beam-wander offset that gives the arrival tilt.
+- Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, for the Gaussian
+  power falloff and the 2-D Gaussian jitter.
+
 ---
 
 ## Source summary
