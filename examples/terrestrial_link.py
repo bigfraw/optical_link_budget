@@ -45,17 +45,17 @@ from olb import (TerrestrialScenario, TerrestrialChannel, Site, HorizontalPath,
                  terrestrial_budget)
 
 WAVELENGTH_M = 1550e-9
-CN2 = 2e-15                 # good site: keeps the weak-turbulence regime over the sweep
-ATTEN_DB_PER_KM = 0.5       # clear-air horizontal extinction
+CN2 = 1e-14                # good site: keeps the weak-turbulence regime over the sweep
+ATTEN_DB_PER_KM = 0.0       # clear-air horizontal extinction
 LAUNCH_DBM = 30.0           # 1 W launch
 SENSITIVITY_DBM = -40.0
 
 
 def _near():
     '''The transmit (near) terminal: a 0.2 m director, a 2 cm waist, 1 W.'''
-    return Terminal(aperture_m=0.2, wavelength_m=WAVELENGTH_M,
+    return Terminal(aperture_m=0.05, wavelength_m=WAVELENGTH_M,
                     pointing_jitter_rad=5e-6,
-                    transmitter=Transmitter(waist_m=0.02, power_dbm=LAUNCH_DBM))
+                    transmitter=Transmitter(waist_m=0.05/2*0.8, power_dbm=LAUNCH_DBM))
 
 
 def _budget(path_length_m, detector, compensation=None):
