@@ -32,10 +32,10 @@ not valid, and the budget must fall back to a numerical path. See also
 | Section | Equations | Topic | Maps to | Status |
 | --- | --- | --- | --- | --- |
 | 6.8.1 | Ch. 6, Eq. (108); Eq. (40), (45) from 6.3.1 | Mean irradiance. Turbulence-induced beam spread for an arbitrary refractive-index structure function. | Beam spread / effective long-term beam radius. `olb/beam.py`, `olb/turbulence/gaussian_fried.py`, `docs/physics.md` §1 and §5e. | flagged |
-| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/coupled_flux.py`, `olb/turbulence/beam_scintillation.py`, `docs/physics.md` §5c and §5d. | flagged |
+| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | flagged |
 | 6.8 (general) | slant-path extension | Extension to slant paths for an arbitrary Cn2. | Slant-path generalisation of the Gaussian-beam turbulence Terms. Ties to the CLAUDE.md "Next task" (curvature past the collimated case). | flagged |
 | 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | flagged |
-| 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/scintillation.py`, `olb/turbulence/beam_scintillation.py`, `docs/physics.md` §5b and §5d. | flagged |
+| 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/plane_wave_scintillation.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5b and §5d. | flagged |
 
 ## Batch 2 — Gaussian-beam angle of arrival / aperture tip-tilt
 

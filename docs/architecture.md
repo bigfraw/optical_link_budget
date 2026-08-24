@@ -37,13 +37,13 @@ term and the terrestrial term, with no coupling between them.
 
 The turbulence files are:
 - [`profiles.py`](../olb/turbulence/profiles.py) — Cn2(h) profiles, `default_cn2_profile`, `DEFAULT_HS`.
-- [`scintillation.py`](../olb/turbulence/scintillation.py) — plane-wave scintillation index and the aperture-averaging integral.
+- [`plane_wave_scintillation.py`](../olb/turbulence/plane_wave_scintillation.py) — plane-wave scintillation index and the aperture-averaging integral (the space-to-ground downlink model).
 - [`gaussian_fried.py`](../olb/turbulence/gaussian_fried.py) — Gaussian-beam Fried parameter.
-- [`beam_scintillation.py`](../olb/turbulence/beam_scintillation.py) — Dios Gaussian-beam scintillation index, on axis and off axis.
+- [`beam_wave_scintillation.py`](../olb/turbulence/beam_wave_scintillation.py) — Dios Gaussian-beam scintillation index, on axis and off axis (the uplink beam-wave model).
 - [`ao.py`](../olb/turbulence/ao.py) — plane-wave r0 and the Noll residual wavefront variance.
 - [`angle_of_arrival.py`](../olb/turbulence/angle_of_arrival.py) — the received tip-tilt of a Gaussian beam. The beam-wander arrival tilt is the working model. The aperture angle-of-arrival tilt is a deferred stub.
 - [`anisoplanatism.py`](../olb/turbulence/anisoplanatism.py) — Stone angular anisoplanatic phase variance, with the finite adaptive-optics band.
-- [`coupled_flux.py`](../olb/turbulence/coupled_flux.py) — the coupled-flux Monte Carlo wrapper for the uplink.
+- [`uplink_flux.py`](../olb/turbulence/uplink_flux.py) — the LEO-uplink coupled-flux Monte Carlo wrapper.
 
 ## 2. The pure-data layer
 
@@ -110,9 +110,10 @@ separation is strict: hardware on the Terminal, medium on the channel.
 
 ## 3. The model layer
 
-The [`models/`](../olb/models) package holds direction-agnostic Term factories.
-Every public factory has the same shape, so the budget assembler calls them
-uniformly:
+The [`models/`](../olb/models) package holds the Term factories. Each factory is
+named for the physics it computes. Some use a link-specific simplification, and
+the name says so. Every public factory has the same shape, so the budget
+assembler calls them uniformly:
 
 ```
 def <term>(scenario, geometry, **kwargs) -> Term
@@ -125,12 +126,12 @@ The geometry gives two arrays: `elevation_deg` and `slant_range_m`. The backend
 is a `CircularOrbit` (analytic, vectorised, for sweeps and Monte Carlo) or a
 `TLEPass` (a real pass with skyfield). The backend does not change the models.
 
-The model files are direction-agnostic:
+The model files are:
 - [`geometric.py`](../olb/models/geometric.py) — free-space spreading loss into a circular aperture.
-- [`transmittance.py`](../olb/models/transmittance.py) — slant airmass extinction AND horizontal Beer-Lambert extinction.
+- [`extinction.py`](../olb/models/extinction.py) — `slant_extinction_term` (slant airmass extinction) AND `terrestrial_extinction_term` (horizontal Beer-Lambert extinction).
 - [`pointing.py`](../olb/models/pointing.py) — pointing-jitter fade.
 - [`gaussian_efficiency.py`](../olb/models/gaussian_efficiency.py) — transmit truncation loss at the launch aperture.
-- [`coupling.py`](../olb/models/coupling.py) and [`coupling_fast.py`](../olb/models/coupling_fast.py) — the receive-coupling Terms: the downlink SMF and aperture coupling, and the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade.
+- [`coupling/`](../olb/models/coupling) — the receive-coupling Terms, split by link. `_common.py` holds the shared SMF physics. `downlink.py` holds the downlink SMF and aperture coupling. `terrestrial.py` holds the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade. `fast.py` holds the FAST fibre coupling.
 
 The [`links/`](../olb/links) package assembles the per-link budget. It composes
 the model factories and the turbulence physics: [`uplink.py`](../olb/links/uplink.py),

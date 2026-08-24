@@ -1,90 +1,39 @@
 '''
-Receive-coupling Term for a downlink terminal (approach A).
+Receive-coupling Terms for a terrestrial (horizontal) link.
 
-This module builds the ONE receive-coupling Term of a downlink receive terminal.
-The Compensation stack and the Detector are one physical chain: the residual
-wavefront that the Compensation leaves sets the coupling into the Detector. So
-this module emits a single Term, not two. The pure physics lives in
-olb.turbulence.ao and olb.turbulence.scintillation.
-
-Two detector front ends:
-
-  Aperture (bucket): a power-in-bucket detector integrates the intensity. It is
-  phase-insensitive, so the Compensation stack does not change its coupling. The
-  turbulence penalty is aperture-averaged scintillation. This term reuses the
-  downlink lognormal scintillation Term unchanged, so it reproduces the plain
-  downlink behaviour.
-
-  SMF (single-mode fibre): the fibre couples only the field that matches the
-  fibre mode. Two fidelities:
-    smf_fidelity="fast" (the default, and the ONLY statistical model): the true
-        LP01 modal overlap from FAST. It gives the mean, the quantile, and the
-        fade. See olb.models.coupling_fast.
-    smf_fidelity="mean": a cheap analytic MEAN-ONLY estimate, for when only the
-        expected coupling loss is wanted (no fade). The coupling efficiency eta
-        falls with the residual phase variance sigma^2_res that the Compensation
-        stack leaves. Two limits of one overlap physics:
-          small residual (sigma^2_res < SMF_SMALL_RESIDUAL_LIMIT): extended
-              Marechal, eta = eta_max * exp(-sigma^2_res).
-          large residual (sigma^2_res >= the limit): the Dikmelik-Davidson
-              uncorrected single-mode-fibre coupling curve against D/r0. See
-              _smf_large_residual.
-        The mean loss is -10*log10(eta). The Term is DETERMINISTIC: it carries no
-        fade (no sampler, no quantile). For the fade, use smf_fidelity="fast".
-
-How the SMF Term avoids double-counting the geometric aperture capture:
-  The geometric spreading Term already carries the free-space spread and the
-  receive-aperture power-in-bucket capture. The SMF eta is a MULTIPLICATIVE
-  fibre-coupling efficiency on the aperture-collected field. So the SMF Term adds
-  only the coupling loss -10*log10(eta); it does NOT re-add the aperture capture.
-  In the budget the receive-coupling Term REPLACES the standalone scintillation
-  Term (the turbulence effect is now the coupling loss and fade), and the
-  geometric spreading Term stays. See olb.links.downlink.downlink_budget.
+This module builds the receive-coupling Terms of a terrestrial far terminal: the
+single-mode-fibre mean coupling, the single-mode-fibre tip-tilt walk-off fade, and
+the multimode-fibre (light-bucket) coupling. The shared single-mode-fibre coupling
+physics lives in olb.models.coupling._common; this module reads it. The received
+tip-tilt (beam wander plus receive mechanical jitter) lives here, because only the
+terrestrial Terms use it.
 
 Sources:
-  Noll residual variance: R. J. Noll, JOSA 66(3), 207 (1976). See
-  olb.turbulence.ao.
-  SMF coupling / Marechal: V. W. S. Chan and others; extended Marechal
-  approximation.
-  Uncorrected SMF coupling against D/r0: Y. Dikmelik and F. M. Davidson,
-  "Fiber-coupling efficiency for free-space optical communication through
-  atmospheric turbulence," Appl. Opt. 44(23), 4946-4952 (2005).
+  Marechal / Dikmelik-Davidson coupling: see olb.models.coupling._common.
+  eta_max(a): Shaklan and Roddier, Appl. Opt. 27, 2334 (1988), DOI
+  10.1364/AO.27.002334.
+  Beam-wander arrival tilt: Dios et al. 2004 (see olb.turbulence.angle_of_arrival).
+  Off-axis Gaussian encircled energy (Marcum Q): Marcum, RAND RM-753 (1950).
 '''
 
 import numpy as np
 
-from ..results import Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, BEAM_GAUSSIAN,
-                           REGIME_WEAK, REGIME_NA, SPECTRUM_KOLMOGOROV,
-                           SPECTRUM_NA)
-from ..terminal import Aperture, SMF, MMF, TipTilt, AO
-from ..beam import free_space_radius
-from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from ..turbulence.ao import (plane_wave_fried_parameter, apply_compensation,
-                            NOLL_PISTON)
-from ..turbulence.gaussian_fried import gaussian_fried_parameter_profile
-from ..turbulence.angle_of_arrival import wander_arrival_angle_variance
-from ..links.downlink import downlink_scintillation_term
+from ...results import Term
+from ...assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
+                            SPECTRUM_KOLMOGOROV)
+from ...terminal import SMF, MMF, TipTilt, AO
+from ...beam import free_space_radius
+from ...turbulence.gaussian_fried import gaussian_fried_parameter_profile
+from ...turbulence.angle_of_arrival import wander_arrival_angle_variance
+from ...turbulence.ao import apply_compensation
+from ._common import (_smf_eta_max, _smf_coupling_efficiency, _effective_dr0,
+                     _smf_static_term, SMF_OPTIMAL_A, SMF_DEEP_TURBULENCE_DR0)
 
 # dB per (r^2 / w^2), from the exponential Gaussian power falloff. Same constant
 # as olb.models.pointing (20/ln10). Source: Andrews and Phillips, 2nd ed. (2005),
 # DOI 10.1117/3.626196 (Gaussian power in a circular region).
 _K = 20.0 / np.log(10.0)
 
-# Residual-variance threshold [rad^2] that selects the SMF coupling limit. Below
-# it the extended Marechal approximation holds. Above it the beam is far from a
-# flat wavefront, so use the Dikmelik-Davidson uncorrected coupling curve.
-SMF_SMALL_RESIDUAL_LIMIT = 1.0
-
-# Effective-D/r0 bound above which even the practical uncorrected coupling curve
-# is extrapolated deep turbulence. Flag it. Use the exact Dikmelik-Davidson
-# integral (fidelity 1) above this.
-SMF_DEEP_TURBULENCE_DR0 = 10.0
-
-# Optimal single-mode-fibre coupling parameter a = w_m/w_s. It maximises the
-# mode-overlap eta_max(a)=0.8145. Source: Shaklan and Roddier, Appl. Opt. 27
-# (1988) 2334, DOI 10.1364/AO.27.002334.
-SMF_OPTIMAL_A = 1.12
 # Default mode field radius [m] for optimal_focus, from SMF-28 at 1550 nm (mode
 # field diameter 10.4 um).
 SMF28_MODE_FIELD_RADIUS_M = 5.2e-6
@@ -141,117 +90,6 @@ def _mmf_focal_length(detector, D, wavelength):
     if getattr(detector, "optimal_focus", False):
         return np.pi * (D / 2.0) * detector.core_radius_m / (wavelength * SMF_OPTIMAL_A)
     return None
-
-
-def _effective_dr0(sigma2_res):
-    '''
-    Return the effective D/r0 that carries the residual phase variance.
-
-    Invert the piston-removed Noll relation sigma^2 = NOLL_PISTON*(D/r0)^(5/3).
-    For an uncorrected aperture this returns the physical D/r0 exactly. For a
-    partly corrected aperture it returns the residual-equivalent D/r0. So the
-    uncorrected coupling curve reads the residual, not the raw, turbulence.
-    '''
-    return (np.asarray(sigma2_res) / NOLL_PISTON) ** (3.0 / 5.0)
-
-
-def _smf_large_residual(sigma2_res, eta_max):
-    '''
-    Return the SMF coupling efficiency in the large-residual limit.
-
-    Use the practical uncorrected single-mode-fibre coupling evaluation against
-    the effective D/r0. It holds the Dikmelik-Davidson limits: eta -> eta_max as
-    D/r0 -> 0, and eta ~ eta_max * (r0/D)^2 for a large D/r0 (only ~ (r0/D)^2
-    coherent cells couple into the one fibre mode). The exact Dikmelik-Davidson
-    double integral is the fidelity-1 upgrade.
-
-    formula:
-        eta = eta_max * [ 1 + (D_eff/r0)^(5/3) ]^(-6/5)
-            = eta_max * [ 1 + sigma^2_res / NOLL_PISTON ]^(-6/5)
-    The exponent -6/5 gives the large-aperture asymptote eta ~ (r0/D)^2.
-    Source: Dikmelik and Davidson, Appl. Opt. 44(23), 2005 (limits and curve).
-    '''
-    return eta_max * (1.0 + np.asarray(sigma2_res) / NOLL_PISTON) ** (-6.0 / 5.0)
-
-
-def _smf_coupling_efficiency(sigma2_res, eta_max):
-    '''
-    Return the SMF coupling efficiency eta from the residual phase variance.
-
-    Select the limit by SMF_SMALL_RESIDUAL_LIMIT. Small residual uses the
-    extended Marechal approximation. Large residual uses the uncorrected
-    Dikmelik-Davidson coupling curve. The two are limits of one overlap physics.
-    They cross over near sigma^2_res = 1 rad^2, where Marechal gives
-    eta_max/e = 0.37*eta_max and the Dikmelik-Davidson branch gives about
-    0.44*eta_max.
-
-    Parameters:
-        sigma2_res : float or numpy.ndarray
-            Residual phase variance [rad^2].
-        eta_max : float
-            Maximum fibre-to-aperture mode match (flat wavefront).
-
-    Returns:
-        numpy.ndarray
-            Coupling efficiency eta in (0, eta_max].
-    '''
-    sigma2 = np.asarray(sigma2_res, dtype=float)
-    marechal = eta_max * np.exp(-sigma2)
-    large = _smf_large_residual(sigma2, eta_max)
-    return np.where(sigma2 < SMF_SMALL_RESIDUAL_LIMIT, marechal, large)
-
-
-def smf_eta_max_from_a(a):
-    '''
-    Return the flat-wavefront single-mode-fibre coupling eta_max from a.
-
-    The coupling parameter is a = w_m/w_s = pi*(D/2)*w_m/(lambda*f), with w_m the
-    fibre mode field radius, w_s the focal spot radius, D the aperture diameter,
-    and f the focal length. The mode-overlap of an unobscured, uniformly
-    illuminated circular aperture with a Gaussian fibre mode is
-
-        eta_max(a) = 2 * [ (1 - exp(-a^2)) / a ]^2.
-
-    It peaks at eta_max=0.8145 near a=1.12, and it falls on both sides. Source:
-    Shaklan and Roddier, Applied Optics 27, 2334 (1988), DOI
-    10.1364/AO.27.002334 (also Ruilier, Proc. SPIE 3350, 1998, DOI
-    10.1117/12.317094; and Dikmelik and Davidson, Applied Optics 44(23), 4946
-    (2005), DOI 10.1364/AO.44.004946).
-
-    Parameters:
-        a : float or numpy.ndarray
-            The coupling parameter a = pi*(D/2)*w_m/(lambda*f).
-
-    Returns:
-        float or numpy.ndarray
-            The flat-wavefront coupling efficiency eta_max in (0, 0.8145].
-    '''
-    a = np.asarray(a, dtype=float)
-    return 2.0 * ((1.0 - np.exp(-a ** 2)) / a) ** 2
-
-
-def _smf_eta_max(detector, D, wavelength):
-    '''
-    Return the flat-wavefront eta_max for a single-mode-fibre detector.
-
-    When the detector has no focal length, use the eta_max field (today's
-    behaviour). When it has a focal length, derive a and eta_max(a) from the
-    optics. A focal length needs a mode field radius. See smf_eta_max_from_a.
-    With optimal_focus and no explicit focal length, a=SMF_OPTIMAL_A, so
-    eta_max is the peak 0.8145.
-    '''
-    if getattr(detector, "optimal_focus", False) and detector.focal_length_m is None:
-        return float(smf_eta_max_from_a(SMF_OPTIMAL_A))
-    if detector.focal_length_m is None:
-        return detector.eta_max
-    if detector.mode_field_radius_m is None:
-        raise ValueError(
-            "SMF.focal_length_m needs SMF.mode_field_radius_m to derive the "
-            "coupling parameter a."
-        )
-    a = (np.pi * (D / 2.0) * detector.mode_field_radius_m
-         / (wavelength * detector.focal_length_m))
-    return float(smf_eta_max_from_a(a))
 
 
 # --- received tip-tilt and the focal-plane walk-off fade ---------------------
@@ -361,253 +199,6 @@ def _walkoff_faces(f, w_eff, sigma2_theta_radial):
     return mean, quantile, sampler
 
 
-def _smf_static_term(eta_max):
-    '''
-    Turbulence-off single-mode-fibre coupling Term: the static mode-match loss.
-
-    With turbulence off there is no residual wavefront error, so eta = eta_max and
-    the coupling loss is the fixed mode-match floor -10*log10(eta_max). This is a
-    real static optical loss, NOT a turbulence quantity, so the Term is
-    DETERMINISTIC but NOT mean-only: it does not lock the budget out of a fade, so a
-    jitter walk-off Term can still carry the fade. Source of eta_max: Shaklan and
-    Roddier, Applied Optics 27, 2334 (1988), DOI 10.1364/AO.27.002334.
-    '''
-    coupling_loss = -10.0 * np.log10(eta_max)
-    assumptions = Assumptions(
-        beam_type=BEAM_GAUSSIAN,
-        turbulence_regime=REGIME_NA,
-        spectrum=SPECTRUM_NA,
-        validity="Turbulence off: static single-mode-fibre mode-match coupling only "
-                 "(eta_max). No residual wavefront error and no fade.",
-    )
-    return Term(
-        name="receive coupling (SMF)",
-        category="coupling",
-        mean_db=float(coupling_loss),
-        note=f"SMF static coupling (turbulence off), eta_max={eta_max:g}",
-        meta={"detector": "SMF", "model": "static", "eta_max": float(eta_max),
-              "eta": float(eta_max), "coupling_loss_db": float(coupling_loss)},
-        assumptions=assumptions,
-    )
-
-
-def _aperture_term(scenario, geometry, *, hs, cn2_profile):
-    '''
-    Build the receive-coupling Term for an aperture (bucket) detector.
-
-    Reuse the downlink lognormal aperture-averaged scintillation Term unchanged.
-    A bucket detector is phase-insensitive, so the compensation stack does not
-    change it. Rename the Term to the coupling category, so the total is parity
-    with the plain downlink scintillation.
-    '''
-    term = downlink_scintillation_term(scenario, geometry, model="lognormal",
-                                       aperture_average=True, hs=hs,
-                                       cn2_profile=cn2_profile)
-    term.name = "receive coupling (aperture)"
-    term.category = "coupling"
-    term.note = "bucket detector: aperture-averaged lognormal scintillation"
-    return term
-
-
-def _smf_mean_term(scenario, geometry, *, hs, cn2_profile, turbulence=True):
-    '''
-    Build the MEAN-ONLY receive-coupling Term for a single-mode-fibre detector.
-
-    Get r0 from the plane-wave Fried parameter. Get the residual phase variance
-    from the compensation stack. Convert it to the coupling efficiency eta, then
-    to the mean coupling loss -10*log10(eta). The Term is DETERMINISTIC: it has no
-    sampler and no quantile, so it carries no fade. For the fade (and the true
-    modal overlap) use smf_fidelity="fast" (olb.models.coupling_fast).
-
-    With turbulence=False the residual wavefront error drops to zero, so the Term
-    is the static mode-match loss only (_smf_static_term).
-    '''
-    terminal = scenario.rx_terminal
-    detector = terminal.detector
-    wavelength = terminal.wavelength_m
-    D = terminal.aperture_m
-    eta_max = _smf_eta_max(detector, D, wavelength)
-
-    if not turbulence:
-        return _smf_static_term(eta_max)
-
-    elev = geometry.elevation_deg
-    r0 = plane_wave_fried_parameter(cn2_profile, hs, wavelength, elev)
-    residual = apply_compensation(terminal.compensation, D, r0)
-    sigma2_res = residual.variance
-    eta = _smf_coupling_efficiency(sigma2_res, eta_max)
-    coupling_loss = -10.0 * np.log10(eta)     # positive dB, scalar or per-elevation
-    dr0_eff = _effective_dr0(sigma2_res)
-    base_shape = np.shape(coupling_loss)
-
-    assumptions = Assumptions(
-        beam_type=BEAM_PLANE_WAVE,
-        turbulence_regime=REGIME_WEAK,
-        spectrum=SPECTRUM_KOLMOGOROV,
-        validity="MEAN-ONLY single-mode-fibre coupling loss. Extended Marechal for "
-                 "a small residual; Dikmelik-Davidson uncorrected coupling for a "
-                 "large residual. The Dikmelik-Davidson coupling assumes a uniform "
-                 "circular aperture with no central obscuration. This Term is "
-                 "DETERMINISTIC: it gives the expected coupling loss only and models "
-                 "NO fade. For the fade and the true modal overlap use "
-                 "smf_fidelity='fast'.",
-    )
-    # MEAN-ONLY. The Term carries no coupling fade. Always flag it, so a fade
-    # margin (for example a 99% link margin) is never read off this Term.
-    assumptions.flag(
-        "Mean-only SMF coupling: this Term is the expected coupling loss and models "
-        "NO fade (no sampler, no quantile). Every fade margin read from it is wrong. "
-        "Use smf_fidelity='fast' for the statistical (fidelity-1) coupling."
-    )
-    # Dikmelik-Davidson assumes a uniform circular aperture. A central obscuration
-    # on the receive aperture breaks the coupling curve. Flag the violation.
-    if terminal.obscuration_ratio > 0.0:
-        assumptions.flag(
-            f"The receive aperture has a central obscuration "
-            f"(ratio={terminal.obscuration_ratio:.3f}); the Dikmelik-Davidson "
-            "coupling curve assumes a uniform circular aperture and does not "
-            "model it."
-        )
-    # Flag deep turbulence, where the practical coupling curve is extrapolated.
-    dr0_max = float(np.max(dr0_eff))
-    if dr0_max > SMF_DEEP_TURBULENCE_DR0:
-        assumptions.flag(
-            f"effective D/r0={dr0_max:.1f} exceeds {SMF_DEEP_TURBULENCE_DR0:.0f}; "
-            "the practical uncorrected coupling curve is extrapolated. Use "
-            "smf_fidelity='fast'."
-        )
-
-    note = (f"SMF coupling (mean-only), eta_max={eta_max:g}, "
-            f"n_comp_modes={residual.n_modes}")
-    return Term(
-        name="receive coupling (SMF)",
-        category="coupling",
-        mean_db=float(coupling_loss) if base_shape == () else coupling_loss,
-        sampler=None,       # deterministic: mean-only, no fade
-        quantile=None,
-        note=note,
-        meta={
-            "detector": "SMF",
-            "model": "mean-only",
-            "eta": float(eta) if base_shape == () else np.asarray(eta),
-            "coupling_loss_db": float(coupling_loss) if base_shape == () else np.asarray(coupling_loss),
-            "sigma2_res": float(sigma2_res) if np.ndim(sigma2_res) == 0 else np.asarray(sigma2_res),
-            "effective_D_over_r0": float(dr0_eff) if np.ndim(dr0_eff) == 0 else np.asarray(dr0_eff),
-            "r0_m": float(r0) if np.ndim(r0) == 0 else np.asarray(r0),
-            "n_comp_modes": residual.n_modes,
-        },
-        assumptions=assumptions,
-        mean_only=True,     # fidelity-0: expected coupling loss, no fade
-    )
-
-
-def rx_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
-                     n_samples=2000, smf_fidelity="fast", fast_params=None,
-                     turbulence=True):
-    '''
-    Build the ONE receive-coupling Term of a downlink receive terminal.
-
-    Read scenario.rx_terminal. Dispatch on the detector type. An Aperture detector
-    reuses the downlink aperture-averaged scintillation, so it is parity with the
-    plain downlink. An SMF detector picks the fidelity with smf_fidelity:
-
-    - "fast" (the default): the fidelity-1 true LP01 modal overlap from FAST. It
-      gives the mean, the quantile, and the fade. Needs fast-aosim. See
-      olb.models.coupling_fast.
-    - "mean": a cheap analytic MEAN-ONLY estimate (extended-Marechal / Dikmelik-
-      Davidson from the residual wavefront). The Term is DETERMINISTIC and models
-      no fade. Use it when only the expected coupling loss is wanted. See
-      _smf_mean_term.
-
-    Parameters:
-        scenario : SpaceScenario or TerrestrialScenario
-            Reads rx_terminal, link.wavelength_m, and the site Cn2 profile.
-        geometry : CircularOrbit or TLEPass
-            Reads elevation_deg. A scalar elevation gives a scalar Term.
-        hs : numpy.ndarray, optional
-            Heights above the ground station [m]. Defaults to DEFAULT_HS.
-        cn2_profile : numpy.ndarray, optional
-            Zenith Cn2(h) profile. Defaults to the site profile.
-        n_samples : int
-            FAST Monte Carlo draws (NITER) for smf_fidelity="fast". Ignored for an
-            Aperture detector and for smf_fidelity="mean".
-        smf_fidelity : str
-            The SMF coupling model: "fast" (default, fidelity-1 true modal overlap,
-            needs fast-aosim) or "mean" (analytic mean-only, no fade).
-        fast_params : dict, optional
-            Extra FAST parameters, passed through when smf_fidelity="fast".
-        turbulence : bool
-            When False, drop every turbulence quantity: an Aperture detector has
-            0 dB coupling (no scintillation) and an SMF detector keeps only the
-            static mode-match loss (no residual wavefront error, no FAST run). The
-            static parts survive; the fade parts that come from turbulence do not.
-
-    Returns:
-        Term
-            category="coupling".
-
-    Raises:
-        ValueError
-            If rx_terminal is None or has no detector, or the detector type is
-            unknown, or smf_fidelity is unknown.
-    '''
-    terminal = getattr(scenario, "rx_terminal", None)
-    if terminal is None or terminal.detector is None:
-        raise ValueError(
-            "rx_coupling_term needs a scenario.rx_terminal with a detector. "
-            "Set scenario.rx_terminal = Terminal(..., detector=Aperture() or SMF())."
-        )
-    # Turbulence off: no scintillation, no residual wavefront, no FAST engine. An
-    # Aperture bucket has no static coupling loss (0 dB); an SMF keeps its static
-    # mode-match floor. Resolve this before the Cn2 profile, so no turbulence
-    # quantity is even built.
-    if not turbulence:
-        detector = terminal.detector
-        if isinstance(detector, Aperture):
-            return Term(
-                name="receive coupling (aperture)",
-                category="coupling",
-                mean_db=0.0,
-                note="turbulence off: no scintillation",
-                meta={"detector": "Aperture", "model": "static"},
-                assumptions=Assumptions(
-                    beam_type=BEAM_GAUSSIAN,
-                    turbulence_regime=REGIME_NA,
-                    spectrum=SPECTRUM_NA,
-                    validity="Turbulence off: a bucket detector has no static "
-                             "coupling loss and no scintillation, so 0 dB."),
-            )
-        if isinstance(detector, SMF):
-            eta_max = _smf_eta_max(detector, terminal.aperture_m,
-                                   terminal.wavelength_m)
-            return _smf_static_term(eta_max)
-        raise ValueError(
-            f"unknown detector {type(detector).__name__!r}. Use Aperture or SMF."
-        )
-    hs = DEFAULT_HS if hs is None else hs
-    if cn2_profile is None:
-        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
-
-    detector = terminal.detector
-    if isinstance(detector, Aperture):
-        return _aperture_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile)
-    if isinstance(detector, SMF):
-        if smf_fidelity == "fast":
-            # Fidelity-1: the true LP01 modal overlap from FAST. Lazy import keeps
-            # the fast-aosim dependency optional.
-            from .coupling_fast import smf_fast_term
-            return smf_fast_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile,
-                                 n_samples=n_samples, fast_params=fast_params)
-        if smf_fidelity == "mean":
-            return _smf_mean_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile)
-        raise ValueError(
-            f"unknown smf_fidelity {smf_fidelity!r}. Use 'fast' or 'mean'."
-        )
-    raise ValueError(
-        f"unknown detector {type(detector).__name__!r}. Use Aperture or SMF."
-    )
-
-
 def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
                                   drop_tiptilt=False, turbulence=True):
     '''
@@ -641,9 +232,9 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
         drop_tiptilt : bool
             Remove the tip-tilt (Noll modes 2 and 3) from the residual phase
             variance. Set True when the budget also adds the receive tip-tilt
-            walk-off Term (smf_walkoff_term). The walk-off Term then carries the
-            tip-tilt coupling loss, and this Term keeps the HIGHER-ORDER residual
-            only. So the tip-tilt is not counted two times.
+            walk-off Term (terrestrial_smf_walkoff_term). The walk-off Term then
+            carries the tip-tilt coupling loss, and this Term keeps the
+            HIGHER-ORDER residual only. So the tip-tilt is not counted two times.
         turbulence : bool
             When False, drop the residual wavefront error (no r0, no Fried
             parameter), so the Term is the static mode-match loss only
@@ -760,7 +351,7 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
     )
 
 
-def smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True):
+def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True):
     '''
     Build the single-mode-fibre tip-tilt walk-off fade Term (terrestrial).
 
@@ -801,12 +392,13 @@ def smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True):
     rx = scenario.rx_terminal
     detector = rx.detector
     if not isinstance(detector, SMF):
-        raise ValueError("smf_walkoff_term needs an SMF detector on the far terminal.")
+        raise ValueError(
+            "terrestrial_smf_walkoff_term needs an SMF detector on the far terminal.")
     f, w_m = _smf_optics(detector, rx.aperture_m, rx.wavelength_m)
     if f is None or w_m is None:
         raise ValueError(
-            "smf_walkoff_term needs the fibre-coupling optics to map a tip-tilt to "
-            "a focal-plane displacement. Set SMF.focal_length_m and "
+            "terrestrial_smf_walkoff_term needs the fibre-coupling optics to map a "
+            "tip-tilt to a focal-plane displacement. Set SMF.focal_length_m and "
             "SMF.mode_field_radius_m, or set SMF.optimal_focus=True to derive the "
             "optimal focal length from the mode field radius."
         )
@@ -889,7 +481,7 @@ def _mmf_encircled_efficiency(offset_m, w_s, a_core):
     return ncx2.cdf((a_core / sigma) ** 2, df=2, nc=nc)
 
 
-def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
+def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
     '''
     Build the multimode-fibre coupling Term (terrestrial).
 
@@ -940,14 +532,15 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
     rx = scenario.rx_terminal
     detector = rx.detector
     if not isinstance(detector, MMF):
-        raise ValueError("mmf_coupling_term needs an MMF detector on the far terminal.")
+        raise ValueError(
+            "terrestrial_mmf_coupling_term needs an MMF detector on the far terminal.")
     D = rx.aperture_m
     wavelength = rx.wavelength_m
     f = _mmf_focal_length(detector, D, wavelength)
     if f is None:
         raise ValueError(
-            "mmf_coupling_term needs a focal length to map a tip-tilt to a "
-            "focal-plane displacement. Set MMF.focal_length_m, or set "
+            "terrestrial_mmf_coupling_term needs a focal length to map a tip-tilt "
+            "to a focal-plane displacement. Set MMF.focal_length_m, or set "
             "MMF.optimal_focus=True to match the spot to the core."
         )
     a_core = detector.core_radius_m
@@ -1059,161 +652,13 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
 
 
 if __name__ == '__main__':
-    import warnings
-
-    from ..scenario import SpaceScenario, Channel
-    from ..geometry import CircularOrbit
-    from ..terminal import Terminal, Transmitter, TipTilt, AO
+    from ...scenario import TerrestrialScenario, TerrestrialChannel
+    from ...geometry import HorizontalPath
+    from ...terminal import Terminal, Transmitter, Aperture, SMF, MMF, TipTilt
 
     lam = 1550e-9
-    hs = DEFAULT_HS
-    geom = CircularOrbit(600e3, 60.0)
-
-    def _downlink(ground):
-        '''Build a downlink SpaceScenario: tx=space (satellite), rx=ground.'''
-        return SpaceScenario(
-            ground=ground,
-            space=Terminal(aperture_m=0.05, wavelength_m=lam,
-                           transmitter=Transmitter(waist_m=0.035)),
-            direction="downlink", channel=Channel(altitude_m=600e3))
-
-    # --- SMF efficiency limits --------------------------------------------
-    # Small residual -> Marechal. Large residual -> Dikmelik-Davidson branch.
-    eta0 = _smf_coupling_efficiency(0.0, 0.8145)
-    assert np.isclose(eta0, 0.8145)                     # flat wavefront -> eta_max
-    assert _smf_coupling_efficiency(0.5, 0.8145) < 0.8145
-    # eta falls as the residual rises, in both branches.
-    grid = np.array([0.0, 0.3, 0.9, 2.0, 8.0, 30.0])
-    etas = _smf_coupling_efficiency(grid, 0.8145)
-    assert np.all(np.diff(etas) < 0.0), etas
-    # Large-aperture asymptote: eta ~ (r0/D)^2, so eta ~ sigma2_res^(-6/5).
-    e1 = _smf_large_residual(2000.0, 0.8145)
-    e2 = _smf_large_residual(4000.0, 0.8145)
-    slope = np.log(e2 / e1) / np.log(4000.0 / 2000.0)
-    assert abs(slope - (-6.0 / 5.0)) < 1e-3, slope
-
-    # The SMF tests use the analytic mean-only fidelity (the "fast" default needs
-    # fast-aosim, which is optional). The Aperture detector ignores smf_fidelity.
-    def build(scn):
-        return rx_coupling_term(scn, geom, hs=hs, smf_fidelity="mean",
-                                cn2_profile=default_cn2_profile(scn.channel.site, hs))
-
-    # --- Aperture detector: parity with the plain downlink scintillation ---
-    scn_ap = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam,
-                                detector=Aperture()))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_ap = build(scn_ap)
-        t_scint = downlink_scintillation_term(
-            scn_ap, geom, cn2_profile=default_cn2_profile(scn_ap.channel.site, hs))
-    assert t_ap.category == "coupling"
-    assert np.isclose(t_ap.mean_db, t_scint.mean_db)    # exact parity
-    assert np.isclose(t_ap.quantile_db(0.99), t_scint.quantile_db(0.99))
-
-    # --- SMF, no AO: mean-only Marechal / Dikmelik coupling loss ------------
-    # A 0.7 m fibre receiver with no correction. Deterministic: mean loss only.
-    scn_smf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF()))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_smf = build(scn_smf)
-    assert t_smf.name == "receive coupling (SMF)"
-    assert t_smf.meta["model"] == "mean-only"
-    assert t_smf.quantile is None and not t_smf.stochastic   # deterministic
-    assert t_smf.meta["coupling_loss_db"] > 0.0
-    # Mean-only caveat is always flagged, so it is never ok.
-    assert any("Mean-only" in v for v in t_smf.assumptions.violations)
-    assert not t_smf.assumptions.ok
-
-    # --- SMF with AO: AO buys back coupling (less mean loss than no AO) -----
-    scn_ao = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF(),
-                                compensation=[TipTilt(), AO(200)]))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_ao = build(scn_ao)
-    assert t_ao.meta["model"] == "mean-only"
-    assert t_ao.meta["coupling_loss_db"] > 0.0
-    assert float(t_ao.mean_db) < float(t_smf.mean_db), (t_ao.mean_db, t_smf.mean_db)
-
-    # --- Dikmelik-Davidson circular-aperture assumption --------------------
-    # A central obscuration on the receive aperture flags a violation naming the
-    # coupling curve; an unobscured aperture does not.
-    scn_obsc = _downlink(Terminal(aperture_m=0.7, obscuration_ratio=0.3,
-                                  wavelength_m=lam, detector=SMF(),
-                                  compensation=[TipTilt(), AO(200)]))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_obsc = build(scn_obsc)
-    assert any("uniform circular aperture" in v for v in t_obsc.assumptions.violations), \
-        t_obsc.assumptions.violations
-    assert not any("uniform circular aperture" in v for v in t_ao.assumptions.violations)
-
-    # --- Mean-only: deterministic, no fade ---------------------------------
-    # Every SMF mean-only term flags that it carries no fade, so it is never ok.
-    rng = np.random.default_rng(0)
-    for t in (t_smf, t_ao, t_obsc):
-        assert any("Mean-only" in v for v in t.assumptions.violations), \
-            t.assumptions.violations
-        assert not t.assumptions.ok
-        # Deterministic: the quantile is the constant mean, and samples broadcast it.
-        assert not t.stochastic and t.quantile is None
-        assert np.isclose(t.quantile_db(0.99), t.mean_db)
-        draws = t.sample_db(1000, rng)
-        assert draws.shape == (1000,) and np.allclose(draws, t.mean_db)
-
-    # An elevation sweep broadcasts the mean-only term.
-    sweep = CircularOrbit(600e3, np.array([40.0, 60.0, 90.0]))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        t_sweep = rx_coupling_term(scn_ao, sweep, hs=hs, smf_fidelity="mean",
-                                   cn2_profile=default_cn2_profile(scn_ao.channel.site, hs))
-    assert np.shape(t_sweep.mean_db) == (3,)
-    assert t_sweep.sample_db(100, rng).shape == (100, 3)
-
-    # An unknown fidelity is refused.
-    try:
-        rx_coupling_term(scn_smf, geom, hs=hs, smf_fidelity="reciprocity",
-                         cn2_profile=default_cn2_profile(scn_smf.channel.site, hs))
-        raise AssertionError("unknown smf_fidelity must raise")
-    except ValueError as e:
-        assert "smf_fidelity" in str(e)
-
-    print(f"aperture coupling mean = {float(t_ap.mean_db):.4f} dB "
-          f"(= scintillation {float(t_scint.mean_db):.4f} dB)")
-    print(f"SMF no-AO (mean-only):   coupling loss {float(t_smf.mean_db):.2f} dB  "
-          f"eta={t_smf.meta['eta']:.4f}")
-    print(f"SMF +AO200 (mean-only):  eta={t_ao.meta['eta']:.4f}  "
-          f"coupling loss={t_ao.meta['coupling_loss_db']:.2f} dB  "
-          f"sigma2_res={t_ao.meta['sigma2_res']:.4f}")
-
-    # --- Step 2: eta_max from the coupling parameter a ---------------------
-    # The overlap curve peaks at 0.8145 near a=1.12 and falls on both sides.
-    assert np.isclose(smf_eta_max_from_a(1.12), 0.8145, atol=1e-3), smf_eta_max_from_a(1.12)
-    assert smf_eta_max_from_a(0.5) < 0.8145 and smf_eta_max_from_a(2.5) < 0.8145
-    a_peak = np.linspace(0.9, 1.4, 51)
-    assert np.isclose(a_peak[np.argmax(smf_eta_max_from_a(a_peak))], 1.12, atol=0.03)
-
-    # f=None keeps the eta_max field exactly (today's behaviour).
-    assert _smf_eta_max(SMF(), 0.2, lam) == 0.8145
-    # Set f and w_m to sit on the optimum a=1.12: eta_max ~ 0.8145.
     D_test, wm = 0.2, 5.2e-6
     f_opt = np.pi * (D_test / 2.0) * wm / (lam * 1.12)   # a = 1.12
-    assert np.isclose(_smf_eta_max(SMF(focal_length_m=f_opt, mode_field_radius_m=wm),
-                                   D_test, lam), 0.8145, atol=1e-3)
-    # An off-optimum focal length (a far from 1.12) gives a lower eta_max.
-    eta_off = _smf_eta_max(SMF(focal_length_m=4.0 * f_opt, mode_field_radius_m=wm),
-                           D_test, lam)
-    assert eta_off < 0.8145, eta_off
-    # A focal length with no mode field radius is refused.
-    try:
-        _smf_eta_max(SMF(focal_length_m=0.02), D_test, lam)
-        raise AssertionError("focal length without mode field radius must raise")
-    except ValueError as e:
-        assert "mode_field_radius_m" in str(e)
-
-    # --- Steps 3 and 4: received tip-tilt, SMF walk-off, MMF coupling ------
-    from ..scenario import TerrestrialScenario, TerrestrialChannel
-    from ..geometry import HorizontalPath
-    from ..terminal import Aperture
 
     def _terr(detector, *, jitter=0.0, compensation=None, cn2=1e-14,
               far_aperture=0.2, w0=0.02, L=3e3):
@@ -1228,7 +673,7 @@ if __name__ == '__main__':
 
     hpath = HorizontalPath(3e3)
 
-    # Received tip-tilt: a tip-tilt stage tracks out the wander, jitter remains.
+    # --- Received tip-tilt: a tip-tilt stage tracks out the wander -----------
     v_full, _ = _received_tiptilt_variance(_terr(Aperture(), jitter=5e-6), n_grid=64)
     v_track, m_track = _received_tiptilt_variance(
         _terr(Aperture(), jitter=5e-6, compensation=[TipTilt()]), n_grid=64)
@@ -1236,35 +681,32 @@ if __name__ == '__main__':
     assert m_track["wander_tracked"] and m_track["sigma2_wander"] == 0.0
     assert np.isclose(v_track, 2.0 * 5e-6 ** 2)        # only the jitter remains
 
-    # SMF walk-off: a real fade. A larger jitter gives a deeper walk-off loss.
+    # --- SMF walk-off: a real fade. A larger jitter deepens the loss ---------
     smf_opt = SMF(focal_length_m=f_opt, mode_field_radius_m=wm, sensitivity_dbm=-40)
-    wo_small = smf_walkoff_term(_terr(smf_opt, jitter=2e-6), hpath)
-    wo_big = smf_walkoff_term(_terr(smf_opt, jitter=10e-6), hpath)
+    wo_small = terrestrial_smf_walkoff_term(_terr(smf_opt, jitter=2e-6), hpath)
+    wo_big = terrestrial_smf_walkoff_term(_terr(smf_opt, jitter=10e-6), hpath)
     assert wo_small.stochastic and wo_small.quantile is not None
     assert wo_big.mean_db > wo_small.mean_db
     assert wo_big.quantile_db(0.99) > wo_big.mean_db   # exponential tail
     rng = np.random.default_rng(0)
     draws = wo_big.sample_db(50_000, rng)
     assert np.abs(draws.mean() - wo_big.mean_db) / wo_big.mean_db < 0.03
-    # optimal_focus: derive f from a=1.12 (the far aperture is D_test=0.2). The
-    # derived f equals the explicit optimal f_opt, so the walk-off matches, and
-    # eta_max is the 0.8145 peak. It also works from the MFD alone (SMF-28 default).
+    # optimal_focus: derive f from a=1.12 (the far aperture is D_test=0.2).
     smf_focus = SMF(mode_field_radius_m=wm, optimal_focus=True, sensitivity_dbm=-40)
-    wo_focus = smf_walkoff_term(_terr(smf_focus, jitter=10e-6), hpath)
+    wo_focus = terrestrial_smf_walkoff_term(_terr(smf_focus, jitter=10e-6), hpath)
     assert np.isclose(wo_focus.meta["focal_length_m"], f_opt)
     assert np.isclose(wo_focus.mean_db, wo_big.mean_db)
-    assert np.isclose(_smf_eta_max(smf_focus, D_test, lam), 0.8145, atol=1e-4)
-    wo_default = smf_walkoff_term(_terr(SMF(optimal_focus=True), jitter=10e-6), hpath)
+    wo_default = terrestrial_smf_walkoff_term(
+        _terr(SMF(optimal_focus=True), jitter=10e-6), hpath)
     assert np.isclose(wo_default.mean_db, wo_big.mean_db)
     # An SMF without the optics cannot map a tip-tilt to a displacement.
     try:
-        smf_walkoff_term(_terr(SMF()), hpath)
+        terrestrial_smf_walkoff_term(_terr(SMF()), hpath)
         raise AssertionError("SMF walk-off without optics must raise")
     except ValueError:
         pass
 
-    # MMF coupling: the coupled power is the encircled energy of the displaced
-    # focal spot inside the hard core (a light bucket). Test the model directly.
+    # --- MMF coupling: encircled energy of the displaced spot in the core ----
     a_core = 25e-6
     # On-axis reduces to the encircled energy 1 - exp(-2 a_core^2/w_s^2).
     assert np.isclose(float(_mmf_encircled_efficiency(0.0, 5e-6, a_core)),
@@ -1279,36 +721,33 @@ if __name__ == '__main__':
     etas = _mmf_encircled_efficiency(offs, 8e-6, a_core)
     assert np.all(np.diff(etas) < 0.0), etas
 
-    # An MMF Term at optimal focus (the spot fills the core), so a tip-tilt walks
-    # it off. A real fade, and a larger jitter deepens the loss. Use a weak Cn2 so
-    # the mechanical jitter drives the comparison.
+    # An MMF Term at optimal focus, so a tip-tilt walks it off. A real fade.
     mmf = MMF(core_radius_m=a_core, optimal_focus=True, sensitivity_dbm=-38)
-    t_mmf = mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15), hpath)
+    t_mmf = terrestrial_mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15), hpath)
     assert t_mmf.name == "receive coupling (MMF)" and t_mmf.category == "coupling"
     assert t_mmf.stochastic and t_mmf.quantile is not None and not t_mmf.mean_only
     assert 0.0 < t_mmf.meta["eta_static"] <= 1.0 and t_mmf.meta["static_loss_db"] >= 0.0
     assert t_mmf.quantile_db(0.99) > t_mmf.mean_db          # walk-off adds a fade
-    t_mmf_calm = mmf_coupling_term(_terr(mmf, jitter=2e-6, cn2=1e-15), hpath)
+    t_mmf_calm = terrestrial_mmf_coupling_term(
+        _terr(mmf, jitter=2e-6, cn2=1e-15), hpath)
     assert t_mmf.mean_db > t_mmf_calm.mean_db               # more jitter, more loss
-    # optimal_focus derives f to match the spot to the core (a_core/w_s=1.12). It
-    # matches an explicit derived focal length, and gives about 92% static capture.
+    # optimal_focus derives f to match the spot to the core (a_core/w_s=1.12).
     f_mmf = np.pi * (D_test / 2.0) * a_core / (lam * 1.12)
-    t_explicit = mmf_coupling_term(
+    t_explicit = terrestrial_mmf_coupling_term(
         _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf), jitter=10e-6,
               cn2=1e-15), hpath)
     assert np.isclose(t_mmf.meta["focal_length_m"], f_mmf)
     assert np.isclose(t_mmf.mean_db, t_explicit.mean_db)
     assert np.isclose(t_mmf.meta["eta_static"], 1.0 - np.exp(-2.0 * 1.12 ** 2), atol=1e-3)
     assert t_mmf.meta["numerical_aperture"] is None and t_mmf.meta["na_factor"] == 1.0
-    # Numerical-aperture angular gate. A generous NA (>> NA_optic) does not change
-    # the coupling. A tight NA cuts the coupled power by (NA/NA_optic)^2 and flags it.
+    # Numerical-aperture angular gate.
     na_optic = t_mmf.meta["na_optic"]
-    t_wide_na = mmf_coupling_term(
+    t_wide_na = terrestrial_mmf_coupling_term(
         _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf,
                   numerical_aperture=10.0 * na_optic), jitter=10e-6, cn2=1e-15), hpath)
     assert np.isclose(t_wide_na.meta["na_factor"], 1.0)
     assert np.isclose(t_wide_na.mean_db, t_mmf.mean_db)     # no gate: unchanged
-    t_tight_na = mmf_coupling_term(
+    t_tight_na = terrestrial_mmf_coupling_term(
         _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf,
                   numerical_aperture=0.5 * na_optic), jitter=10e-6, cn2=1e-15), hpath)
     assert np.isclose(t_tight_na.meta["na_factor"], 0.25)   # (0.5)^2
@@ -1317,25 +756,18 @@ if __name__ == '__main__':
                for v in t_tight_na.assumptions.violations)
     # An MMF with no focal length and no optimal_focus is refused.
     try:
-        mmf_coupling_term(_terr(MMF(core_radius_m=a_core)), hpath)
+        terrestrial_mmf_coupling_term(_terr(MMF(core_radius_m=a_core)), hpath)
         raise AssertionError("MMF without a focal length must raise")
     except ValueError:
         pass
+
     # --- turbulence=False: static coupling + jitter, no turbulence quantity --
-    # Aperture: 0 dB (no scintillation). SMF: static mode-match loss only, and
-    # NOT mean-only, so it does not lock a budget out of a jitter fade.
-    ap_off = rx_coupling_term(scn_ap, geom, turbulence=False)
-    assert ap_off.mean_db == 0.0 and ap_off.meta["model"] == "static"
-    smf_off = rx_coupling_term(scn_smf, geom, turbulence=False)
-    assert smf_off.meta["model"] == "static" and not smf_off.mean_only
-    assert not smf_off.stochastic and smf_off.quantile is None
-    assert np.isclose(smf_off.mean_db, -10.0 * np.log10(0.8145))
-    # The received tip-tilt with turbulence off is the mechanical jitter alone.
     v_off, m_off = _received_tiptilt_variance(_terr(Aperture(), jitter=5e-6),
                                               n_grid=64, turbulence=False)
     assert m_off["sigma2_wander"] == 0.0 and np.isclose(v_off, 2.0 * 5e-6 ** 2)
     # The SMF walk-off then carries the jitter fade with NO turbulence.
-    wo_off = smf_walkoff_term(_terr(smf_opt, jitter=10e-6), hpath, turbulence=False)
+    wo_off = terrestrial_smf_walkoff_term(
+        _terr(smf_opt, jitter=10e-6), hpath, turbulence=False)
     assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
     assert wo_off.quantile_db(0.99) > wo_off.mean_db
     # An SMF static term needs no launch beam (turbulence off skips the r0 path).
@@ -1352,4 +784,4 @@ if __name__ == '__main__':
           f"99% {float(wo_big.quantile_db(0.99)):.3f} dB")
     print(f"MMF (25 um core, 5 urad): static {t_mmf.meta['static_loss_db']:.3f} dB  "
           f"mean {t_mmf.mean_db:.3f} dB  99% {float(t_mmf.quantile_db(0.99)):.3f} dB")
-    print("self-check passed")
+    print("coupling terrestrial self-check passed")

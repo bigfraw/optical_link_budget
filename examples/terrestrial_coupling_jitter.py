@@ -42,7 +42,8 @@ import numpy as np
 from olb import (TerrestrialScenario, TerrestrialChannel, HorizontalPath,
                  Terminal, Transmitter, SMF)
 from olb.models.pointing import pointing_loss_term
-from olb.models.coupling import terrestrial_smf_coupling_term, smf_walkoff_term
+from olb.models.coupling import (terrestrial_smf_coupling_term,
+                                 terrestrial_smf_walkoff_term)
 
 warnings.simplefilter("ignore")
 
@@ -106,7 +107,7 @@ def evaluate(scenario):
     floor = terrestrial_smf_coupling_term(scenario, hp, drop_tiptilt=True)
 
     # Fibre walk-off: the received tip-tilt moves the focal spot on the fibre.
-    wo = smf_walkoff_term(scenario, hp)
+    wo = terrestrial_smf_walkoff_term(scenario, hp)
     f = wo.meta["focal_length_m"]
     w_eff = wo.meta["w_eff_m"]
     mean_wander = _K * f ** 2 * wo.meta["sigma2_wander"] / w_eff ** 2

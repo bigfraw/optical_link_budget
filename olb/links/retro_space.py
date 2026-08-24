@@ -37,7 +37,7 @@ from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_NA, SPECTRUM_NA)
 from ..models.geometric import geometric_loss_term
 from ..models.gaussian_efficiency import (uniform_aperture_correction_db,
                                           tx_gaussian_efficiency_term)
-from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
+from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..terminal import Terminal, Transmitter
 from ..turbulence.profiles import default_cn2_profile
@@ -71,7 +71,7 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
         turbulence : bool
             Add the up-leg coupled-flux turbulence Term when true.
         tau_zenith : float, optional
-            Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
+            Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         n_samples : int
             Monte Carlo draws for the turbulence Term mean estimate.
         cn2_profile : numpy.ndarray, optional
@@ -106,7 +106,7 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
 
     up_terms = [
         geometric_loss_term(up_scn, geometry),
-        atmospheric_loss_term(up_scn, geometry, tau_zenith=tau),
+        slant_extinction_term(up_scn, geometry, tau_zenith=tau),
     ]
     # Up-leg pointing jitter folds into the coupled-flux turbulence Term (it
     # shares the beam-wander displacement), so add the standalone pointing Term
@@ -150,7 +150,7 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     )
     down_terms = [
         geometric_loss_term(down_scn, geometry),
-        atmospheric_loss_term(down_scn, geometry, tau_zenith=tau),
+        slant_extinction_term(down_scn, geometry, tau_zenith=tau),
         tophat_term,
     ]
     # The return-leg receive term follows the ground receiver, exactly as
@@ -161,8 +161,8 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     rx = down_scn.rx_terminal
     if rx is not None and rx.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
-        from ..models.coupling import rx_coupling_term
-        down_terms.append(rx_coupling_term(down_scn, geometry, n_samples=n_samples,
+        from ..models.coupling import downlink_coupling_term
+        down_terms.append(downlink_coupling_term(down_scn, geometry, n_samples=n_samples,
                                            smf_fidelity=smf_fidelity,
                                            fast_params=fast_params))
     else:

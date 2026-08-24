@@ -39,16 +39,27 @@ downlink, and retroreflected links to a LEO satellite.
   budget reads it to select the turbulence physics.
 - `olb/turbulence/` — pure physics. It imports only numpy, scipy, and `_deps`.
   It does not import a scenario or Term. Files: `profiles.py` (Cn2 profiles,
-  `default_cn2_profile`, `DEFAULT_HS`), `scintillation.py` (scintillation
-  indices, aperture-averaging integral), `anisoplanatism.py` (Stone 1994 angular
+  `default_cn2_profile`, `DEFAULT_HS`), `plane_wave_scintillation.py`
+  (plane-wave scintillation indices, aperture-averaging integral; the
+  space-to-ground downlink model), `beam_wave_scintillation.py` (Dios
+  Gaussian-beam scintillation, on and off axis; the uplink model),
+  `anisoplanatism.py` (Stone 1994 angular
   anisoplanatic phase variance, with the finite adaptive-optics band and
-  `max_radial_order`), `coupled_flux.py` (coupled-flux Monte Carlo wrapper),
+  `max_radial_order`), `uplink_flux.py` (the LEO-uplink coupled-flux Monte
+  Carlo wrapper),
   `angle_of_arrival.py` (the received tip-tilt of a Gaussian beam: the
   beam-wander arrival tilt is the working model; the aperture angle-of-arrival
   tilt is a DEFERRED stub that raises `NotImplementedError`, owner to specify).
-- `olb/models/` — direction-agnostic Term factories `f(scenario, geometry) ->
-  Term`: `geometric.py`, `transmittance.py` (slant airmass AND horizontal
-  Beer-Lambert), `pointing.py`.
+- `olb/models/` — Term factories `f(scenario, geometry) -> Term`. Each factory
+  is named for the physics it computes. Some use a link-specific simplification,
+  and the name says so: `geometric.py`, `extinction.py` (`slant_extinction_term`
+  for the slant airmass path AND `terrestrial_extinction_term` for the
+  horizontal Beer-Lambert path), `pointing.py`, and the `coupling/` package
+  (`_common.py` holds the shared SMF physics; `downlink.py` holds
+  `downlink_coupling_term`; `terrestrial.py` holds `terrestrial_smf_coupling_term`,
+  `terrestrial_smf_walkoff_term`, and `terrestrial_mmf_coupling_term`; `fast.py`
+  holds the FAST fibre coupling. `from olb.models.coupling import <name>` still
+  works).
 - `olb/links/` — per-link Terms and budget assembly: `uplink.py`
   (`uplink_turbulence_term`, `uplink_point_ahead_term`, `uplink_fitting_term`,
   `uplink_budget`; the budget dispatches on the scenario `precompensation`
@@ -60,8 +71,9 @@ downlink, and retroreflected links to a LEO satellite.
   uplink fade is trusted), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
-  `retro.py` is a backward-compatible alias that re-exports `retro_budget =
-  retro_space_budget`. A short terrestrial retro link needs its own module.
+  `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
+  `olb/links/__init__.py` (there is no `retro.py` file). A short terrestrial
+  retro link needs its own module.
   `terrestrial.py` (`terrestrial_budget`; horizontal ground-to-ground link;
   the geometric, horizontal-extinction, and pointing Terms are exact.
   `terrestrial_scintillation_term` gives a real lognormal fade with three faces.
@@ -69,9 +81,9 @@ downlink, and retroreflected links to a LEO satellite.
   aperture-averaging factor. `terrestrial_budget` turns it on by default for an
   aperture or no-detector receiver. An `SMF` detector takes the mean-only
   fibre-coupling Term, plus the receive tip-tilt walk-off fade Term
-  (`smf_walkoff_term`) when the coupling optics are set. An `MMF` (light bucket)
-  takes the spot-in-core coupling Term plus the same walk-off fade
-  (`mmf_coupling_term`). The walk-off reads the received tip-tilt from
+  (`terrestrial_smf_walkoff_term`) when the coupling optics are set. An `MMF`
+  (light bucket) takes the spot-in-core coupling Term plus the same walk-off fade
+  (`terrestrial_mmf_coupling_term`). The walk-off reads the received tip-tilt from
   `olb.turbulence.angle_of_arrival` (beam wander) plus the receive jitter; the
   coupling Term keeps the higher-order residual only, so the tip-tilt is not
   counted two times. `terrestrial_budget` also takes a master `turbulence` switch
@@ -116,7 +128,7 @@ through the constant `COLLIMATED_THETA0`. So it holds only for a collimated
 beam. The profile form `gaussian_fried_parameter_profile` already accepts a
 phase-front radius of curvature `f0` and computes `Theta0 = 1 - L/f0`. But its
 default `f0 = inf` keeps the beam collimated, and the one call site (the
-terrestrial single-mode-fibre coupling in `olb/models/coupling.py`) does not
+terrestrial single-mode-fibre coupling in `olb/models/coupling/terrestrial.py`) does not
 pass `f0`.
 
 Plan: add a curvature argument to `gaussian_fried_parameter`. Thread it through

@@ -19,13 +19,13 @@ from ..results import Budget, Term
 from ..assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
                           REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
-from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
+from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.anisoplanatism import (anisoplanatic_phase_variance,
                                          max_radial_order)
-from ..turbulence.ao import plane_wave_fried_parameter, apply_compensation
-from ..turbulence.coupled_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
+from ..turbulence.ao import plane_wave_fried_parameter_profile, apply_compensation
+from ..turbulence.uplink_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..terminal import AO
 from ..scenario import DownlinkBeacon, LaserGuideStar
@@ -366,7 +366,7 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
 
     # Reciprocity: the ground-aperture phase is common to the up and down paths,
     # so the plane-wave (downlink) r0 sets the sensed and corrected wavefront.
-    r0 = plane_wave_fried_parameter(cn2_profile, hs, wavelength, elev)
+    r0 = plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elev)
     residual = apply_compensation(tx.compensation, D, r0)
     sigma2_fit = np.asarray(residual.variance, dtype=float)
     # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
@@ -466,7 +466,7 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
         turbulence : bool
             Add the turbulence Term when true.
         tau_zenith : float, optional
-            Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
+            Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         n_samples : int
             Monte Carlo draws for the coupled-flux turbulence Term mean estimate.
         cn2_profile : numpy.ndarray, optional
@@ -483,7 +483,7 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
     terms = [
         geometric_loss_term(scenario, geometry),
-        atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
+        slant_extinction_term(scenario, geometry, tau_zenith=tau),
     ]
     tx = scenario.tx_terminal
 

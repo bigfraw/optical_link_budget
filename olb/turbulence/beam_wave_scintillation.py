@@ -44,7 +44,7 @@ import numpy as np
 from scipy.special import gamma, hyp1f1
 
 # ponytail: DEBT. This analytic Dios path duplicates the beam-wave scintillation
-# physics inside the shared coupled-flux MC (olb.turbulence.coupled_flux, which
+# physics inside the shared coupled-flux MC (olb.turbulence.uplink_flux, which
 # now folds pointing jitter + beam wander into the off-axis radius r=beta). This
 # analytic twin still takes a bare r and knows nothing of that correction. The
 # terrestrial scintillation slot will want the off-axis form WITH jitter folded

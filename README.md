@@ -75,9 +75,10 @@ horizontal-path link, see the runnable examples in `examples/`
 The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
 
 - `olb/turbulence/` — pure physics (no scenario, no Term): Cn2 profiles,
-  scintillation indices, aperture averaging, coupled-flux Monte Carlo.
-- `olb/models/` — direction-agnostic Term factories: geometric spreading,
-  atmospheric extinction (slant and horizontal), pointing jitter.
+  plane-wave (downlink) and beam-wave (uplink) scintillation indices, aperture
+  averaging, the uplink coupled-flux Monte Carlo.
+- `olb/models/` — Term factories: geometric spreading, atmospheric extinction
+  (slant and horizontal), pointing jitter, receive coupling.
 - `olb/links/` — per-direction Terms and budget assembly: `uplink_budget`,
   `downlink_budget`, `retro_budget`, `terrestrial_budget`.
 - `olb/results.py` — `Term` (mean / analytic quantile / sampler) and `Budget`.

@@ -173,7 +173,7 @@ DOI (source cited in `olb/beam.py`).
 
 ## 3. Atmospheric extinction
 
-File: `olb/models/transmittance.py`
+File: `olb/models/extinction.py`
 
 ### 3a. Slant airmass extinction (space link)
 
@@ -236,7 +236,7 @@ The coefficient is quoted directly in dB/km, so no logarithm is needed.
 
 The airmass model is borrowed from `fso_spot_size.airmass` in the sibling TN-2
 analysis repo. The Beer-Lambert forms are stated in the module. The module gives
-no literal DOI (source cited in `olb/models/transmittance.py`).
+no literal DOI (source cited in `olb/models/extinction.py`).
 
 ---
 
@@ -330,7 +330,7 @@ The profile builder is the shared `get_c2n` kernel (source cited in
 
 ### 5b. Scintillation index and aperture averaging (downlink plane wave)
 
-File: `olb/turbulence/scintillation.py`
+File: `olb/turbulence/plane_wave_scintillation.py`
 
 #### What the code models
 
@@ -402,7 +402,7 @@ factors.
 
 ### 5c. Uplink coupled-flux Monte Carlo
 
-File: `olb/turbulence/coupled_flux.py`
+File: `olb/turbulence/uplink_flux.py`
 
 #### What the code models
 
@@ -455,7 +455,7 @@ mechanism. The shared kernels come from `olb._deps`.
 
 ### 5d. Dios on-axis and off-axis beam scintillation
 
-File: `olb/turbulence/beam_scintillation.py`
+File: `olb/turbulence/beam_wave_scintillation.py`
 
 #### What the code models
 
@@ -569,7 +569,7 @@ or `terrestrial`.
 > `gaussian_fried_parameter_profile` is NOT limited this way: it takes a
 > phase-front radius of curvature `f0` and computes `Theta0 = 1 - L/f0`. Its
 > default `f0 = inf` still gives a collimated beam. The one call site, the
-> terrestrial single-mode-fibre coupling in `olb/models/coupling.py`, does not
+> terrestrial single-mode-fibre coupling in `olb/models/coupling/terrestrial.py`, does not
 > pass `f0`, so it uses the collimated default too.
 >
 > To generalise, stop pinning `Theta0` to 1. For the profile form, pass a finite
@@ -746,7 +746,9 @@ of magnitude for a small aperture (Stone Fig. 1).
 
 ### 6a. Analytic mean coupling (fidelity 0)
 
-File: `olb/models/coupling.py`
+File: `olb/models/coupling/_common.py` (shared SMF physics), used by
+`olb/models/coupling/downlink.py` (`downlink_coupling_term`) and
+`olb/models/coupling/terrestrial.py` (`terrestrial_smf_coupling_term`)
 
 #### What the code models
 
@@ -816,7 +818,7 @@ standalone scintillation Term.
 
 ### 6b. FAST statistical coupling (fidelity 1)
 
-File: `olb/models/coupling_fast.py`
+File: `olb/models/coupling/fast.py`
 
 #### What the code models
 
@@ -876,7 +878,7 @@ Eq. 12.44).
 
 ### 6c. Fibre tip-tilt walk-off (terrestrial SMF and MMF)
 
-File: `olb/models/coupling.py`, `olb/turbulence/angle_of_arrival.py`
+File: `olb/models/coupling/terrestrial.py`, `olb/turbulence/angle_of_arrival.py`
 
 #### What the code models
 

@@ -73,7 +73,7 @@ The lower-level path. It composes the four models into one `Budget` by hand,
 instead of a link factory. Use it to see how a budget is built term by term.
 
 - API: `Budget([...], scenario=...)` built from `geometric_loss_term`,
-  `atmospheric_loss_term`, `pointing_loss_term`, and `uplink_turbulence_term`.
+  `slant_extinction_term`, `pointing_loss_term`, and `uplink_turbulence_term`.
   A FAST-free Cn2 profile comes from `get_c2n`, so the script runs anywhere.
 - It asserts that the table has all four terms and that the margin is finite.
 - Output: an itemised table, a Monte Carlo mean, a 99% fade, and a 99% margin.
@@ -117,7 +117,7 @@ legs.
 A term-level benchmark. It compares the two single-mode-fibre coupling
 fidelities on a no-AO downlink over an elevation sweep.
 
-- API: `rx_coupling_term(scenario, geom, smf_fidelity=...)` called directly, not
+- API: `downlink_coupling_term(scenario, geom, smf_fidelity=...)` called directly, not
   through a budget; `smf_fidelity="mean"` (the cheap analytic mean, no fade)
   versus `smf_fidelity="fast"` (the FAST fidelity-1 statistical model).
 - The FAST reference gives the mean, the quantile, and the deep-fade tail. The
@@ -157,7 +157,7 @@ pointing mechanisms and keeps the free-space loss apart from the fibre loss:
 - The receive jitter is a fibre-coupling loss. It also moves the focal spot
   (the walk-off, contribution B).
 
-- API: `terrestrial_budget`, `smf_walkoff_term`, `terrestrial_smf_coupling_term`,
+- API: `terrestrial_budget`, `terrestrial_smf_walkoff_term`, `terrestrial_smf_coupling_term`,
   and `pointing_loss_term`. The receive terminal is `SMF(optimal_focus=True)`, so
   the focal length comes from the mode field radius and the aperture at `a=1.12`.
 - Output: a loss breakdown by mechanism, then three sweeps (over Cn2, the receive
@@ -170,7 +170,7 @@ A validation of the multimode-fibre (light-bucket) coupling. It plots the couple
 power against the incident angle for the correct encircled-energy model and for
 the old, wrong Gaussian roll-off, at two spot sizes.
 
-- API: `olb.models.coupling._mmf_encircled_efficiency`. The correct model has a
+- API: `olb.models.coupling.terrestrial._mmf_encircled_efficiency`. The correct model has a
   flat top: a small spot loses almost nothing until it nears the core edge, where
   it collects about half the power (about 3 dB). The old model wrongly lost power
   from zero angle.
@@ -186,7 +186,7 @@ does not guide the steep rays. The spot size and the cone are locked by the
 diffraction invariant `w_s * NA_optic = lambda/pi`, so a shorter focal length
 tolerates more walk-off but pays a larger gate.
 
-- API: `mmf_coupling_term` with `MMF(numerical_aperture=...)`. The loss splits
+- API: `terrestrial_mmf_coupling_term` with `MMF(numerical_aperture=...)`. The loss splits
   additively: spot-in-core + NA gate + walk-off = mean.
 - Output: an NA sweep (the gate turns on below `NA_optic`), then a focal-length
   sweep that shows the etendue trade and a best focal length.

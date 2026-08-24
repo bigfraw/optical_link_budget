@@ -25,8 +25,8 @@ prefactor double-counts a normalisation the untruncated-source reference already
 carries. The removal is validated against a numerical Fraunhofer propagation of a
 truncated Gaussian (tn2_kepler test_gauss_prop).
 
-This module is direction-agnostic. For an uplink the transmitter is the ground
-station; for a downlink it is the satellite.
+The transmitter is the ground station for an uplink, or the satellite for a
+downlink. The same code serves both.
 '''
 
 import numpy as np

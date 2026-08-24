@@ -1,7 +1,10 @@
 '''
-Clear-sky atmospheric extinction along the slant path.
+Atmospheric extinction, in two faces: slant and horizontal.
 
-Beer-Lambert law with a single zenith optical depth that airmass scales:
+The module gives two extinction Terms, one for each link family.
+
+SLANT (space links): the clear-sky Beer-Lambert extinction along the slant path.
+A single zenith optical depth that airmass scales:
 
     T        = exp(-tau_zenith * airmass(elevation))
     loss_db  = -10*log10(T) = (10/ln10) * tau_zenith * airmass(elevation)
@@ -20,11 +23,15 @@ runs and typical 1550 nm FSO link budgets. Set `tau_zenith` per site or haze.
 The airmass model (plane-parallel secant, 1/sin(elevation)) comes from
 fso_spot_size.airmass in the sibling TN-2 analysis repo. It uses the same slant
 scaling as the other modules. It diverges at the horizon. Do not use elevation 0.
+
+HORIZONTAL (terrestrial links): the Beer-Lambert extinction along a horizontal
+path. The path has a constant extinction per unit length, quoted in dB/km, so
+the loss is linear in the path length. See horizontal_extinction_db.
 '''
 
 import numpy as np
 
-from ..results import Term  # run modules with `python -m olb.models.transmittance`
+from ..results import Term  # run modules with `python -m olb.models.extinction`
 from ..assumptions import Assumptions, BEAM_NA, REGIME_NA, SPECTRUM_NA
 
 DEFAULT_TAU_ZENITH = 0.05  # see module docstring
@@ -65,7 +72,7 @@ def atmospheric_transmittance(elevation_deg, tau_zenith=DEFAULT_TAU_ZENITH):
     return np.exp(-tau_zenith * airmass(elevation_deg))
 
 
-def atmospheric_loss_term(scenario, geometry, tau_zenith=DEFAULT_TAU_ZENITH):
+def slant_extinction_term(scenario, geometry, tau_zenith=DEFAULT_TAU_ZENITH):
     '''
     Deterministic clear-sky atmospheric extinction as a link-budget Term.
 
@@ -133,7 +140,7 @@ def terrestrial_extinction_term(scenario, geometry):
     '''
     Horizontal-path atmospheric extinction as a link-budget Term.
 
-    The terrestrial counterpart of atmospheric_loss_term. It reads the
+    The terrestrial counterpart of slant_extinction_term. It reads the
     attenuation coefficient from the scenario TerrestrialChannel and the path
     length from the geometry. Deterministic (loss positive dB).
 
@@ -178,7 +185,7 @@ if __name__ == '__main__':
     # loss positive and larger at low elevation (thicker slant path)
     class _G:
         elevation_deg = el
-    term = atmospheric_loss_term(None, _G())
+    term = slant_extinction_term(None, _G())
     loss = term.mean_db
     assert np.all(loss > 0)
     assert loss[0] > loss[-1]                       # 10 deg > 90 deg
@@ -190,16 +197,16 @@ if __name__ == '__main__':
         elevation_deg = 3.0
     class _G45:
         elevation_deg = 45.0
-    assert not atmospheric_loss_term(None, _G3()).assumptions.ok
-    assert atmospheric_loss_term(None, _G45()).assumptions.ok
+    assert not slant_extinction_term(None, _G3()).assumptions.ok
+    assert slant_extinction_term(None, _G45()).assumptions.ok
 
     # loss at 30 deg > loss at zenith
     class _G30:
         elevation_deg = 30.0
     class _G90:
         elevation_deg = 90.0
-    assert (atmospheric_loss_term(None, _G30()).mean_db
-            > atmospheric_loss_term(None, _G90()).mean_db)
+    assert (slant_extinction_term(None, _G30()).mean_db
+            > slant_extinction_term(None, _G90()).mean_db)
 
     # Horizontal extinction: linear in path length, positive loss.
     assert horizontal_extinction_db(1e3, 0.5) == 0.5          # 1 km at 0.5 dB/km

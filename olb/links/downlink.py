@@ -3,7 +3,7 @@ Downlink scintillation Term and budget assembly.
 
 This module builds the downlink scintillation Term and the downlink budget. The
 Term gives the analytic lognormal plane-wave fade for a LEO-to-ground link. The
-pure scintillation physics lives in olb.turbulence.scintillation.
+pure scintillation physics lives in olb.turbulence.plane_wave_scintillation.
 
 The received power P is lognormal with E[P] = 1. With sigma_l^2 = ln(1 +
 sigma2_P) the loss faces are
@@ -28,10 +28,10 @@ from ..results import Budget, Term
 from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_WEAK,
                           SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
-from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
+from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from ..turbulence.scintillation import (plane_wave_scintillation_index,
+from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
                                         aperture_averaged_scintillation_index,
                                         WEAK_FLUCTUATION_LIMIT)
 
@@ -251,7 +251,7 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
         geometry : CircularOrbit or TLEPass
             The link geometry.
         tau_zenith : float, optional
-            Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
+            Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         scintillation : bool
             Add the lognormal downlink scintillation Term when true.
         turbulence : bool
@@ -286,7 +286,7 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
     terms = [
         geometric_loss_term(scenario, geometry),
-        atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
+        slant_extinction_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
     # NOTE: the downlink keeps its standalone pointing Term (above) because it has
@@ -299,8 +299,8 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
     terminal = getattr(scenario, "rx_terminal", None)
     if terminal is not None and terminal.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
-        from ..models.coupling import rx_coupling_term
-        terms.append(rx_coupling_term(scenario, geometry, n_samples=n_samples,
+        from ..models.coupling import downlink_coupling_term
+        terms.append(downlink_coupling_term(scenario, geometry, n_samples=n_samples,
                                       smf_fidelity=smf_fidelity,
                                       fast_params=fast_params,
                                       turbulence=turbulence))

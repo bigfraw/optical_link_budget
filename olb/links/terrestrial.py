@@ -2,7 +2,7 @@
 Terrestrial (horizontal-path) Terms and budget assembly.
 
 This module builds the terrestrial link budget: a ground-to-ground horizontal
-path. It reuses the direction-agnostic Terms (geometric spreading, pointing
+path. It reuses the shared Terms (geometric spreading, pointing
 jitter, transmit truncation), adds the horizontal Beer-Lambert extinction Term,
 and adds the horizontal Gaussian-beam scintillation Term.
 
@@ -15,11 +15,11 @@ model that the downlink uses. It uses the Gaussian-beam analytic form.
 
 The scintillation Term reuses two pieces of physics that the package already
 carries. The point scintillation index is the on-axis Gaussian beam-wave index
-sigma2_I(0, L) of olb.turbulence.beam_scintillation (Dios et al., Applied Optics
-43 (2004) 3866, Eq. 16), evaluated on a constant-Cn2 horizontal grid. The
+sigma2_I(0, L) of olb.turbulence.beam_wave_scintillation (Dios et al., Applied
+Optics 43 (2004) 3866, Eq. 16), evaluated on a constant-Cn2 horizontal grid. The
 aperture-averaging win is the Andrews weak-turbulence Kolmogorov factor of
-olb.turbulence.scintillation.aperture_averaging_factor_weak (Andrews and
-Phillips, 2nd ed. 2005, Ch. 10). The lognormal fade faces (mean_db, quantile,
+olb.turbulence.plane_wave_scintillation.aperture_averaging_factor_weak (Andrews
+and Phillips, 2nd ed. 2005, Ch. 10). The lognormal fade faces (mean_db, quantile,
 sampler) follow the same closed form as the downlink lognormal Term (see
 olb.links.downlink._lognormal_term).
 '''
@@ -33,11 +33,11 @@ from ..results import Budget, Term
 from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                            SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
-from ..models.transmittance import terrestrial_extinction_term
+from ..models.extinction import terrestrial_extinction_term
 from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
-from ..turbulence.beam_scintillation import on_axis_scintillation_index
-from ..turbulence.scintillation import (aperture_averaging_factor_weak,
+from ..turbulence.beam_wave_scintillation import on_axis_scintillation_index
+from ..turbulence.plane_wave_scintillation import (aperture_averaging_factor_weak,
                                         WEAK_FLUCTUATION_LIMIT)
 
 # Below this launch-truncation loss the beam is an untruncated Gaussian, so the
@@ -66,7 +66,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
          is the finite-beam point index. It sits between the plane-wave limit
          (large waist) and the spherical-wave limit (small waist), so the beam
          waist and the range steer it. See
-         olb.turbulence.beam_scintillation.on_axis_scintillation_index (Dios et
+         olb.turbulence.beam_wave_scintillation.on_axis_scintillation_index (Dios et
          al., Applied Optics 43 (2004) 3866, Eq. 16). A horizontal path is a
          constant-Cn2 grid from the transmitter (z=0) to the receiver (z=L) at
          elevation 90 (sec=1), so the range L is the grid length.
@@ -74,7 +74,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
       2. The aperture-averaging factor A that reduces the point index to the
          aperture-averaged flux index sigma2_P = A * sigma2_I. A telescope of
          diameter D averages the fine scintillation, so A falls as D grows. See
-         olb.turbulence.scintillation.aperture_averaging_factor_weak (Andrews
+         olb.turbulence.plane_wave_scintillation.aperture_averaging_factor_weak (Andrews
          and Phillips, 2nd ed. 2005, Ch. 10, weak Kolmogorov, small inner scale).
 
     The flux index sigma2_P then feeds the same lognormal fade faces as the
@@ -131,11 +131,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
 
     # TODO(pointing jitter): this Term is ON-AXIS only (r=0), so it does NOT yet
     # carry pointing/tracking jitter. When adding it, note the ANALYTIC-PATH
-    # ASYMMETRY vs the uplink MC (olb.turbulence.coupled_flux, which folds jitter
+    # ASYMMETRY vs the uplink MC (olb.turbulence.uplink_flux, which folds jitter
     # into r=beta and gets everything for free because it works in ABSOLUTE
     # irradiance):
     #   1. Fold the jitter displacement into the OFF-AXIS radial index at r=beta
-    #      (beam_scintillation.radial_scintillation_index), beta drawn from the
+    #      (beam_wave_scintillation.radial_scintillation_index), beta drawn from the
     #      jitter (+ beam-wander) 2-D variance. This adds the FLUCTUATION boost.
     #   2. You STILL need a SEPARATE mean-power loss term for the same jitter,
     #      because the off-axis sigma2_I is normalised to the LOCAL mean and does
@@ -223,7 +223,7 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=Tru
     Assemble the terrestrial budget: geometric, extinction, pointing, turbulence.
 
     The deterministic Terms (geometric spreading, horizontal extinction, pointing
-    jitter) are exact and direction-agnostic. The turbulence effect depends on the
+    jitter) are exact and serve every link the same way. The turbulence effect depends on the
     receiver front end, and it mirrors the downlink rule:
 
       - An Aperture (bucket) detector, or no detector, gets the horizontal
@@ -236,9 +236,11 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=Tru
         also added (no double-count). The mean-only coupling Term locks the budget
         to fidelity 0, so the budget then refuses a fade margin. When the SMF sets
         the coupling optics (focal_length_m and mode_field_radius_m), the budget
-        also adds the receive tip-tilt walk-off fade Term (smf_walkoff_term).
+        also adds the receive tip-tilt walk-off fade Term
+        (terrestrial_smf_walkoff_term).
       - An MMF detector gets the multimode-fibre coupling Term instead
-        (olb.models.coupling.mmf_coupling_term): the geometric spot-in-core loss
+        (olb.models.coupling.terrestrial_mmf_coupling_term): the geometric
+        spot-in-core loss
         plus the tip-tilt walk-off fade. It replaces the scintillation Term (no
         double-count). The MMF Term has a real fade, so the budget keeps its fade.
 
@@ -297,7 +299,7 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=Tru
     if isinstance(rx.detector, SMF):
         # Lazy import breaks the terrestrial <-> coupling import cycle.
         from ..models.coupling import (terrestrial_smf_coupling_term,
-                                       smf_walkoff_term)
+                                       terrestrial_smf_walkoff_term)
         # The receive tip-tilt walk-off fade fires when the fibre-coupling optics
         # are set (focal length + mode field radius). Without them a tip-tilt has
         # no focal-plane displacement, so the Term is skipped. When the walk-off
@@ -311,13 +313,13 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=Tru
                                                    drop_tiptilt=walkoff_on,
                                                    turbulence=turbulence))
         if walkoff_on:
-            terms.append(smf_walkoff_term(scenario, geometry,
+            terms.append(terrestrial_smf_walkoff_term(scenario, geometry,
                                           turbulence=turbulence))
     elif isinstance(rx.detector, MMF):
         # An MMF (light bucket) replaces the scintillation Term with the geometric
         # spot-in-core coupling plus the tip-tilt walk-off fade (no double-count).
-        from ..models.coupling import mmf_coupling_term
-        terms.append(mmf_coupling_term(scenario, geometry, turbulence=turbulence))
+        from ..models.coupling import terrestrial_mmf_coupling_term
+        terms.append(terrestrial_mmf_coupling_term(scenario, geometry, turbulence=turbulence))
     elif scintillation and turbulence:
         terms.append(terrestrial_scintillation_term(scenario, geometry))
     return Budget(terms, scenario=scenario)

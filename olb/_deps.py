@@ -47,7 +47,7 @@ from satellite import Satellite, SatellitePass                   # noqa: E402
 with contextlib.redirect_stdout(io.StringIO()):
     from coupled_flux import (                                   # noqa: E402
         coupled_flux_montecarlo,
-        # Lower-level kernels: olb.turbulence.coupled_flux composes these into a
+        # Lower-level kernels: olb.turbulence.uplink_flux composes these into a
         # short uplink MC loop with a diverged free-space beam width (w_free).
         spherical_wave_coherence_diameter, short_term_beam_waist,
         long_term_beam_waist, beam_wander_variance,

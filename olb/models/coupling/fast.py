@@ -12,8 +12,8 @@ mode:
 
 FAST propagates Monte-Carlo phase screens (phase) with an aperture-averaged
 log-normal scintillation (log-amplitude), and forms the mode overlap directly. So
-this is a true modal-coupling metric, not a Strehl proxy. See olb.models.coupling
-for the lower-fidelity models and the fidelity ladder.
+this is a true modal-coupling metric, not a Strehl proxy. See
+olb.models.coupling.downlink for the lower-fidelity models and the fidelity ladder.
 
 FAST is an OPTIONAL dependency (GPLv3). This module imports it lazily. Install it
 with `pip install fast-aosim`.
@@ -38,13 +38,13 @@ import logging
 
 import numpy as np
 
-from ..results import Term
-from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
-                           SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
-from ..terminal import TipTilt, AO
-from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from ..turbulence.scintillation import (plane_wave_scintillation_index,
-                                        WEAK_FLUCTUATION_LIMIT)
+from ...results import Term
+from ...assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
+                            SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
+from ...terminal import TipTilt, AO
+from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile
+from ...turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
+                                                   WEAK_FLUCTUATION_LIMIT)
 
 
 def _load_fast():
@@ -56,7 +56,7 @@ def _load_fast():
         raise ImportError(
             "the fidelity-1 SMF coupling needs the `fast-aosim` package. "
             "Run `pip install fast-aosim`, or use the analytic mean-only model "
-            "(rx_coupling_term smf_fidelity='mean'), which carries no fade."
+            "(downlink_coupling_term smf_fidelity='mean'), which carries no fade."
         ) from e
 
 
@@ -288,9 +288,9 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
 if __name__ == '__main__':
     import warnings
 
-    from ..scenario import SpaceScenario, Channel, Site
-    from ..geometry import CircularOrbit
-    from ..terminal import Terminal, Transmitter, SMF, TipTilt, AO
+    from ...scenario import SpaceScenario, Channel, Site
+    from ...geometry import CircularOrbit
+    from ...terminal import Terminal, Transmitter, SMF, TipTilt, AO
 
     try:
         _load_fast()
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     # Spectrum label follows the RESOLVED scales, not a fixed constant. The
     # default (L0=inf, l0=1e-6) is the Kolmogorov limit; a finite L0 flips the
     # label to von Karman and names the scale.
-    from ..assumptions import SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN
+    from ...assumptions import SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN
     assert term.assumptions.spectrum == SPECTRUM_KOLMOGOROV
     assert np.isinf(term.meta["L0_m"]) and term.meta["l0_m"] == 1e-6
     with warnings.catch_warnings():

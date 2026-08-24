@@ -7,7 +7,8 @@ ENCIRCLED ENERGY of the displaced Gaussian spot inside the core (a Marcum Q
 function), NOT a Gaussian mode overlap.
 
 This script plots the coupled power against the incident angle for the correct
-model (olb.models.coupling._mmf_encircled_efficiency) and for the OLD, WRONG model
+model (olb.models.coupling.terrestrial._mmf_encircled_efficiency) and for the
+OLD, WRONG model
 (a Gaussian roll-off exp(-2*dx^2/a_core^2), the single-mode-fibre form with the
 core radius). It shows two spot sizes. The correct model has a FLAT TOP: a small
 spot deep inside the core loses almost nothing until it nears the edge. The old
@@ -24,7 +25,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from olb.models.coupling import _mmf_encircled_efficiency
+from olb.models.coupling.terrestrial import _mmf_encircled_efficiency
 
 # --- receiver configuration -------------------------------------------------
 WAVELENGTH_M = 1550e-9

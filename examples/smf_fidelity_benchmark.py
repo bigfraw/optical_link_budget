@@ -25,7 +25,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 from olb import (SpaceScenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  SMF)
-from olb.models.coupling import rx_coupling_term
+from olb.models.coupling import downlink_coupling_term
 
 
 def main():
@@ -48,8 +48,8 @@ def main():
                              elevation_deg=elevation_deg)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            mean = rx_coupling_term(scenario, geom, smf_fidelity="mean")
-            fast = rx_coupling_term(scenario, geom, n_samples=1e5,
+            mean = downlink_coupling_term(scenario, geom, smf_fidelity="mean")
+            fast = downlink_coupling_term(scenario, geom, n_samples=1e5,
                                     smf_fidelity="fast")
         regime = "weak" if fast.meta["amplitude_regime_weak"] else "SAT"
         print(f"{elevation_deg:5.0f} | {mean.mean_db:14.2f} | "

@@ -217,7 +217,7 @@ a fixed set of Terms.
 | `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, smf_fidelity="fast", fast_params=None` |
 | `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `scintillation=True, turbulence=True` |
 
-`tau_zenith=None` selects `transmittance.DEFAULT_TAU_ZENITH`, which is `0.05`
+`tau_zenith=None` selects `extinction.DEFAULT_TAU_ZENITH`, which is `0.05`
 (the near-IR clear-sky zenith optical depth). All keyword arguments after the
 first two are keyword-only.
 
@@ -354,9 +354,9 @@ This is the space model only. It assumes a long slant range, a fully diverged
 return, and independent turbulence on the two legs. Do not use it for a short
 terrestrial retro link.
 
-`retro_budget` (`olb/links/retro.py`) is a backward-compatible alias. It
-re-exports `retro_budget = retro_space_budget`. Prefer `retro_space_budget` in
-new code.
+`retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
+`olb/links/__init__.py` (there is no `retro.py` file). Prefer
+`retro_space_budget` in new code.
 
 Example: `examples/retro_link.py`.
 
@@ -374,13 +374,13 @@ receive-side effect follows the far-terminal detector:
   (`terrestrial_smf_coupling_term`) replaces the scintillation Term. When the SMF
   sets the coupling optics (`focal_length_m` and `mode_field_radius_m`, or
   `optimal_focus=True`), the budget also adds the receive tip-tilt walk-off fade
-  Term (`smf_walkoff_term`). The walk-off then owns the tip-tilt, so the coupling
+  Term (`terrestrial_smf_walkoff_term`). The walk-off then owns the tip-tilt, so the coupling
   Term keeps the higher-order residual only (`drop_tiptilt=True`), and the
   tip-tilt is not counted two times. The coupling Term is mean-only, so it locks
   the budget to fidelity 0 and the budget refuses a fade margin. The walk-off
   Term carries a real fade, but the mean-only lock still holds.
 - An `MMF` (light-bucket) detector: the multimode-fibre coupling Term
-  (`mmf_coupling_term`) replaces the scintillation Term. It is the encircled
+  (`terrestrial_mmf_coupling_term`) replaces the scintillation Term. It is the encircled
   energy of the focal spot inside the hard core, offset by the received tip-tilt
   (a flat-top acceptance, not a mode overlap). It is not mean-only, so an MMF
   budget keeps its fade.
@@ -412,13 +412,13 @@ The receive-side Terms:
   coupling loss for a horizontal Gaussian beam. `drop_tiptilt=True` removes the
   tip-tilt from the residual, so the walk-off Term can own it. See `physics.md`
   section 6c.
-- `smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
+- `terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
   receive tip-tilt walk-off fade. The received tip-tilt (beam wander plus the
   receive mechanical jitter) moves the focal spot on the fibre tip by `f*theta`.
   The fade is exponential in dB. It needs the coupling optics
   (`focal_length_m` and `mode_field_radius_m`, or `optimal_focus=True`), else it
   raises `ValueError`. See `physics.md` section 6c.
-- `mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
+- `terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
   multimode-fibre coupling Term: the static spot-in-core overfill loss plus the
   walk-off fade. It needs a focal length (`focal_length_m` or
   `optimal_focus=True`), else it raises `ValueError`. See `physics.md` section 6c.

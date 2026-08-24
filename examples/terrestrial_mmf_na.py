@@ -29,7 +29,7 @@ import numpy as np
 from olb import (TerrestrialScenario, TerrestrialChannel, HorizontalPath,
                  Terminal, Transmitter)
 from olb.terminal import MMF
-from olb.models.coupling import mmf_coupling_term
+from olb.models.coupling import terrestrial_mmf_coupling_term
 
 warnings.simplefilter("ignore")
 
@@ -63,7 +63,7 @@ def evaluate(**kw):
     '''Return the MMF coupling breakdown of one scenario.'''
     scn = make_scenario(**kw)
     hp = HorizontalPath(scn.channel.path_length_m)
-    t = mmf_coupling_term(scn, hp)
+    t = terrestrial_mmf_coupling_term(scn, hp)
     m = t.meta
     # The dB losses split additively: the static loss folds in the NA gate, so the
     # pure spot-in-core loss is the static loss minus the gate. Then

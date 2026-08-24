@@ -19,7 +19,7 @@ from olb import (SpaceScenario, Site, Channel, CircularOrbit, Budget,
                  Terminal, Transmitter, Aperture)
 from olb.turbulence.profiles import DEFAULT_HS, get_c2n
 from olb.models.geometric import geometric_loss_term
-from olb.models.transmittance import atmospheric_loss_term
+from olb.models.extinction import slant_extinction_term
 from olb.models.pointing import pointing_loss_term
 from olb.links.uplink import uplink_turbulence_term
 
@@ -41,7 +41,7 @@ def main():
 
     budget = Budget([
         geometric_loss_term(scenario, geom),
-        atmospheric_loss_term(scenario, geom),
+        slant_extinction_term(scenario, geom),
         pointing_loss_term(scenario, geom),
         uplink_turbulence_term(scenario, geom, n_samples=4000, cn2_profile=cn2),
     ], scenario=scenario)

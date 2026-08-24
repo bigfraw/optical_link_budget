@@ -1,9 +1,10 @@
 '''
-Residual-wavefront physics for a downlink receive terminal.
+Residual-wavefront physics for the plane-wave (space-to-ground) simplification.
 
-The satellite is far away. The downlink source is a plane wave at the top of the
-atmosphere. This module gives the plane-wave Fried parameter r0 for that plane
-wave, and the residual phase variance that a wavefront-compensation stack leaves.
+The satellite is far away. The source is a plane wave at the top of the
+atmosphere. This is the usual space-to-ground downlink case. This module gives
+the plane-wave Fried parameter r0 for that plane wave, and the residual phase
+variance that a wavefront-compensation stack leaves.
 The functions are pure. They take numeric inputs and a compensation stack of
 pure-data stages, and they return numbers or a ResidualWavefront. The Term
 factory lives in olb.models.coupling.
@@ -14,7 +15,7 @@ Fried parameter (plane wave, downlink):
     Random Media, 2nd ed. (2005), Ch. 3. Here k = 2*pi/lambda, airmass =
     1/sin(elevation), and the integral runs the zenith Cn2 profile over height.
     This is the PLANE-wave constant 0.423. The spherical-wave coherence diameter
-    (uplink) uses a different weight and lives in olb.turbulence.coupled_flux.
+    (uplink) uses a different weight and lives in olb.turbulence.uplink_flux.
 
 Residual phase variance (Noll 1976):
     Over an aperture of diameter D and Fried parameter r0, the residual phase
@@ -41,7 +42,7 @@ _NOLL_AO_CONST = 0.2944       # large-J asymptotic prefactor
 _AO_EXP = -np.sqrt(3.0) / 2.0  # large-J asymptotic exponent
 
 
-def plane_wave_fried_parameter(cn2_profile, hs, wavelength, elevation_deg):
+def plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elevation_deg):
     '''
     Return the plane-wave Fried parameter r0 for the downlink.
 
@@ -196,17 +197,17 @@ if __name__ == '__main__':
     cn2 = get_c2n(hs, 21.0, 1.7e-14)
 
     # r0 rises with wavelength (r0 ~ lambda^(6/5)).
-    r0_1064 = plane_wave_fried_parameter(cn2, hs, 1064e-9, 60.0)
-    r0_1550 = plane_wave_fried_parameter(cn2, hs, 1550e-9, 60.0)
+    r0_1064 = plane_wave_fried_parameter_profile(cn2, hs, 1064e-9, 60.0)
+    r0_1550 = plane_wave_fried_parameter_profile(cn2, hs, 1550e-9, 60.0)
     assert r0_1550 > r0_1064, (r0_1550, r0_1064)
 
     # r0 falls toward the horizon (longer slant path, more turbulence).
-    r0_30 = plane_wave_fried_parameter(cn2, hs, lam, 30.0)
-    r0_90 = plane_wave_fried_parameter(cn2, hs, lam, 90.0)
+    r0_30 = plane_wave_fried_parameter_profile(cn2, hs, lam, 30.0)
+    r0_90 = plane_wave_fried_parameter_profile(cn2, hs, lam, 90.0)
     assert r0_30 < r0_90, (r0_30, r0_90)
 
     D = 0.7
-    r0 = r0_60 = plane_wave_fried_parameter(cn2, hs, lam, 60.0)
+    r0 = r0_60 = plane_wave_fried_parameter_profile(cn2, hs, lam, 60.0)
 
     # Residual variance falls as more modes are corrected.
     v_none = apply_compensation([], D, r0).variance
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     assert rw.psd(2.0 * f_c) > 0.0             # above cutoff: residual
 
     # The elevation array broadcasts.
-    r0_sweep = plane_wave_fried_parameter(cn2, hs, lam, np.array([30.0, 60.0, 90.0]))
+    r0_sweep = plane_wave_fried_parameter_profile(cn2, hs, lam, np.array([30.0, 60.0, 90.0]))
     assert r0_sweep.shape == (3,)
 
     print(f"r0(1064 nm) = {r0_1064*100:.2f} cm   r0(1550 nm) = {r0_1550*100:.2f} cm")
