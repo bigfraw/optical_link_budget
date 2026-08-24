@@ -139,9 +139,7 @@ def _mmf_focal_length(detector, D, wavelength):
     if detector.focal_length_m is not None:
         return detector.focal_length_m
     if getattr(detector, "optimal_focus", False):
-        # NOTE: for now, optimal focus is based on SMF28 core size
-        core_radius = 5.2e-6
-        return np.pi * (D / 2.0) * core_radius / (wavelength * SMF_OPTIMAL_A)
+        return np.pi * (D / 2.0) * detector.core_radius_m / (wavelength * SMF_OPTIMAL_A)
     return None
 
 
@@ -854,28 +852,64 @@ def smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True):
     )
 
 
+def _mmf_encircled_efficiency(offset_m, w_s, a_core):
+    '''
+    Return the fraction of the focal-spot power inside the fibre core.
+
+    A multimode fibre is a light bucket. The core is a HARD disk of radius a_core
+    in the fibre plane. The focal spot is a Gaussian of 1/e^2 intensity radius w_s.
+    When the spot centre is at a radial offset offset_m from the core centre, the
+    coupled power is the ENCIRCLED ENERGY of the displaced Gaussian inside the
+    disk. So the fibre collects ALL the spot power that lands inside the core. It
+    is NOT a mode overlap.
+
+    The Gaussian intensity is a 2-D normal with a per-axis standard deviation
+    sigma = w_s/2. So the encircled power is the non-central chi-square CDF:
+        eta = P(R <= a_core) = ncx2.cdf( (a_core/sigma)^2, df=2, nc=(offset/sigma)^2 ).
+    This equals 1 - Q1(2*offset/w_s, 2*a_core/w_s) with Q1 the Marcum Q-function.
+    At offset=0 it reduces to 1 - exp(-2*a_core^2/w_s^2), the on-axis encircled
+    energy. Source: Marcum, RAND RM-753 (1950); encircled energy of an off-axis
+    Gaussian.
+
+    Parameters:
+        offset_m : float or numpy.ndarray
+            Radial offset of the spot centre from the core centre [m].
+        w_s : float
+            Focal spot 1/e^2 intensity radius [m].
+        a_core : float
+            Core radius [m].
+
+    Returns:
+        numpy.ndarray
+            Coupled power fraction eta in (0, 1].
+    '''
+    from scipy.stats import ncx2
+    sigma = w_s / 2.0
+    nc = (np.asarray(offset_m, dtype=float) / sigma) ** 2
+    return ncx2.cdf((a_core / sigma) ** 2, df=2, nc=nc)
+
+
 def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
     '''
     Build the multimode-fibre coupling Term (terrestrial).
 
     A multimode fibre is a light bucket of core radius a_core in the fibre plane.
     The focal spot has the diffraction radius w_s = lambda*f / (pi*(D/2)). The
-    coupling is the overlap of the focal-plane intensity with the core disk. The
-    Term splits the loss into two parts:
+    coupling is the ENCIRCLED ENERGY of the focal spot inside the hard core disk.
+    A light bucket collects ALL the spot power that lands inside the core. It is
+    NOT a mode overlap.
 
-      (i) STATIC spot-overfill loss. The on-axis Gaussian focal spot puts a
-          fraction of its power inside the core:
-              eta_static = 1 - exp(-2 a_core^2 / w_s^2).
-          A spot smaller than the core gives eta_static ~ 1 (little loss). A spot
-          larger than the core overfills it and loses power. Source: Andrews and
-          Phillips, 2nd ed. (2005), DOI 10.1117/3.626196 (Gaussian power in a
-          circular region; the Gaussian is the standard approximation to the
-          Airy focal spot, with the 1/e^2 radius w_s = lambda*f/(pi*(D/2))).
-
-      (ii) WALK-OFF fluctuation. The received tip-tilt moves the spot by f*theta.
-           The spot walks off the core over the core radius scale. The fade is
-           exponential in dB, with the core radius as the tolerated displacement
-           (see _walkoff_faces). This carries a real fade.
+    The received tip-tilt moves the spot centre off the core by dx = f*theta. So
+    the coupled power is the encircled energy of the DISPLACED Gaussian spot inside
+    the core:
+        eta(dx) = 1 - Q1(2*dx/w_s, 2*a_core/w_s),
+    with Q1 the Marcum Q-function (see _mmf_encircled_efficiency). At dx=0 this
+    reduces to the on-axis encircled energy eta_static = 1 - exp(-2 a_core^2/w_s^2).
+    A small spot deep inside the core loses nothing until it nears the edge (a
+    flat-top acceptance). A spot larger than the core overfills it and loses power
+    from dx=0. The tilt dx has two i.i.d. Gaussian axes, so its radial magnitude is
+    Rayleigh. The Term averages the loss over that Rayleigh offset, and it carries
+    a real fade.
 
     Anti-double-count: this Term is a MULTIPLICATIVE fibre-coupling efficiency on
     the aperture-collected field. It adds only -10log10(eta_mmf). It does NOT
@@ -884,9 +918,10 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
     Term uses. The receive mechanical jitter here uses the RECEIVE terminal, so it
     does not double-count the transmit pointing Term.
 
-    With turbulence=False the static spot-overfill loss (i) stays (it is a fixed
-    optical loss, not turbulence), and the walk-off (ii) keeps only the receive
-    mechanical jitter (the beam-wander tilt drops).
+    With turbulence=False the received tip-tilt keeps only the receive mechanical
+    jitter (the beam-wander tilt drops). So the coupling is the encircled energy
+    with only the jitter offset. The on-axis static loss stays, because it is a
+    fixed optical loss, not turbulence.
 
     Parameters:
         scenario : TerrestrialScenario
@@ -919,32 +954,82 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
 
     # Diffraction focal spot radius (1/e^2), Gaussian approximation to the Airy.
     w_s = wavelength * f / (np.pi * (D / 2.0))
-    eta_static = 1.0 - np.exp(-2.0 * a_core ** 2 / w_s ** 2)
-    static_db = -10.0 * np.log10(eta_static)
 
+    # Angular acceptance gate (numerical aperture). The focusing optic makes a cone
+    # of half-angle NA_optic = (D/2)/f. A ray from aperture radius rho focuses at
+    # angle rho/f, so only rays from rho <= f*NA_fibre stay within the acceptance
+    # cone theta_a = arcsin(NA). For a uniform aperture the guided POWER fraction is
+    # (f*NA/(D/2))^2 = (NA/NA_optic)^2, clipped to 1. This is a flat multiplicative
+    # loss on the coupled power; when NA_optic <= NA it is 1 (no loss). It is the
+    # etendue penalty a core-radius-only bucket misses. Source: Snyder and Love,
+    # Optical Waveguide Theory (1983), DOI 10.1007/978-1-4613-2813-1.
+    na_optic = (D / 2.0) / f
+    na_fibre = detector.numerical_aperture
+    if na_fibre is not None:
+        na_factor = float(min(1.0, (na_fibre / na_optic) ** 2))
+    else:
+        na_factor = 1.0
+
+    # The received tip-tilt moves the spot centre off the core by dx = f*theta.
+    # theta is the radial (2-axis) tip-tilt, so the per-axis spot offset has a
+    # 1-sigma of sigma_d = f*sqrt(sigma2_theta/2). The coupled power is the
+    # encircled energy of the displaced Gaussian spot inside the hard core (a
+    # light bucket, NOT a mode overlap). See _mmf_encircled_efficiency.
     sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
                                                     turbulence=turbulence)
-    walk_mean, walk_quantile, walk_sampler = _walkoff_faces(f, a_core, sigma2_theta)
+    sigma_d = f * np.sqrt(sigma2_theta / 2.0)          # per-axis spot offset [m]
+    eta_static = na_factor * float(_mmf_encircled_efficiency(0.0, w_s, a_core))
+    static_db = -10.0 * np.log10(eta_static)
 
-    mean_db = static_db + walk_mean
+    def _loss_db(offset_m):
+        eta = np.clip(na_factor * _mmf_encircled_efficiency(offset_m, w_s, a_core),
+                      1e-300, None)
+        return -10.0 * np.log10(eta)
+
+    # Mean over the Rayleigh offset distribution (two i.i.d. Gaussian axes). A
+    # quadrature over the radial offset gives the expected loss. The 8-sigma grid
+    # covers the Rayleigh tail (the pdf there is exp(-32), negligible).
+    if sigma_d > 0.0:
+        dd = np.linspace(0.0, 8.0 * sigma_d, 2000)
+        rayleigh = dd / sigma_d ** 2 * np.exp(-dd ** 2 / (2.0 * sigma_d ** 2))
+        mean_db = float(np.trapz(_loss_db(dd) * rayleigh, dd))
+    else:
+        mean_db = static_db
 
     def quantile(p):
-        return static_db + walk_quantile(p)
+        # The loss rises with the offset, and the radial offset is Rayleigh, so the
+        # p-quantile of the loss is the loss at the p-quantile of the offset.
+        d_p = sigma_d * np.sqrt(-2.0 * np.log(1.0 - p))
+        return float(_loss_db(d_p))
 
     def sampler(n, rng):
-        return static_db + walk_sampler(n, rng)
+        dx = rng.normal(0.0, sigma_d, n)
+        dy = rng.normal(0.0, sigma_d, n)
+        return _loss_db(np.sqrt(dx ** 2 + dy ** 2))
 
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Multimode-fibre coupling: a Gaussian focal spot (radius w_s = "
-                 "lambda*f/(pi*(D/2))) overlaps a core disk of radius a_core. The "
-                 "static loss is the on-axis spot power outside the core. The "
-                 "walk-off is the receive tip-tilt (weak beam wander, tracked by a "
-                 "tip-tilt or AO stage; plus the receive mechanical jitter). The "
-                 "spot model assumes a uniform, unobscured circular aperture.",
+        validity="Multimode-fibre coupling (light bucket): the coupled power is the "
+                 "encircled energy of the Gaussian focal spot (1/e^2 radius w_s = "
+                 "lambda*f/(pi*(D/2))) inside the hard core disk of radius a_core, "
+                 "offset by the received tip-tilt dx = f*theta. It is the "
+                 "non-central chi-square CDF (Marcum Q), so it collects ALL the spot "
+                 "power inside the core, not a mode overlap. The tip-tilt is the "
+                 "weak beam wander (tracked by a tip-tilt or AO stage) plus the "
+                 "receive mechanical jitter. The spot model assumes a uniform, "
+                 "unobscured circular aperture. The numerical-aperture gate (when "
+                 "set) is a flat power-transmission factor, NOT a re-truncated "
+                 "aperture: it does not re-broaden the focal spot.",
     )
+    if na_fibre is not None and na_optic > na_fibre:
+        assumptions.flag(
+            f"The focusing cone NA_optic={na_optic:.3f} exceeds the fibre "
+            f"NA={na_fibre:.3f}; the fibre does not guide the steep rays. The "
+            f"angular gate cuts the coupled power by {(-10.0 * np.log10(na_factor)):.2f} "
+            "dB. Shorten nothing further, or use a larger-NA fibre."
+        )
     if rx.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The far aperture has a central obscuration "
@@ -958,11 +1043,17 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
         sampler=sampler,
         quantile=quantile,
         note=f"MMF coupling, a_core={a_core * 1e6:.1f} um, "
-             f"w_s={w_s * 1e6:.1f} um, static={static_db:.2f} dB",
+             f"w_s={w_s * 1e6:.1f} um, static={static_db:.2f} dB"
+             + (f", NA gate {(-10.0 * np.log10(na_factor)):.2f} dB"
+                if na_factor < 1.0 else ""),
         meta={**meta, "detector": "MMF", "core_radius_m": a_core,
               "focal_length_m": f, "spot_radius_m": float(w_s),
-              "eta_static": float(eta_static), "static_loss_db": float(static_db),
-              "walkoff_mean_db": float(walk_mean)},
+              "eta_static": eta_static, "static_loss_db": float(static_db),
+              "walkoff_mean_db": float(mean_db - static_db),
+              "spot_offset_1sigma_m": float(sigma_d),
+              "numerical_aperture": na_fibre, "na_optic": float(na_optic),
+              "na_factor": na_factor,
+              "na_gate_loss_db": float(-10.0 * np.log10(na_factor))},
         assumptions=assumptions,
     )
 
@@ -1172,36 +1263,59 @@ if __name__ == '__main__':
     except ValueError:
         pass
 
-    # MMF coupling: static overfill + walk-off, with a real fade.
-    mmf = MMF(core_radius_m=25e-6, focal_length_m=0.05, sensitivity_dbm=-38)
-    t_mmf = mmf_coupling_term(_terr(mmf, jitter=5e-6), hpath)
+    # MMF coupling: the coupled power is the encircled energy of the displaced
+    # focal spot inside the hard core (a light bucket). Test the model directly.
+    a_core = 25e-6
+    # On-axis reduces to the encircled energy 1 - exp(-2 a_core^2/w_s^2).
+    assert np.isclose(float(_mmf_encircled_efficiency(0.0, 5e-6, a_core)),
+                      1.0 - np.exp(-2.0 * a_core ** 2 / (5e-6) ** 2))
+    # Flat-top acceptance: a small spot deep inside the core loses almost nothing.
+    assert float(_mmf_encircled_efficiency(0.1 * a_core, 1e-6, a_core)) > 0.999
+    # The spot centre at the core edge collects about half the power (about 3 dB).
+    e_edge = float(_mmf_encircled_efficiency(a_core, 1e-6, a_core))
+    assert 0.45 < e_edge < 0.55, e_edge
+    # The coupling falls monotonically as the offset grows.
+    offs = np.array([0.0, 0.5, 1.0, 1.5, 2.0]) * a_core
+    etas = _mmf_encircled_efficiency(offs, 8e-6, a_core)
+    assert np.all(np.diff(etas) < 0.0), etas
+
+    # An MMF Term at optimal focus (the spot fills the core), so a tip-tilt walks
+    # it off. A real fade, and a larger jitter deepens the loss. Use a weak Cn2 so
+    # the mechanical jitter drives the comparison.
+    mmf = MMF(core_radius_m=a_core, optimal_focus=True, sensitivity_dbm=-38)
+    t_mmf = mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15), hpath)
     assert t_mmf.name == "receive coupling (MMF)" and t_mmf.category == "coupling"
     assert t_mmf.stochastic and t_mmf.quantile is not None and not t_mmf.mean_only
-    assert 0.0 < t_mmf.meta["eta_static"] <= 1.0
-    assert t_mmf.meta["static_loss_db"] >= 0.0
-    assert t_mmf.quantile_db(0.99) > t_mmf.mean_db     # walk-off adds a fade
-    # A smaller core overfills more (larger static loss) and walks off sooner.
-    t_small_core = mmf_coupling_term(
-        _terr(MMF(core_radius_m=5e-6, focal_length_m=0.05), jitter=5e-6), hpath)
-    t_big_core = mmf_coupling_term(
-        _terr(MMF(core_radius_m=50e-6, focal_length_m=0.05), jitter=5e-6), hpath)
-    assert t_small_core.mean_db > t_big_core.mean_db, (t_small_core.mean_db,
-                                                       t_big_core.mean_db)
-    # A larger jitter deepens the MMF walk-off loss.
-    t_mmf_calm = mmf_coupling_term(_terr(mmf, jitter=1e-6), hpath)
-    assert t_mmf.mean_db > t_mmf_calm.mean_db
-    # MMF optimal_focus: derive f to match the spot to the core (a_core/w_s=1.12).
-    # It matches an explicit derived focal length, and gives about 92% static
-    # capture. An MMF with no focal length and no optimal_focus is refused.
-    a_core = 25e-6
+    assert 0.0 < t_mmf.meta["eta_static"] <= 1.0 and t_mmf.meta["static_loss_db"] >= 0.0
+    assert t_mmf.quantile_db(0.99) > t_mmf.mean_db          # walk-off adds a fade
+    t_mmf_calm = mmf_coupling_term(_terr(mmf, jitter=2e-6, cn2=1e-15), hpath)
+    assert t_mmf.mean_db > t_mmf_calm.mean_db               # more jitter, more loss
+    # optimal_focus derives f to match the spot to the core (a_core/w_s=1.12). It
+    # matches an explicit derived focal length, and gives about 92% static capture.
     f_mmf = np.pi * (D_test / 2.0) * a_core / (lam * 1.12)
-    mmf_focus = MMF(core_radius_m=a_core, optimal_focus=True, sensitivity_dbm=-38)
-    t_focus = mmf_coupling_term(_terr(mmf_focus, jitter=5e-6), hpath)
     t_explicit = mmf_coupling_term(
-        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf), jitter=5e-6), hpath)
-    assert np.isclose(t_focus.meta["focal_length_m"], f_mmf)
-    assert np.isclose(t_focus.mean_db, t_explicit.mean_db)
-    assert np.isclose(t_focus.meta["eta_static"], 1.0 - np.exp(-2.0 * 1.12 ** 2), atol=1e-3)
+        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf), jitter=10e-6,
+              cn2=1e-15), hpath)
+    assert np.isclose(t_mmf.meta["focal_length_m"], f_mmf)
+    assert np.isclose(t_mmf.mean_db, t_explicit.mean_db)
+    assert np.isclose(t_mmf.meta["eta_static"], 1.0 - np.exp(-2.0 * 1.12 ** 2), atol=1e-3)
+    assert t_mmf.meta["numerical_aperture"] is None and t_mmf.meta["na_factor"] == 1.0
+    # Numerical-aperture angular gate. A generous NA (>> NA_optic) does not change
+    # the coupling. A tight NA cuts the coupled power by (NA/NA_optic)^2 and flags it.
+    na_optic = t_mmf.meta["na_optic"]
+    t_wide_na = mmf_coupling_term(
+        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf,
+                  numerical_aperture=10.0 * na_optic), jitter=10e-6, cn2=1e-15), hpath)
+    assert np.isclose(t_wide_na.meta["na_factor"], 1.0)
+    assert np.isclose(t_wide_na.mean_db, t_mmf.mean_db)     # no gate: unchanged
+    t_tight_na = mmf_coupling_term(
+        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf,
+                  numerical_aperture=0.5 * na_optic), jitter=10e-6, cn2=1e-15), hpath)
+    assert np.isclose(t_tight_na.meta["na_factor"], 0.25)   # (0.5)^2
+    assert np.isclose(t_tight_na.mean_db - t_mmf.mean_db, -10.0 * np.log10(0.25), atol=1e-6)
+    assert any("does not guide the steep rays" in v
+               for v in t_tight_na.assumptions.violations)
+    # An MMF with no focal length and no optimal_focus is refused.
     try:
         mmf_coupling_term(_terr(MMF(core_radius_m=a_core)), hpath)
         raise AssertionError("MMF without a focal length must raise")

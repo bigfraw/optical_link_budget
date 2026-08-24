@@ -380,9 +380,10 @@ receive-side effect follows the far-terminal detector:
   the budget to fidelity 0 and the budget refuses a fade margin. The walk-off
   Term carries a real fade, but the mean-only lock still holds.
 - An `MMF` (light-bucket) detector: the multimode-fibre coupling Term
-  (`mmf_coupling_term`) replaces the scintillation Term. It carries the static
-  spot-in-core overfill loss plus the tip-tilt walk-off fade. It is not mean-only,
-  so an MMF budget keeps its fade.
+  (`mmf_coupling_term`) replaces the scintillation Term. It is the encircled
+  energy of the focal spot inside the hard core, offset by the received tip-tilt
+  (a flat-top acceptance, not a mode overlap). It is not mean-only, so an MMF
+  budget keeps its fade.
 
 Flags:
 

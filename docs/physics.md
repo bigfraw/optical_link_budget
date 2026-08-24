@@ -926,15 +926,39 @@ walk-off Term is active, the mean coupling Term (Section 6a) keeps the
 higher-order residual only. A virtual tip-tilt removes the Noll tip-tilt from its
 residual (`drop_tiptilt=True`). The walk-off Term owns the tip-tilt.
 
-For a multimode fibre the core is a disk of fixed radius `a_core`. The coupling
-splits into a static spot-overfill loss and the same walk-off fade, with the core
-radius as the tolerated scale:
+A multimode fibre is a light bucket: the core is a HARD disk of radius `a_core`.
+It collects ALL the spot power inside the core, so the coupling is the encircled
+energy of the displaced Gaussian spot, NOT a mode overlap. With the spot centre
+at offset `dx = f*theta`:
 
-    eta_static = 1 - exp( -2 * a_core^2 / w_s^2 )
+    eta(dx) = 1 - Q1( 2*dx/w_s ,  2*a_core/w_s )       (Marcum Q-function)
+
+At `dx = 0` this reduces to `eta_static = 1 - exp(-2*a_core^2/w_s^2)`. A small
+spot deep inside the core loses nothing until it nears the edge (a flat-top
+acceptance); at the core edge it collects about half the power (about 3 dB). The
+Term averages the loss over the Rayleigh offset. This differs from a single-mode
+fibre, whose acceptance is a Gaussian mode, not a hard disk.
 
 `optimal_focus` derives the focal length. For a single-mode fibre it picks `f` so
 `a = 1.12` (the eta_max peak). For a multimode fibre it matches the spot to the
 core, `a_core/w_s = 1.12`, which gives about 92% static capture.
+
+A multimode fibre also has an ANGULAR acceptance. The numerical aperture
+`NA = n*sin(theta_a)` sets the largest ray angle the fibre guides. The focusing
+optic makes a cone of half-angle `NA_optic = (D/2)/f`. A ray from aperture radius
+`rho` focuses at angle `rho/f`, so only rays from `rho <= f*NA` stay within the
+acceptance cone. For a uniform aperture the guided POWER fraction is
+
+    eta_NA = min( 1 ,  (NA / NA_optic)^2 )         NA_optic = (D/2)/f
+
+a flat multiplicative loss on the coupled power. The spot size and the cone angle
+are locked by the diffraction invariant `w_s * NA_optic = lambda/pi`, so a shorter
+focal length shrinks the spot (better spatial capture) but steepens the cone: once
+`NA_optic > NA` the extra light is not guided. This is the etendue penalty a
+core-radius-only bucket misses; the fibre mode capacity is `V^2/2` with
+`V = (2*pi/lambda)*a_core*NA`. The gate is OFF when `MMF.numerical_aperture` is
+None. It is a flat power-transmission factor only: it does not re-broaden the
+focal spot (that would need a re-truncated aperture).
 
 #### Inputs and outputs
 
@@ -957,7 +981,10 @@ core, `a_core/w_s = 1.12`, which gives about 92% static capture.
 - The beam-wander tilt is a weak-fluctuation model, so `sigma2_theta` is valid in
   weak turbulence only. The walk-off mapping itself has no upper limit.
 - The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap
-  optimum: a shorter focal length captures more.
+  optimum: a shorter focal length captures more, up to the numerical-aperture gate.
+- The MMF numerical-aperture gate is a flat power-transmission factor. It does not
+  re-broaden the focal spot, and the spot itself stays diffraction-limited (no
+  turbulence blur), so the full mode-count saturation is not modelled.
 
 #### Source
 
@@ -967,6 +994,12 @@ core, `a_core/w_s = 1.12`, which gives about 92% static capture.
   beam-wander offset that gives the arrival tilt.
 - Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, for the Gaussian
   power falloff and the 2-D Gaussian jitter.
+- J. I. Marcum, "A statistical theory of target detection by pulsed radar," RAND
+  RM-753 (1950), for the encircled energy of an off-axis Gaussian (the Marcum Q
+  function) that gives the multimode-fibre coupling.
+- Snyder and Love, Optical Waveguide Theory (1983), DOI 10.1007/978-1-4613-2813-1,
+  for the numerical aperture, the acceptance cone, and the V-number that set the
+  multimode-fibre angular gate.
 
 ---
 

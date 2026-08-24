@@ -15,8 +15,9 @@ downlink, and retroreflected links to a LEO satellite.
   an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`), an
   optional `Detector` (`Aperture`, `SMF`, or `MMF`, each with `sensitivity_dbm`;
   `SMF` also carries `focal_length_m`, `mode_field_radius_m`, and `optimal_focus`;
-  `MMF` is a light bucket with `core_radius_m`, `focal_length_m`, and
-  `optimal_focus`), and a
+  `MMF` is a light bucket with `core_radius_m`, `focal_length_m`, an optional
+  `numerical_aperture` (the angular acceptance gate; None keeps the old
+  spatial-only coupling), and `optimal_focus`), and a
   `compensation` stack (`TipTilt`, `AO`). A terminal parameter can only be set
   through a Terminal.
 - `olb/scenario.py` — pure data. Two scenario families, one interface. A

@@ -132,10 +132,17 @@ Unlike a single-mode fibre, the focal length does NOT cancel. The core is a fixe
 physical size, so it subtends the angular field of view `core_radius_m/f`. So the
 focal length is a genuine free parameter.
 
+The fibre also has an ANGULAR limit. The numerical aperture `NA = n*sin(theta_a)`
+sets the largest ray angle the fibre guides. The focusing optic makes a cone of
+half-angle `NA_optic = (D/2)/f`. When `NA_optic > NA` the fibre does not guide the
+steep rays, so the coupled power falls by `min(1, (NA/NA_optic)^2)`. This is the
+etendue penalty a core-radius-only bucket misses (see `physics.md` section 6c).
+
 | Field | Type | Unit | Default | Meaning |
 |---|---|---|---|---|
 | `core_radius_m` | float | m | (required) | Core RADIUS of the multimode fibre in the fibre plane. |
 | `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic. None needs `optimal_focus=True`. |
+| `numerical_aperture` | float or None | — | `None` | Fibre NA. None turns the angular gate OFF (spatial encircled energy only). A value gates the focusing cone by `min(1, (NA/NA_optic)^2)`. |
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
 | `optimal_focus` | bool | — | `False` | Match the spot to the core (see below). |
 
@@ -143,8 +150,8 @@ focal length is a genuine free parameter.
 radius over 1.12 (the same `a=1.12` that a single-mode fibre uses):
 `f = pi*(D/2)*core_radius_m/(lambda*1.12)`. This gives about 92% static capture.
 It is a geometric spot-to-core match, NOT a mode-overlap optimum: a shorter focal
-length captures more, but the practical limit (aberrations, numerical aperture)
-is not modelled. Set `focal_length_m` to override the derived value.
+length captures more, but the angular limit (`numerical_aperture`) then gates the
+extra capture. Set `focal_length_m` to override the derived value.
 
 `MMF` lives in `olb.terminal`. It is not in the top-level `olb` exports yet.
 Import it as `from olb.terminal import MMF`.

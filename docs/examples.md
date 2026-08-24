@@ -164,6 +164,34 @@ pointing mechanisms and keeps the free-space loss apart from the fibre loss:
   jitter, and the transmit jitter) that show each mechanism scales on its own.
 - Run: `python -m examples.terrestrial_coupling_jitter`
 
+## [mmf_coupling_validation.py](../examples/mmf_coupling_validation.py)
+
+A validation of the multimode-fibre (light-bucket) coupling. It plots the coupled
+power against the incident angle for the correct encircled-energy model and for
+the old, wrong Gaussian roll-off, at two spot sizes.
+
+- API: `olb.models.coupling._mmf_encircled_efficiency`. The correct model has a
+  flat top: a small spot loses almost nothing until it nears the core edge, where
+  it collects about half the power (about 3 dB). The old model wrongly lost power
+  from zero angle.
+- Output: a two-panel PNG (`mmf_coupling_vs_angle.png`, or a path you pass), plus
+  the coupled power at half the edge angle and at the edge.
+- Run: `python -m examples.mmf_coupling_validation [out.png]`
+
+## [terrestrial_mmf_na.py](../examples/terrestrial_mmf_na.py)
+
+A terrestrial multimode-fibre link that shows the numerical-aperture angular gate.
+The focusing cone `NA_optic = (D/2)/f` must stay within the fibre NA, or the fibre
+does not guide the steep rays. The spot size and the cone are locked by the
+diffraction invariant `w_s * NA_optic = lambda/pi`, so a shorter focal length
+tolerates more walk-off but pays a larger gate.
+
+- API: `mmf_coupling_term` with `MMF(numerical_aperture=...)`. The loss splits
+  additively: spot-in-core + NA gate + walk-off = mean.
+- Output: an NA sweep (the gate turns on below `NA_optic`), then a focal-length
+  sweep that shows the etendue trade and a best focal length.
+- Run: `python -m examples.terrestrial_mmf_na`
+
 ---
 
 The four link families map to their example: uplink -> `uplink_sim.py`,

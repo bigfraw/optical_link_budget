@@ -491,15 +491,17 @@ if __name__ == '__main__':
     assert not smf_opt_budget.provides_fade   # mean-only coupling term still locks it
 
     # --- MMF (multimode-fibre light bucket) ---------------------------------
-    def _mmf(core_radius=25e-6, focal=0.05, jitter=5e-6, far_aperture=0.2,
-             cn2=1e-14):
+    def _mmf(core_radius=25e-6, focal=None, jitter=5e-6, far_aperture=0.2,
+             cn2=1e-15, optimal_focus=True):
+        # optimal_focus fills the spot to the core, so a tip-tilt walks it off and
+        # the Term carries a real fade. A weak Cn2 keeps the offset moderate.
         scn = TerrestrialScenario(
             near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
                           transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
             far=Terminal(aperture_m=far_aperture, wavelength_m=1550e-9,
                          pointing_jitter_rad=jitter,
-                         detector=MMF(core_radius_m=core_radius,
-                                      focal_length_m=focal, sensitivity_dbm=-38)),
+                         detector=MMF(core_radius_m=core_radius, focal_length_m=focal,
+                                      optimal_focus=optimal_focus, sensitivity_dbm=-38)),
             channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
                                        cn2=cn2))
         return terrestrial_budget(scn, HorizontalPath(3e3))

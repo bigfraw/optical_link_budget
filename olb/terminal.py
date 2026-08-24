@@ -160,12 +160,26 @@ class MMF:
     core_radius_m/f. So the focal length is a GENUINE free parameter: a longer f
     magnifies the spot motion and narrows the field of view.
 
+    The fibre also has an ANGULAR limit. The numerical aperture NA sets the largest
+    ray angle the fibre guides: theta_a = arcsin(NA). The focusing optic makes a
+    cone of half-angle NA_optic = (D/2)/f. A ray steeper than the acceptance leaks
+    into the cladding and is lost. The core radius and the NA together set the fibre
+    mode capacity through the V-number V = (2*pi/lambda)*core_radius_m*NA, so a
+    core-radius-only model overstates the coupling when NA_optic exceeds NA. Source:
+    Snyder and Love, Optical Waveguide Theory (1983), DOI 10.1007/978-1-4613-2813-1.
+
     Parameters:
         core_radius_m : float
             Core RADIUS of the multimode fibre in the fibre plane [m].
         focal_length_m : float, optional
             Focal length of the fibre-coupling optic [m]. None needs
             optimal_focus=True to derive it.
+        numerical_aperture : float, optional
+            Fibre numerical aperture NA = n*sin(theta_a) (about 0.2 for a common
+            step-index MMF). None turns the angular gate OFF, so the coupling is the
+            spatial encircled energy alone (the old behaviour). A value gates the
+            focusing cone: the fraction of the aperture whose focused rays stay
+            within the acceptance cone is min(1, (NA/NA_optic)^2), NA_optic=(D/2)/f.
         sensitivity_dbm : float, optional
             Required received power [dBm]. None if only losses matter.
         optimal_focus : bool
@@ -174,12 +188,13 @@ class MMF:
             radius over 1.12 (the same a=1.12 that a single-mode fibre uses):
             f = pi*(D/2)*core_radius_m/(lambda*1.12). This gives about 92% static
             capture. It is a geometric spot-to-core match, NOT a mode-overlap
-            optimum: a shorter focal length captures more, but the practical limit
-            (aberrations, numerical aperture) is not modelled. Set focal_length_m
+            optimum: a shorter focal length captures more, but the angular limit
+            (numerical_aperture) then gates the extra capture. Set focal_length_m
             to override the derived value.
     '''
     core_radius_m: float
     focal_length_m: Optional[float] = None
+    numerical_aperture: Optional[float] = None
     sensitivity_dbm: Optional[float] = None
     optimal_focus: bool = False
 
@@ -301,6 +316,10 @@ if __name__ == '__main__':
     assert mmf.detector.core_radius_m == 25e-6 and mmf.detector.focal_length_m == 0.05
     assert mmf.detector.sensitivity_dbm == -38.0
     assert mmf.detector.optimal_focus is False   # bare MMF is unchanged
+    assert mmf.detector.numerical_aperture is None   # angular gate off by default
+    # A numerical aperture turns on the angular acceptance gate.
+    mmf_na = MMF(core_radius_m=25e-6, focal_length_m=0.05, numerical_aperture=0.2)
+    assert mmf_na.numerical_aperture == 0.2
 
     # optimal_focus derives the focal length, so only the core radius is needed.
     mmf_focus = MMF(core_radius_m=25e-6, optimal_focus=True)
