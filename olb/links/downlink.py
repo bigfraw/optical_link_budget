@@ -234,7 +234,8 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
 
 
 def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
-                    n_samples=2000, smf_fidelity="fast", fast_params=None):
+                    turbulence=True, n_samples=2000, smf_fidelity="fast",
+                    fast_params=None):
     '''
     Assemble the downlink budget: geometric, atmospheric, pointing, scintillation.
 
@@ -253,6 +254,13 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
             Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
         scintillation : bool
             Add the lognormal downlink scintillation Term when true.
+        turbulence : bool
+            Master turbulence switch. When False, drop EVERY turbulence quantity:
+            no scintillation Term, and the receive-coupling Term keeps only its
+            static parts (0 dB for an Aperture bucket, the static mode-match loss
+            for an SMF, no FAST run). The deterministic Terms (geometric,
+            atmospheric) and the mechanical pointing jitter stay. So a coupling
+            budget with angular jitter still runs, only without turbulence.
         n_samples : int
             FAST Monte Carlo draws (NITER) for the SMF fidelity-1 coupling.
             Ignored for an Aperture detector and for smf_fidelity="mean".
@@ -294,8 +302,9 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
         from ..models.coupling import rx_coupling_term
         terms.append(rx_coupling_term(scenario, geometry, n_samples=n_samples,
                                       smf_fidelity=smf_fidelity,
-                                      fast_params=fast_params))
-    elif scintillation:
+                                      fast_params=fast_params,
+                                      turbulence=turbulence))
+    elif scintillation and turbulence:
         terms.append(downlink_scintillation_term(scenario, geometry,
                                                  model="lognormal",
                                                  aperture_average=True))
@@ -426,6 +435,22 @@ if __name__ == '__main__':
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         assert np.isfinite(down_ao.fade_margin_db(0.99))
+
+    # --- master turbulence switch (turbulence=False) ------------------------
+    # An Aperture detector with turbulence off gives 0 dB coupling (no
+    # scintillation), and the budget keeps its fade from the pointing jitter.
+    ap_off = downlink_budget(scn_ap, geom60, turbulence=False)
+    cpl_off = next(t for t in ap_off.terms if t.category == "coupling")
+    assert cpl_off.mean_db == 0.0 and cpl_off.meta["model"] == "static"
+    assert ap_off.provides_fade and np.isfinite(ap_off.fade_margin_db(0.99))
+    # An SMF detector with turbulence off keeps only the static mode-match loss
+    # (deterministic, NOT mean-only), so the budget still provides a fade and the
+    # off total is cheaper than the on total. No FAST run happens.
+    smf_off = downlink_budget(scn_smf, geom60, turbulence=False)
+    cpl_off = next(t for t in smf_off.terms if t.category == "coupling")
+    assert cpl_off.meta["model"] == "static" and not cpl_off.mean_only
+    assert np.isclose(cpl_off.mean_db, -10.0 * np.log10(0.8145))
+    assert smf_off.provides_fade and smf_off.total_loss_db() < down_smf.total_loss_db()
 
     print(f"mean loss = {term.mean_db:.4f} dB   99% fade = {q99:.4f} dB")
     print(f"sampled mean = {sampled.mean():.4f} dB (n=200000)")

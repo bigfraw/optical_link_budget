@@ -218,7 +218,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     )
 
 
-def terrestrial_budget(scenario, geometry, *, scintillation=True):
+def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=True):
     '''
     Assemble the terrestrial budget: geometric, extinction, pointing, turbulence.
 
@@ -234,7 +234,13 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True):
         (olb.models.coupling.terrestrial_smf_coupling_term). The coupling loss IS
         the turbulence effect for the fibre, so the scintillation Term is NOT
         also added (no double-count). The mean-only coupling Term locks the budget
-        to fidelity 0, so the budget then refuses a fade margin.
+        to fidelity 0, so the budget then refuses a fade margin. When the SMF sets
+        the coupling optics (focal_length_m and mode_field_radius_m), the budget
+        also adds the receive tip-tilt walk-off fade Term (smf_walkoff_term).
+      - An MMF detector gets the multimode-fibre coupling Term instead
+        (olb.models.coupling.mmf_coupling_term): the geometric spot-in-core loss
+        plus the tip-tilt walk-off fade. It replaces the scintillation Term (no
+        double-count). The MMF Term has a real fade, so the budget keeps its fade.
 
     Set scintillation=False to drop the scintillation Term and keep only the
     deterministic Terms (for example to sweep an array path length, where the
@@ -250,6 +256,15 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True):
             Add the horizontal Gaussian-beam scintillation Term for an aperture /
             no-detector receiver when True (the default). An SMF detector always
             replaces it with the coupling Term.
+        turbulence : bool
+            Master turbulence switch. When False, drop EVERY turbulence quantity:
+            no scintillation Term, and the fibre-coupling Terms keep only their
+            static parts. An SMF coupling Term becomes the static mode-match loss,
+            an MMF Term keeps its spot-overfill loss, and the walk-off Term keeps
+            only the receive mechanical jitter (the beam-wander tilt drops). The
+            deterministic Terms (geometric, extinction, launch truncation) and the
+            transmit pointing jitter stay. So a coupling budget with angular jitter
+            still runs, only without turbulence.
 
     Returns:
         Budget
@@ -277,13 +292,33 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True):
     # fibre. It is MEAN-ONLY, so it locks the budget to fidelity 0, and the budget
     # then refuses a fade margin. An Aperture (bucket) detector, or no detector,
     # is phase-insensitive; its turbulence penalty is the scintillation Term.
-    from ..terminal import SMF
+    from ..terminal import SMF, MMF
     rx = scenario.rx_terminal
     if isinstance(rx.detector, SMF):
         # Lazy import breaks the terrestrial <-> coupling import cycle.
-        from ..models.coupling import terrestrial_smf_coupling_term
-        terms.append(terrestrial_smf_coupling_term(scenario, geometry))
-    elif scintillation:
+        from ..models.coupling import (terrestrial_smf_coupling_term,
+                                       smf_walkoff_term)
+        # The receive tip-tilt walk-off fade fires when the fibre-coupling optics
+        # are set (focal length + mode field radius). Without them a tip-tilt has
+        # no focal-plane displacement, so the Term is skipped. When the walk-off
+        # fires, it carries the tip-tilt coupling loss. So the coupling Term keeps
+        # the HIGHER-ORDER residual only (drop_tiptilt=True). This stops the
+        # tip-tilt from being counted two times.
+        walkoff_on = (getattr(rx.detector, "optimal_focus", False)
+                      or (rx.detector.focal_length_m is not None
+                          and rx.detector.mode_field_radius_m is not None))
+        terms.append(terrestrial_smf_coupling_term(scenario, geometry,
+                                                   drop_tiptilt=walkoff_on,
+                                                   turbulence=turbulence))
+        if walkoff_on:
+            terms.append(smf_walkoff_term(scenario, geometry,
+                                          turbulence=turbulence))
+    elif isinstance(rx.detector, MMF):
+        # An MMF (light bucket) replaces the scintillation Term with the geometric
+        # spot-in-core coupling plus the tip-tilt walk-off fade (no double-count).
+        from ..models.coupling import mmf_coupling_term
+        terms.append(mmf_coupling_term(scenario, geometry, turbulence=turbulence))
+    elif scintillation and turbulence:
         terms.append(terrestrial_scintillation_term(scenario, geometry))
     return Budget(terms, scenario=scenario)
 
@@ -291,7 +326,7 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True):
 if __name__ == '__main__':
     from ..scenario import TerrestrialScenario, TerrestrialChannel
     from ..geometry import HorizontalPath
-    from ..terminal import Terminal, Transmitter, Aperture, SMF, TipTilt, AO
+    from ..terminal import Terminal, Transmitter, Aperture, SMF, MMF, TipTilt, AO
 
     def _terr(w0, L, *, divergence=None, power=None, jitter=0.0,
               near_aperture=0.1, near_obscuration=0.0, far_aperture=0.1,
@@ -437,10 +472,86 @@ if __name__ == '__main__':
                        if t.category == "coupling").mean_db
     assert loss_ao < loss_tt < loss_none, (loss_ao, loss_tt, loss_none)
 
+    # An SMF with the coupling optics set also adds the receive tip-tilt walk-off
+    # Term. The budget stays fidelity-0 (mean-only coupling term still present).
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        scn_opt = TerrestrialScenario(
+            near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                          transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+            far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
+                         pointing_jitter_rad=5e-6,
+                         detector=SMF(focal_length_m=0.02,
+                                      mode_field_radius_m=5.2e-6,
+                                      sensitivity_dbm=-40)),
+            channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
+                                       cn2=1e-14))
+        smf_opt_budget = terrestrial_budget(scn_opt, HorizontalPath(3e3))
+    assert "SMF tip-tilt walk-off" in [t.name for t in smf_opt_budget.terms]
+    assert not smf_opt_budget.provides_fade   # mean-only coupling term still locks it
+
+    # --- MMF (multimode-fibre light bucket) ---------------------------------
+    def _mmf(core_radius=25e-6, focal=0.05, jitter=5e-6, far_aperture=0.2,
+             cn2=1e-14):
+        scn = TerrestrialScenario(
+            near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                          transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+            far=Terminal(aperture_m=far_aperture, wavelength_m=1550e-9,
+                         pointing_jitter_rad=jitter,
+                         detector=MMF(core_radius_m=core_radius,
+                                      focal_length_m=focal, sensitivity_dbm=-38)),
+            channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
+                                       cn2=cn2))
+        return terrestrial_budget(scn, HorizontalPath(3e3))
+
+    mmf_budget = _mmf()
+    mmf_names = [t.name for t in mmf_budget.terms]
+    # The MMF coupling Term replaces the scintillation Term (no double-count).
+    assert "receive coupling (MMF)" in mmf_names and "scintillation" not in mmf_names
+    mmf_term = next(t for t in mmf_budget.terms if t.category == "coupling")
+    # The MMF Term has a real fade, so the budget keeps its fade margin.
+    assert not mmf_term.mean_only and mmf_budget.provides_fade
+    assert np.isfinite(mmf_budget.fade_margin_db(0.99))
+    assert mmf_budget.fade_margin_db(0.99) > mmf_budget.total_loss_db()
+
     # A bucket (Aperture) detector adds the scintillation Term, and the budget
     # keeps its analytic fade (scintillation has a quantile; no mean-only term).
     assert budget.provides_fade
     assert np.isfinite(budget.fade_margin_db(0.99))
+
+    # --- master turbulence switch (turbulence=False) ------------------------
+    # An aperture budget with turbulence off drops the scintillation Term but keeps
+    # the deterministic Terms and the transmit pointing jitter (still a real fade).
+    off = terrestrial_budget(scn, geom, turbulence=False)
+    off_names = [t.name for t in off.terms]
+    assert "scintillation" not in off_names, off_names
+    assert off.provides_fade and np.isfinite(off.fade_margin_db(0.99))
+    # An SMF with the walk-off optics: turbulence off keeps the static mode-match
+    # coupling (deterministic, NOT mean-only) plus the jitter walk-off fade. The
+    # walk-off carries the receive jitter alone (no beam-wander tilt), so the
+    # budget still reports a fade and the jitter still drives the coupling.
+    smf_wo = SMF(focal_length_m=0.02, mode_field_radius_m=5.2e-6, sensitivity_dbm=-40)
+    scn_off = TerrestrialScenario(
+        near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                      transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+        far=Terminal(aperture_m=0.2, wavelength_m=1550e-9, pointing_jitter_rad=8e-6,
+                     detector=smf_wo),
+        channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5, cn2=1e-14))
+    smf_off = terrestrial_budget(scn_off, HorizontalPath(3e3), turbulence=False)
+    cpl_off = next(t for t in smf_off.terms if t.category == "coupling")
+    wo_off = next(t for t in smf_off.terms if t.name == "SMF tip-tilt walk-off")
+    assert cpl_off.meta["model"] == "static" and not cpl_off.mean_only
+    assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
+    assert smf_off.provides_fade and wo_off.quantile_db(0.99) > wo_off.mean_db
+    # The jitter drives the coupling fade even with turbulence off (the whole point).
+    scn_calm = TerrestrialScenario(
+        near=scn_off.near, far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
+                                        pointing_jitter_rad=1e-6, detector=smf_wo),
+        channel=scn_off.channel)
+    wo_calm = next(t for t in terrestrial_budget(scn_calm, HorizontalPath(3e3),
+                                                 turbulence=False).terms
+                   if t.name == "SMF tip-tilt walk-off")
+    assert wo_off.mean_db > wo_calm.mean_db, (wo_off.mean_db, wo_calm.mean_db)
 
     # A path-length sweep is scalar-only for the scintillation and coupling Terms,
     # so an array geometry must turn scintillation off (or loop per distance).
