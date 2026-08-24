@@ -30,17 +30,27 @@ downlink, and retroreflected links to a LEO satellite.
   sets the roles from the direction: uplink -> tx=ground, rx=space; downlink ->
   tx=space, rx=ground; retro -> tx=rx=ground. A TerrestrialScenario is one-way:
   tx=near, rx=far. There is NO `Scenario` alias and NO `Link` dataclass. `Site`
-  stays.
+  stays. A SpaceScenario also holds an optional uplink `precompensation` source
+  (`DownlinkBeacon`, `LaserGuideStar` (a placeholder), or None); the uplink
+  budget reads it to select the turbulence physics.
 - `olb/turbulence/` — pure physics. It imports only numpy, scipy, and `_deps`.
   It does not import a scenario or Term. Files: `profiles.py` (Cn2 profiles,
   `default_cn2_profile`, `DEFAULT_HS`), `scintillation.py` (scintillation
-  indices, aperture-averaging integral), `coupled_flux.py` (coupled-flux Monte
-  Carlo wrapper).
+  indices, aperture-averaging integral), `anisoplanatism.py` (Stone 1994 angular
+  anisoplanatic phase variance, with the finite adaptive-optics band and
+  `max_radial_order`), `coupled_flux.py` (coupled-flux Monte Carlo wrapper).
 - `olb/models/` — direction-agnostic Term factories `f(scenario, geometry) ->
   Term`: `geometric.py`, `transmittance.py` (slant airmass AND horizontal
   Beer-Lambert), `pointing.py`.
 - `olb/links/` — per-link Terms and budget assembly: `uplink.py`
-  (`uplink_turbulence_term`, `uplink_budget`), `downlink.py`
+  (`uplink_turbulence_term`, `uplink_point_ahead_term`, `uplink_fitting_term`,
+  `uplink_budget`; the budget dispatches on the scenario `precompensation`
+  source, so a DownlinkBeacon + AO replaces the coupled-flux Term with the AO
+  error budget = fitting error (Noll) + point-ahead anisoplanatism (Stone). BUT
+  that corrected budget is PHASE-ONLY: it drops the scintillation that the
+  coupled-flux Term carried, so it understates the deep fade. This is a MAJOR
+  known gap. The Terms flag it (`NO SCINTILLATION`). Fix it before the corrected
+  uplink fade is trusted), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
   `retro.py` is a backward-compatible alias that re-exports `retro_budget =

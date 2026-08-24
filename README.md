@@ -200,6 +200,12 @@ flowchart LR
   NTX --> NTX1["Non-Gaussian beam types ⬚<br/>flat-top, higher-order · wire M²"]:::planned
   NTX --> NTX2["Incoherent aperture diversity ⬚"]:::planned
 
+  N --> NP["Uplink pre-compensation"]
+  NP --> NP1["AO error budget ◑<br/>point-ahead anisoplanatism · Stone<br/>+ Noll fitting · PHASE ONLY"]:::partial
+  NP --> NP2["Scintillation in pre-comp uplink ⬚<br/>MAJOR GAP · corrected budget<br/>misses the amplitude fade"]:::planned
+  NP --> NP3["Laser-guide-star source ⬚<br/>focal cone anisoplanatism"]:::planned
+
+  classDef partial fill:#78350f,color:#fed7aa,stroke:#f59e0b;
   classDef planned fill:#1e293b,color:#cbd5e1,stroke:#64748b,stroke-dasharray:4 3;
 ```
 

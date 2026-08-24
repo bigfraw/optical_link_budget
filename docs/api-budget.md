@@ -224,28 +224,64 @@ first two are keyword-only.
 ### `uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None)`
 
 Assemble the uplink budget. The Terms are the geometric loss, the atmospheric
-loss, and, when `turbulence` is `True`, the coupled-flux turbulence Term
-(`uplink_turbulence_term`).
+loss, and, when `turbulence` is `True`, the turbulence physics. The
+turbulence Term depends on the pre-compensation source on the scenario
+(`SpaceScenario.precompensation`, see `api-terminal-scenario.md`).
 
-- `turbulence` — add the coupled-flux turbulence Term when `True`. This Term
-  wraps a Monte Carlo of the beam wander and scintillation. It is a
-  Monte-Carlo-only Term (`quantile=None`), so the budget must use
-  `monte_carlo()`.
-- Pointing jitter is not a separate Term when `turbulence` is `True`. The
-  mechanical tracking jitter and the turbulence beam wander share the same
-  receiver-plane displacement, so the turbulence Term carries both. A standalone
-  pointing-loss Term is added only when `turbulence` is `False`. The jitter is
-  never lost and never double-counted.
+- No source (`None`): the uplink is uncorrected. The turbulence Term is the
+  coupled-flux Monte Carlo (`uplink_turbulence_term`, beam wander plus
+  scintillation). It is a Monte-Carlo-only Term (`quantile=None`), so the budget
+  must use `monte_carlo()`. This Term also carries the tracking jitter.
+- `DownlinkBeacon` with an `AO` stage: the uplink is pre-compensated. The
+  coupled-flux Term is REPLACED by two adding analytic wavefront Terms: the AO
+  fitting error (`uplink_fitting_term`, category `fitting`) and the point-ahead
+  anisoplanatism (`uplink_point_ahead_term`, category `anisoplanatism`). Both
+  are mean-only, so the budget then locks to fidelity 0.
+
+  > **MAJOR LIMITATION — no scintillation.** The two pre-compensation Terms
+  > model the PHASE only. The replaced coupled-flux Term carried the
+  > scintillation, so the pre-compensated budget MISSES the scintillation and
+  > understates the deep fade. Adaptive optics corrects the phase, not the
+  > amplitude, so a real corrected uplink still scintillates. Do NOT trust the
+  > corrected uplink fade until a scintillation Term is added. Both Terms flag
+  > this, so `Budget.check()` warns.
+- `DownlinkBeacon` with only a tip-tilt stage: no order above the tilt is
+  corrected, so the uplink stays uncorrected (coupled flux).
+- `LaserGuideStar`: not modelled yet. `uplink_budget` raises
+  `NotImplementedError`.
+
+Other rules:
+
+- `turbulence` — add the turbulence Term when `True`.
+- Pointing jitter folds into the coupled-flux turbulence Term. A standalone
+  pointing-loss Term is added only when that Term is absent: `turbulence` is
+  `False`, or the pre-compensation Terms replace it. The jitter is never lost
+  and never double-counted.
 - The transmit Gaussian-efficiency Term is opt-in. It fires only when the
   transmit terminal has a `Transmitter` and the launch aperture truncates the
   beam by more than `TX_TRUNCATION_MIN_DB` (`1e-2` dB).
 - `cn2_profile=None` builds a default zenith Cn2 profile, so the budget runs
   without the `fast` package.
 
-`uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
-hs=None, cn2_profile=None)` builds the turbulence Term on its own. It reads the
-transmit waist, the divergence, the wavelength, and the site Cn2. The divergence
-enters the beam broadening and the scintillation index.
+The budget-building Terms:
+
+- `uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
+  hs=None, cn2_profile=None)` builds the uncorrected turbulence Term. It reads
+  the transmit waist, the divergence, the wavelength, and the site Cn2. The
+  divergence enters the beam broadening and the scintillation index.
+- `uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
+  max_order="auto")` builds the point-ahead anisoplanatism Term. It is the
+  decorrelation residual of the corrected Zernike orders across the point-ahead
+  angle (see `physics.md` section 5g). `max_order="auto"` reads the AO order
+  from the transmit terminal: an `AO(n_modes)` stage sets the highest corrected
+  radial order; no AO stage gives the infinite-order upper bound. The phase
+  variance becomes a loss with the extended Marechal approximation. The Term is
+  mean-only.
+- `uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None)` builds the
+  AO fitting-error Term. It is the Noll residual of the uncorrected high orders
+  (see `physics.md` section 5f). An empty compensation stack gives the total
+  uncorrected phase variance. The Term is mean-only. It models the phase only,
+  not the scintillation.
 
 Examples: `examples/uplink_sim.py`, `examples/uplink_divergence.py`,
 `examples/build_a_link.py`.

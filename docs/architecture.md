@@ -41,6 +41,7 @@ The turbulence files are:
 - [`gaussian_fried.py`](../olb/turbulence/gaussian_fried.py) — Gaussian-beam Fried parameter.
 - [`beam_scintillation.py`](../olb/turbulence/beam_scintillation.py) — Dios Gaussian-beam scintillation index, on axis and off axis.
 - [`ao.py`](../olb/turbulence/ao.py) — plane-wave r0 and the Noll residual wavefront variance.
+- [`anisoplanatism.py`](../olb/turbulence/anisoplanatism.py) — Stone angular anisoplanatic phase variance, with the finite adaptive-optics band.
 - [`coupled_flux.py`](../olb/turbulence/coupled_flux.py) — the coupled-flux Monte Carlo wrapper for the uplink.
 
 ## 2. The pure-data layer
@@ -92,6 +93,12 @@ two roles from its `direction`:
 A `TerrestrialScenario` is one-way along the path: tx = near, rx = far. It has
 NO `direction`, because "terrestrial" is a channel family, not a tx/rx
 geometry.
+
+A `SpaceScenario` also carries an optional `precompensation` source for the
+uplink: a `DownlinkBeacon`, a `LaserGuideStar` (a placeholder), or None. The
+source names what the ground terminal senses to build the uplink correction.
+The uplink budget reads it and selects the turbulence physics from it. It
+applies to the uplink direction only.
 
 ### The channel holds no hardware
 

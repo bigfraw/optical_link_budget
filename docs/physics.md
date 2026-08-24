@@ -654,6 +654,94 @@ the PSD.
 
 ---
 
+### 5g. Angular anisoplanatism (point-ahead pre-compensation)
+
+File: `olb/turbulence/anisoplanatism.py`
+
+#### What the code models
+
+Two wavefronts come to one aperture from two directions. The turbulence gives
+them different phase. The code gives the mean-square phase difference between
+them. This is the angular anisoplanatic error. It sets the limit of a system
+that senses the turbulence on one source and corrects a second source at a
+small angle. The main use is uplink pre-compensation. The ground terminal
+senses the downlink beam and pre-corrects the uplink. The uplink goes to the
+point-ahead direction, so the two directions differ by the point-ahead angle.
+
+#### Governing relations
+
+Classical isoplanatic angle (Stone Eq. 27):
+
+    theta0 = ( C1 * k0^2 * INT Cn2(h) S^(5/3) dh )^(-3/5),   S = h * airmass
+    C1 = 2 (2 pi)^(8/3) C_A |HJ1(8/3,0,1)| = 2.914381
+
+Finite-aperture phase variance (Stone Eq. 29):
+
+    sigma^2 = 2 (2 pi)^(8/3) C_A k0^2 R^(5/3) airmass * INT Cn2(h) I(S theta/R) dh
+    I(b)    = INT_0^inf u^(-8/3) (1 - J0(b u)) M(u) du            (Eq. 36)
+
+with `R = D/2`. The modal weight `M(u)` selects the Zernike orders. Each radial
+order n has the weight (Stone Eq. A11):
+
+    p_n(u) = 4 (n+1)^2 ( J_{n+1}(u) / u )^2
+
+The order n=0 is the piston. The order n=1 is the two tilts. The weights of all
+orders sum to 1. So the piston-and-tilt-removed weight is `M(u) = 1 - p0 - p1`.
+This is the residual of a perfect, infinite-order correction.
+
+Each order's variance is the DECORRELATION residual between the two directions:
+
+    <[a_n(I) - a_n(II)]^2> = 2 sigma_n^2 ( 1 - rho_n )
+
+where rho_n is the correlation of order n across the angle. An adaptive-optics
+system removes the correlated part. The decorrelated part stays. So the error
+of a system that corrects the orders 2..max_order is the band weight (Stone
+Eq. 43, the frequency-restricted variance):
+
+    M(u) = p2(u) + p3(u) + ... + p_{max_order}(u)
+
+The band grows with `max_order`. Each added order brings its own decorrelation
+residual, small for a well-correlated low order and up to twice the mode
+variance for a fully decorrelated one. It goes up to the infinite-order value.
+This is NOT a penalty for correcting; it is the part of the turbulence that the
+two directions do not share. The classical `(theta/theta0)^(5/3)` law (Stone
+Eqs. 1, 26) keeps the piston and overpredicts the error, up to about one order
+of magnitude for a small aperture (Stone Fig. 1).
+
+#### Inputs and outputs
+
+- Inputs: the aperture diameter D, the angle theta, the Cn2 profile, the height
+  grid, the wavelength, `remove` (`"none"`, `"piston"`, or `"piston_tilt"`),
+  `max_order` (None for all orders, or an integer for a finite AO), and the
+  elevation.
+- Output: the phase variance sigma^2 [rad^2].
+- `max_radial_order(n_zernike_modes)` turns a Noll mode count into the highest
+  complete radial order, so an `AO(n_modes)` stage maps to a `max_order`.
+- The code integrates the Bessel kernel directly. It does not use the paper's
+  hypergeometric 3F2 series (Stone Eqs. 31-32).
+
+#### Assumptions and limits
+
+- Kolmogorov spectrum, no inner or outer scale.
+- The pure angular case: both sources are at infinity and the two beams share
+  the aperture radius.
+- The piston is always removed as optically harmless. The tilt is removed for a
+  beam that a separate tracking loop points.
+- This is a phase quantity. It carries no amplitude scintillation. The uplink
+  pre-compensation budget that uses this Term (`uplink_budget` with a
+  `DownlinkBeacon` source) is therefore phase-only. It MISSES the scintillation
+  and understates the deep fade. This is a major known gap. See `api-budget.md`.
+
+#### Source
+
+- J. Stone, P. H. Hu, S. P. Mills and S. Ma, "Anisoplanatic effects in
+  finite-aperture optical systems," J. Opt. Soc. Am. A 11(1), 347-357 (1994).
+  DOI: 10.1364/JOSAA.11.000347.
+- R. J. Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976), DOI 10.1364/JOSA.66.000207,
+  for the Zernike mode count in `max_radial_order`.
+
+---
+
 ## 6. Fibre coupling
 
 ### 6a. Analytic mean coupling (fidelity 0)
@@ -797,7 +885,10 @@ Eq. 12.44).
   scintillation (5c, 5d), uplink Fried weight (5e).
 - Churnside, Applied Optics 30 (1991) 1982: strong-turbulence aperture averaging
   (5b).
-- Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976): AO and tip-tilt residual (5f, 6a).
+- Stone, Hu, Mills and Ma, J. Opt. Soc. Am. A 11(1), 347-357 (1994), DOI
+  10.1364/JOSAA.11.000347: angular anisoplanatism (5g).
+- Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976): AO and tip-tilt residual (5f, 6a),
+  the Zernike mode count (5g).
 - Fried (1966): the Fried parameter (5f).
 - Dikmelik and Davidson, Appl. Opt. 44(23), 4946-4952 (2005): analytic SMF coupling
   (6a).

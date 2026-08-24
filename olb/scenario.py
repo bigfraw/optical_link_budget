@@ -33,14 +33,64 @@ A TerrestrialScenario is one-way along the path: tx = near (the local end),
 rx = far (the remote end). It has no `direction`, because "terrestrial" is a
 channel family, not a tx/rx geometry. All terminal hardware lives on a Terminal
 (see olb.terminal); a channel holds no hardware.
+
+A SpaceScenario also carries an optional pre-compensation source for the uplink
+(see `precompensation`). It names what the ground terminal senses to build the
+uplink correction: the downlink beam (DownlinkBeacon), a laser guide star
+(LaserGuideStar, a placeholder), or nothing (None, an uncorrected uplink).
 '''
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional, Union
 
 from .terminal import Terminal
 
 Direction = Literal["uplink", "downlink", "retro"]
+
+
+# --- Pre-compensation source (uplink only) ----------------------------------
+
+@dataclass
+class DownlinkBeacon:
+    '''
+    Uplink pre-compensation sensed from the satellite downlink beam.
+
+    The ground terminal senses the turbulence on the downlink beam and applies
+    the conjugate to the uplink beam. This is reciprocity-based pre-compensation:
+    the up and down paths share the same turbulence, so the downlink phase gives
+    the uplink correction. But the downlink arrives from where the satellite was,
+    and the uplink must go to where the satellite will be. The two directions
+    differ by the point-ahead angle. So the correction removes only the part of
+    each mode that stays correlated across that angle. The modal DECORRELATION
+    residual stays. See olb.links.uplink.uplink_point_ahead_term and
+    olb.turbulence.anisoplanatism. The satellite (space) terminal needs a
+    transmitter for the downlink beam.
+    '''
+    pass
+
+
+@dataclass
+class LaserGuideStar:
+    '''
+    Uplink pre-compensation sensed from a ground-launched laser guide star.
+
+    NOT YET IMPLEMENTED. A laser guide star focuses at a finite altitude, so its
+    light samples a cone of the turbulence, not the full column. This gives focal
+    (cone) anisoplanatism. That is a different effect from the point-ahead angular
+    anisoplanatism of the downlink beacon. This class is a placeholder for a later
+    task.
+
+    Parameters:
+        altitude_m : float
+            Height of the guide star above the ground [m]. The default is a
+            sodium-layer guide star.
+    '''
+    altitude_m: float = 90e3
+
+
+# A pre-compensation source is one of the reference sources above. None means no
+# pre-compensation: the uplink is uncorrected.
+PreCompensationSource = Union[DownlinkBeacon, LaserGuideStar]
 
 
 @dataclass
@@ -105,12 +155,22 @@ class TerrestrialChannel:
 
 @dataclass
 class SpaceScenario:
-    '''A space link case: a ground terminal + a space terminal + direction.'''
+    '''
+    A space link case: a ground terminal + a space terminal + direction.
+
+    The optional `precompensation` field names the source that drives the uplink
+    pre-compensation. It applies to the UPLINK direction only. None means the
+    uplink is uncorrected. A DownlinkBeacon senses the downlink beam, so it drives
+    the point-ahead anisoplanatism (see olb.links.uplink). A LaserGuideStar is a
+    placeholder for a later task. The models ignore this field on a downlink or a
+    retro link.
+    '''
     ground: Terminal
     space: Terminal
     direction: Direction = "uplink"
     channel: Channel = field(default_factory=Channel)
-    availability_target: float = 0.99   # target link availability (0-1)
+    availability_target: float = 0.99
+    precompensation: Optional[PreCompensationSource] = None   # target link availability (0-1)
 
     @property
     def tx_terminal(self) -> Terminal:
@@ -178,6 +238,17 @@ if __name__ == '__main__':
 
     assert up.channel.altitude_m == 600e3 and up.availability_target == 0.99
     assert up.channel.site.cn2_ground == 1.7e-14
+
+    # Pre-compensation source: None by default; a DownlinkBeacon or LaserGuideStar
+    # names the uplink correction reference.
+    assert up.precompensation is None
+    beacon_up = SpaceScenario(ground=ground, space=space, direction="uplink",
+                              precompensation=DownlinkBeacon())
+    assert isinstance(beacon_up.precompensation, DownlinkBeacon)
+    lgs_up = SpaceScenario(ground=ground, space=space, direction="uplink",
+                           precompensation=LaserGuideStar())
+    assert isinstance(lgs_up.precompensation, LaserGuideStar)
+    assert lgs_up.precompensation.altitude_m == 90e3
 
     # --- terrestrial family -------------------------------------------------
     near = Terminal(aperture_m=0.1, transmitter=Transmitter(waist_m=0.02))

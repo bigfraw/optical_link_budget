@@ -16,14 +16,19 @@ analytic fade sum.
 import numpy as np
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
-                          SPECTRUM_KOLMOGOROV)
+from ..assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
+                          REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
 from ..models.transmittance import atmospheric_loss_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
+from ..turbulence.anisoplanatism import (anisoplanatic_phase_variance,
+                                         max_radial_order)
+from ..turbulence.ao import plane_wave_fried_parameter, apply_compensation
 from ..turbulence.coupled_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
+from ..terminal import AO
+from ..scenario import DownlinkBeacon, LaserGuideStar
 
 # Below this launch-truncation loss the beam is an untruncated Gaussian, so the
 # transmit Gaussian-efficiency term is skipped [dB].
@@ -153,54 +158,357 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     )
 
 
+def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
+                            max_order='auto'):
+    '''
+    Point-ahead anisoplanatism Term (uplink pre-compensation residual).
+
+    This Term is the error of a downlink-beacon uplink pre-compensation. The
+    terminal senses the turbulence on the downlink beam and applies the conjugate
+    to the uplink beam. The up and down paths share the same turbulence
+    (reciprocity), so the downlink phase gives the uplink correction. But the
+    downlink arrives from where the satellite was, and the uplink goes to where
+    the satellite will be. The two directions differ by the point-ahead angle.
+
+    The correction removes the part of each Zernike order that stays correlated
+    across that angle. The DECORRELATION residual stays. The error is the sum of
+    that residual over the corrected orders 2..max_order, with the piston and the
+    two tilts left out (a separate tracking loop points the beam). The residual
+    per order is 2 sigma_n^2 (1 - rho_n): it is small for a well-correlated low
+    order and it saturates at twice the mode variance for a fully decorrelated
+    order. So the loss grows with the adaptive-optics order, up to an
+    infinite-order limit. This is NOT a penalty for correcting. It is the part of
+    the turbulence that the two directions do not share. See
+    anisoplanatic_phase_variance and Fig. 2 of Stone et al. (1994).
+
+    The Term is MEAN-ONLY: it gives the expected loss and no fade. It has no
+    sampler and no quantile, because the phase variance is a steady-state
+    ensemble value with no time-domain draw.
+
+    Parameters:
+        scenario : SpaceScenario
+            Reads the transmit terminal (aperture, wavelength, compensation) and
+            site (through the default Cn2 profile).
+        geometry : CircularOrbit or TLEPass
+            Reads elevation_deg and point_ahead_rad. Scalar elevation -> a scalar
+            mean_db; an elevation array -> one value per elevation.
+        hs : numpy.ndarray, optional
+            Turbulence altitude grid [m]. Defaults to DEFAULT_HS.
+        cn2_profile : numpy.ndarray, optional
+            Explicit Cn2(h) profile at zenith matching ``hs``. If None the code
+            builds it with default_cn2_profile from the site.
+        max_order : "auto", int, or None
+            Highest Zernike radial order that the correction touches. "auto" (the
+            default) reads it from the transmit terminal. An AO(n_modes) stage
+            gives max_radial_order(n_modes). No AO stage gives None (the ideal
+            infinite-order limit). An int forces that order. None forces the
+            infinite-order limit.
+
+    Returns:
+        Term
+            name="point-ahead anisoplanatism", category="anisoplanatism",
+            mean_only=True.
+    '''
+    hs = DEFAULT_HS if hs is None else hs
+    # Resolve the profile here, because a caller can use this Term alone.
+    if cn2_profile is None:
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
+    tx = scenario.tx_terminal
+    D = tx.aperture_m
+    wavelength = tx.wavelength_m
+
+    # Map the compensation stack to a corrected radial order. The largest AO
+    # stage sets it. With no AO stage, fall back to the infinite-order limit.
+    if max_order == 'auto':
+        ao_modes = [c.n_modes for c in tx.compensation if isinstance(c, AO)]
+        max_order = max_radial_order(max(ao_modes)) if ao_modes else None
+
+    elev = np.atleast_1d(np.asarray(geometry.elevation_deg, dtype=float))
+    theta = np.broadcast_to(
+        np.asarray(geometry.point_ahead_rad, dtype=float), elev.shape)
+    scalar = np.ndim(geometry.elevation_deg) == 0
+
+    # anisoplanatic_phase_variance takes ONE angle and ONE elevation at a time,
+    # because hs is already a grid. So loop over the elevations.
+    sigma2 = np.array([
+        anisoplanatic_phase_variance(D, t, hs, cn2_profile, wavelength,
+                                     remove='piston_tilt', max_order=max_order,
+                                     elevation_deg=e)
+        for e, t in zip(elev, theta)])
+    # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
+    # Source: V. W. S. Chan and others; extended Marechal approximation. The
+    # same relation is in olb.models.coupling.
+    loss_db = (10.0 / np.log(10.0)) * sigma2
+
+    order_note = "all orders" if max_order is None else f"orders 2..{max_order}"
+    theta_urad = theta * 1e6
+    note = ("point-ahead anisoplanatism, " + order_note + ", theta="
+            + (f"{theta_urad[0]:.2f}" if scalar
+               else f"{theta_urad.min():.2f}-{theta_urad.max():.2f}") + " urad")
+
+    assumptions = Assumptions(
+        beam_type=BEAM_GAUSSIAN,
+        turbulence_regime=REGIME_WEAK,
+        spectrum=SPECTRUM_KOLMOGOROV,
+        validity="Decorrelation residual of a downlink-beacon uplink "
+                 "pre-compensation. The terminal senses the turbulence on the "
+                 "downlink beam and applies the conjugate to the uplink beam. The "
+                 "correction removes the part of each Zernike order that stays "
+                 "correlated across the point-ahead angle. The error is the "
+                 "decorrelation residual summed over the corrected orders "
+                 + order_note + ", with the piston and the two tilts left out (a "
+                 "separate tracking loop points the beam). The residual per order "
+                 "is 2 sigma_n^2 (1 - rho_n). It grows with the corrected order. "
+                 "Source: Stone et al. (1994), DOI 10.1364/JOSAA.11.000347. "
+                 "The phase variance becomes a loss with the extended Marechal "
+                 "approximation, the same relation as in olb.models.coupling "
+                 "(V. W. S. Chan and others; extended Marechal approximation). "
+                 "This Term is the anisoplanatic part only. The companion "
+                 "uplink_fitting_term gives the uncorrected high-order error. "
+                 "NEITHER Term models the scintillation, so it must not be added "
+                 "to a full uncorrected turbulence Term; the two stand in for the "
+                 "corrected turbulence error. "
+                 "The point-ahead angle comes from geometry.point_ahead_rad, thus "
+                 "from my_analysis_modules.satellite.SatellitePass."
+                 "point_ahead_angle(). That function uses the simple form "
+                 "2 * v_orbit * sin(elevation) / c. It does not use the more "
+                 "general form 2 * omega_line_of_sight * slant_range / c, and its "
+                 "source file gives no citation. This is a limit of the input "
+                 "accuracy. This Term does not correct it. "
+                 "This Term gives the mean loss only. It models no fade.",
+    )
+    # BIG LIMITATION: the pre-compensated uplink model is phase-only. Adaptive
+    # optics corrects the phase; it does not remove the amplitude scintillation.
+    # So the corrected budget MISSES the scintillation and understates the deep
+    # fade. This is a known gap, not a small one. Fix it before the corrected
+    # uplink fade is trusted.
+    assumptions.flag(
+        "NO SCINTILLATION: the pre-compensated uplink budget models the phase "
+        "(wavefront) only. Adaptive optics does not remove the amplitude "
+        "scintillation, so the corrected budget MISSES the scintillation and "
+        "understates the deep fade. This is a major known gap. Do not trust the "
+        "corrected uplink fade until a scintillation Term is added."
+    )
+    # With no adaptive-optics stage the correction order is unknown, so the Term
+    # uses the infinite-order limit. That is an UPPER bound of the true error.
+    if max_order is None:
+        assumptions.flag(
+            "No adaptive-optics stage sets the corrected order, so this Term "
+            "uses the infinite-order limit. This is an upper bound. Pass an "
+            "AO(n_modes) stage, or set max_order, for the true adaptive-optics "
+            "order."
+        )
+
+    return Term(
+        name="point-ahead anisoplanatism",
+        category="anisoplanatism",
+        mean_db=float(loss_db[0]) if scalar else loss_db,
+        note=note,
+        meta={
+            "theta_paa_rad": float(theta[0]) if scalar else np.asarray(theta),
+            "sigma2_rad2": float(sigma2[0]) if scalar else sigma2,
+            "max_order": max_order,
+        },
+        assumptions=assumptions,
+        mean_only=True,   # fidelity-0: expected residual only, no fade (see results.Budget)
+    )
+
+
+def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
+    '''
+    Adaptive-optics fitting-error Term for the uplink (uncorrected high orders).
+
+    The adaptive optics corrects the low Zernike orders. The high orders stay
+    uncorrected. This Term gives the loss of that uncorrected wavefront error. It
+    is the companion of uplink_point_ahead_term: the point-ahead Term gives the
+    decorrelation residual of the CORRECTED orders, and this Term gives the full
+    error of the UNCORRECTED orders. The two mode sets do not overlap, so the two
+    Terms add.
+
+    The residual is the Noll variance after the correction:
+        sigma^2 = c * (D / r0)^(5/3)
+    with the Noll coefficient c set by the compensation stack (see
+    olb.turbulence.ao). An empty stack gives c = NOLL_PISTON, so the Term is then
+    the total uncorrected phase variance (the piston removed). r0 is the
+    plane-wave Fried parameter at the ground aperture. By reciprocity the up and
+    down paths share the ground-aperture phase, so the plane-wave (downlink) r0
+    sets the sensed and the corrected wavefront.
+
+    The variance becomes a loss with the extended Marechal approximation, the same
+    relation as in olb.models.coupling. The Term is MEAN-ONLY: it has no sampler
+    and no quantile.
+
+    Parameters:
+        scenario : SpaceScenario
+            Reads the transmit terminal (aperture, wavelength, compensation) and
+            site (through the default Cn2 profile).
+        geometry : CircularOrbit or TLEPass
+            Reads elevation_deg. Scalar elevation -> a scalar mean_db; an
+            elevation array -> one value per elevation.
+        hs : numpy.ndarray, optional
+            Turbulence altitude grid [m]. Defaults to DEFAULT_HS.
+        cn2_profile : numpy.ndarray, optional
+            Explicit Cn2(h) profile at zenith matching ``hs``. If None the code
+            builds it with default_cn2_profile from the site.
+
+    Returns:
+        Term
+            name="AO fitting error", category="fitting", mean_only=True.
+    '''
+    hs = DEFAULT_HS if hs is None else hs
+    if cn2_profile is None:
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
+    tx = scenario.tx_terminal
+    D = tx.aperture_m
+    wavelength = tx.wavelength_m
+    elev = geometry.elevation_deg
+    scalar = np.ndim(elev) == 0
+
+    # Reciprocity: the ground-aperture phase is common to the up and down paths,
+    # so the plane-wave (downlink) r0 sets the sensed and corrected wavefront.
+    r0 = plane_wave_fried_parameter(cn2_profile, hs, wavelength, elev)
+    residual = apply_compensation(tx.compensation, D, r0)
+    sigma2_fit = np.asarray(residual.variance, dtype=float)
+    # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
+    # Source: V. W. S. Chan and others; extended Marechal approximation. The same
+    # relation is in olb.models.coupling.
+    loss_db = (10.0 / np.log(10.0)) * sigma2_fit
+
+    note = (f"AO fitting error, {residual.n_modes} modes corrected, "
+            f"Noll c={residual.coefficient:.4f}")
+    assumptions = Assumptions(
+        beam_type=BEAM_PLANE_WAVE,
+        turbulence_regime=REGIME_WEAK,
+        spectrum=SPECTRUM_KOLMOGOROV,
+        validity="Uncorrected high-order wavefront error of the uplink adaptive "
+                 "optics. It is the Noll residual sigma^2 = c (D/r0)^(5/3) after "
+                 "the correction, with c set by the compensation stack. An empty "
+                 "stack gives the total uncorrected phase variance (piston "
+                 "removed). Source: R. J. Noll, JOSA 66(3), 207 (1976), "
+                 "DOI 10.1364/JOSA.66.000207. r0 is the plane-wave Fried "
+                 "parameter at the ground aperture; by reciprocity it is common "
+                 "to the up and down paths. The variance becomes a loss with the "
+                 "extended Marechal approximation (olb.models.coupling; "
+                 "V. W. S. Chan and others). It holds for a small residual "
+                 "(sigma^2 < 1). This Term gives the mean loss only. It models no "
+                 "fade and no scintillation.",
+    )
+    # BIG LIMITATION: the pre-compensated uplink model is phase-only. See
+    # uplink_point_ahead_term. The corrected budget MISSES the scintillation.
+    assumptions.flag(
+        "NO SCINTILLATION: the pre-compensated uplink budget models the phase "
+        "(wavefront) only. Adaptive optics does not remove the amplitude "
+        "scintillation, so the corrected budget MISSES the scintillation and "
+        "understates the deep fade. This is a major known gap. Do not trust the "
+        "corrected uplink fade until a scintillation Term is added."
+    )
+    return Term(
+        name="AO fitting error",
+        category="fitting",
+        mean_db=float(loss_db) if scalar else loss_db,
+        note=note,
+        meta={
+            "sigma2_fit_rad2": float(sigma2_fit) if scalar else sigma2_fit,
+            "r0_m": float(r0) if scalar else np.asarray(r0),
+            "n_modes": int(residual.n_modes),
+            "noll_c": float(residual.coefficient),
+        },
+        assumptions=assumptions,
+        mean_only=True,   # fidelity-0: expected residual only, no fade
+    )
+
+
 def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
                   n_samples=3000, cn2_profile=None):
     '''
     Assemble the uplink budget: geometric, atmospheric, turbulence.
 
-    Add the coupled-flux turbulence Term when `turbulence` is true. Build a
-    default Cn2 profile when `cn2_profile` is None, so the budget runs without
-    the `fast` package.
+    The turbulence Term depends on the pre-compensation source on the scenario
+    (see olb.scenario, SpaceScenario.precompensation):
 
-    Pointing jitter is NOT a separate Term here. Mechanical tracking jitter and
-    turbulence beam wander share the same receiver-plane displacement, so the
-    turbulence Term carries both (see uplink_turbulence_term). A standalone
-    pointing-loss Term is added ONLY when `turbulence` is False, so the jitter is
-    never lost and never double-counted.
+      None (no source): the uplink is uncorrected. The turbulence Term is the
+          coupled-flux Monte Carlo (beam wander + scintillation). This carries
+          the tracking jitter too.
+      DownlinkBeacon with an AO stage: the uplink is pre-compensated. The
+          coupled-flux Term is REPLACED by TWO analytic wavefront Terms that add:
+          the point-ahead anisoplanatism (the decorrelation residual of the
+          corrected orders, uplink_point_ahead_term) and the AO fitting error
+          (the Noll residual of the uncorrected high orders,
+          uplink_fitting_term). Together they are the AO error budget of the
+          corrected wavefront.
+          BIG LIMITATION: these two Terms model the PHASE only. The replaced
+          coupled-flux Term carried the scintillation, so the pre-compensated
+          budget MISSES the scintillation and understates the deep fade.
+          Adaptive optics corrects the phase, not the amplitude, so a real
+          corrected uplink still scintillates. This is a major known gap. Do not
+          trust the corrected uplink fade until a scintillation Term is added.
+          The Terms flag it, so Budget.check() warns.
+      LaserGuideStar: not implemented yet. It raises NotImplementedError.
+
+    A DownlinkBeacon with only a tip-tilt stage corrects no order above the tilt,
+    so it has no higher-order anisoplanatic error and the uplink stays uncorrected
+    (coupled flux).
+
+    Pointing jitter: mechanical tracking jitter and turbulence beam wander share
+    the same displacement, so the coupled-flux Term carries both. When that Term
+    is absent (turbulence off, or replaced by the pre-compensation Term), a
+    standalone pointing-loss Term carries the jitter, so it is never lost and
+    never double-counted.
+
+    Build a default Cn2 profile when `cn2_profile` is None, so the budget runs
+    without the `fast` package.
 
     Parameters:
         scenario : SpaceScenario
-            The link case.
+            The link case. Reads `precompensation` for the uplink correction.
         geometry : CircularOrbit or TLEPass
             The link geometry.
         turbulence : bool
-            Add the coupled-flux turbulence Term when true.
+            Add the turbulence Term when true.
         tau_zenith : float, optional
             Zenith optical depth. Defaults to transmittance.DEFAULT_TAU_ZENITH.
         n_samples : int
-            Monte Carlo draws for the turbulence Term mean estimate.
+            Monte Carlo draws for the coupled-flux turbulence Term mean estimate.
         cn2_profile : numpy.ndarray, optional
             Explicit zenith Cn2 profile. Defaults to default_cn2_profile.
 
     Returns:
         Budget
             The budget with the scenario set.
+
+    Raises:
+        NotImplementedError
+            If the scenario uses a LaserGuideStar pre-compensation source.
     '''
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
     terms = [
         geometric_loss_term(scenario, geometry),
         atmospheric_loss_term(scenario, geometry, tau_zenith=tau),
     ]
-    # Pointing jitter folds into the coupled-flux turbulence Term (it shares the
-    # beam-wander displacement). So add the standalone pointing-loss Term ONLY
-    # when the turbulence Term is off; adding both would double-count the jitter.
-    if not turbulence:
+    tx = scenario.tx_terminal
+
+    # Resolve the pre-compensation source. A laser guide star is not modelled
+    # yet. A downlink beacon with an AO stage pre-compensates the uplink, so the
+    # turbulence Term becomes the point-ahead decorrelation residual.
+    pc = scenario.precompensation
+    if isinstance(pc, LaserGuideStar):
+        raise NotImplementedError(
+            "laser-guide-star pre-compensation is not modelled yet. Its focal "
+            "(cone) anisoplanatism differs from the downlink-beacon point-ahead "
+            "anisoplanatism. Use a DownlinkBeacon or no pre-compensation for now."
+        )
+    precomp = (isinstance(pc, DownlinkBeacon)
+               and any(isinstance(c, AO) for c in tx.compensation))
+
+    # Pointing jitter folds into the coupled-flux turbulence Term. So add the
+    # standalone pointing-loss Term ONLY when that Term is absent -- turbulence
+    # off, or replaced by the pre-compensation Term. Adding both double-counts.
+    if not turbulence or precomp:
         terms.append(pointing_loss_term(scenario, geometry))
     # The transmit Gaussian-efficiency term is opt-in. It fires only when the
     # transmit terminal has a Transmitter and its launch aperture truncates the
     # beam by more than TX_TRUNCATION_MIN_DB. A wide aperture leaves the beam an
     # untruncated Gaussian, so the term is skipped.
-    tx = scenario.tx_terminal
     if tx.transmitter is not None:
         eff = tx_gaussian_efficiency_term(scenario, geometry)
         if eff.mean_db > TX_TRUNCATION_MIN_DB:
@@ -208,29 +516,43 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     if turbulence:
         if cn2_profile is None:
             cn2_profile = default_cn2_profile(scenario.channel.site)
-        terms.append(uplink_turbulence_term(scenario, geometry, n_samples=n_samples,
-                                            cn2_profile=cn2_profile))
+        if precomp:
+            # Pre-compensated uplink: the AO error budget replaces the uncorrected
+            # coupled-flux Term. It is two adding phase Terms: the fitting error of
+            # the uncorrected high orders (Noll) and the point-ahead decorrelation
+            # residual of the corrected orders (Stone).
+            terms.append(uplink_fitting_term(scenario, geometry,
+                                             cn2_profile=cn2_profile))
+            terms.append(uplink_point_ahead_term(scenario, geometry,
+                                                 cn2_profile=cn2_profile))
+        else:
+            terms.append(uplink_turbulence_term(scenario, geometry,
+                                                n_samples=n_samples,
+                                                cn2_profile=cn2_profile))
     return Budget(terms, scenario=scenario)
 
 
 if __name__ == '__main__':
     from ..scenario import SpaceScenario, Channel
     from ..geometry import CircularOrbit
-    from ..terminal import Terminal, Transmitter, Aperture
+    from ..terminal import Terminal, Transmitter, Aperture, TipTilt, AO
 
     def _uplink(w0, *, divergence=None, power=None, jitter=0.0,
                 ground_aperture=0.5, ground_obscuration=0.0,
-                space_aperture=0.05, sensitivity=None):
+                space_aperture=0.05, sensitivity=None, compensation=None,
+                precompensation=None):
         '''Build an uplink SpaceScenario: tx=ground, rx=space (satellite).'''
         detector = None if sensitivity is None else Aperture(sensitivity_dbm=sensitivity)
         return SpaceScenario(
             ground=Terminal(aperture_m=ground_aperture, obscuration_ratio=ground_obscuration,
                             wavelength_m=1550e-9, pointing_jitter_rad=jitter,
                             transmitter=Transmitter(waist_m=w0, power_dbm=power,
-                                                    divergence_rad=divergence)),
+                                                    divergence_rad=divergence),
+                            compensation=compensation or []),
             space=Terminal(aperture_m=space_aperture, wavelength_m=1550e-9,
                            detector=detector),
-            direction="uplink", channel=Channel(altitude_m=600e3))
+            direction="uplink", channel=Channel(altitude_m=600e3),
+            precompensation=precompensation)
 
     scenario = _uplink(0.1)
     rng = np.random.default_rng(0)
@@ -357,6 +679,138 @@ if __name__ == '__main__':
     eff = next(t for t in up_ap.terms if t.category == "system")
     assert eff.mean_db > 0                       # truncation is a loss
     assert up_ap.total_loss_db() > up.total_loss_db()   # aperture truncation costs margin
+
+    # --- point-ahead anisoplanatism self-check -------------------------------
+    pa_geom = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
+    ao_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                     ground_aperture=1.5, compensation=[TipTilt(), AO(60)])
+    pa_term = uplink_point_ahead_term(ao_scn, pa_geom)
+    assert np.isfinite(pa_term.mean_db) and pa_term.mean_db > 0, pa_term.mean_db
+    # The Term is mean-only: no sampler and no quantile, so it carries no fade.
+    assert not pa_term.stochastic and pa_term.quantile is None
+    assert pa_term.meta["theta_paa_rad"] > 0
+    assert pa_term.category == "anisoplanatism"
+    # AO(60) fills radial orders up to n=9 (55 modes through order 9), so the
+    # Term corrects orders 2..9, not the infinite-order limit.
+    assert pa_term.meta["max_order"] == max_radial_order(60) == 9
+    # A real AO order is set, so no upper-bound flag. But the scintillation gap
+    # always flags, so the Term is not "ok".
+    assert not any("upper bound" in v for v in pa_term.assumptions.violations)
+    assert any("NO SCINTILLATION" in v for v in pa_term.assumptions.violations)
+
+    # The error grows with the corrected AO order, up to the infinite-order limit
+    # (Fig. 2 of Stone et al. 1994). More corrected orders inject more error.
+    v6 = uplink_point_ahead_term(
+        _uplink(0.2, ground_aperture=1.5, compensation=[AO(6)]), pa_geom).mean_db
+    v60 = pa_term.mean_db
+    v_inf = uplink_point_ahead_term(ao_scn, pa_geom, max_order=None).mean_db
+    assert v6 < v60 < v_inf, (v6, v60, v_inf)
+
+    # The error grows with the aperture at a fixed order (Eq. 29 of Stone et al.).
+    small_scn = _uplink(0.2, ground_aperture=0.3, compensation=[AO(60)])
+    large_scn = _uplink(0.2, ground_aperture=1.0, compensation=[AO(60)])
+    small_term = uplink_point_ahead_term(small_scn, pa_geom)
+    large_term = uplink_point_ahead_term(large_scn, pa_geom)
+    assert large_term.mean_db > small_term.mean_db, (large_term.mean_db,
+                                                     small_term.mean_db)
+
+    # A direct call with no AO stage falls back to the infinite-order upper bound.
+    tt_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                     ground_aperture=1.5, compensation=[TipTilt()])
+    tt_term = uplink_point_ahead_term(tt_scn, pa_geom)
+    assert tt_term.meta["max_order"] is None
+    assert any("upper bound" in v for v in tt_term.assumptions.violations), \
+        tt_term.assumptions.violations
+
+    # --- AO fitting error (uncorrected high orders, Noll) --------------------
+    # Correcting more modes leaves less uncorrected fitting error. An empty stack
+    # is the total uncorrected phase variance.
+    fit_none = uplink_fitting_term(
+        _uplink(0.2, ground_aperture=1.5, compensation=[]), pa_geom)
+    fit_ao6 = uplink_fitting_term(
+        _uplink(0.2, ground_aperture=1.5, compensation=[AO(6)]), pa_geom)
+    fit_ao60 = uplink_fitting_term(ao_scn, pa_geom)
+    assert not fit_none.stochastic and fit_none.quantile is None   # mean-only
+    assert fit_none.mean_db > fit_ao6.mean_db > fit_ao60.mean_db > 0, (
+        fit_none.mean_db, fit_ao6.mean_db, fit_ao60.mean_db)
+    assert fit_none.category == "fitting"
+    # The fitting Term flags the missing scintillation too.
+    assert any("NO SCINTILLATION" in v for v in fit_ao60.assumptions.violations)
+
+    # --- source-driven budget dispatch ---------------------------------------
+    pa_cn2 = default_cn2_profile(ao_scn.channel.site)
+
+    # No source: the uplink is uncorrected. The coupled-flux turbulence Term is
+    # present and there is no anisoplanatism Term.
+    uncorr = uplink_budget(ao_scn, pa_geom, n_samples=500, cn2_profile=pa_cn2)
+    assert any(t.category == "turbulence" for t in uncorr.terms)
+    assert not any(t.category == "anisoplanatism" for t in uncorr.terms)
+
+    # DownlinkBeacon + AO: the uplink is pre-compensated. The coupled-flux Term is
+    # REPLACED by the AO error budget -- the fitting error (uncorrected orders)
+    # plus the point-ahead anisoplanatism (corrected orders). A standalone
+    # pointing Term carries the jitter that the coupled-flux Term used to hold.
+    beacon_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                         ground_aperture=1.5, compensation=[TipTilt(), AO(60)],
+                         precompensation=DownlinkBeacon())
+    precomp = uplink_budget(beacon_scn, pa_geom, cn2_profile=pa_cn2)
+    assert any(t.category == "anisoplanatism" for t in precomp.terms)
+    assert any(t.category == "fitting" for t in precomp.terms)          # Noll piece
+    assert not any(t.category == "turbulence" for t in precomp.terms)   # replaced
+    assert any(t.category == "pointing" for t in precomp.terms)         # jitter kept
+
+    # The anisoplanatism Term is mean-only, so the budget locks to fidelity 0.
+    pa_row = next(t for t in precomp.terms if t.category == "anisoplanatism")
+    assert pa_row.mean_db > 0
+    assert pa_row.mean_only and not precomp.provides_fade
+    try:
+        precomp.fade_margin_db(0.99)
+    except ValueError as e:
+        assert "fidelity-0" in str(e) and "mean-only" in str(e)
+    else:
+        raise AssertionError("a mean-only budget must refuse fade_margin_db")
+    assert np.isfinite(precomp.total_loss_db())   # the mean total is still reported
+    # The missing scintillation is a flagged violation, so Budget.check() warns.
+    assert any("NO SCINTILLATION" in reason
+               for _, reason in precomp.check(warn=False))
+
+    # DownlinkBeacon with only a tip-tilt stage corrects no order above the tilt,
+    # so the uplink stays uncorrected (coupled flux), no anisoplanatism Term.
+    tt_beacon_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                            ground_aperture=1.5, compensation=[TipTilt()],
+                            precompensation=DownlinkBeacon())
+    tt_beacon = uplink_budget(tt_beacon_scn, pa_geom, n_samples=500,
+                              cn2_profile=pa_cn2)
+    assert any(t.category == "turbulence" for t in tt_beacon.terms)
+    assert not any(t.category == "anisoplanatism" for t in tt_beacon.terms)
+
+    # LaserGuideStar: not modelled yet, so the budget raises.
+    lgs_scn = _uplink(0.2, ground_aperture=1.5, compensation=[AO(60)],
+                      precompensation=LaserGuideStar())
+    try:
+        uplink_budget(lgs_scn, pa_geom, cn2_profile=pa_cn2)
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("a laser-guide-star source must raise")
+
+    print('\n' + '=' * 40)
+    print(f"point-ahead angle: {pa_term.meta['theta_paa_rad'] * 1e6:.2f} urad, "
+          f"sigma2={pa_term.meta['sigma2_rad2']:.3f} rad^2")
+    print(f"point-ahead loss (D=1.5 m, 60 deg): AO(6) {v6:.2f} dB  |  "
+          f"AO(60) {v60:.2f} dB  |  ideal {v_inf:.2f} dB")
+    print(f"  ({pa_term.note})")
+
+    # AO error budget (D=1.5 m, 60 deg): the corrected wavefront is the fitting
+    # error (uncorrected orders, Noll) plus the point-ahead anisoplanatism
+    # (corrected orders, Stone). More modes -> less fitting, more anisoplanatism.
+    print("\nAO error budget (D=1.5 m, 60 deg): fitting + point-ahead = total")
+    for j in (6, 20, 60, 200):
+        scn_j = _uplink(0.2, ground_aperture=1.5, compensation=[AO(j)])
+        f_db = uplink_fitting_term(scn_j, pa_geom).mean_db
+        a_db = uplink_point_ahead_term(scn_j, pa_geom).mean_db
+        print(f"  AO({j:>3}): fitting {f_db:5.2f} dB + point-ahead {a_db:5.2f} dB"
+              f" = {f_db + a_db:5.2f} dB")
 
     print('\n' + '=' * 40)
     print(up.to_frame().to_string(index=False))

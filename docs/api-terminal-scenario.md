@@ -170,6 +170,7 @@ A space link case: a ground terminal, a space terminal, and a direction.
 | `direction` | `"uplink"` or `"downlink"` or `"retro"` | — | `"uplink"` | The link direction. It sets the tx / rx roles. |
 | `channel` | `Channel` | — | `Channel()` | The space propagation channel (site plus orbit altitude). |
 | `availability_target` | float | — | `0.99` | Target link availability (0-1). |
+| `precompensation` | `DownlinkBeacon` or `LaserGuideStar` or None | — | `None` | The uplink pre-compensation source. None means the uplink is uncorrected. The models ignore this field on a downlink or a retro link. |
 
 The `direction` sets the roles:
 
@@ -178,6 +179,24 @@ The `direction` sets the roles:
 | uplink | ground | space |
 | downlink | space | ground |
 | retro | ground | ground |
+
+#### Pre-compensation sources
+
+The `precompensation` field names what the ground terminal senses to build the
+uplink correction. It applies to the uplink direction only. The uplink budget
+reads it (see `api-budget.md`).
+
+- `None` — no source. The uplink is uncorrected.
+- `DownlinkBeacon()` — the ground terminal senses the downlink beam and applies
+  the conjugate to the uplink. The up and down paths share the turbulence, but
+  the two directions differ by the point-ahead angle, so the correction leaves
+  the modal decorrelation residual. The satellite terminal needs a transmitter
+  for the downlink beam. It has no fields.
+- `LaserGuideStar(altitude_m=90e3)` — a ground-launched guide star. NOT
+  IMPLEMENTED yet. A guide star at a finite altitude gives focal (cone)
+  anisoplanatism, a different effect from the point-ahead angular
+  anisoplanatism. The `uplink_budget` raises `NotImplementedError` for this
+  source. The default `altitude_m` is a sodium-layer guide star.
 
 ### `TerrestrialScenario`
 
