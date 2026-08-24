@@ -37,6 +37,22 @@ not valid, and the budget must fall back to a numerical path. See also
 | 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | flagged |
 | 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/scintillation.py`, `olb/turbulence/beam_scintillation.py`, `docs/physics.md` §5b and §5d. | flagged |
 
+## Batch 2 — Gaussian-beam angle of arrival / aperture tip-tilt
+
+| Section | Equations | Topic | Maps to | Status |
+| --- | --- | --- | --- | --- |
+| (owner to specify) | (owner to specify) | Aperture angle-of-arrival "corrugation" tip-tilt of a Gaussian beam (the classic plane-wave form ~0.182*(D/r0)^(5/3)*(lambda/D)^2). | The second, smaller received tip-tilt term. `olb/turbulence/angle_of_arrival.py` `aperture_arrival_angle_variance` (a stub that raises NotImplementedError). The working received tip-tilt is the beam-wander term only. | **DEFERRED** — owner to specify the explicit Andrews form. Do not guess the coefficient. |
+
+### Notes for batch 2
+
+- The working received tip-tilt used by the coupling Terms is the beam-wander
+  arrival tilt, `wander_arrival_angle_variance` (Dios et al. 2004, DOI
+  10.1364/AO.43.003866). It reuses the `beam_wander_variance` kernel.
+- The aperture angle-of-arrival "corrugation" term is a separate, smaller
+  contribution. It is DEFERRED. The stub `aperture_arrival_angle_variance` in
+  `olb/turbulence/angle_of_arrival.py` raises NotImplementedError. Fill it with
+  the explicit Andrews and Phillips coefficient when the owner specifies it.
+
 ### Notes for batch 1
 
 - Section 6.8.1 gives the mean irradiance for an arbitrary structure function.

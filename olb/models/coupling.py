@@ -118,6 +118,31 @@ def _smf_optics(detector, D, wavelength):
     return f, w_m
 
 
+def _mmf_focal_length(detector, D, wavelength):
+    '''
+    Resolve the focal length of a multimode-fibre detector, honouring optimal_focus.
+
+    An explicit focal_length_m always wins. With optimal_focus the model matches
+    the spot to the core: it picks f so the spot radius is the core radius over
+    SMF_OPTIMAL_A, that is a_core/w_s = SMF_OPTIMAL_A. So
+        f = pi*(D/2)*a_core / (lambda*SMF_OPTIMAL_A).
+    This is a geometric spot-to-core match (about 92% static capture), NOT a
+    mode-overlap optimum: a shorter f captures more, up to the practical numerical
+    aperture. Source of the a parameter: Shaklan and Roddier, Appl. Opt. 27 (1988)
+    2334, DOI 10.1364/AO.27.002334.
+
+    Returns:
+        float or None
+            The focal length [m], or None when the detector sets neither an
+            explicit focal length nor optimal_focus.
+    '''
+    if detector.focal_length_m is not None:
+        return detector.focal_length_m
+    if getattr(detector, "optimal_focus", False):
+        return np.pi * (D / 2.0) * detector.core_radius_m / (wavelength * SMF_OPTIMAL_A)
+    return None
+
+
 def _effective_dr0(sigma2_res):
     '''
     Return the effective D/r0 that carries the residual phase variance.
@@ -881,7 +906,13 @@ def mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True):
         raise ValueError("mmf_coupling_term needs an MMF detector on the far terminal.")
     D = rx.aperture_m
     wavelength = rx.wavelength_m
-    f = detector.focal_length_m
+    f = _mmf_focal_length(detector, D, wavelength)
+    if f is None:
+        raise ValueError(
+            "mmf_coupling_term needs a focal length to map a tip-tilt to a "
+            "focal-plane displacement. Set MMF.focal_length_m, or set "
+            "MMF.optimal_focus=True to match the spot to the core."
+        )
     a_core = detector.core_radius_m
 
     # Diffraction focal spot radius (1/e^2), Gaussian approximation to the Airy.
@@ -1157,6 +1188,23 @@ if __name__ == '__main__':
     # A larger jitter deepens the MMF walk-off loss.
     t_mmf_calm = mmf_coupling_term(_terr(mmf, jitter=1e-6), hpath)
     assert t_mmf.mean_db > t_mmf_calm.mean_db
+    # MMF optimal_focus: derive f to match the spot to the core (a_core/w_s=1.12).
+    # It matches an explicit derived focal length, and gives about 92% static
+    # capture. An MMF with no focal length and no optimal_focus is refused.
+    a_core = 25e-6
+    f_mmf = np.pi * (D_test / 2.0) * a_core / (lam * 1.12)
+    mmf_focus = MMF(core_radius_m=a_core, optimal_focus=True, sensitivity_dbm=-38)
+    t_focus = mmf_coupling_term(_terr(mmf_focus, jitter=5e-6), hpath)
+    t_explicit = mmf_coupling_term(
+        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf), jitter=5e-6), hpath)
+    assert np.isclose(t_focus.meta["focal_length_m"], f_mmf)
+    assert np.isclose(t_focus.mean_db, t_explicit.mean_db)
+    assert np.isclose(t_focus.meta["eta_static"], 1.0 - np.exp(-2.0 * 1.12 ** 2), atol=1e-3)
+    try:
+        mmf_coupling_term(_terr(MMF(core_radius_m=a_core)), hpath)
+        raise AssertionError("MMF without a focal length must raise")
+    except ValueError:
+        pass
     # --- turbulence=False: static coupling + jitter, no turbulence quantity --
     # Aperture: 0 dB (no scintillation). SMF: static mode-match loss only, and
     # NOT mean-only, so it does not lock a budget out of a jitter fade.

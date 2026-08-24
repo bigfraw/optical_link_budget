@@ -163,14 +163,25 @@ class MMF:
     Parameters:
         core_radius_m : float
             Core RADIUS of the multimode fibre in the fibre plane [m].
-        focal_length_m : float
-            Focal length of the fibre-coupling optic [m].
+        focal_length_m : float, optional
+            Focal length of the fibre-coupling optic [m]. None needs
+            optimal_focus=True to derive it.
         sensitivity_dbm : float, optional
             Required received power [dBm]. None if only losses matter.
+        optimal_focus : bool
+            Design the fibre-coupling optic to match the spot to the core. When
+            True the model derives the focal length so the spot radius is the core
+            radius over 1.12 (the same a=1.12 that a single-mode fibre uses):
+            f = pi*(D/2)*core_radius_m/(lambda*1.12). This gives about 92% static
+            capture. It is a geometric spot-to-core match, NOT a mode-overlap
+            optimum: a shorter focal length captures more, but the practical limit
+            (aberrations, numerical aperture) is not modelled. Set focal_length_m
+            to override the derived value.
     '''
     core_radius_m: float
-    focal_length_m: float
+    focal_length_m: Optional[float] = None
     sensitivity_dbm: Optional[float] = None
+    optimal_focus: bool = False
 
 
 # --- Wavefront compensation stages ------------------------------------------
@@ -289,6 +300,11 @@ if __name__ == '__main__':
     assert isinstance(mmf.detector, MMF)
     assert mmf.detector.core_radius_m == 25e-6 and mmf.detector.focal_length_m == 0.05
     assert mmf.detector.sensitivity_dbm == -38.0
+    assert mmf.detector.optimal_focus is False   # bare MMF is unchanged
+
+    # optimal_focus derives the focal length, so only the core radius is needed.
+    mmf_focus = MMF(core_radius_m=25e-6, optimal_focus=True)
+    assert mmf_focus.focal_length_m is None and mmf_focus.optimal_focus is True
 
     # Two terminals do not share one compensation list (default_factory works).
     a = Terminal(aperture_m=0.5)
