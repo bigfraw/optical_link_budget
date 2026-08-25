@@ -271,16 +271,10 @@ def coherence_radius(cn2, wavelength, path_length_m):
     '''
     Return the plane-wave coherence radius rho_c for a single path.
 
-    formula:
-        rho_c = ( 1.46 Cn2 k^2 L )^(-3/5),   k = 2*pi/lambda
-    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6,
-    Eq. (64), printed p. 194. Appendix III, Table IV, printed p. 767, collates
-    the same row.
-
-    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius`. That function
-    also gives the spherical-wave and the Gaussian-beam rows, and the
-    inner-scale branches of the von Karman and the modified atmospheric
-    spectrum.
+    Delegate to `olb.turbulence.andrews.structure.coherence_radius`
+    (wave="plane"), which holds the equation, the DOI, and also gives the
+    spherical-wave and Gaussian-beam rows and the inner-scale branches of the
+    von Karman and the modified atmospheric spectrum.
     '''
     return _andrews_coherence_radius(wavelength, path_length_m, cn2,
                                      wave='plane')
@@ -290,23 +284,11 @@ def plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m):
     '''
     Return the point plane-wave scintillation index sigma_I^2 for a single path.
 
-    This is the Andrews closed form. It holds for any turbulence strength. It
-    has no inner scale and no outer scale.
-
-    formula:
-        sigma_I^2 = exp[ 0.49 s^2 / (1 + 1.11 s^(12/5))^(7/6)
-                       + 0.51 s^2 / (1 + 0.69 s^(12/5))^(5/6) ] - 1
-    with s = sigma_1 (the Rytov standard deviation). Source: Andrews and
-    Phillips, Laser Beam Propagation through Random Media, 2nd ed. (2005),
-    Ch. 9, Eq. (47), printed p. 336. DOI 10.1117/3.626196. The same four
-    constants are repeated in Ch. 12, Eqs. (40) and (93), and in App. III
-    Table VII(b). The d = 0 limit of `aperture_averaged_index_andrews`
-    (Ch. 10, Eq. (69)) gives the same four constants.
-
-    NEW HOME: `olb.turbulence.andrews.scintillation.scintillation_index` with
-    wave="plane" and regime="strong". That function builds the same result from
-    the two log-irradiance variances of Ch. 9, Eqs. (41) and (46), printed
-    pp. 335 and 336, which also feed the gamma-gamma distribution.
+    It holds at any turbulence strength. It has no inner scale and no outer
+    scale. Delegate to `olb.turbulence.andrews.scintillation.scintillation_index`
+    (wave="plane", regime="strong"), which holds the equation and the DOI, and
+    builds the result from the two log-irradiance variances that also feed the
+    gamma-gamma distribution.
     '''
     return _andrews_scintillation_index(wavelength, path_length_m, cn2,
                                         wave='plane', regime='strong')
@@ -328,20 +310,12 @@ def aperture_averaged_index_andrews(rx_diameter_m, cn2, wavelength,
     '''
     Return the aperture-averaged plane-wave flux scintillation index sigma_I^2(D).
 
-    This is the Andrews closed form for a circular aperture of diameter D. It
-    holds for any turbulence strength. It has no inner scale and no outer scale.
-
-    formula:
-        sigma_I^2(D) = exp[ 0.49 s^2 / (1 + 0.65 d^2 + 1.11 s^(12/5))^(7/6)
-                          + 0.51 s^2 (1 + 0.69 s^(12/5))^(-5/6)
-                            / (1 + 0.90 d^2 + 0.62 d^2 s^(12/5)) ] - 1
-    with s = sigma_1 and d the aperture parameter. Source: Andrews and Phillips,
-    2nd ed. (2005), DOI 10.1117/3.626196, Ch. 10, Eq. (69), printed p. 413.
-
-    NEW HOME: `olb.turbulence.andrews.aperture.averaged_index` with wave="plane"
-    and regime="strong". That function also gives the spherical-wave and the
-    Gaussian-beam chains, and the two-scale chains with a finite inner scale and
-    a finite outer scale.
+    It holds at any turbulence strength for a circular aperture of diameter D. It
+    has no inner scale and no outer scale. Delegate to
+    `olb.turbulence.andrews.aperture.averaged_index` (wave="plane",
+    regime="strong"), which holds the equation, the DOI, and also gives the
+    spherical-wave and Gaussian-beam chains and the two-scale chains with a
+    finite inner scale and a finite outer scale.
     '''
     return _andrews_averaged_index(rx_diameter_m, wavelength, path_length_m,
                                    cn2, wave='plane', regime='strong')

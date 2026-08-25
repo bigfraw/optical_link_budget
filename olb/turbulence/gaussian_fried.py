@@ -71,14 +71,9 @@ def output_beam_params(z, w0, wavelength):
     '''
     Return the output-plane beam parameters (Theta, Lambda) of a collimated beam.
 
-    formula:
-        Lambda = Lambda0 / (Lambda0^2 + Theta0^2)
-        Theta  = Theta0  / (Theta0^2 + Lambda0^2),   Theta0 = 1
-    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4,
-    Eqs. (33) and (44), printed pp. 92 and 95.
-
-    NEW HOME: `olb.turbulence.andrews.beam.beam_params`. That function is
-    general in the input curvature f0 and it also gives Theta_bar and W.
+    Delegate to `olb.turbulence.andrews.beam.beam_params`, which holds the
+    equations and the DOI, takes any input curvature f0, and also gives
+    Theta_bar and W.
     '''
     bp = beam_params(w0, wavelength, z)
     return bp.theta, bp.lam
@@ -88,14 +83,9 @@ def rytov_std(z, cn2, wavelength):
     '''
     Return the plane-wave Rytov standard deviation sigma_R.
 
-    formula:
-        sigma_R = ( 1.23 Cn2 k^(7/6) z^(11/6) )^0.5,   k = 2*pi/lambda
-    The Rytov variance is sigma_R^2. Source: Andrews and Phillips, 2nd ed.
-    (2005), DOI 10.1117/3.626196, Ch. 8, Eq. (20), printed p. 264.
-
-    NEW HOME: `olb.turbulence.andrews.scintillation.rytov_variance`. That
-    function gives the VARIANCE, and it also gives the spherical-wave and the
-    Gaussian-beam forms.
+    This is the square root of `olb.turbulence.andrews.scintillation
+    .rytov_variance` (wave="plane"), which holds the equation, the DOI, and the
+    spherical-wave and Gaussian-beam forms.
     '''
     return np.sqrt(_andrews_rytov_variance(wavelength, z, cn2, wave='plane'))
 
@@ -105,18 +95,8 @@ def effective_beam_params(z, w0, cn2, wavelength):
     Return the strong-turbulence effective beam parameters (Theta_e, Lambda_e).
 
     Strong turbulence spreads the beam. The effective parameters hold that spread.
-
-    formula:
-        Theta_e  = (Theta - 0.81 sigma_R^(12/5) Lambda)
-                   / (1 + 1.63 sigma_R^(12/5) Lambda)
-        Lambda_e = Lambda / (1 + 1.63 sigma_R^(12/5) Lambda)
-    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 7,
-    Eq. (58), printed p. 242. Ch. 9, Eqs. (85) and (86), printed p. 349, restate
-    it.
-
-    NEW HOME: `olb.turbulence.andrews.beam.effective_beam_params`. That function
-    takes a BeamParams and the Rytov variance, and it also gives the long-term
-    beam radius W_LT.
+    Delegate to `olb.turbulence.andrews.beam.effective_beam_params`, which holds
+    the equation, the DOI, and also gives the long-term beam radius W_LT.
     '''
     bp = beam_params(w0, wavelength, z)
     sigma2_R = _andrews_rytov_variance(wavelength, z, cn2, wave='plane')
@@ -157,15 +137,9 @@ def plane_wave_coherence_radius(z, cn2, wavelength):
     '''
     Return the plane-wave coherence radius rho_pl for a single path.
 
-    formula:
-        rho_pl = ( 1.46 Cn2 k^2 z )^(-3/5),   k = 2*pi/lambda
-    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6,
-    Eq. (64), printed p. 194. Appendix III, Table IV, printed p. 767, collates
-    the same row.
-
-    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius`. That function
-    also gives the spherical-wave and the Gaussian-beam rows, and the
-    inner-scale branches.
+    Delegate to `olb.turbulence.andrews.structure.coherence_radius`
+    (wave="plane"), which holds the equation, the DOI, and also gives the
+    spherical-wave and Gaussian-beam rows and the inner-scale branches.
     '''
     return _andrews_coherence_radius(wavelength, z, cn2, wave='plane')
 
@@ -174,19 +148,13 @@ def plane_wave_fried_parameter(z, cn2, wavelength):
     '''
     Return the plane-wave Fried parameter r0 for a single path.
 
-    formula:
-        r0_pl = 2.1 * rho_pl
-    with rho_pl the plane-wave coherence radius. Source: Andrews and Phillips,
-    2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6, text below Eq. (64), printed
-    p. 194.
+    Delegate to `olb.turbulence.andrews.structure.fried_parameter`, fed by
+    `olb.turbulence.andrews.structure.coherence_radius` (wave="plane"), which
+    hold the equations and the DOI.
 
-    The chain 2.1 (1.46 Cn2 k^2 L)^(-3/5) is the equivalent of
-    (0.4240 Cn2 k^2 L)^(-3/5). The book prints the rounded 0.42 at Ch. 12,
-    Eq. (23), printed p. 492. The classic Fried 1966 constant is 0.423. The
-    three give r0 inside 0.3 % of each other.
-
-    NEW HOME: `olb.turbulence.andrews.structure.fried_parameter`, fed by
-    `olb.turbulence.andrews.structure.coherence_radius`.
+    The chain is the equivalent of the constant 0.4240. The book prints the
+    rounded 0.42 (Ch. 12, Eq. (23), printed p. 492). The classic Fried 1966
+    constant is 0.423. The three give r0 inside 0.3 % of each other.
     '''
     return _andrews_fried_parameter(
         _andrews_coherence_radius(wavelength, z, cn2, wave='plane'))
