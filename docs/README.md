@@ -20,4 +20,8 @@ All documentation uses ASD-STE100 Simplified Technical English. See
    objects, the assumption checks, and the per-link budget functions.
 5. [Physics reference](physics.md) — the models and the turbulence kernels, with
    a source DOI for each equation.
-6. [Examples](examples.md) — a guide to each runnable script in `examples/`.
+6. [Examples](examples.md) — a guide to each runnable script in `examples/`. It
+   also points to the Andrews foundation suite in `examples/andrews/`.
+7. [Andrews cross-check](andrews-crosscheck.md) — the running comparison of the
+   olb equations against Andrews and Phillips, 2nd ed. (2005), with a status per
+   entry and the adjudicated conflicts. This is the internal physics record.

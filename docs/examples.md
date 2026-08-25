@@ -194,6 +194,24 @@ tolerates more walk-off but pays a larger gate.
 
 ---
 
+## The Andrews foundation suite ([examples/andrews/](../examples/andrews/))
+
+The `examples/andrews/` directory holds a separate suite. Each script
+demonstrates the Andrews and Phillips foundation layer
+(`olb/turbulence/andrews/`) one topic at a time: the spectra and the scales,
+the Gaussian-beam parameters, the scintillation regimes, the irradiance
+distributions and fades, the two beam-wander routes, the aperture averaging,
+the temporal statistics, the slant paths, and the downlink distribution
+selection. Most scripts print book values, not a link margin.
+
+Every equation cites its chapter, its equation number, and its printed page from
+Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196. For the per-script
+guide and the wired-versus-available status, see the suite README,
+[examples/andrews/README.md](../examples/andrews/README.md). Run each script as a
+module, for example `python -m examples.andrews.scintillation_regimes`.
+
+---
+
 The four link families map to their example: uplink -> `uplink_sim.py`,
 downlink -> `downlink_terminal.py`, retro -> `retro_link.py`, terrestrial ->
 `terrestrial_link.py`.
