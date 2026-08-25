@@ -45,7 +45,12 @@ from .._deps import (coupled_flux_montecarlo, gaussz, zR,
 from ..beam import free_space_radius, virtual_waist
 from .profiles import DEFAULT_HS
 
-WEAK_FLUCTUATION_LIMIT = 0.6   # log-amplitude variance limit; above it the Rytov model is not valid (saturation)
+# Log-amplitude variance limit. Above it the Rytov model is not valid
+# (saturation). Andrews and Phillips, Laser Beam Propagation through Random
+# Media, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 8, the text below Eq. (23),
+# printed pp. 264-265, give the weak limit as sigma_R^2 < 1. With
+# sigma_I^2 = 4 sigma_x^2 (Ch. 8, Eq. (13)) that limit is sigma_x^2 < 0.25.
+WEAK_FLUCTUATION_LIMIT = 0.25
 
 
 def _scintillation_beam(w0, L, wavelength, divergence_rad):

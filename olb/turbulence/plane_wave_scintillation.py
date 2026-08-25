@@ -12,7 +12,9 @@ Physics (plane wave, weak fluctuation, isotropic turbulence):
     Cn2 slant path, is
         sigma2_I = 2.25 * k^(7/6) * sec(zeta)^(11/6) * integral[ Cn2(h) h^(5/6) dh ]
     Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
-    2nd ed. (2005), Eq. (12.44). Here k = 2*pi/lambda, zeta is the zenith angle,
+    2nd ed. (2005), Ch. 12, Eq. (38), printed p. 495 (repeated as Ch. 12,
+    Eq. (92), printed p. 522). DOI 10.1117/3.626196.
+    Here k = 2*pi/lambda, zeta is the zenith angle,
     sec(zeta) = 1/sin(elevation_deg), and h is the height above the ground
     station. The constant 2.25 and the h^(5/6) weight are from that equation.
 
@@ -25,7 +27,7 @@ Physics (plane wave, weak fluctuation, isotropic turbulence):
             * (1 - cos(kappa^2 * h * sec(zeta) / k))
             * (2*J1(kappa*D/2) / (kappa*D/2))^2 dkappa ] dh
     Source: Andrews and Phillips, 2nd ed. (2005), plane-wave scintillation index
-    Ch. 12 (Eq. 12.44) and aperture-averaging filter Ch. 10. The filter
+    Ch. 12, Eq. (38) and aperture-averaging filter Ch. 10. The filter
     (2*J1(x)/x)^2 assumes a uniform circular aperture with no central
     obscuration. The aperture-averaging factor is A = sigma2_P / sigma2_I. It
     obeys 0 < A <= 1, A -> 1 as D -> 0, and the large-aperture asymptote
@@ -37,11 +39,17 @@ from scipy.special import j1
 
 from .profiles import DEFAULT_HS, get_c2n
 
-# Rytov weak-fluctuation limit for the plane-wave scintillation index. The
-# lognormal irradiance PDF is trusted for sigma2_I below approximately 0.25.
-# Above it focusing and saturation make the lognormal model depart from data.
-# Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
-# 2nd ed. (2005), Ch. 5 (weak-fluctuation regime, sigma2_R < ~0.25).
+# Weak-fluctuation limit for the plane-wave scintillation index. The lognormal
+# irradiance PDF is trusted for sigma2_I below 0.25.
+#
+# HOUSE RULE, NOT A BOOK NUMBER. Andrews and Phillips, Laser Beam Propagation
+# through Random Media, 2nd ed. (2005), DOI 10.1117/3.626196, give the weak
+# limit as sigma_R^2 < 1 (Ch. 5, Eq. (15) and the text after it, printed
+# p. 140; also Ch. 10, Eq. (61), printed p. 412, and Ch. 12, Eq. (40), printed
+# p. 497). The value 0.25 is 4 times stricter. It is kept deliberately, because
+# Ch. 11, Sec. 11.3, printed p. 451, says the lognormal tail is optimistic
+# against simulation, and this module reports fade depths from that tail. Do
+# not change this value to 1.0 as a "book fix".
 WEAK_FLUCTUATION_LIMIT = 0.25
 
 
@@ -73,7 +81,8 @@ def plane_wave_scintillation_index(elevation_deg, wavelength, hs, cn2_profile):
     formula:
         sigma2_I = 2.25 * k^(7/6) * sec(zeta)^(11/6)
                    * trapz( Cn2(h) * h^(5/6), hs )
-        Andrews and Phillips, 2nd ed. (2005), Eq. (12.44).
+        Andrews and Phillips, 2nd ed. (2005), Ch. 12, Eq. (38), printed
+        p. 495. DOI 10.1117/3.626196.
     '''
     k = 2.0 * np.pi / wavelength
     integral = np.trapz(np.asarray(cn2_profile) * hs ** (5.0 / 6.0), hs)
@@ -123,7 +132,8 @@ def _scintillation_integral(rx_diameter_m, elevation_deg, wavelength, hs,
             * (1 - cos(kappa^2 * h * sec(zeta) / k))
             * (2*J1(kappa*D/2) / (kappa*D/2))^2 dkappa ] dh
         Source: Andrews and Phillips, 2nd ed. (2005), plane-wave scintillation
-        index Ch. 12 (Eq. 12.44) and aperture-averaging filter Ch. 10. The term
+        index Ch. 12, Eq. (38), printed p. 495, and aperture-averaging filter
+        Ch. 10. DOI 10.1117/3.626196. The term
         0.033 * kappa^(-11/3) is the Kolmogorov spectrum with Cn2 factored out.
         No inner scale and no outer scale are used. The distance from turbulence
         at height h to the ground aperture is z = h * sec(zeta). The Fresnel
@@ -273,16 +283,20 @@ def plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m):
     has no inner scale and no outer scale.
 
     formula:
-        sigma_I^2 = exp[ 0.54 s^2 / (1 + 1.22 s^(12/5))^(7/6)
-                       + 0.509 s^2 / (1 + 0.69 s^(12/5))^(5/6) ] - 1
+        sigma_I^2 = exp[ 0.49 s^2 / (1 + 1.11 s^(12/5))^(7/6)
+                       + 0.51 s^2 / (1 + 0.69 s^(12/5))^(5/6) ] - 1
     with s = sigma_1 (the Rytov standard deviation). Source: Andrews and
-    Phillips, 2nd ed. (2005), Ch. 9.
+    Phillips, Laser Beam Propagation through Random Media, 2nd ed. (2005),
+    Ch. 9, Eq. (47), printed p. 336. DOI 10.1117/3.626196. The same four
+    constants are repeated in Ch. 12, Eqs. (40) and (93), and in App. III
+    Table VII(b). The d = 0 limit of `aperture_averaged_index_andrews`
+    (Ch. 10, Eq. (69)) gives the same four constants.
     '''
     s = sigma1_rytov(cn2, wavelength, path_length_m)
     s2 = s ** 2
     s125 = s ** (12.0 / 5.0)
-    term1 = 0.54 * s2 / (1.0 + 1.22 * s125) ** (7.0 / 6.0)
-    term2 = 0.509 * s2 / (1.0 + 0.69 * s125) ** (5.0 / 6.0)
+    term1 = 0.49 * s2 / (1.0 + 1.11 * s125) ** (7.0 / 6.0)
+    term2 = 0.51 * s2 / (1.0 + 0.69 * s125) ** (5.0 / 6.0)
     return np.exp(term1 + term2) - 1.0
 
 
@@ -330,7 +344,12 @@ def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
 
     formula:
         A = ( 1 + 1.07 (k D^2 / (4 L))^(7/6) )^(-1)
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 10.
+    Source: Churnside, Applied Optics 30 (1991) 1982,
+    DOI 10.1364/AO.30.001982. The constant 1.07 is not in Andrews and
+    Phillips. The Andrews counterpart is a DIFFERENT function: 2nd ed. (2005),
+    Ch. 10, Eq. (61), printed p. 412, DOI 10.1117/3.626196, which is
+    A = [1 + 1.062 k D_G^2/(4 L)]^(-7/6), with the exponent 7/6 outside the
+    bracket. The two fits differ by up to 12 %.
     '''
     d2 = _d_param(rx_diameter_m, wavelength, path_length_m) ** 2
     return (1.0 + 1.07 * d2 ** (7.0 / 6.0)) ** (-1.0)
@@ -345,8 +364,11 @@ def aperture_averaging_factor_weak_inner(rx_diameter_m, inner_scale_m):
 
     formula:
         A = ( 1 + 2.21 (D / l0)^(7/3) )^(-1)
-    with l0 the inner scale. Source: Andrews and Phillips, 2nd ed. (2005),
-    Ch. 10.
+    with l0 the inner scale. Source: Churnside, Applied Optics 30 (1991) 1982,
+    DOI 10.1364/AO.30.001982. The constant 2.21 is not in Andrews and Phillips.
+    The Andrews counterpart is a DIFFERENT function: 2nd ed. (2005), Ch. 10,
+    Eqs. (62) to (68), printed pp. 412-413, DOI 10.1117/3.626196, which give a
+    finite inner scale through the two-scale parameter Q_l.
     '''
     ratio = np.asarray(rx_diameter_m, dtype=float) / np.asarray(inner_scale_m,
                                                                 dtype=float)
@@ -365,8 +387,12 @@ def aperture_averaging_factor_strong(rx_diameter_m, cn2, wavelength,
         A = (sI2 + 1) / (2 sI2) * (1 + 0.908 (D / (2 rho_c))^2)^(-1)
           + (sI2 - 1) / (2 sI2) * (1 + 0.162 (k rho_c D / (2 L))^(7/3))^(-1)
     with sI2 the point plane-wave index and rho_c the coherence radius. Source:
-    Churnside, Applied Optics 30 (1991) 1982; Andrews and Phillips, 2nd ed.
-    (2005), Ch. 10.
+    Churnside, Applied Optics 30 (1991) 1982, DOI 10.1364/AO.30.001982. The
+    constants 0.908 and 0.162 are not in Andrews and Phillips. Andrews plots
+    the Churnside curve (Figs. 10.11 and 10.12, printed p. 418) but does not
+    print the formula. The Andrews counterpart is a DIFFERENT function:
+    `aperture_averaged_index_andrews` (2nd ed. (2005), Ch. 10, Eq. (69),
+    printed p. 413, DOI 10.1117/3.626196), which covers the same regime.
     '''
     k = _wavenumber(wavelength)
     L = np.asarray(path_length_m, dtype=float)
