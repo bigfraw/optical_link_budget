@@ -1100,3 +1100,182 @@ The Churnside trio `aperture_averaging_factor_weak`, `_weak_inner` and
 `_strong` KEEPS its own bodies, because those constants are Churnside 1991,
 DOI 10.1364/AO.30.001982, not Andrews. Each docstring now names its book-form
 alternative in `andrews.aperture`.
+
+---
+
+## WP6 notes — slant paths and the satellite link
+
+Work package WP6 built `olb/turbulence/andrews/paths.py`, the Chapter 12
+slant-path module. This block records what was built, what it measures, and the
+two readings that the book leaves open.
+
+### Built
+
+- `sec_zeta` — Ch. 12, Eq. (14) geometry, printed p. 490. The module constant
+  `ZENITH_LIMIT_DEG = 60.0` carries the book's own bound on the weak-fluctuation
+  slant results: Ch. 12, Sec. 12.1, printed p. 478 ("less than 60 deg in most
+  cases but may be restricted to zenith angles less than 45 deg in cases where
+  ground-level Cn2 is large"), repeated at Ch. 12, Sec. 12.9, printed p. 521.
+  The book gives NO Earth-curvature correction: it writes H = h0 + L cos(zeta)
+  and puts sec(zeta) in front of each path integral. So the geometry is
+  plane-parallel by construction, and the 45 to 60 deg bound is the only limit
+  the book states.
+- `hufnagel_valley` and `bufton_wind` — Ch. 12, Eqs. (1) and (3), printed
+  p. 481. Both are THIN CITED WRAPPERS on the shared kernel `get_c2n` and
+  `v_wind`, which reader R7 verified exact. No second implementation exists.
+- `rms_wind` — Ch. 12, Eq. (2), printed p. 481. Closes G-124.
+- `outer_scale_profile` plus the plain dict `OUTER_SCALE_MODELS` — Ch. 12,
+  Eqs. (6) and (7), printed p. 483. Closes G-126 and G-127.
+- `mu` — the path moments mu_0 to mu_3, both directions: Ch. 12, Eqs. (18),
+  (19), (21), (25), (26), (37) and (55), printed pp. 491 to 503, restated as
+  Eqs. (85) to (88) and (94) to (96), printed pp. 522 and 523.
+- `downlink_scintillation_index` — Ch. 12, Eq. (38) (point, weak), Eq. (39)
+  (hard aperture D_G, weak) and Eq. (40) (point, weak to strong), printed
+  pp. 495 to 497. Closes G-134.
+- `uplink_scintillation_index` — Ch. 12, Eqs. (54), (56), (57) and (58) (weak)
+  and Eqs. (59) to (61) (weak to strong), printed pp. 503 to 506. It composes
+  `wander.beam_wander_variance_slant` and `wander.pointing_error_variance_slant`
+  instead of repeating them. Closes G-141, G-142, G-143 and G-144.
+- `uplink_coherence_radius` — Ch. 12, Eqs. (24) to (27), printed p. 492. This is
+  row G-130.
+- `isoplanatic_angle` — Ch. 12, Eq. (29) (Gaussian beam) and Eq. (30)
+  (spherical wave), printed p. 493. Closes G-131.
+- `point_ahead_angle` — Ch. 12, Sec. 12.3.3, printed p. 488. Closes G-128.
+
+### G-130 RESOLVED, and C-02 with it
+
+The book's own uplink coherence radius, Ch. 12, Eq. (27), and the kernel
+`spherical_wave_coherence_diameter` (`coupled_flux.py:21`) are DIFFERENT
+QUANTITIES, not two readings of one quantity. Measured at 1.06 um, 60 deg
+elevation, GEO (H = 38.5e3 km), W0 = 2 cm collimated, H-V5/7:
+
+| quantity | value |
+| --- | --- |
+| book Ch. 12, Eq. (27), rho_0 of the uplink wave AT THE SATELLITE | 907.489 m |
+| kernel `spherical_wave_coherence_diameter` | 0.11263 m |
+| ratio kernel / Eq. (27) | 1.241e-04 |
+| book Ch. 12, Eq. (23), GROUND Fried parameter r0 | 0.11262 m |
+| **ratio kernel / Eq. (23)** | **1.000025** |
+| ratio kernel / (2.1 x downlink Eq. (22) rho_0) | 1.001528 |
+
+Reading of the table.
+
+1. The kernel is Andrews Ch. 12, Eq. (23) to 2.5 parts in 1e5. The kernel
+   weight ((L-z)/L)^(5/3) is 1 to within (h/L)^(5/3) over the whole turbulent
+   layer of a satellite path, so the weight drops out and the kernel reduces to
+   the flat mu_0 integral of Eq. (23). Eq. (23) is exactly the r0 that the book
+   ITSELF feeds into the uplink beam-wander and pointing-error equations (50),
+   (51) and (53), printed pp. 502 and 503. So the kernel computes the right
+   number for the job it does.
+2. Eq. (27) is the coherence radius IN THE SATELLITE PLANE. It weights the
+   turbulence by the distance from the ground transmitter, which makes it
+   hundreds of metres. The book states that below Eq. (27), printed p. 492:
+   "the spatial coherence radius at the satellite will be many times larger than
+   the probable size of the satellite". A 907 m result is that statement.
+3. So C-02 is CLOSED. GF-18 and KR-01 are NOT mirrored. The kernel weight is
+   the transmitter-referred one, and the book's own uplink chain uses the same
+   reference plane. DO NOT flip the weight. The only action left on C-02 is the
+   docstring note, which `paths.py:uplink_coherence_radius` now carries.
+
+### A reading the book leaves open: mu_1
+
+Ch. 12, Eq. (18) (downlink) and Eq. (25) (uplink) both PRINT the mu_1 bracket
+with the plain height fraction (h - h0)/(H - h0). Read that way the two
+equations are identical and the downlink coherence radius at the ground comes
+out near 900 m, which is absurd. `paths.py` uses
+|Theta + Theta_bar (1 - xi)|^(5/3) instead, that is the weight of the distance
+FROM THE TRANSMITTER, with xi from Eq. (14). Three book facts fix that reading:
+
+1. Ch. 6, Eq. (115), printed p. 209, gives the same moment on a general slant
+   path as INT Cn2(z) |Theta + Theta_bar z/L|^(5/3) dz with z from the
+   transmitter, and Ch. 6, Eq. (116) confirms it at Theta = Lambda = 0.
+2. The text below Ch. 12, Eq. (19), printed p. 491, states mu_1d = mu_0 for a
+   downlink from space. Only the (1 - xi) reading gives that.
+3. The text below Ch. 12, Eq. (27), printed p. 492, states the uplink coherence
+   radius at the satellite is huge. Only the (1 - xi) reading gives that.
+
+Measured, same case as the table above: the (1 - xi) reading gives
+mu_1d = 2.2339e-12, which equals mu_0 = 2.2340e-12 as fact 2 needs; the literal
+reading gives 1.9277e-19. The book's own Worked Example 2, printed p. 525,
+prints mu_1d = 1.98e-19, which is the LITERAL reading and which contradicts
+facts 2 and 3. Recorded so that nobody "fixes" the module towards the worked
+example. The module self-check prints both numbers.
+
+### Measured findings
+
+1. **The Andrews slant uplink longitudinal index and the Dios path integral
+   agree to 0.02 %.** Case: 1.06 um, 600 km slant range, 60 deg elevation,
+   W0 = 10 cm collimated, H-V5/7 on a 4001-point 0 to 20 km grid. Andrews
+   Ch. 12, Eq. (58) gives 1.117061e-02; `beam_wave_scintillation.
+   on_axis_scintillation_index` (Dios, DOI 10.1364/AO.43.003866) gives
+   1.117327e-02, a difference of -0.02 %. This is the gap-9 twin on a real
+   slant path, and it is tighter than the +3.06 % of the horizontal case,
+   because a satellite path is close to the spherical-wave limit where the two
+   forms share their leading constant. The UNTRACKED index of Ch. 12, Eq. (54)
+   is 2.980385e-01, that is 27 times the Rytov value. The whole difference is
+   the beam-wander pointing term, which is exactly the effect that Ch. 12.6.3
+   exists to model (see Figs. 12.13 and 12.14, printed pp. 505 and 507). So the
+   Dios route in olb reports the TRACKED index, and any untracked uplink budget
+   that uses it alone understates the on-axis scintillation by more than an
+   order of magnitude for a 10 cm beam.
+2. **Ch. 12, Eq. (39) against the olb hard-Airy numerical integral.** This is
+   Conflict C-06 measured. Same GEO case, downlink, 1.06 um, 60 deg elevation.
+   No assert: the two use different aperture filters.
+
+   | D_G [m] | Eq. (39) | olb Airy integral | ratio |
+   | --- | --- | --- | --- |
+   | 0.05 | 7.364280e-02 | 7.245216e-02 | 1.0164 |
+   | 0.20 | 1.606343e-02 | 1.405438e-02 | 1.1429 |
+   | 1.00 | 4.344872e-04 | 4.359956e-04 | 0.9965 |
+
+   The two agree at the small-aperture and the large-aperture end and part by
+   14 % in the middle, which is where the filter shape matters. Eq. (39) is a
+   CLOSED FORM and needs no wavenumber grid, so it should supersede the
+   numerical integral in `plane_wave_scintillation` when a later work package
+   moves the downlink Term over.
+3. **Eq. (39) reduces to Eq. (38) at D_G = 0 to +0.077 %.** The residual is the
+   book rounding: 8.70 cos(5 pi/12) = 2.2517 and the book prints 2.25.
+4. **Ch. 12, Eq. (29) reduces to Eq. (30) exactly** (measured 2.2e-16) in the
+   spherical-wave limit, and the Andrews route agrees with the Stone route
+   already in `anisoplanatism.isoplanatic_angle` to 9.0e-04. The whole
+   difference is the constant, 2.91 against Stone's 2.914381:
+   (2.914381/2.91)^(-3/5) = 0.99910.
+5. **The book's own numbers reproduce.** Ch. 12, Worked Examples 1 and 2,
+   printed pp. 524 and 525: mu_0 = 2.2340e-12 (book 2.24e-12), mu_3u =
+   3.6382e-17 (book 3.70e-17), W = 750.0 m (book 750 m), r0 = 11.26 cm (book
+   11.24 cm), uplink tracked 0.0688 (book 0.07), uplink untracked 0.0928 (book
+   0.095), downlink on axis 0.1260 (book 0.13), isoplanatic angle 13.73 urad
+   (book 13.5). The untracked value reproduces with the wander module default
+   C_r = 2 pi, which is the value that makes the book's own worked example come
+   out; the book leaves C_r free (Ch. 12, text below Eq. (53), printed p. 503)
+   and uses 3.86/r0 in Fig. 12.13 and pi/r0 in Figs. 12.14 to 12.17.
+
+### Bearing on olb gap 2 (the NO-SCINTILLATION corrected uplink)
+
+`olb/links/uplink.py` flags its beacon-plus-adaptive-optics budget NO
+SCINTILLATION, because the phase-only error budget drops the intensity
+fluctuation that the coupled-flux Term carried. Ch. 12, Eqs. (57) to (60) supply
+the missing floor: a TRACKED uplink beam still scintillates by sigma_B_u^2 on
+axis. Tracking removes the WANDER term, not the RYTOV term. On the case above
+that floor is 1.1e-02, not zero. `uplink_scintillation_index(..., tracked=True)`
+is the number the corrected budget must carry. The part of the gap that stays
+open is the higher-order adaptive-optics correction, which Chapter 12 does not
+model.
+
+### Refused, and named so that nobody looks for it
+
+- An inner scale or an outer scale on ANY Ch. 12 slant scintillation form.
+  Chapter 12 uses the Kolmogorov spectrum only (Ch. 12, Eq. (15), printed
+  p. 490). Both `downlink_scintillation_index` and `uplink_scintillation_index`
+  raise NotImplementedError on `l0` or `L0` and name
+  `andrews.scintillation.weak_two_scale_index` as the single-path route. No
+  coefficient is guessed.
+- An aperture-averaged downlink index in the STRONG regime. Eq. (39) is a weak
+  form and Eq. (40) is a point form; the book gives no product of the two.
+- The SLC day and night profiles, Ch. 12, Eqs. (4) and (5), printed p. 482
+  (row G-125). Not built: no caller needs them, and `hufnagel_valley` covers
+  every olb site today.
+- The full Gaussian-beam DOWNLINK index, Ch. 12, Eqs. (36) and (37), printed
+  p. 495 (row G-133). Not built: the book itself reduces the downlink to the
+  plane wave (Ch. 12, text below Eq. (21), printed p. 491). Compose
+  `mu(..., order=3, direction="downlink")` with a beam if it is ever needed.
