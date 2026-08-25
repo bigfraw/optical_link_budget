@@ -62,6 +62,14 @@ from .beam import beam_params, wavenumber
 
 # The prefactor of Ch. 6, Eq. (93), printed p. 203. The analytic value is
 # 2 * 4 pi^2 * 0.033 * (1/2) * Gamma(1/6) = 7.2520. The book prints 7.25.
+#
+# This is the Andrews beam-wave SPECTRAL-FILTER constant. It is 3.50 times the
+# 2.07 IMAGE-MOTION constant of the Dios/Belmonte kernel that the olb uplink
+# chain uses. Both are the same RADIAL quantity; the ratio is purely the leading
+# constant (see the C-01 self-check below). Belmonte, Appl. Opt. 39, 5426 (2000),
+# DOI 10.1364/AO.39.005426, Eq. (21), validates the 2.07 form against a split-
+# step simulation, so a simulation-validated wander must use the Dios kernel
+# route, NOT this 7.25 form. See Conflict C-01 in docs/andrews-crosscheck.md.
 WANDER_CONSTANT = 7.25
 
 # The collimated reduction of Ch. 6, Eq. (94), printed p. 204. The book prints

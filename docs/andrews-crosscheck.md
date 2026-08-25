@@ -32,7 +32,7 @@ not valid, and the budget must fall back to a numerical path. See also
 | Section | Equations | Topic | Maps to | Status |
 | --- | --- | --- | --- | --- |
 | 6.8.1 | Ch. 6, Eq. (108); Eq. (40), (45) from 6.3.1 | Mean irradiance. Turbulence-induced beam spread for an arbitrary refractive-index structure function. | Beam spread / effective long-term beam radius. `olb/beam.py`, `olb/turbulence/gaussian_fried.py`, `docs/physics.md` §1 and §5e. | incorporated in part — `olb/turbulence/andrews/wander.py` holds W_LT (Ch. 6, Eq. (86)) and W_ST (Ch. 6, Eq. (100)), and `andrews/beam.py` holds the curvature-general beam parameters. Answered by Table 1 rows KR-12 and KR-13 (Ch. 6, Eqs. (109) and (111), both `exact`) and GF-01 to GF-04. Eq. (108) itself stays a gap: Table 2 row G-42. |
-| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | incorporated — `olb/turbulence/andrews/wander.py` holds the book beam-wander variance (Ch. 6, Eqs. (93) to (99)), the pointing error (Ch. 8, Eqs. (36) to (38)) and their slant forms (Ch. 12, Eqs. (50) and (53)). Answered by Table 1 row KR-04 (`other source`: the kernel constant is 2.07, from Dios Eq. (11); the book gives 7.25). C-01 is RESOLVED on 2026-08-25: the kernel copies Dios correctly, so 2.07 stays, and the 3.50 gap is Belmonte 2000 against Andrews. See Conflicts C-01 and Table 2 rows G-38, G-44, G-49. |
+| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | incorporated — `olb/turbulence/andrews/wander.py` holds the book beam-wander variance (Ch. 6, Eqs. (93) to (99)), the pointing error (Ch. 8, Eqs. (36) to (38)) and their slant forms (Ch. 12, Eqs. (50) and (53)). Answered by Table 1 row KR-04 (`other source`: the kernel constant is 2.07, from Dios Eq. (11); the book gives 7.25). C-01 is CLOSED on 2026-08-25: the kernel copies Dios correctly, so 2.07 stays. Belmonte 2000 prints the same 2.07 form, traces it to the Yura / Mironov-Nosov image-motion level arm, and validates it against a split-step simulation; the Andrews 7.25 is the beam-wave spectral-filter derivation and over-counts by 3.50. See the C-01 closure block and Table 2 rows G-38, G-44, G-49. |
 | 6.8 (general) | slant-path extension | Extension to slant paths for an arbitrary Cn2. | Slant-path generalisation of the Gaussian-beam turbulence Terms. Ties to the CLAUDE.md "Next task" (curvature past the collimated case). | incorporated — `olb/turbulence/andrews/paths.py` holds the Chapter 12 slant forms (the path moments mu_0 to mu_3, the uplink and downlink indices, the coherence radius, the isoplanatic angle), and `andrews/beam.py` takes any input curvature f0, which closes olb gap 3 at the physics layer. Answered by Table 1 rows GF-15 to GF-21, of which GF-18 is `wrong` (mirrored path weight). See Conflicts C-02 and Table 2 rows G-43 and G-130. |
 | 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | incorporated in part — `olb/turbulence/andrews/temporal.py` holds the irradiance temporal spectra (Ch. 8, Sec. 8.5; Ch. 9, Sec. 9.8), the quasi-frequency, the Greenwood frequency and the coherence time, and `andrews/distributions.py` holds the fade rate and the mean fade time. No Table 1 row exists, because the olb Terms still have no temporal axis. Row G-40 is closed; row G-41 (the Ch. 6.7 mutual-coherence temporal spectrum) stays open; see also G-11, G-67, G-99, G-115 and G-149. |
 | 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/plane_wave_scintillation.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5b and §5d. | incorporated — `olb/turbulence/andrews/scintillation.py` holds the tracked and untracked Gaussian-beam index with its weak and all-regime branches (Ch. 8, Sec. 8.2; Ch. 9, Sec. 9.6), and `andrews/paths.py` holds the slant-path pair (Ch. 12, Eqs. (54) to (61)). Answered by Table 1 rows BW-08 to BW-16. UF-01 is fixed. PW-01 keeps 0.25 as a labelled house rule, and `olb/links/downlink.py` now uses that limit as the switch point to the gamma-gamma Term. TL-05 stays `wrong`. See Conflicts C-05 and Table 2 rows G-20, G-50 to G-53, G-84. |
@@ -127,9 +127,13 @@ Ranked. The physics faults come first, then the citation faults.
 3. **KR-04 — the beam-wander variance constant is 2.07 against a book value of
    7.25.** The integrand is identical. R3 re-derived 7.25 from Ch. 6, Eqs. (88)
    and (89). This is a cross-source conflict (Dios against Andrews), not a
-   plain bug. See Conflicts C-01. — DECIDED 2026-08-25: the kernel copies Dios
-   Eq. (11) correctly, so 2.07 STAYS. The gap is Belmonte 2000 against Andrews,
-   and Dios validates his own form against a split-step simulation (his Fig. 3).
+   plain bug. See Conflicts C-01. — CLOSED 2026-08-25: the kernel copies Dios
+   Eq. (11) correctly, so 2.07 STAYS. Belmonte 2000 (Dios ref 23) prints the
+   same 2.07 form (his Eq. (21)), traces it to the Yura / Mironov-Nosov image-
+   motion level arm, and validates it against a split-step simulation (his
+   Figs. 11 and 12) — a second confirmation after Dios Fig. 3. The Andrews 7.25
+   is the beam-wave spectral-filter derivation; it over-counts by 3.50 against
+   both simulations. See the C-01 closure block below.
 4. **KR-20 — a second mean-irradiance weight on an already-normalised index**
    (`coupled_flux.py:379`). Andrews Ch. 8, Eqs. (9) and (15) normalise the
    scintillation index by the square of the LOCAL mean irradiance, so the extra
@@ -951,6 +955,70 @@ shift is sampling noise):
 The deep-tail fade moves most, which is correct: the weight is smallest at a
 large wander offset, which is where the deep fades come from.
 
+### C-01 — CLOSED against Belmonte 2000 (2026-08-25)
+
+The owner supplied the primary source that the Dios adjudication asked for:
+Belmonte, "Feasibility study for the simulation of beam propagation:
+consideration of coherent lidar performance", Applied Optics 39 (30) 5426
+(2000), DOI 10.1364/AO.39.005426. It is Dios reference 23, so it is the origin
+of the 2.07 constant in the olb uplink chain. The paper CLOSES C-01. Keep 2.07.
+
+**The paper prints the exact kernel form.** Belmonte Eq. (21), printed p. 5435,
+is `<rho^2(z)> = 2.07 INT_0^L Cn2(z)(L-z)^2 W_S(z)^(-1/3) dz`. It is identical to
+Dios Eq. (11) and to `my_analysis_modules/coupled_flux.py:beam_wander_variance`,
+in the constant 2.07, in the `(L-z)^2` moment arm and in the short-term-radius
+weight `W_S(z)^(-1/3)`. The line below Eq. (21) makes it RADIAL: each of the two
+orthogonal components has the standard deviation `<rho^2>^(1/2)/sqrt(2)`, so the
+per-axis variance is `<rho^2>/2`. This is the same radial convention as the
+Andrews `<r_c^2>` and as C-03.
+
+**The two constants are two derivations of the SAME radial quantity, not two
+quantities.** Both reduce, for a collimated homogeneous Kolmogorov path, to
+`C Cn2 L^3 W0^(-1/3)` with the same `INT_0^1 xi^2 dxi = 1/3` (substitute
+`xi = 1 - z/L`, so `(L-z)^2 = L^2 xi^2`). So the ratio is purely the leading
+constant: Belmonte reduces to 0.69 (`= 2.07/3`), Andrews reduces to 2.42
+(`= 7.25/3`), and 2.42/0.69 = 3.50 exactly. No radial-versus-per-axis factor and
+no integrand weight closes the gap. `olb/turbulence/andrews/wander.py` asserts
+this ratio (7.25/2.07) in its self-check.
+
+**Provenance of 2.07: the image-motion level arm, not the beam-wave filter.**
+Belmonte derives Eq. (21) by analogy with the image-motion (angle-of-arrival)
+problem, "the level arm weighted proportionally to the strength of the turbulence
+along the path" (printed p. 5435). His sources are Yura, JOSA 63, 567 (1973)
+(ref 46, the short-term spread and the level arm), Hufnagel, The Infrared
+Handbook (1978) (ref 47), and Mironov and Nosov, JOSA 64, 516 (1977) (ref 48).
+So 2.07 is the Yura / Mironov-Nosov centroid-tilt constant. Andrews 7.25 comes
+from the beam-wave large-scale spectral filter of Ch. 6, Eqs. (88), (89) and
+(93). The Andrews filter keeps ALL large-scale refraction of the beam; the
+image-motion route keeps the centroid tilt (G-tilt) only, which is a subset. So
+the image-motion constant is the smaller one. Belmonte cites the Andrews group
+(refs 49, 53, 56) for the spread and the coherence, but NOT for the wander, and
+he prints no filter for Eq. (21). So neither source reconciles the constant on
+paper.
+
+**The tie-break is simulation, and it backs 2.07.** Belmonte measures the true
+centroid displacement directly from a split-step (phase-screen) wave-optics
+simulation, through his Eq. (20), the intensity first moment. His Figs. 11 and
+12, printed p. 5435, compare Eq. (21) with that simulation over 2- and 10-um
+beams: the level-arm form matches, and it runs slightly LOW at the longest
+ranges, which the paper attributes to scintillation left out of the level-arm
+analysis (printed p. 5435). A constant 3.50 times larger would sit far above the
+simulated points on those plots. His Section 4 conclusion, printed p. 5442,
+states that beam wander "is properly considered by the available analytical
+approach when turbulence is weak to moderate"; only strong-turbulence beam
+break-up saturates the deflection, which is the regime olb sends to a numerical
+path anyway. This is a SECOND independent split-step confirmation of 2.07, after
+Dios Fig. 3. So the empirical evidence is unambiguous even though the analytic
+derivations disagree.
+
+**Consequence for olb.** The kernel and the whole Dios uplink chain keep 2.07;
+no code changes. `olb/turbulence/andrews/wander.py` is the book-faithful Andrews
+7.25 form and it stays as built, because it is the Andrews layer, but NO budget
+uses it for the uplink wander (the coupled-flux path is Dios end to end). Any
+future caller that wants a simulation-validated beam wander must use the Dios
+kernel route (2.07), not the Andrews `beam_wander_variance` (7.25), and the
+wander.py docstring already carries this warning. C-01 is resolved.
+
 ---
 
 ## WP3 notes — spectra, structure functions and aperture averaging
@@ -1458,7 +1526,10 @@ p. 451, says the lognormal model misses.
   directly for the strong case.
 - **The annular receive aperture (olb gap 8) needs a source that is not this
   book.** See the WP3 notes.
-- **Conflict C-01 needs Belmonte 2000** to close the 3.50 beam-wander gap.
+- **Conflict C-01 is CLOSED (2026-08-25) with Belmonte 2000.** The paper prints
+  the same 2.07 wander form, gives its image-motion provenance, and validates it
+  against a split-step simulation. Keep 2.07 in the Dios kernel; the Andrews
+  7.25 form over-counts by 3.50. See the C-01 closure block.
 - **The curvature-general Fried parameter is closed at the physics layer only.**
   `andrews.beam.beam_params` takes f0 and `andrews.structure.coherence_radius`
   takes the beam, but the single-path `gaussian_fried.gaussian_fried_parameter`
