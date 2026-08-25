@@ -158,7 +158,6 @@ Open items:
   that call to make a deliberately diverged beam drive the Fried parameter.
 - **Gap 8, the annular (obscured) receive aperture, needs another source.** A
   full-text search of the book finds no obscured-aperture filter.
-- **Conflict C-01** needs Belmonte 2000 to close the 3.50 beam-wander gap.
 - **TL-05**: the terrestrial weak gate tests one plane-wave threshold on a
   Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs two.
 - **`downlink_budget` still defaults to `model="lognormal"`.** The selector
