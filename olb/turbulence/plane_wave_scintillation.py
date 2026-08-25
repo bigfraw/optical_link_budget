@@ -37,9 +37,11 @@ Physics (plane wave, weak fluctuation, isotropic turbulence):
 import numpy as np
 from scipy.special import j1
 
+from .andrews.aperture import averaged_index as _andrews_averaged_index
 from .andrews.scintillation import (
     scintillation_index as _andrews_scintillation_index,
 )
+from .andrews.structure import coherence_radius as _andrews_coherence_radius
 from .profiles import DEFAULT_HS, get_c2n
 
 # Weak-fluctuation limit for the plane-wave scintillation index. The lognormal
@@ -271,11 +273,17 @@ def coherence_radius(cn2, wavelength, path_length_m):
 
     formula:
         rho_c = ( 1.46 Cn2 k^2 L )^(-3/5),   k = 2*pi/lambda
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6,
+    Eq. (64), printed p. 194. Appendix III, Table IV, printed p. 767, collates
+    the same row.
+
+    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius`. That function
+    also gives the spherical-wave and the Gaussian-beam rows, and the
+    inner-scale branches of the von Karman and the modified atmospheric
+    spectrum.
     '''
-    k = _wavenumber(wavelength)
-    return (1.46 * np.asarray(cn2, dtype=float) * k ** 2
-            * np.asarray(path_length_m, dtype=float)) ** (-3.0 / 5.0)
+    return _andrews_coherence_radius(wavelength, path_length_m, cn2,
+                                     wave='plane')
 
 
 def plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m):
@@ -328,16 +336,15 @@ def aperture_averaged_index_andrews(rx_diameter_m, cn2, wavelength,
                           + 0.51 s^2 (1 + 0.69 s^(12/5))^(-5/6)
                             / (1 + 0.90 d^2 + 0.62 d^2 s^(12/5)) ] - 1
     with s = sigma_1 and d the aperture parameter. Source: Andrews and Phillips,
-    2nd ed. (2005), Ch. 10.
+    2nd ed. (2005), DOI 10.1117/3.626196, Ch. 10, Eq. (69), printed p. 413.
+
+    NEW HOME: `olb.turbulence.andrews.aperture.averaged_index` with wave="plane"
+    and regime="strong". That function also gives the spherical-wave and the
+    Gaussian-beam chains, and the two-scale chains with a finite inner scale and
+    a finite outer scale.
     '''
-    s = sigma1_rytov(cn2, wavelength, path_length_m)
-    s2 = s ** 2
-    s125 = s ** (12.0 / 5.0)
-    d2 = _d_param(rx_diameter_m, wavelength, path_length_m) ** 2
-    term1 = 0.49 * s2 / (1.0 + 0.65 * d2 + 1.11 * s125) ** (7.0 / 6.0)
-    term2 = (0.51 * s2 * (1.0 + 0.69 * s125) ** (-5.0 / 6.0)
-             / (1.0 + 0.90 * d2 + 0.62 * d2 * s125))
-    return np.exp(term1 + term2) - 1.0
+    return _andrews_averaged_index(rx_diameter_m, wavelength, path_length_m,
+                                   cn2, wave='plane', regime='strong')
 
 
 def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
@@ -354,6 +361,11 @@ def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
     Ch. 10, Eq. (61), printed p. 412, DOI 10.1117/3.626196, which is
     A = [1 + 1.062 k D_G^2/(4 L)]^(-7/6), with the exponent 7/6 outside the
     bracket. The two fits differ by up to 12 %.
+
+    BOOK-FORM ALTERNATIVE: `olb.turbulence.andrews.aperture
+    .plane_weak_averaging_fit` gives the Andrews Eq. (61) fit, and
+    `olb.turbulence.andrews.aperture.averaging_factor` with regime="weak" gives
+    the EXACT Ch. 10, Eq. (60) result that Eq. (61) approximates.
     '''
     d2 = _d_param(rx_diameter_m, wavelength, path_length_m) ** 2
     return (1.0 + 1.07 * d2 ** (7.0 / 6.0)) ** (-1.0)
@@ -373,6 +385,10 @@ def aperture_averaging_factor_weak_inner(rx_diameter_m, inner_scale_m):
     The Andrews counterpart is a DIFFERENT function: 2nd ed. (2005), Ch. 10,
     Eqs. (62) to (68), printed pp. 412-413, DOI 10.1117/3.626196, which give a
     finite inner scale through the two-scale parameter Q_l.
+
+    BOOK-FORM ALTERNATIVE: `olb.turbulence.andrews.aperture.averaging_factor`
+    with regime="strong", spectrum="modified" and a finite l0 gives the Andrews
+    Eqs. (62) to (68) chain.
     '''
     ratio = np.asarray(rx_diameter_m, dtype=float) / np.asarray(inner_scale_m,
                                                                 dtype=float)
@@ -397,6 +413,9 @@ def aperture_averaging_factor_strong(rx_diameter_m, cn2, wavelength,
     print the formula. The Andrews counterpart is a DIFFERENT function:
     `aperture_averaged_index_andrews` (2nd ed. (2005), Ch. 10, Eq. (69),
     printed p. 413, DOI 10.1117/3.626196), which covers the same regime.
+
+    BOOK-FORM ALTERNATIVE: `olb.turbulence.andrews.aperture.averaging_factor`
+    with regime="strong" gives the Andrews Eq. (69) chain as a ratio.
     '''
     k = _wavenumber(wavelength)
     L = np.asarray(path_length_m, dtype=float)

@@ -824,3 +824,153 @@ and sigma_pe into the tracked and untracked scintillation index. Those live in
 `olb/turbulence/andrews/scintillation.py`, whose `scintillation_index` already
 takes `wander_rms_m` and `pointing_error_m`. `wander.py` supplies exactly those
 two quantities, as variances; take the square root at the call site.
+
+---
+
+## WP3 notes â€” spectra, structure functions and aperture averaging
+
+Work package WP3 built `olb/turbulence/andrews/spectra.py`, `structure.py` and
+`aperture.py`, and it filled the inner-scale and outer-scale branches of
+`andrews/scintillation.py`. This block records what was built, what was
+delegated, and what the book would not give.
+
+### Built
+
+- `spectra.py` â€” Ch. 3, Eqs. (18) to (23), printed pp. 67 to 69. The five
+  models `kolmogorov`, `tatarskii`, `von_karman`, `exponential` and
+  `modified_atmospheric`, plus the plain dict `SPECTRA`. On the outer-scale
+  constant the book is explicit and inconsistent on purpose: Eq. (20), printed
+  p. 68, and Eq. (22), printed p. 69, print k0 = 2 pi/L0 "or sometimes
+  k0 = 1/L0"; Eq. (23), printed p. 69, prints k0 = 4 pi/L0 "or 2 pi/L0, or
+  8 pi/L0"; the Ch. 9 scintillation model uses C0 = 8 pi. Each function names
+  its default and takes the constant as a keyword. Closes G-04 to G-09.
+- `structure.py` â€” the wave structure function and the coherence radius of
+  Appendix III, Tables I to VI, printed pp. 765 to 768, with Ch. 6, Secs. 6.4
+  and 6.5. Also `fried_parameter` (r_0 = 2.1 rho_0, Ch. 6, text below Eq. (64),
+  printed p. 194), `angle_of_arrival_variance` (Ch. 6, Eqs. (83) and (84),
+  printed pp. 200 and 201) and `rms_image_jitter` (Ch. 6, Eq. (85), printed
+  p. 201). Closes G-30 to G-36 and the coherence-radius half of G-43.
+- `aperture.py` â€” Ch. 10, Sec. 10.3. Plane weak Eq. (60) and the Eq. (61) fit,
+  spherical weak Eq. (53), plane strong Eq. (69) and the two-scale Eqs. (62) to
+  (68), spherical strong Eq. (77) and the two-scale Eqs. (71) to (76), Gaussian
+  strong Eqs. (87) to (90). Closes G-107, G-109, G-110, G-111, G-112 and G-114.
+- `scintillation.py` â€” `two_scale_parameters`, `weak_two_scale_index` (Ch. 9,
+  Eqs. (48), (75) and (104)) and the two-scale large-scale and small-scale log
+  variances for the plane and the spherical wave. Closes G-54, G-87, G-88 and
+  G-91.
+
+### Decisions recorded
+
+- **C-04 is DECIDED by the owner: the GRADIENT tilt.**
+  `structure.angle_of_arrival_variance` returns
+  <beta_a^2> = 2.91 Cn2 L D^(-1/3) = 0.174 (D/r_0)^(5/3)(lambda/D)^2 per axis,
+  Ch. 6, Eq. (84), printed p. 201. The Noll Zernike tilt 0.182 is NOT what it
+  returns, and both docstrings say so. The deferred stub
+  `angle_of_arrival.aperture_arrival_angle_variance` now calls it, with the
+  same signature. Note that `olb/turbulence/ao.py` still uses the NOLL
+  coefficients 1.0299 and 0.134, so the package now holds BOTH tilt
+  conventions. A caller that adds the two must say which one it means.
+- **C-06 is honoured.** `aperture.py` uses the book's own SOFT Gaussian
+  aperture, D_G^2 = 8 W_G^2 (Ch. 10, text below Eq. (57), printed p. 411). It
+  does NOT reuse the olb Airy filter. The module docstring states the
+  hard-against-soft difference and points to Ch. 14, Eq. (86), printed p. 634.
+- **G-108 is confirmed.** The `aperture.py` docstring records that the book has
+  NO annular receive aperture, so olb gap 8 needs another source.
+- **C-07 is honoured.** `gaussian_fried.spherical_wave_fried_parameter` keeps
+  the exact (8/3)^(3/5). The docstring now says the book row 0.55 gives 1.7913
+  in place of 1.7963, a 0.3 % difference. The self-check MEASURES that 0.273 %.
+- **C-02 is honoured.** `structure.py` takes one path length and one scalar
+  Cn2, so it makes no path integral and picks no reference plane. Its docstring
+  says so and points at C-02.
+
+### Reading resolved by a limit, not by the scan
+
+- Ch. 9, Eq. (108), printed p. 355, and Ch. 10, Eq. (80), printed p. 419, carry
+  the factor (1/3 - Theta/2 + Theta^2/5). The scan cannot tell Theta from
+  Theta-bar. The factor is the integral INT_0^1 xi^2 (1 - Theta_bar xi)^2 dxi of
+  Eq. (107), printed p. 354, so it is **Theta-bar**. The plane-wave limit then
+  gives 0.49/3 = 0.163, which is the 0.16 of Eq. (55); the spherical-wave limit
+  gives 0.49/30 = 0.0163, which is the 0.04 beta_0^2 of Eq. (72). Both check.
+- Ch. 10, Eq. (53), printed p. 409, carries two signs the scan cannot resolve:
+  the sign inside the hypergeometric argument and the sign of the 11/16 term.
+  Only one of the four combinations gives both A(0) = 1 and a factor that falls
+  to zero. `aperture._weak_spherical_factor` uses that one and says so. The
+  coefficients 9.66 and 11/16 are as printed.
+
+### The book would not give (owner action needed)
+
+1. **Appendix III, Table III, printed p. 766 â€” the Gaussian row of the MODIFIED
+   spectrum.** The two Lambda-only bump terms read as
+   0.438 (Lambda Q_l)^(1/6) and 0.056 (Lambda Q_l)^(1/6). Those fall only as
+   Lambda^(1/6), which breaks the plane-wave reduction by 2.3 %. Ch. 6, text
+   below Eq. (77), printed p. 197, states the Gaussian row MUST reduce to the
+   plane row. So the numerators are wrong as read, and they are NOT guessed.
+   `structure.wave_structure_function` raises NotImplementedError for
+   wave="gaussian" with spectrum="modified". Every other cell of Tables I to III
+   is built and its plane and spherical reductions are measured.
+2. **Ch. 9, Eq. (109), printed p. 355, and Ch. 10, Eq. (84), printed p. 420 â€”
+   the Gaussian-beam eta_X of the two-scale STRONG theory.** No reading
+   recovered from the scan gives both the plane-wave value 2.61 (Ch. 9,
+   Eq. (54), printed p. 339) and the spherical-wave value 8.56 (Ch. 10,
+   Eq. (74), printed p. 415) in the two limits. So the Gaussian two-scale strong
+   branch is NOT built, in `scintillation.large_scale_log_variance` and in
+   `aperture.averaged_index`. Both raise NotImplementedError with the citation.
+   The WEAK Gaussian two-scale index, Ch. 9, Eq. (104), printed p. 354, IS
+   built, and its three limits are measured inside 1 %.
+3. **Ch. 10, Eq. (78), printed p. 419 â€” the weak Gaussian-beam flux-variance
+   double integral.** The book prints no closed form. `averaged_index` raises
+   for wave="gaussian" with regime="weak" and points at the all-regime chain.
+
+### Measured findings
+
+- **The two-scale large-scale log variance does NOT reduce to the Kolmogorov
+  one as l0 goes to zero.** Ch. 9, Eq. (54), printed p. 339, states its
+  substitution L/(k rho_0^2) = 1.02 sigma_R^2 Q_l^(1/6) for the case
+  rho_0 << l0 ONLY. So the two branches agree only where
+  0.45 sigma_R^2 Q_l^(1/6) equals 1.11 sigma_R^(12/5). Measured at
+  sigma_R^2 = 7.1, lambda = 1550 nm, L = 2 km, the ratio two-scale over
+  Kolmogorov runs 0.85 (l0 = 1 mm), 1.23 (3 mm), 1.43 (5 mm), 1.67 (10 mm) and
+  0.004 (l0 = 1 nm). The book's claim below Eq. (61), printed p. 413, that the
+  chain "reduces" as Q_l goes to infinity is loose. Treat the two-scale branch
+  as a moderate-to-strong model WITH a real inner scale, not as a superset. The
+  outer-scale term DOES vanish exactly as L0 grows.
+- **The Andrews weak plane aperture-averaging models against the Churnside fit
+  that olb ships** (lambda = 1550 nm, L = 2 km, sigma_R^2 = 0.021):
+
+  | d | Ch. 10, Eq. (60) exact | Ch. 10, Eq. (61) fit | Churnside 1.07 | exact/Churnside |
+  |---|---|---|---|---|
+  | 0.5 | 0.72192 | 0.75979 | 0.82487 | 0.875 |
+  | 1.0 | 0.43413 | 0.42986 | 0.48309 | 0.899 |
+  | 2.0 | 0.14785 | 0.14455 | 0.15643 | 0.945 |
+  | 5.0 | 0.01927 | 0.02089 | 0.02139 | 0.901 |
+
+  The Churnside fit is optimistic by 5 % to 13 % against the book's own exact
+  Eq. (60) over that range. The Eq. (61) fit tracks Eq. (60) inside 8 %, which
+  agrees with the book's own "less than 7 % error" claim at printed p. 412.
+- **The Gaussian Eq. (88) chain is an independent fit.** It does not reduce
+  exactly to the plane Eq. (69) or to the spherical Eq. (77). Measured ratios at
+  sigma_R^2 = 0.71: plane limit 1.04 (d = 0.5), 1.10 (d = 1), 1.17 (d = 2);
+  spherical limit 0.99, 0.97, 0.91. That is the size of the book's own fitting
+  error, and it confirms the reading of Eq. (88).
+- **`ao.plane_wave_fried_parameter_profile` changed by -0.135 %.** It used the
+  Fried 1966 constant 0.423. It now delegates to the Andrews chain
+  r_0 = 2.1 (1.46 Cn2 k^2 L)^(-3/5), which is the equivalent of 0.4240. The book
+  itself prints the rounded 0.42 at Ch. 12, Eq. (23), printed p. 492. Measured
+  at 60 deg elevation, 1550 nm, HV57: 17.2915 cm against 17.3149 cm.
+
+### Delegations (names, signatures and docstrings kept)
+
+| old home | new home |
+|---|---|
+| `plane_wave_scintillation.coherence_radius` | `andrews.structure.coherence_radius` |
+| `plane_wave_scintillation.aperture_averaged_index_andrews` | `andrews.aperture.averaged_index` |
+| `gaussian_fried.plane_wave_coherence_radius` | `andrews.structure.coherence_radius` |
+| `gaussian_fried.plane_wave_fried_parameter` | `andrews.structure.fried_parameter` |
+| `gaussian_fried.spherical_wave_fried_parameter` | through `plane_wave_fried_parameter`, exact (8/3)^(3/5) kept |
+| `ao.plane_wave_fried_parameter_profile` | `andrews.structure.fried_parameter` |
+| `angle_of_arrival.aperture_arrival_angle_variance` | `andrews.structure.angle_of_arrival_variance` |
+
+The Churnside trio `aperture_averaging_factor_weak`, `_weak_inner` and
+`_strong` KEEPS its own bodies, because those constants are Churnside 1991,
+DOI 10.1364/AO.30.001982, not Andrews. Each docstring now names its book-form
+alternative in `andrews.aperture`.

@@ -10,12 +10,19 @@ pure-data stages, and they return numbers or a ResidualWavefront. The Term
 factory lives in olb.models.coupling.
 
 Fried parameter (plane wave, downlink):
-    r0 = ( 0.423 * k^2 * airmass * integral[ Cn2(h) dh ] )^(-3/5)
-    Source: Fried (1966); Andrews and Phillips, Laser Beam Propagation through
-    Random Media, 2nd ed. (2005), Ch. 3. Here k = 2*pi/lambda, airmass =
-    1/sin(elevation), and the integral runs the zenith Cn2 profile over height.
-    This is the PLANE-wave constant 0.423. The spherical-wave coherence diameter
-    (uplink) uses a different weight and lives in olb.turbulence.uplink_flux.
+    r0 = 2.1 * ( 1.46 * k^2 * airmass * integral[ Cn2(h) dh ] )^(-3/5)
+    Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
+    2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6, Eq. (64) and the text below it,
+    printed p. 194. Here k = 2*pi/lambda, airmass = 1/sin(elevation), and the
+    integral runs the zenith Cn2 profile over height. This is the PLANE-wave
+    chain. The spherical-wave coherence diameter (uplink) uses a different
+    weight and lives in olb.turbulence.uplink_flux.
+
+    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius` and
+    `olb.turbulence.andrews.structure.fried_parameter`. The Andrews chain is the
+    equivalent of the constant 0.4240. This module used the Fried 1966 constant
+    0.423 before, which gives an r0 that is 0.14 % larger. The book itself
+    prints the rounded 0.42 at Ch. 12, Eq. (23), printed p. 492.
 
 Residual phase variance (Noll 1976):
     Over an aperture of diameter D and Fried parameter r0, the residual phase
@@ -34,6 +41,9 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 import numpy as np
+
+from .andrews.structure import coherence_radius as _andrews_coherence_radius
+from .andrews.structure import fried_parameter as _andrews_fried_parameter
 
 # Noll residual coefficients c for sigma^2 = c * (D/r0)^(5/3). Source: Noll 1976.
 NOLL_PISTON = 1.0299          # piston removed only (no correction)
@@ -63,10 +73,13 @@ def plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elevation_de
         float or numpy.ndarray
             r0 [m], broadcast over the elevation shape.
     '''
-    k = 2.0 * np.pi / wavelength
     airmass = 1.0 / np.sin(np.radians(np.asarray(elevation_deg, dtype=float)))
     integral = np.trapz(np.asarray(cn2_profile, dtype=float), hs)
-    r0 = (0.423 * k ** 2 * airmass * integral) ** (-3.0 / 5.0)
+    # The Andrews chain takes one path length and one Cn2. The path moment
+    # airmass * INT Cn2 dh already carries both, so pass z = 1 m.
+    r0 = _andrews_fried_parameter(
+        _andrews_coherence_radius(wavelength, 1.0, airmass * integral,
+                                  wave='plane'))
     if np.ndim(elevation_deg) == 0:
         return float(r0)
     return r0

@@ -39,9 +39,23 @@ the reference plane itself.
 
 This module holds physics only. It returns no decibels.
 
-SCOPE (deferred): the finite inner-scale and outer-scale branches (Ch. 9,
-Secs. 9.4.2, 9.5.2 and 9.6.3) are NOT built. The `l0` and `L0` keywords exist,
-and a value other than None raises NotImplementedError.
+INNER SCALE AND OUTER SCALE. The `l0` and `L0` keywords select the two-scale
+branches of Ch. 9, Secs. 9.4.2 (plane, printed pp. 337 to 340) and 9.5.2
+(spherical, printed pp. 343 to 345). Those branches need the wavelength and the
+path length as well, because the book writes them in the nondimensional
+parameters Q_l = 10.89 L/(k l0^2) and Q_0 = 64 pi^2 L/(k L0^2). So
+`large_scale_log_variance` and `small_scale_log_variance` take `wavelength` and
+`z` beside `sigma2_R` when a scale is set.
+
+GAP - the GAUSSIAN two-scale STRONG branch is NOT built. Ch. 9, Eq. (109),
+printed p. 355, gives the parameter eta_X of the Gaussian beam. That equation
+could not be read unambiguously from the source PDF: no reading recovered gives
+both the plane-wave value 2.61 (Ch. 9, Eq. (54), printed p. 339) and the
+spherical-wave value 8.56 (Ch. 10, Eq. (74), printed p. 415) in the two limits.
+The coefficient is NOT guessed. `wave="gaussian"` with a scale raises
+NotImplementedError. The WEAK Gaussian two-scale index, Ch. 9, Eq. (104),
+printed p. 354, IS built: `weak_two_scale_index` gives it, and its plane and
+spherical limits are measured in the self-check.
 '''
 
 import numpy as np
@@ -53,18 +67,181 @@ from .beam import BeamParams, beam_params, effective_beam_params, wavenumber
 # printed pp. 264-265. Ch. 12, Eq. (40), printed p. 497, repeats it.
 WEAK_REGIME_LIMIT = 1.0
 
+# Q_l = L kl^2/k = 10.89 L/(k l0^2), with kl = 3.3/l0 the inner-scale wavenumber
+# of the modified atmospheric spectrum. Source: Andrews and Phillips, 2nd ed.
+# (2005), DOI 10.1117/3.626196, Ch. 9, text below Eq. (48), printed p. 338, and
+# Ch. 10, Eq. (68), printed p. 413.
+QL_CONSTANT = 10.89
+
+# Q_0 = L k0^2/k = 64 pi^2 L/(k L0^2), so this branch uses k0 = 8*pi/L0. Source:
+# Ch. 9, text below Eq. (57), printed p. 339, and Ch. 10, Eq. (68), printed
+# p. 413.
+Q0_CONSTANT = 64.0 * np.pi ** 2
+
 _WAVES = ('plane', 'spherical', 'gaussian')
 
 
-def _reject_scales(l0, L0):
-    '''Refuse a finite inner scale or outer scale. The branch is not built.'''
-    if l0 is not None or L0 is not None:
-        raise NotImplementedError(
-            'l0/L0 branch - WP3. Andrews and Phillips, 2nd ed. (2005), '
-            'DOI 10.1117/3.626196, Secs. 9.4.2 (printed p. 337), 9.5.2 '
-            '(printed p. 343) and 9.6.3 (printed p. 354) give the two-scale '
-            'forms. This module builds the zero-inner-scale, infinite-outer-'
-            'scale branch only.')
+def two_scale_parameters(wavelength, z, l0=None, L0=None):
+    '''
+    Return the nondimensional scale parameters (Q_l, Q_0).
+
+    formula:
+        Q_l = 10.89 L / (k l0^2),   Q_0 = 64 pi^2 L / (k L0^2),   k = 2*pi/lambda
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 9,
+    text below Eq. (48), printed p. 338, and text below Eq. (57), printed p. 339.
+    Ch. 10, Eq. (68), printed p. 413, prints both together.
+
+    A missing inner scale gives Q_l = infinity, which is the zero-inner-scale
+    limit. A missing outer scale gives Q_0 = 0, which is the infinite-outer-scale
+    limit.
+    '''
+    k = wavenumber(wavelength)
+    z = np.asarray(z, dtype=float)
+    ql = np.inf if l0 is None else QL_CONSTANT * z / (k * float(l0) ** 2)
+    q0 = 0.0 if L0 is None else Q0_CONSTANT * z / (k * float(L0) ** 2)
+    return ql, q0
+
+
+def _need_path(wavelength, z, l0, L0):
+    '''Refuse a two-scale call that gives no path.'''
+    if wavelength is None or z is None:
+        raise ValueError('a finite l0 or L0 also needs wavelength and z, '
+                         'because the book writes the two-scale forms in '
+                         'Q_l = 10.89 L/(k l0^2) and Q_0 = 64 pi^2 L/(k L0^2)')
+    return two_scale_parameters(wavelength, z, l0, L0)
+
+
+def _eta_filter(eta, ql):
+    '''
+    Return the shared large-scale filter group of the two-scale theory.
+
+    formula:
+        [ eta Q_l / (eta + Q_l) ]^(7/6)
+        [ 1 - 1.75 (eta/(eta+Q_l))^(1/2) + 0.25 (eta/(eta+Q_l))^(7/12) ]
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 9,
+    Eq. (53), printed p. 338. Eqs. (55), (56), (80) and (81), printed pp. 339,
+    340, 419 and 420, all reuse it. Appendix III, Tables VII(b) and VIII(b),
+    printed pp. 769 and 770, print the same group.
+    '''
+    ratio = eta / (eta + ql)
+    return ((eta * ql / (eta + ql)) ** (7.0 / 6.0)
+            * (1.0 - 1.75 * ratio ** 0.5 + 0.25 * ratio ** (7.0 / 12.0)))
+
+
+def weak_two_scale_index(wavelength, z, cn2, *, wave='plane', l0=None,
+                         beam=None):
+    '''
+    Return the WEAK-fluctuation scintillation index on the modified spectrum.
+
+    This is the input that the small-scale log variance needs when the inner
+    scale is finite. With l0 = None it reduces to the Kolmogorov Rytov variance.
+
+    Parameters:
+        wavelength : float or numpy.ndarray
+            Optical wavelength [m].
+        z : float or numpy.ndarray
+            Path length L [m].
+        cn2 : float or numpy.ndarray
+            Refractive-index structure constant [m^-2/3].
+        wave : str
+            "plane", "spherical" or "gaussian".
+        l0 : float, optional
+            Inner scale [m]. None gives the Kolmogorov limit.
+        beam : BeamParams, optional
+            The beam parameters at the receiver. Required for "gaussian".
+
+    Returns:
+        float or numpy.ndarray
+            sigma_PL^2 (plane), sigma_SP^2 (spherical) or sigma_G^2 (Gaussian).
+
+    formula (plane, Q_l = 10.89 L/(k l0^2)):
+        sigma_PL^2 = 3.86 sigma_R^2 { (1 + 1/Q_l^2)^(11/12)
+            [ sin((11/6) atan Q_l)
+              + 1.51 (1+Q_l^2)^(-1/4) sin((4/3) atan Q_l)
+              - 0.27 (1+Q_l^2)^(-7/24) sin((5/4) atan Q_l) ]
+            - 3.50 Q_l^(-5/6) }
+    Source: Ch. 9, Eq. (48), printed p. 338. Appendix III, Table VII(a), printed
+    p. 769, prints the same row with 1.507 and 0.273.
+
+    formula (spherical):
+        sigma_SP^2 = 9.65 beta_0^2 { 0.40 (1 + 9/Q_l^2)^(11/12)
+            [ sin((11/6) atan(Q_l/3))
+              + 2.61 (9+Q_l^2)^(-1/4) sin((4/3) atan(Q_l/3))
+              - 0.518 (9+Q_l^2)^(-7/24) sin((5/4) atan(Q_l/3)) ]
+            - 3.50 Q_l^(-5/6) }
+    Source: Ch. 9, Eq. (75), printed p. 343. Appendix III, Table VIII(a), printed
+    p. 770, prints the same row.
+
+    formula (Gaussian, with phi_1 and phi_2 of Ch. 9, Eq. (105)):
+        sigma_G^2 = 3.86 sigma_R^2 {
+            0.40 [(1+2 Theta)^2 + (2 Lambda + 3/Q_l)^2]^(11/12)
+                 [(1+2 Theta)^2 + 4 Lambda^2]^(-1/2)
+            [ sin((11/6) phi_2 + phi_1)
+              + 2.61 [(1+2 Theta)^2 Q_l^2 + (3 + 2 Lambda Q_l)^2]^(-1/4)
+                sin((4/3) phi_2 + phi_1)
+              - 0.52 [(1+2 Theta)^2 Q_l^2 + (3 + 2 Lambda Q_l)^2]^(-7/24)
+                sin((5/4) phi_2 + phi_1) ]
+            - 13.40 Lambda / (Q_l^(11/6) [(1+2 Theta)^2 + 4 Lambda^2])
+            - (11/6) Q_l^(-5/6) [ (1 + 0.31 Lambda Q_l)^(5/6)
+                                  + 1.10 (1 + 0.27 Lambda Q_l)^(1/3)
+                                  - 0.19 (1 + 0.24 Lambda Q_l)^(1/4) ] }
+        phi_1 = atan[2 Lambda / (1 + 2 Theta)]
+        phi_2 = atan[(1 + 2 Theta) Q_l / (3 + 2 Lambda Q_l)]
+    Source: Ch. 9, Eqs. (104) and (105), printed pp. 354 and 355.
+
+    The Gaussian row reduces to the plane row at Theta = 1, Lambda = 0, to the
+    spherical row at Theta = Lambda = 0, and to Ch. 8, Eq. (23) as
+    Q_l -> infinity. The module self-check measures all three reductions.
+    '''
+    _check_wave(wave)
+    bm = _need_beam(beam, wave)
+    sigma2_R = rytov_variance(wavelength, z, cn2, wave='plane')
+    if l0 is None:
+        if wave == 'plane':
+            return sigma2_R
+        if wave == 'spherical':
+            return 0.40 * sigma2_R
+        return beam_rytov_variance(sigma2_R, bm)
+
+    ql, _ = two_scale_parameters(wavelength, z, l0=l0)
+    if wave == 'plane':
+        t = np.arctan(ql)
+        inner = (np.sin((11.0 / 6.0) * t)
+                 + 1.51 * (1.0 + ql ** 2) ** (-0.25) * np.sin((4.0 / 3.0) * t)
+                 - 0.27 * (1.0 + ql ** 2) ** (-7.0 / 24.0)
+                 * np.sin((5.0 / 4.0) * t))
+        return 3.86 * sigma2_R * ((1.0 + 1.0 / ql ** 2) ** (11.0 / 12.0) * inner
+                                  - 3.50 * ql ** (-5.0 / 6.0))
+    if wave == 'spherical':
+        t = np.arctan(ql / 3.0)
+        inner = (np.sin((11.0 / 6.0) * t)
+                 + 2.61 * (9.0 + ql ** 2) ** (-0.25) * np.sin((4.0 / 3.0) * t)
+                 - 0.518 * (9.0 + ql ** 2) ** (-7.0 / 24.0)
+                 * np.sin((5.0 / 4.0) * t))
+        return 9.65 * (0.40 * sigma2_R) * (
+            0.40 * (1.0 + 9.0 / ql ** 2) ** (11.0 / 12.0) * inner
+            - 3.50 * ql ** (-5.0 / 6.0))
+
+    th, lm = bm.theta, bm.lam
+    p = 1.0 + 2.0 * th
+    base = p ** 2 + 4.0 * lm ** 2
+    mixed = p ** 2 * ql ** 2 + (3.0 + 2.0 * lm * ql) ** 2
+    phi1 = np.arctan2(2.0 * lm, p)
+    phi2 = np.arctan2(p * ql, 3.0 + 2.0 * lm * ql)
+    inner = (np.sin((11.0 / 6.0) * phi2 + phi1)
+             + 2.61 * mixed ** (-0.25) * np.sin((4.0 / 3.0) * phi2 + phi1)
+             - 0.52 * mixed ** (-7.0 / 24.0)
+             * np.sin((5.0 / 4.0) * phi2 + phi1))
+    lq = lm * ql
+    tail = (11.0 / 6.0) * ql ** (-5.0 / 6.0) * (
+        (1.0 + 0.31 * lq) ** (5.0 / 6.0)
+        + 1.10 * (1.0 + 0.27 * lq) ** (1.0 / 3.0)
+        - 0.19 * (1.0 + 0.24 * lq) ** 0.25)
+    return 3.86 * sigma2_R * (
+        0.40 * (p ** 2 + (2.0 * lm + 3.0 / ql) ** 2) ** (11.0 / 12.0)
+        * base ** (-0.5) * inner
+        - 13.40 * lm / (ql ** (11.0 / 6.0) * base)
+        - tail)
 
 
 def _check_wave(wave):
@@ -168,7 +345,7 @@ def beam_rytov_variance(sigma2_R, beam):
 
 
 def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
-                             beam=None, r=0.0):
+                             beam=None, r=0.0, wavelength=None, z=None):
     '''
     Return the large-scale log-irradiance variance sigma_lnX^2.
 
@@ -182,9 +359,10 @@ def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
             plane-wave value, which is what the book does.
         wave : str
             "plane", "spherical", or "gaussian".
-        l0, L0 : None
-            Inner scale and outer scale [m]. Not built. A value raises
-            NotImplementedError.
+        l0, L0 : float, optional
+            Inner scale and outer scale [m]. A value selects the two-scale
+            branch and then `wavelength` and `z` are required as well. The
+            Gaussian two-scale branch is not built; see the module docstring.
         beam : BeamParams, optional
             The beam parameters at the receiver. Required for "gaussian".
         r : float
@@ -192,12 +370,15 @@ def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
             LONGITUDINAL component into a large-scale and a small-scale part.
             The radial component stays separate (Ch. 9, Eq. (103), printed
             p. 353). The keyword is here to match `scintillation_index`.
+        wavelength, z : float, optional
+            Optical wavelength [m] and path length L [m]. Required only for the
+            two-scale branch, which needs Q_l and Q_0.
 
     Returns:
         float or numpy.ndarray
             sigma_lnX^2.
 
-    formula:
+    formula (zero inner scale, infinite outer scale):
         plane      0.49 s^2 / (1 + 1.11 s^(12/5))^(7/6),   s^2 = sigma_R^2
         spherical  0.20 s^2 / (1 + 0.19 s^(12/5))^(7/6)
         gaussian   0.49 b^2 / (1 + 0.56 (1 + Theta) b^(12/5))^(7/6),
@@ -206,10 +387,55 @@ def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
         plane      Ch. 9, Eq. (41), printed p. 335
         spherical  Ch. 9, Eq. (69), printed p. 342
         gaussian   Ch. 9, Eq. (97), printed p. 352
+
+    formula (two scales, the DIFFERENCE of an inner-scale and an outer-scale
+    term, Ch. 9, Eq. (51), printed p. 338):
+        sigma_lnX^2 = C F(eta_X) - C F(eta_X0)
+        F(eta)   = [eta Q_l/(eta+Q_l)]^(7/6)
+                   [1 - 1.75 (eta/(eta+Q_l))^(1/2)
+                      + 0.25 (eta/(eta+Q_l))^(7/12)]
+        eta_X0   = eta_X Q_0 / (eta_X + Q_0)
+        plane      C = 0.16 sigma_R^2,  eta_X = 2.61/(1+0.45 sigma_R^2 Q_l^(1/6))
+        spherical  C = 0.04 beta_0^2,   eta_X = 8.56/(1+0.20 beta_0^2 Q_l^(1/6))
+    Source: plane, Ch. 9, Eqs. (51) to (57), printed pp. 338 and 339; spherical,
+    Ch. 10, Eqs. (72) to (76), printed p. 415, taken at d = 0, which the book
+    also prints in Appendix III, Table VIII(b), printed p. 770.
+
+    NOTE on the zero-inner-scale limit. As Q_l goes to infinity the two-scale
+    plane branch goes to 0.16 sigma_R^2 [2.61/(1+0.45 sigma_R^2 Q_l^(1/6))]^(7/6),
+    NOT to the Kolmogorov branch. The two agree only where
+    0.45 sigma_R^2 Q_l^(1/6) equals 1.11 sigma_R^(12/5). The reason is in the
+    book: Ch. 9, Eq. (54), printed p. 339, states the substitution
+    L/(k rho_0^2) = 1.02 sigma_R^2 Q_l^(1/6) for the case rho_0 << l0 ONLY. So
+    the two-scale branch is a MODERATE-to-STRONG turbulence model with a real
+    inner scale, not a superset of the Kolmogorov branch. The module self-check
+    measures the gap.
     '''
     _check_wave(wave)
-    _reject_scales(l0, L0)
     s2 = np.asarray(sigma2_R, dtype=float)
+    if l0 is not None or L0 is not None:
+        if wave == 'gaussian':
+            raise NotImplementedError(
+                'the GAUSSIAN two-scale large-scale branch is not built. '
+                'Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, '
+                'Ch. 9, Eq. (109), printed p. 355, gives the parameter eta_X, '
+                'but that equation could not be read unambiguously from the '
+                'source PDF: no recovered reading gives both the plane-wave '
+                'value 2.61 (Ch. 9, Eq. (54), printed p. 339) and the '
+                'spherical-wave value 8.56 (Ch. 10, Eq. (74), printed p. 415) '
+                'in the two limits. The coefficient is not guessed.')
+        ql, q0 = _need_path(wavelength, z, l0, L0)
+        if wave == 'plane':
+            coef, top, slope = 0.16 * s2, 2.61, 0.45 * s2
+        else:
+            b0 = 0.40 * s2
+            coef, top, slope = 0.04 * b0, 8.56, 0.20 * b0
+        eta_x = top / (1.0 + slope * ql ** (1.0 / 6.0))
+        out = coef * _eta_filter(eta_x, ql)
+        if L0 is not None:
+            eta_x0 = eta_x * q0 / (eta_x + q0)
+            out = out - coef * _eta_filter(eta_x0, ql)
+        return out
     if wave == 'plane':
         return 0.49 * s2 / (1.0 + 1.11 * s2 ** (6.0 / 5.0)) ** (7.0 / 6.0)
     if wave == 'spherical':
@@ -221,7 +447,7 @@ def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
 
 
 def small_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
-                             beam=None, r=0.0):
+                             beam=None, r=0.0, wavelength=None, z=None):
     '''
     Return the small-scale log-irradiance variance sigma_lnY^2.
 
@@ -229,7 +455,7 @@ def small_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
     needs. See `large_scale_log_variance` for the parameters. The keyword `r`
     has no effect for the same reason.
 
-    formula:
+    formula (zero inner scale, infinite outer scale):
         plane      0.51 s^2 / (1 + 0.69 s^(12/5))^(5/6),   s^2 = sigma_R^2
         spherical  0.20 s^2 / (1 + 0.23 s^(12/5))^(5/6)
         gaussian   0.51 b^2 / (1 + 0.69 b^(12/5))^(5/6),   b^2 = sigma_B^2
@@ -240,10 +466,30 @@ def small_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
     In the saturation regime each branch goes to ln 2, which gives the small-
     scale variance its limit sigma_Y^2 -> 1 (Ch. 9, text at Eq. (35), printed
     p. 334).
+
+    formula (finite inner scale):
+        plane      0.51 sigma_PL^2 / (1 + 0.69 sigma_PL^(12/5))^(5/6)
+        spherical  0.51 sigma_SP^2 / (1 + 0.69 sigma_SP^(12/5))^(5/6)
+        gaussian   0.51 sigma_G^2  / (1 + 0.69 sigma_G^(12/5))^(5/6)
+    with the weak two-scale index from `weak_two_scale_index`. Source: Ch. 9,
+    Eqs. (59) and (60), printed p. 340 (plane); Eqs. (82) and (83), printed
+    p. 345 (spherical); Eqs. (111) and (112), printed p. 355 (Gaussian). The
+    OUTER scale has a negligible effect here, which the book states below
+    Eq. (60), printed p. 340. So a value of L0 changes nothing in this function.
     '''
     _check_wave(wave)
-    _reject_scales(l0, L0)
     s2 = np.asarray(sigma2_R, dtype=float)
+    if l0 is not None:
+        if wavelength is None or z is None:
+            raise ValueError('a finite l0 also needs wavelength and z')
+        # Rebuild Cn2 from the plane-wave Rytov variance, so that the caller can
+        # keep the sigma2_R interface. sigma_R^2 = 1.23 Cn2 k^(7/6) L^(11/6).
+        k = wavenumber(wavelength)
+        cn2 = s2 / (1.23 * k ** (7.0 / 6.0)
+                    * np.asarray(z, dtype=float) ** (11.0 / 6.0))
+        idx = weak_two_scale_index(wavelength, z, cn2, wave=wave, l0=l0,
+                                   beam=beam)
+        return 0.51 * idx / (1.0 + 0.69 * idx ** (6.0 / 5.0)) ** (5.0 / 6.0)
     if wave == 'plane':
         return 0.51 * s2 / (1.0 + 0.69 * s2 ** (6.0 / 5.0)) ** (5.0 / 6.0)
     if wave == 'spherical':
@@ -298,9 +544,10 @@ def scintillation_index(wavelength, z, cn2, *, wave='plane', regime='auto',
         regime : str
             "weak", "strong", or "auto". "auto" uses the book boundary
             sigma_R^2 < 1 (see WEAK_REGIME_LIMIT).
-        l0, L0 : None
-            Inner scale and outer scale [m]. Not built. A value raises
-            NotImplementedError.
+        l0, L0 : float, optional
+            Inner scale and outer scale [m]. A value selects the two-scale
+            branch on the modified atmospheric spectrum. The Gaussian STRONG
+            two-scale branch is not built; see the module docstring.
         beam : BeamParams, optional
             The beam parameters at the receiver. Required for "gaussian".
         r : float or numpy.ndarray
@@ -339,23 +586,24 @@ def scintillation_index(wavelength, z, cn2, *, wave='plane', regime='auto',
     boundary; it does not switch physics.
     '''
     _check_wave(wave)
-    _reject_scales(l0, L0)
     bm = _need_beam(beam, wave)
 
     sigma2_R = rytov_variance(wavelength, z, cn2, wave='plane')
 
     def weak():
-        if wave == 'plane':
-            return sigma2_R
-        if wave == 'spherical':
-            return 0.40 * sigma2_R
+        point = weak_two_scale_index(wavelength, z, cn2, wave=wave, l0=l0,
+                                     beam=bm)
+        if wave != 'gaussian':
+            return point
         radial = _radial_component(sigma2_R, bm.lam, bm.w, r, tracked,
                                    pointing_error_m, wander_rms_m)
-        return radial + beam_rytov_variance(sigma2_R, bm)
+        return radial + point
 
     def strong():
-        x = large_scale_log_variance(sigma2_R, wave=wave, beam=bm)
-        y = small_scale_log_variance(sigma2_R, wave=wave, beam=bm)
+        x = large_scale_log_variance(sigma2_R, wave=wave, beam=bm, l0=l0,
+                                     L0=L0, wavelength=wavelength, z=z)
+        y = small_scale_log_variance(sigma2_R, wave=wave, beam=bm, l0=l0,
+                                     L0=L0, wavelength=wavelength, z=z)
         out = np.exp(x + y) - 1.0
         if wave != 'gaussian':
             return out
@@ -406,14 +654,36 @@ if __name__ == '__main__':
     else:
         raise AssertionError('a convergent beam must raise')
 
-    # A finite inner scale or outer scale is refused, not guessed.
-    for kwargs in ({'l0': 5e-3}, {'L0': 1.0}):
-        try:
-            large_scale_log_variance(s2_R, wave='plane', **kwargs)
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError('l0/L0 must raise')
+    # The GAUSSIAN two-scale STRONG branch is refused, not guessed.
+    try:
+        large_scale_log_variance(s2_R, wave='gaussian',
+                                 beam=beam_params(0.05, lam_m, L), l0=5e-3,
+                                 wavelength=lam_m, z=L)
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError('the Gaussian two-scale branch must raise')
+
+    # A two-scale call with no path is refused.
+    try:
+        large_scale_log_variance(s2_R, wave='plane', l0=5e-3)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('l0 without wavelength and z must raise')
+
+    # The weak two-scale index. A finite inner scale RAISES the weak plane index
+    # above the Kolmogorov value, because the spectral bump adds power near
+    # 1/l0 (Ch. 3, Sec. 3.3.3, printed p. 68).
+    l0_ref = 5e-3
+    idx_l0 = weak_two_scale_index(lam_m, L, cn2_weak, wave='plane', l0=l0_ref)
+    assert idx_l0 > s2_R, (idx_l0, s2_R)
+    # A finite outer scale lowers the strong plane index.
+    strong_no_L0 = scintillation_index(lam_m, L, 1e-13, wave='plane',
+                                       regime='strong', l0=l0_ref)
+    strong_L0 = scintillation_index(lam_m, L, 1e-13, wave='plane',
+                                    regime='strong', l0=l0_ref, L0=1.0)
+    assert strong_L0 < strong_no_L0, (strong_L0, strong_no_L0)
 
     # The strong index saturates near 1 and never runs away.
     s2_strong = scintillation_index(lam_m, L, 1e-12, wave='plane')
@@ -511,6 +781,57 @@ if __name__ == '__main__':
     dios_div = bws.on_axis_scintillation_index(hs, cn2_flat, w0, lam_m,
                                                f0=f0_div)
     gap9_div = (mine_div - dios_div) / dios_div * 100.0
+    # 7. The two-scale branches against the zero-scale branches.
+    #    (a) The weak two-scale index goes to the Kolmogorov index as l0 -> 0.
+    for wv, ref in (('plane', s2_R), ('spherical', 0.40 * s2_R)):
+        tiny = weak_two_scale_index(lam_m, L, cn2_weak, wave=wv, l0=1e-9)
+        pct = abs(tiny - ref) / ref * 100.0
+        assert pct < 1.0, (wv, pct)
+        print(f'REDUCTION weak_two_scale_index({wv}, l0->0) : {pct:.4f} % '
+              f'(target 1 %)')
+    #    The Gaussian row also goes to the plane row, the spherical row and the
+    #    Ch. 8, Eq. (23) row.
+    g_pl = weak_two_scale_index(lam_m, L, cn2_weak, wave='gaussian',
+                                l0=1e-9, beam=bp_plane)
+    g_sp = weak_two_scale_index(lam_m, L, cn2_weak, wave='gaussian',
+                                l0=1e-9, beam=bp_sph)
+    pct_gpl = abs(g_pl - s2_R) / s2_R * 100.0
+    pct_gsp = abs(g_sp - 0.40 * s2_R) / (0.40 * s2_R) * 100.0
+    assert pct_gpl < 1.0 and pct_gsp < 1.0, (pct_gpl, pct_gsp)
+    g_beam = weak_two_scale_index(lam_m, L, cn2_weak, wave='gaussian',
+                                  l0=1e-9, beam=bp)
+    pct_gb = abs(g_beam - beam_rytov_variance(s2_R, bp)) / abs(
+        beam_rytov_variance(s2_R, bp)) * 100.0
+    assert pct_gb < 1.0, pct_gb
+    print(f'REDUCTION Ch. 9, Eq. (104) (l0->0) : plane {pct_gpl:.4f} %  '
+          f'spherical {pct_gsp:.4f} %  collimated beam vs Ch. 8, Eq. (23) '
+          f'{pct_gb:.4f} %  (target 1 %)')
+
+    #    (b) The outer-scale term goes to zero as L0 -> infinity.
+    s2_mid = rytov_variance(lam_m, L, 1e-13)
+    with_L0 = large_scale_log_variance(s2_mid, wave='plane', l0=l0_ref,
+                                       L0=1e6, wavelength=lam_m, z=L)
+    no_L0 = large_scale_log_variance(s2_mid, wave='plane', l0=l0_ref,
+                                     wavelength=lam_m, z=L)
+    pct_L0 = abs(with_L0 - no_L0) / no_L0 * 100.0
+    assert pct_L0 < 1.0, pct_L0
+    print(f'REDUCTION outer-scale term (L0 -> inf) : {pct_L0:.4f} % '
+          f'(target 1 %)')
+
+    #    (c) The large-scale two-scale branch does NOT go to the Kolmogorov
+    #    branch as l0 -> 0. Measure the gap and report it. Ch. 9, Eq. (54),
+    #    printed p. 339, restricts its substitution to rho_0 << l0, so the two
+    #    branches agree only where 0.45 sigma_R^2 Q_l^(1/6) = 1.11 sigma_R^(12/5).
+    kol_x = large_scale_log_variance(s2_mid, wave='plane')
+    print('MEASURED large-scale two-scale gap against the Kolmogorov branch '
+          f'(sigma_R^2 = {float(s2_mid):.3f}):')
+    for l0_try in (1e-3, 3e-3, 5e-3, 1e-2, 1e-9):
+        two = large_scale_log_variance(s2_mid, wave='plane', l0=l0_try,
+                                       wavelength=lam_m, z=L)
+        ql, _ = two_scale_parameters(lam_m, L, l0=l0_try)
+        print(f'   l0 = {l0_try:9.1e} m   Q_l = {float(ql):11.3e}   '
+              f'two-scale/Kolmogorov = {float(two / kol_x):7.4f}')
+
     print(f'GAP 9 divergent f0={f0_div} m : '
           f'Andrews Eq. (23) = {mine_div:.6f}  Dios = {dios_div:.6f}  '
           f'diff = {gap9_div:+.2f} %  (no assert)')

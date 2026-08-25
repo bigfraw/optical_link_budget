@@ -39,6 +39,8 @@ import numpy as np
 from .andrews.beam import beam_params
 from .andrews.beam import effective_beam_params as _andrews_effective
 from .andrews.scintillation import rytov_variance as _andrews_rytov_variance
+from .andrews.structure import coherence_radius as _andrews_coherence_radius
+from .andrews.structure import fried_parameter as _andrews_fried_parameter
 
 # Input curvature of a collimated beam. The waist sits at the transmitter.
 # Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
@@ -157,11 +159,15 @@ def plane_wave_coherence_radius(z, cn2, wavelength):
 
     formula:
         rho_pl = ( 1.46 Cn2 k^2 z )^(-3/5),   k = 2*pi/lambda
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6,
+    Eq. (64), printed p. 194. Appendix III, Table IV, printed p. 767, collates
+    the same row.
+
+    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius`. That function
+    also gives the spherical-wave and the Gaussian-beam rows, and the
+    inner-scale branches.
     '''
-    k = _k(wavelength)
-    return (1.46 * np.asarray(cn2, dtype=float) * k ** 2
-            * np.asarray(z, dtype=float)) ** (-3.0 / 5.0)
+    return _andrews_coherence_radius(wavelength, z, cn2, wave='plane')
 
 
 def plane_wave_fried_parameter(z, cn2, wavelength):
@@ -170,11 +176,20 @@ def plane_wave_fried_parameter(z, cn2, wavelength):
 
     formula:
         r0_pl = 2.1 * rho_pl
-    with rho_pl the plane-wave coherence radius. This equals the standard
-    r0 = (0.423 k^2 Cn2 L)^(-3/5). Source: Andrews and Phillips, 2nd ed. (2005),
-    Ch. 6.
+    with rho_pl the plane-wave coherence radius. Source: Andrews and Phillips,
+    2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6, text below Eq. (64), printed
+    p. 194.
+
+    The chain 2.1 (1.46 Cn2 k^2 L)^(-3/5) is the equivalent of
+    (0.4240 Cn2 k^2 L)^(-3/5). The book prints the rounded 0.42 at Ch. 12,
+    Eq. (23), printed p. 492. The classic Fried 1966 constant is 0.423. The
+    three give r0 inside 0.3 % of each other.
+
+    NEW HOME: `olb.turbulence.andrews.structure.fried_parameter`, fed by
+    `olb.turbulence.andrews.structure.coherence_radius`.
     '''
-    return 2.1 * plane_wave_coherence_radius(z, cn2, wavelength)
+    return _andrews_fried_parameter(
+        _andrews_coherence_radius(wavelength, z, cn2, wave='plane'))
 
 
 # Ratio of the spherical-wave Fried parameter to the plane-wave Fried parameter
@@ -197,7 +212,18 @@ def spherical_wave_fried_parameter(z, cn2, wavelength):
 
     formula (this function, horizontal path):
         r0_sph = (8/3)^(3/5) * r0_pl  ~ 1.80 * r0_pl
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6,
+    Eq. (71), printed p. 196.
+
+    KEEP THE EXACT (8/3)^(3/5). The book row prints the ROUNDED constant 0.55,
+    which gives 1.7913 in place of the exact 1.7963, a 0.3 % difference. See
+    Conflict C-07 in docs/andrews-crosscheck.md. Do not replace the exact ratio
+    with the rounded book row.
+
+    NEW HOME: this function delegates through `plane_wave_fried_parameter`,
+    which calls `olb.turbulence.andrews.structure`. The book's own spherical
+    row is `olb.turbulence.andrews.structure.coherence_radius` with
+    wave="spherical".
     '''
     return _SPHERICAL_OVER_PLANE * plane_wave_fried_parameter(z, cn2, wavelength)
 
