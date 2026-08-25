@@ -32,7 +32,7 @@ not valid, and the budget must fall back to a numerical path. See also
 | Section | Equations | Topic | Maps to | Status |
 | --- | --- | --- | --- | --- |
 | 6.8.1 | Ch. 6, Eq. (108); Eq. (40), (45) from 6.3.1 | Mean irradiance. Turbulence-induced beam spread for an arbitrary refractive-index structure function. | Beam spread / effective long-term beam radius. `olb/beam.py`, `olb/turbulence/gaussian_fried.py`, `docs/physics.md` §1 and §5e. | flagged — now answered by Table 1 rows KR-12 and KR-13 (Ch. 6, Eqs. (109) and (111), both `exact`) and GF-01 to GF-04. Eq. (108) itself stays a gap: Table 2 row G-42. |
-| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | flagged — now answered by Table 1 row KR-04 (`wrong`: the kernel constant is 2.07, the book gives 7.25). See Conflicts C-01 and Table 2 rows G-38, G-44, G-49. |
+| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | checked — answered by Table 1 row KR-04 (`other source`: the kernel constant is 2.07, from Dios Eq. (11); the book gives 7.25). C-01 is RESOLVED on 2026-08-25: the kernel copies Dios correctly, so 2.07 stays, and the 3.50 gap is Belmonte 2000 against Andrews. See Conflicts C-01 and Table 2 rows G-38, G-44, G-49. |
 | 6.8 (general) | slant-path extension | Extension to slant paths for an arbitrary Cn2. | Slant-path generalisation of the Gaussian-beam turbulence Terms. Ties to the CLAUDE.md "Next task" (curvature past the collimated case). | flagged — now answered by Table 1 rows GF-15 to GF-21, of which GF-18 is `wrong` (mirrored path weight). See Conflicts C-02 and Table 2 rows G-43 and G-130. |
 | 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | flagged — no Table 1 row exists, because olb has no temporal axis. Table 2 rows G-40 and G-41 hold the book forms; see also G-11, G-67, G-99, G-115 and G-149. |
 | 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/plane_wave_scintillation.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5b and §5d. | flagged — now answered by Table 1 rows BW-08 to BW-16. The regime limits are `wrong` in three places: PW-01, UF-01 and TL-05. See Conflicts C-05 and Table 2 rows G-20, G-50 to G-53, G-84. |
@@ -47,7 +47,9 @@ not valid, and the budget must fall back to a numerical path. See also
 
 - The working received tip-tilt used by the coupling Terms is the beam-wander
   arrival tilt, `wander_arrival_angle_variance` (Dios et al. 2004, DOI
-  10.1364/AO.43.003866). It reuses the `beam_wander_variance` kernel.
+  10.1364/AO.43.003866). It reuses the `beam_wander_variance` kernel. Its
+  "radial (2-axis)" docstring is CONFIRMED correct on 2026-08-25 by Dios
+  Eqs. (9) and (10), printed p. 3868. See Conflicts C-03.
 - The aperture angle-of-arrival "corrugation" term is a separate, smaller
   contribution. It is DEFERRED. The stub `aperture_arrival_angle_variance` in
   `olb/turbulence/angle_of_arrival.py` raises NotImplementedError. Fill it with
@@ -120,15 +122,21 @@ Ranked. The physics faults come first, then the citation faults.
    Ch. 8, Eq. (17) need the cosine to multiply ONLY the second term. The error
    is non-zero for every finite Gaussian beam, and the olb uplink turbulence
    Term inherits it through `coupled_flux_sample`. The olb twin at
-   `beam_wave_scintillation.py:137` is correct.
+   `beam_wave_scintillation.py:137` is correct. — FIXED, and the fix is
+   CONFIRMED against Dios Eq. (16), printed p. 3869, on 2026-08-25.
 3. **KR-04 — the beam-wander variance constant is 2.07 against a book value of
    7.25.** The integrand is identical. R3 re-derived 7.25 from Ch. 6, Eqs. (88)
    and (89). This is a cross-source conflict (Dios against Andrews), not a
-   plain bug. See Conflicts C-01.
+   plain bug. See Conflicts C-01. — DECIDED 2026-08-25: the kernel copies Dios
+   Eq. (11) correctly, so 2.07 STAYS. The gap is Belmonte 2000 against Andrews,
+   and Dios validates his own form against a split-step simulation (his Fig. 3).
 4. **KR-20 — a second mean-irradiance weight on an already-normalised index**
    (`coupled_flux.py:379`). Andrews Ch. 8, Eqs. (9) and (15) normalise the
    scintillation index by the square of the LOCAL mean irradiance, so the extra
-   `I_off^2` factor suppresses the index one more time.
+   `I_off^2` factor suppresses the index one more time. — NOT A FAULT, and the
+   2026-08 removal is REVERSED. Dios Eq. (25), printed p. 3870, prints that
+   weight, because Dios re-normalises the index to the beam CENTRE before his
+   Eq. (26). The kernel implements Dios, so the weight is back.
 5. **KR-01 and GF-18 — the spherical path weight is mirrored.** The code uses
    `((L-z)/L)^(5/3)`; Andrews Ch. 6, Eqs. (115) and (116) use `(z/L)^(5/3)`.
    The geometry resolves this: see Conflicts C-02. Do not "fix" it blind.
@@ -149,7 +157,10 @@ Ranked. The physics faults come first, then the citation faults.
    sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1. A focused or a strongly
    diffracted terrestrial beam can pass a gate it must fail.
 9. **KR-05 — the long-term waist adds twice the wander variance.** Andrews
-   Ch. 6, Eq. (100) printed 205 has the factor 1. See Conflicts C-03.
+   Ch. 6, Eq. (100) printed 205 has the factor 1. See Conflicts C-03. — NOT A
+   FAULT. Dios Eq. (1), printed p. 3867, prints the factor 2 on a RADIAL
+   `<beta^2>` (Dios Eq. (10)). No code change. The net difference from Andrews
+   is 1.75, not 3.50, because the factor 2 and the constant 2.07 partly cancel.
 
 **Citation faults**
 
@@ -313,8 +324,8 @@ One row per equation. Sorted by olb file path, then by line number.
 | KR-01 | r0s = (0.42 k^2 INT Cn2 ((L-z)/L)^(5/3) dz)^(-3/5) | my_analysis_modules/coupled_flux.py:46 | spherical-wave coherence diameter | 6.8.2 | Ch. 6, Eq. (116) | 209 | 234 | Kolmogorov; l0=0; L0=inf | wrong | The coefficient agrees (1.46 for rho becomes 0.423 for r0). The WEIGHT IS MIRRORED: the book uses (z/L)^(5/3) with z from the transmitter, and says the receiver end carries the weight. The kernel weights the transmitter end. It matches Dios, DOI 10.1364/AO.43.003866, Eq. (3). Same caution as GF-18. See Conflicts C-02. |
 | KR-02 | W^2 = W0^2 (1 + L^2/Z0^2) | my_analysis_modules/coupled_flux.py:83 | free-space beam radius squared | 6.6.3 | Ch. 6, Eq. (86), the W^2 factor | 202 | 227 | collimated | exact | |
 | KR-03 | 2[(4.2 L/(k r0s))(1 - 0.26 (r0s/W0)^(1/3))]^2 | my_analysis_modules/coupled_flux.py:86 | short-term waist turbulence term | 6.6.3 | Ch. 6, Eq. (101) | 206 | 231 | - | other source | The book short-term radius is W sqrt(1 + 1.33 s_R^2 Lambda^(5/6)[1 - 0.66(Lambda0^2/(1+Lambda0^2))^(1/6)]), a Rytov-variance form. The 4.2/0.26 form is the Yura and Fried coherence-radius form used by Dios, DOI 10.1364/AO.43.003866. Neither 4.2 nor 0.26 is in Ch. 6 or Ch. 7. |
-| KR-04 | <beta^2> = 2.07 INT Cn2 (L-z)^2 W(z)^(-1/3) dz | my_analysis_modules/coupled_flux.py:113 | beam-wander displacement variance | 6.6.1 | Ch. 6, Eq. (93) with kappa0 = 0; Eqs. (117)-(118) | 203 (209-210) | 228 (234-235) | Kolmogorov; l0=0; L0=inf; frozen atmosphere | wrong | THE INTEGRAND IS IDENTICAL, THE COEFFICIENT IS NOT. The book gives 7.25. R3 re-derived 7.25 from Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252. The book <r_c^2> is the value that enters W_LT^2 = W_ST^2 + <r_c^2> (Eq. (100), verified against Worked Example 2, printed 215). The kernel is 3.50 times low as a radial variance, and 1.75 times low even read as per axis. A full-book search for 2.07 returns only eta_Y = 2.07 s^(12/5) in Ch. 9, an unrelated quantity. See Conflicts C-01. |
-| KR-05 | W_LT = sqrt(W_ST^2 + 2 <beta^2>) | my_analysis_modules/coupled_flux.py:127 | long-term waist | 6.6.3 | Ch. 6, Eq. (100) | 205 | 230 | - | approximate | The book gives W_LT^2 = W_ST^2 + <r_c^2>, factor 1. The kernel factor 2 is right only if <beta^2> is a per-axis variance. `olb/turbulence/angle_of_arrival.py:57` documents the same quantity as the RADIAL (two-axis) variance. The two readings cannot both hold. See Conflicts C-03. |
+| KR-04 | <beta^2> = 2.07 INT Cn2 (L-z)^2 W(z)^(-1/3) dz | my_analysis_modules/coupled_flux.py:113 | beam-wander displacement variance | 6.6.1 | Ch. 6, Eq. (93) with kappa0 = 0; Eqs. (117)-(118) | 203 (209-210) | 228 (234-235) | Kolmogorov; l0=0; L0=inf; frozen atmosphere | other source | ADJUDICATED 2026-08-25 against the Dios paper itself. THE KERNEL COPIES DIOS CORRECTLY: Dios Eq. (11), printed p. 3868, prints the constant 2.07, the weight (L-z)^2 and the factor [1/W_s(z)]^(1/3). Dios Eq. (10) makes <beta^2> the RADIAL variance. So the kernel is not a mis-copy, and the status moves from `wrong` to `other source`. THE INTEGRAND IS IDENTICAL, THE COEFFICIENT IS NOT: the book gives 7.25 (R3 re-derived it from Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252), and both quantities are radial, so the 3.50 gap stands as a source-against-source difference. Dios validates his Eq. (11) against a split-step (FFT-BPM) simulation of the same uplink in his Fig. 3, printed p. 3871, and the two agree. See Conflicts C-01. |
+| KR-05 | W_LT = sqrt(W_ST^2 + 2 <beta^2>) | my_analysis_modules/coupled_flux.py:127 | long-term waist | 6.6.3 | Ch. 6, Eq. (100) | 205 | 230 | - | other source | ADJUDICATED 2026-08-25. The kernel copies Dios Eq. (1), printed p. 3867 (repeated as Eq. (29), printed p. 3870), which prints W_LT^2 = W_ST^2 + 2<beta^2> with a RADIAL <beta^2> (Dios Eq. (10)). So the factor 2 is the paper's own factor, NOT a per-axis conversion, and `olb/turbulence/angle_of_arrival.py:57` is right to call the quantity radial. The book gives W_LT^2 = W_ST^2 + <r_c^2>, factor 1 on a radial <r_c^2>. With each source's own constant the wander part of W_LT^2 is 1.38 Cn2 L^3 W0^(-1/3) by Dios and 2.42 by Andrews, so the two rules differ by 1.75, not 3.50. See Conflicts C-03. |
 | KR-06 | 2(4 L/(k r0s))^2 | my_analysis_modules/coupled_flux.py:167 | long-term waist, collimated | 6.6.3 | Ch. 6, Eq. (86); Eq. (124) upper | 202 (212) | 227 (237) | collimated | other source | Dios Eq. (2), DOI 10.1364/AO.43.003866. The book form W sqrt(1 + 1.33 s_R^2 Lambda^(5/6)) is linear in Cn2; the r0s form goes as Cn2^(6/5). They are the weak-Rytov and the coherence-limited far-field limits, not the same equation. |
 | KR-07 | G_u goes to 1.33 s_R^2 Lambda^(5/6) | my_analysis_modules/coupled_flux.py:200 | uniform-Cn2 limit of the spreading integral | 6.6.1 | Ch. 6, Eq. (86) | 202 | 227 | homogeneous Cn2; Kolmogorov | exact | 4.35 x 3/8 / 1.23 = 1.326; the book prints 1.33. |
 | KR-08 | Lambda = 2L/(k W^2(L)) | my_analysis_modules/coupled_flux.py:232 | output-plane beam parameter | 6.2.1 | Ch. 6, Eq. (7) | 183 | 208 | - | exact | |
@@ -327,9 +338,9 @@ One row per equation. Sorted by olb file path, then by line number.
 | KR-15 | Theta = [1 + (L/Z0)^2]^-1 | my_analysis_modules/coupled_flux.py:253-254 | output-plane curvature parameter | 8.1 | Ch. 8, Eq. (6) | 261 | 286 | collimated | reduction | Only the collimated receiver Theta. olb works around it with the effective Z0 of UF-07. |
 | KR-16 | _A | my_analysis_modules/coupled_flux.py:257-260 | A(z), the Gaussian attenuation scale | 8.2 | Ch. 8, Eqs. (14) and (17) exponent | 262-263 | 287-288 | Kolmogorov; l0=0; L0=inf; weak | other source | Dios Eq. (17), DOI 10.1364/AO.43.003866. Duplicate of BW-08: olb gap 10. |
 | KR-17 | _B | my_analysis_modules/coupled_flux.py:263-266 | B(z), the phase term | 8.2 | Ch. 8, Eq. (17) cosine argument | 263 | 288 | Kolmogorov; l0=0; L0=inf; weak | other source | Dios Eq. (18), DOI 10.1364/AO.43.003866. Duplicate of BW-09. |
-| KR-18 | on_axis_scintillation_index | my_analysis_modules/coupled_flux.py:288 | longitudinal scintillation index integrand | 8.2 | Ch. 8, Eq. (17); closed forms Eqs. (19) and (23) | 263-264 | 288-289 | Kolmogorov; l0=0; L0=inf; weak | wrong | MISPLACED PARENTHESIS. The code computes A^(5/6)[1 - (1+ratio^2)^(5/12)] cos((5/6)atan(ratio)). Dios Eq. (16) and Andrews Eq. (17) need A^(5/6)[1 - (1+ratio^2)^(5/12) cos((5/6)atan(ratio))], that is the cosine multiplies ONLY the second term. The error is minus A^(5/6)[1 - cos((5/6)atan(B/A))] per unit path, so it vanishes only where A goes to zero, and it is non-zero for every finite Gaussian beam. `uplink_flux._flux_result` reaches this function through `coupled_flux_sample` (line 377), so the olb uplink turbulence Term inherits it. The olb twin at `beam_wave_scintillation.py:137-139` is CORRECT. |
+| KR-18 | on_axis_scintillation_index | my_analysis_modules/coupled_flux.py:288 | longitudinal scintillation index integrand | 8.2 | Ch. 8, Eq. (17); closed forms Eqs. (19) and (23) | 263-264 | 288-289 | Kolmogorov; l0=0; L0=inf; weak | exact | FIXED 2026-08, and the fix is CONFIRMED against the Dios paper on 2026-08-25: Eq. (16), printed p. 3869, closes the large bracket after the cosine, so the cosine multiplies only the second term. The kernel now agrees with Dios Eq. (16) and with Andrews Ch. 8, Eq. (17). The fault, for the record: MISPLACED PARENTHESIS. The code computed A^(5/6)[1 - (1+ratio^2)^(5/12)] cos((5/6)atan(ratio)). Dios Eq. (16) and Andrews Eq. (17) need A^(5/6)[1 - (1+ratio^2)^(5/12) cos((5/6)atan(ratio))], that is the cosine multiplies ONLY the second term. The error is minus A^(5/6)[1 - cos((5/6)atan(B/A))] per unit path, so it vanishes only where A goes to zero, and it is non-zero for every finite Gaussian beam. `uplink_flux._flux_result` reaches this function through `coupled_flux_sample` (line 377), so the olb uplink turbulence Term inherits it. The olb twin at `beam_wave_scintillation.py:137-139` is CORRECT. |
 | KR-19 | off_axis_scintillation_index | my_analysis_modules/coupled_flux.py:310-316 | radial scintillation index | 8.2 | Ch. 8, Eqs. (16) and (18) | 263 | 288 | Kolmogorov; l0=0; L0=inf; weak | other source | Dios Eq. (20). Agrees with the olb twin BW-12. |
-| KR-20 | sigma2_gauss = (sigma2_on + sigma2_off) x I_off^2 | my_analysis_modules/coupled_flux.py:379 | total index at the wander offset | 8.2 | Ch. 8, Eqs. (9), (15) and (117) | 261, 263 (299) | 286, 288 (324) | Kolmogorov; weak | wrong | Andrews Eqs. (15) and (117) and Dios Eq. (13) give the total index as the sum of the longitudinal and the radial part with NO mean-irradiance weight. The scintillation index of Eq. (9) is already normalised by the square of the LOCAL mean irradiance, so the extra I_off^2 (which is less than 1 off axis) suppresses the index a second time. Check against the kernel's own source before you change it. |
+| KR-20 | sigma2_gauss = (sigma2_on + sigma2_off) x I_off^2 | my_analysis_modules/coupled_flux.py:379 | total index at the wander offset | 8.2 | Ch. 8, Eqs. (9), (15) and (117) | 261, 263 (299) | 286, 288 (324) | Kolmogorov; weak | other source | ADJUDICATED 2026-08-25, and the earlier patch is REVERSED. The weight IS in Dios: Eq. (25), printed p. 3870, gives sigma2_I,Gb = (sigma2_I + sigma2_I,r) <I>^2, with <I> the Eq. (24) mean irradiance at the wander offset. Dios says why in the text above Eq. (24): Eqs. (13), (16) and (20) normalise the index to the LOCAL mean irradiance, and Eq. (25) re-normalises it to the mean at the BEAM CENTRE, which is the normalisation that Eq. (26) needs. Section 5, step (c)(ii) tells the reader to use Eq. (25) at this point. An agent removed the weight in 2026-08 on the Andrews reading (Ch. 8, Eqs. (9) and (15) keep the local normalisation), which made the kernel disagree with the paper it cites. The weight is back. Andrews and Dios normalise differently; that is a source difference, not a bug. |
 | KR-21 | sigma2_x = 0.25 ln(1 + sigma2_gauss) | my_analysis_modules/coupled_flux.py:382 | log-amplitude variance from the index | 8.2 | Ch. 8, Eq. (13) | 262 | 287 | weak | exact | Exact inversion of sigma_I^2 = exp(4 sigma_x^2) - 1. |
 | KR-22 | xi drawn from N(-sigma2_x, sqrt(sigma2_x)) | my_analysis_modules/coupled_flux.py:385 | lognormal log-amplitude draw with a conserved mean irradiance | 9.11 | Ch. 9, Eq. (158) | 384 | 409 | weak | unmatched | Ch. 8 gives only the variance, not the PDF. The lognormal PDF with the mean offset is Ch. 9, Eq. (158) printed 384 and Ch. 12, Eqs. (65)-(66) printed 510, but no reader verified this exact kernel line against them. |
 | KR-23 | rytov = (1.23 Cn2 k^(7/6) L^(11/6))^0.5 | my_analysis_modules/general_atmospherics.py:22 | plane-wave Rytov standard deviation | 5.2.2 | Ch. 5, Eq. (15) | 140 | 165 | Kolmogorov; plane wave; weak; homogeneous Cn2 | exact | Confirmed by 3 readers. Also Ch. 6, Eq. (119) printed 210 and App. III Table VII(a) footer printed 769. olb duplicates it two more times instead of importing it through `olb/_deps.py`: olb gap 10. |
@@ -734,15 +745,15 @@ the decision is made.
 
 | id | subject | the two positions | evidence | recommendation |
 |---|---|---|---|---|
-| C-01 | Beam-wander variance constant. `beam_wander_variance` at `coupled_flux.py:113` (Table 1 row KR-04), which feeds AA-01 and the whole uplink wander path. | (a) The kernel uses 2.07 and cites Dios et al. 2004, DOI 10.1364/AO.43.003866. (b) Andrews Ch. 6, Eqs. (93), (117) and (118) give 7.25 for an IDENTICAL integrand. | R3 re-derived 7.25 from Ch. 6, Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252. The book value enters W_LT^2 = W_ST^2 + <r_c^2> (Eq. (100)) and R3 verified it against the book Worked Example 2, printed 215. A full-book search for 2.07 returns only eta_Y = 2.07 sigma_R^(12/5) in Ch. 9, an unrelated quantity. The kernel is 3.50 times low as a radial variance, 1.75 times low as a per-axis variance. UPDATE (kernel-patch agent, 2026-08-25): the per-axis escape is RULED OUT. Andrews Eq. (93) reduces through Eq. (94) to the standard 2.42 Cn2 L^3 W0^(-1/3); the kernel 2.07 gives 0.69, a factor 3.50 under EITHER axis convention (a per-axis reading needs 3.63, not 2.07). The Dios paper is paywalled, so its own definition stays unverified. The kernel keeps 2.07 with a comparison comment. | CROSS-SOURCE CONFLICT, Dios against Andrews. Do NOT mark it a plain bug and do NOT silently swap the constant. The remaining question is only whether Dios itself uses 2.07 or the kernel mis-copies Dios. WP5 (andrews/wander.py) implements the Andrews Ch. 6, Eq. (93) form independently; compare the two there and put the decision to the owner with both numbers. Decide C-01 and C-03 together. |
+| C-01 **RESOLVED 2026-08-25** | Beam-wander variance constant. `beam_wander_variance` at `coupled_flux.py:113` (Table 1 row KR-04), which feeds AA-01 and the whole uplink wander path. | (a) The kernel uses 2.07 and cites Dios et al. 2004, DOI 10.1364/AO.43.003866. (b) Andrews Ch. 6, Eqs. (93), (117) and (118) give 7.25 for an IDENTICAL integrand. | R3 re-derived 7.25 from Ch. 6, Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252. The book value enters W_LT^2 = W_ST^2 + <r_c^2> (Eq. (100)) and R3 verified it against the book Worked Example 2, printed 215. A full-book search for 2.07 returns only eta_Y = 2.07 sigma_R^(12/5) in Ch. 9, an unrelated quantity. The kernel is 3.50 times low as a radial variance, 1.75 times low as a per-axis variance. UPDATE (kernel-patch agent, 2026-08-25): the per-axis escape is RULED OUT. Andrews Eq. (93) reduces through Eq. (94) to the standard 2.42 Cn2 L^3 W0^(-1/3); the kernel 2.07 gives 0.69, a factor 3.50 under EITHER axis convention (a per-axis reading needs 3.63, not 2.07). The Dios paper is paywalled, so its own definition stays unverified. The kernel keeps 2.07 with a comparison comment. RESOLUTION (2026-08-25, the owner supplied the paper, `REFS/Dios et al. - 2004 ...pdf`): the kernel does NOT mis-copy Dios. Dios Eq. (11), printed p. 3868, prints exactly `<beta^2> = 2.07 INT_0^L Cn2(z)(L-z)^2 [1/W_s(z)]^(1/3) dz`. Dios does not derive it; he takes it from his reference 23, Belmonte, Applied Optics 39, 5426 (2000), DOI 10.1364/AO.39.005426, and he prints no filter function for it. Dios cites Andrews for the long-term spread (his Eqs. (4)-(6)) and for the scintillation index (his Eqs. (14)-(20)), but NOT for the beam wander, so the paper makes no attempt to reconcile 2.07 with 7.25. | **DECIDED: KEEP 2.07. The kernel is faithful to its citation and gets no change to the constant.** The gap is a true source-against-source difference, Belmonte against Andrews, and it is 3.50 under a consistent RADIAL convention on both sides (Dios Eq. (10) makes `<beta^2>` radial; Andrews `<r_c^2>` is radial too). Two reasons to keep 2.07. (1) Dios Fig. 3, printed p. 3871, plots his Eq. (11) against a split-step FFT-BPM wave-optics simulation of the same uplink, and the two agree; the text, printed p. 3870, calls the analytic and the numerical results "similar but slightly different". A factor of 3.50 would be plain on that figure. (2) The whole olb uplink chain (wander offset, off-axis index, Eq. (23) irradiance) is Dios, so mixing in an Andrews constant would break the internal consistency of the model. NEXT STEP to close the gap for good: read Belmonte 2000, DOI 10.1364/AO.39.005426, which is the only document that can say which filter gives 2.07. Until then `olb/turbulence/andrews/wander.py` stays the independent Andrews measurement, and the two numbers stay side by side. |
 | C-02 | Spherical and Gaussian-beam path weight direction. `gaussian_fried.py:319` (GF-18) and `coupled_flux.py:46` (KR-01) use ((L-z)/L)^(5/3); Andrews Ch. 6, Eqs. (115) and (116) use (z/L)^(5/3). | (a) R3: the book measures z FROM THE TRANSMITTER and states below Eq. (116) that the Cn2 near the RECEIVER carries the weight, so olb uses the MIRROR weight. (b) The olb form matches Dios, DOI 10.1364/AO.43.003866, Eq. (3), which gives the TRANSMITTER-plane (reciprocal) coherence radius of an UPLINK beam. | THE GEOMETRY RESOLVES IT. R4 found Ch. 8, Eq. (115) printed 299: the slant UPLINK plane-wave weighting is (1 - z/L)^(5/6), heavy near the TRANSMITTER. R7 found the book's own uplink wave structure function and coherence radius, Ch. 12, Eqs. (24)-(27) printed 492, which is a separate uplink derivation from the downlink pair Eqs. (17)-(22). And R3 confirmed that the same kernel weights the SPREADING integral correctly at `coupled_flux.py:234` (KR-09), where the book Ch. 6, Eq. (109) also measures from the transmitter. So Ch. 6, Eqs. (115) and (116) give the DOWNLINK (receiver-referred) coherence radius, and the olb weight is the UPLINK (transmitter-referred) one. | NOT A BUG, a plane-of-reference difference. DO NOT flip the weight. Do two things instead. (1) Document the reference plane in the GF-18 and KR-01 docstrings, and say which link direction each serves. (2) Build Table 2 row G-130 (Ch. 12, Eqs. (24)-(27)) and check the olb uplink form against the book's own uplink form, not against the downlink Eq. (115). |
-| C-03 | Long-term waist factor. `coupled_flux.py:127` (KR-05) computes W_LT^2 = W_ST^2 + 2 <beta^2>; Andrews Ch. 6, Eq. (100) printed 205 has the factor 1 on the wander variance. | (a) The kernel factor 2 is correct if <beta^2> is a PER-AXIS variance, because the book <r_c^2> is the two-dimensional (radial) displacement variance. (b) `olb/turbulence/angle_of_arrival.py:57` documents the SAME number as the RADIAL (two-axis) variance, in which case the factor must be 1. | The two readings cannot both hold. R4 independently read the same quantity as two-dimensional at `uplink_flux.py:183` and :190-191 (Table 3 rows), where olb doubles a per-axis jitter and then halves it again per Cartesian axis. So olb itself uses BOTH conventions in two places. | Pick ONE convention for the wander variance, write it in the kernel docstring, and make `angle_of_arrival.py:57`, `coupled_flux.py:127` and `uplink_flux.py:183` agree. Decide this together with C-01: a per-axis reading makes the kernel 1.75 times low, a radial reading makes it 3.50 times low. |
+| C-03 **RESOLVED 2026-08-25** | Long-term waist factor. `coupled_flux.py:127` (KR-05) computes W_LT^2 = W_ST^2 + 2 <beta^2>; Andrews Ch. 6, Eq. (100) printed 205 has the factor 1 on the wander variance. | (a) The kernel factor 2 is correct if <beta^2> is a PER-AXIS variance, because the book <r_c^2> is the two-dimensional (radial) displacement variance. (b) `olb/turbulence/angle_of_arrival.py:57` documents the SAME number as the RADIAL (two-axis) variance, in which case the factor must be 1. | The two readings cannot both hold. R4 independently read the same quantity as two-dimensional at `uplink_flux.py:183` and :190-191 (Table 3 rows), where olb doubles a per-axis jitter and then halves it again per Cartesian axis. So olb itself uses BOTH conventions in two places. RESOLUTION (2026-08-25, from the paper): position (a) is WRONG and position (b) is RIGHT. Dios Eq. (9), printed p. 3868, gives `beta = sqrt(beta_x^2 + beta_y^2)`, and Dios Eq. (10) gives `<beta_x^2> = <beta_y^2> = 0.5<beta^2>`. So `<beta^2>` is the RADIAL (two-axis) variance. Dios Eq. (1), printed p. 3867, then prints `W_LT^2(z) = W_ST^2(z) + 2<beta^2>` on that radial quantity, and Dios repeats the same combination in his error term, Eq. (29), printed p. 3870. | **DECIDED: the convention is RADIAL, and the kernel factor 2 is Dios Eq. (1). No code change.** The factor 2 is not a per-axis to radial conversion; it is the paper's own factor. Every olb site is already consistent with the radial reading: `angle_of_arrival.py:57` calls it radial (correct), `uplink_flux.py:195-197` draws each Cartesian axis with the variance 0.5*beta2 (Dios Eq. (10), correct), and `uplink_flux.py:188` folds a per-axis jitter as 2*(sigma_theta L)^2 into the radial total (correct arithmetic, see C-09). The kernel docstrings of `beam_wander_variance` and `long_term_beam_waist` now state the radial convention and cite Dios Eqs. (1), (9), (10) and (11). RESIDUAL, for the record: Dios adds 2 x 2.07 and Andrews Eq. (100) adds 1 x 7.25, so the wander part of W_LT^2 differs by 1.75, not 3.50. The factor 2 and the constant 2.07 partly cancel. That 1.75 is the same number the WP5 table calls "the factor-2 escape route"; it is not an escape route, it is the true residual. |
 | C-04 | Angle-of-arrival tilt coefficient. The batch-2 flag names 0.182 (D/r0)^(5/3)(lambda/D)^2; the Andrews route gives 0.174. | (a) Andrews Ch. 6, Eq. (84) printed 201 gives <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3), one axis. With D = 2 W_G and r0 = (0.423 k^2 Cn2 L)^(-3/5) this is 2.91/(0.423 x 4 pi^2) = 0.1743. (b) 0.182 is the Noll ZERNIKE tilt, a different tilt definition. | R3 searched Ch. 6 and Ch. 7 (printed 179-255) and found no 0.182 anywhere. Andrews Eq. (82) defines the tilt as a phase DIFFERENCE across the pupil (a gradient tilt); Noll defines it as the Zernike Z2/Z3 coefficient. | A DEFINITION CHOICE FOR THE OWNER, not an error in either source. Pick the tilt definition FIRST, then take the matching coefficient: gradient tilt gives 0.174 with Ch. 6, Eq. (84); Zernike tilt gives 0.182 with Noll 1976. Note that `olb/turbulence/ao.py` already uses the NOLL convention (1.0299 and 0.134), so the Noll 0.182 is the consistent choice inside olb. Record the choice in the `aperture_arrival_angle_variance` docstring before you fill the stub. |
 | C-05 | The two weak-fluctuation limits: 0.25 on sigma2_I at `plane_wave_scintillation.py:45` (PW-01) and 0.6 on sigma2_x at `uplink_flux.py:48` (UF-01). | (a) R2 marked 0.25 `wrong` (a false citation); R5 and R7 marked it `unmatched` (not a book number); R6 marked it `approximate` (a defensible tighter house rule); R1 could not find it in range. (b) R4 and R7 both marked 0.6 `wrong`: it is 2.4 times looser than the book. | The book states ONE weak criterion in five places: sigma_R^2 < 1 (Ch. 5 printed 140; Ch. 8 printed 264; Ch. 9 printed 323; Ch. 10, Eq. (61) printed 412; Ch. 12, Eq. (40) printed 497). Ch. 5, Eq. (16) printed 140 adds that a Gaussian beam ALSO needs sigma_R^2 Lambda^(5/6) < 1. With sigma_I^2 = 4 sigma_x^2 (Ch. 8, Eq. (13)), sigma_R^2 = 1 maps to sigma_x^2 = 0.25. So the two olb limits are inconsistent with EACH OTHER: 0.25 on the index is 4 times tighter than the book, and 0.6 on the log amplitude is 2.4 times looser. Ch. 11.3 printed 451 does say the lognormal tail is optimistic against simulation, which argues for a tighter bound than the book's. | ONE RECOMMENDATION, three parts. (1) Write the BOOK criterion once, as a shared helper: sigma_R^2 < 1, plus sigma_R^2 Lambda^(5/6) < 1 for a beam wave (Table 2 row G-20). Cite Ch. 5, Eq. (16). (2) Keep a SEPARATE, tighter house limit for the LOGNORMAL Term only, and label it a house rule, not an Andrews number, with the Ch. 11.3 printed 451 tail argument as its justification. (3) Lower the uplink 0.6 to 0.25 in sigma2_x units, so it matches the book sigma_R^2 < 1. Do (3) first: it is the only one of the three that lets an untrustworthy number leave the budget with no warning. |
 | C-06 | Aperture filter form. `plane_wave_scintillation.py:108` (PW-03) uses the hard Airy filter [2 J1(x)/x]^2. | (a) R6 marked it `approximate`: Andrews Ch. 10, Eq. (59) printed 412 uses a SOFT Gaussian aperture, exp(-D_G^2 kappa^2/16) with D_G^2 = 8 W_G^2; the Airy form is the Fourier transform of the hard circular MTF inside Eq. (54) printed 410; the two agree in the limits but not in between. (b) R7 marked it `exact`: the identical function IS printed in the book, as the piston Zernike filter, Ch. 14, Eq. (86) with m = n = 0, printed 634. | Both readings are correct about different pages. Andrews prints the function (Ch. 14) but does NOT use it for aperture averaging (Ch. 10 uses the soft aperture). The merged table keeps the stricter `approximate`. | No code change is implied. State in the docstring that the filter is the hard circular MTF, cite Ch. 14, Eq. (86) for the function, and note that the Andrews aperture-averaging chain (Ch. 10, Eqs. (57)-(69)) uses a soft Gaussian aperture instead. If a numerical comparison is wanted, build Table 2 row G-134 (Ch. 12, Eq. (39)), which IS a hard-aperture closed form. |
 | C-07 | The (8/3)^(3/5) spherical-over-plane Fried ratio at `gaussian_fried.py:163` (GF-12). | (a) R3 marked it `approximate`: the book Ch. 6, Eq. (71) printed 196 gives rho_sp = (0.55 Cn2 k^2 L)^(-3/5), and the exact 3/8 weight gives 0.5475, so the book 0.55 is ROUNDED; olb 1.7963 against the book 1.7913 is a 0.3 % difference. (b) R5 marked it `exact`: the Ch. 9 worked example printed 384 gives r0 = (0.16 Cn2 k^2 L)^(-3/5), and 0.423 x 3/8 = 0.1586, which the book rounds to 0.16, so the book confirms the olb constant. | Both readers computed the same numbers. The disagreement is only about whether a rounded book constant makes the exact olb constant "approximate". | Keep the exact (8/3)^(3/5). It is the analytic value; the book prints a rounded one. Note the 0.3 % in the docstring so that a future numerical comparison against a book figure does not read as a fault. No code change. |
 | C-08 | The "Ch. 9" docstring citation of the effective beam parameters at `gaussian_fried.py:96-99` (GF-06, GF-07). | (a) R3 called it a mis-citation, because the source is Ch. 7, Eq. (58) printed 242. (b) R5 found Ch. 9, Eqs. (85) and (86) printed 349, restated as Eq. (150) printed 382, which state the same result identically. | Ch. 9 Sec. 9.6.1 explicitly names Sec. 7.4.1 as the home of the derivation, then restates the result. | NOT a citation fault. Leave the docstring alone, or make it more specific by naming both: Ch. 7, Eq. (58) for the derivation and Ch. 9, Eqs. (85)-(86) for the restatement. Recorded here so that nobody "fixes" it. |
-| C-09 | The jitter fold at `uplink_flux.py:183` (UF-08), beta2 += 2 (sigma_theta L)^2. | (a) R4 marked the factor 2 `yes`: Ch. 8, Eq. (32) printed 271 treats the wander displacement as the two-dimensional variance, so a per-axis jitter variance doubles correctly. (b) R7 marked it `not found`: Andrews keeps the wander displacement (Ch. 12, Eqs. (50) and (51) printed 502) and the pointing-error variance (Eq. (53) printed 503) as SEPARATE quantities that share one integral, and feeds them into the untracked index Eq. (54) and the tracked index Eq. (57). Andrews NEVER adds a mechanical tracking jitter into the wander variance. | The two readers agree on the ARITHMETIC (per axis to two dimensions) and disagree on the CONSTRUCTION (whether the book supports adding a mechanical jitter into the wander variance at all). | Both are right. The factor 2 is correct arithmetic; the construction is an olb extension with no Andrews citation. Keep the code, and label the extension in the docstring. The memory note "pointing jitter into beta" already records why olb does it this way (to avoid double-counting a stacked pointing Term). Build Table 2 row G-140 (Ch. 12, Eq. (53)) to give the book's own route, then compare the two numerically before you decide whether to change anything. |
+| C-09 **CONFIRMED 2026-08-25** | The jitter fold at `uplink_flux.py:183` (UF-08), beta2 += 2 (sigma_theta L)^2. | (a) R4 marked the factor 2 `yes`: Ch. 8, Eq. (32) printed 271 treats the wander displacement as the two-dimensional variance, so a per-axis jitter variance doubles correctly. (b) R7 marked it `not found`: Andrews keeps the wander displacement (Ch. 12, Eqs. (50) and (51) printed 502) and the pointing-error variance (Eq. (53) printed 503) as SEPARATE quantities that share one integral, and feeds them into the untracked index Eq. (54) and the tracked index Eq. (57). Andrews NEVER adds a mechanical tracking jitter into the wander variance. | The two readers agree on the ARITHMETIC (per axis to two dimensions) and disagree on the CONSTRUCTION (whether the book supports adding a mechanical jitter into the wander variance at all). DIOS CHECKED 2026-08-25: the paper does NOT treat mechanical jitter. It models atmospheric beam wander only; the words jitter, tracking and pointing error do not occur in it. So Dios gives the fold no support either. | Both are right, and the paper does not change that. The factor 2 is correct arithmetic, and it is now on a FIRM convention: Dios Eq. (10) makes beta2 the radial variance, so a per-axis jitter variance (sigma_theta L)^2 does add as 2*(sigma_theta L)^2. The construction is an olb extension with NO citation in either source. Keep the code, and label the extension in the docstring. The memory note "pointing jitter into beta" already records why olb does it this way (to avoid double-counting a stacked pointing Term). Build Table 2 row G-140 (Ch. 12, Eq. (53)) to give the book's own route, then compare the two numerically before you decide whether to change anything. |
 | C-10 | Range-limited non-finds, as a class. 14 Table 1 rows were marked `unmatched` by one reader and then found by a second reader in another chapter. | The merged rows carry the POSITIVE result, and each note names the reader who could not find it and why. | Examples: AO-04 and PR-02 (Ch. 6 against Ch. 12), BW-17 and KR-26 and KR-27 (Ch. 3 and Ch. 8 against Ch. 12), DL-04 (Ch. 5 against Ch. 9), GF-08 and GF-09 (Ch. 9 against Ch. 7), KR-12 (Ch. 8 against Ch. 6), KR-28 (Ch. 3 against Ch. 6), KR-36 (App. III against Ch. 14). | No action. This is a property of the split reading, not a disagreement. Listed so that a future reader does not re-open them. |
 
 ### C-01/C-03 measurements (WP5)
@@ -806,11 +817,12 @@ Reading of the table.
 3. NO convention reading reconciles the two. A radial reading of the kernel
    leaves it 3.50 times low. A per-axis reading of the kernel leaves it 1.75
    times low, and a per-axis reading also contradicts
-   `olb/turbulence/angle_of_arrival.py:57` and the Eq. (100) factor 1. The only
-   readings that close the gap are that Dios itself prints a constant other
-   than 2.07, or that the kernel mis-copies Dios. The Dios paper
-   (DOI 10.1364/AO.43.003866) is paywalled and still unread, so the owner must
-   decide with the numbers above.
+   `olb/turbulence/angle_of_arrival.py:57` and the Eq. (100) factor 1.
+   SUPERSEDED 2026-08-25: the paper is now read (see the next block). Dios
+   prints 2.07 and defines `<beta^2>` as RADIAL, so the kernel copies Dios
+   correctly and the 3.50 gap is real. But the last row of the table above,
+   1.7512, is NOT an escape route: it is the true residual difference in the
+   long-term waist, because Dios adds 2<beta^2> where Andrews adds 1<r_c^2>.
 4. Uplink note. The homogeneous 2.42 form with an equivalent constant
    Cn2 = mu0/L understates the slant answer by a factor 3 (row ratio 0.3344).
    That is not a conflict. On an uplink all the turbulence sits in the first
@@ -824,6 +836,120 @@ and sigma_pe into the tracked and untracked scintillation index. Those live in
 `olb/turbulence/andrews/scintillation.py`, whose `scintillation_index` already
 takes `wander_rms_m` and `pointing_error_m`. `wander.py` supplies exactly those
 two quantities, as variances; take the square root at the call site.
+
+### C-01, C-03 and C-09 adjudication against the Dios paper (2026-08-25)
+
+The owner supplied the primary source, `REFS/Dios et al. - 2004 - Scintillation
+and beam-wander analysis in an optical ground station-satellite uplink.pdf`
+(Applied Optics 43 (19) 3866, DOI 10.1364/AO.43.003866). The kernel
+`my_analysis_modules/coupled_flux.py` was then read equation by equation
+against it. This block records the result.
+
+**What the paper says**
+
+| Dios equation | printed p. | statement | kernel function | verdict |
+|---|---|---|---|---|
+| Eq. (1) | 3867 | `W_LT^2(z) = W_ST^2(z) + 2<beta^2>` | `long_term_beam_waist` | exact copy |
+| Eq. (2) | 3868 | collimated long-term waist | `long_term_beam_waist_collimated` | exact copy |
+| Eq. (3) | 3868 | `r0,s` with the `((L-z)/L)^(5/3)` weight, stated "for the uplink" | `spherical_wave_coherence_diameter` | exact copy; also settles C-02 |
+| Eqs. (4)-(6) | 3868 | second-order Rytov long-term waist | `long_term_beam_waist_rytov` | exact copy |
+| Eq. (7) | 3868 | Yura short-term waist, 4.2 and 0.26 | `short_term_beam_waist` | exact copy |
+| Eq. (9) | 3868 | `beta = sqrt(beta_x^2 + beta_y^2)` | - | `<beta^2>` is RADIAL |
+| Eq. (10) | 3868 | `<beta_x^2> = <beta_y^2> = 0.5<beta^2>` | `uplink_flux.py:195-197` | exact copy |
+| Eq. (11) | 3868 | `<beta^2> = 2.07 INT Cn2(z)(L-z)^2 [1/W_s(z)]^(1/3) dz` | `beam_wander_variance` | exact copy |
+| Eqs. (15), (17), (18) | 3869 | `Lambda`, `Theta`, `A(z)`, `B(z)` | `_lambda_function`, `_theta_function`, `_A`, `_B` | exact copy |
+| Eq. (16) | 3869 | on-axis index; the bracket closes AFTER the cosine | `on_axis_scintillation_index` | exact copy after the 2026-08 fix |
+| Eq. (20) | 3869 | off-axis index with `1F1(-5/6, 1, 2r^2/W^2(L))` | `off_axis_scintillation_index` | exact copy |
+| Eq. (23) | 3869 | `I = exp(2 chi) exp(-2 beta^2/W_ST^2(L))` | `on_axis_irradiance` | exact copy |
+| Eq. (24) | 3869 | `<I(r,L)> = exp(-2 r^2/W_LT^2(L))` | `mean_off_axis_irradiance` | exact copy |
+| Eq. (25) | 3870 | `sigma2_I,Gb = (sigma2_I + sigma2_I,r) <I>^2` | `coupled_flux_sample` | weight RESTORED 2026-08-25 |
+| Eq. (26) | 3870 | `<chi> = -sigma_chi^2`, `sigma_chi^2 = 0.25 ln(1+sigma2_I,Gb)` | `coupled_flux_sample` | exact copy |
+
+**C-01 — DECIDED: keep 2.07.** The kernel is a faithful copy of Dios Eq. (11),
+in the constant, in the `(L-z)^2` weight and in the `[1/W_s(z)]^(1/3)` factor.
+Dios does not derive Eq. (11); he takes it from his reference 23, Belmonte,
+Applied Optics 39, 5426 (2000), DOI 10.1364/AO.39.005426, and he prints no
+filter function for it. He cites Andrews for the long-term spread and for the
+scintillation index, but NOT for the beam wander, so the paper makes no attempt
+to reconcile 2.07 with the Andrews 7.25. The gap is therefore a genuine
+source-against-source difference and it is 3.50 on BOTH sides of a radial
+convention. Two reasons keep 2.07 in the kernel. (1) Dios Fig. 3, printed
+p. 3871, plots Eq. (11) against a split-step (FFT-BPM) wave-optics simulation
+of the same uplink, and the two agree closely; the text on p. 3870 calls the
+analytic and the numerical results "similar but slightly different". A factor
+of 3.50 would be plain on that log plot. (2) The olb uplink chain is Dios end
+to end, so an Andrews constant inside it would break the model's internal
+consistency. To close the gap for good, read Belmonte 2000 next: it is the only
+document that can say which filter gives 2.07.
+
+**C-03 — DECIDED: RADIAL, and the factor 2 is Dios's own.** Dios Eq. (10) makes
+`<beta^2>` the radial (two-axis) variance, and Dios Eq. (1) then puts the factor
+2 on that radial quantity. So position (a) of the C-03 row is wrong: the factor
+2 is NOT a per-axis to radial conversion. Position (b) is right, and every olb
+site already agrees with it. No code change. The residual difference from
+Andrews Eq. (100) in the long-term waist is 1.75, not 3.50, because 2 x 2.07 =
+4.14 against 7.25.
+
+**C-09 — CONFIRMED: the jitter fold is an olb extension.** The paper models
+atmospheric beam wander only. Mechanical jitter, tracking and pointing error do
+not appear in it. So neither source supports adding a mechanical jitter into
+the wander variance. The ARITHMETIC of `uplink_flux.py:188` is now on a firm
+footing, because Dios Eq. (10) fixes the radial convention. Keep the code and
+keep the extension labelled.
+
+**Kernel edits made (2026-08-25)**
+
+`my_analysis_modules/coupled_flux.py` is untracked in its own repository, so it
+was edited in place and gets no commit.
+
+1. `coupled_flux_sample` — the Dios Eq. (25) mean-irradiance weight is
+   RESTORED. This reverses the 2026-08 KR-20 patch, which was made on the
+   Andrews reading before the paper was available.
+2. `beam_wander_variance` — the docstring now cites Dios Eq. (11) and Belmonte
+   2000, states the RADIAL convention from Dios Eqs. (9) and (10), keeps the
+   Andrews 3.50 comparison as a known difference, and gives the Fig. 3
+   justification for keeping 2.07. The constant is unchanged.
+3. `long_term_beam_waist` — the docstring now cites Dios Eqs. (1) and (29) and
+   says the factor 2 is the paper's own factor on a radial variance. The code
+   is unchanged.
+4. `spherical_wave_coherence_diameter` — the docstring now cites Dios Eq. (3)
+   and records the C-02 plane-of-reference decision. The code is unchanged.
+5. `coupled_flux_sample` — the `wL` and `wL_lt` parameter descriptions are
+   corrected. `wL` is the free-space width `W(L)` of Dios Eq. (15), not a
+   short-term waist.
+
+**Measured effect of restoring the Eq. (25) weight**
+
+The weight `<I>^2 = exp(-4 beta^2/W_LT^2)` is 1 on axis and falls with the
+wander offset, so it lowers the index and the fade. Measured on the
+`olb/turbulence/uplink_flux.py` self-check case (W0 1 m, 1550 nm, 600 km,
+zenith, HV5/7 `get_c2n(hs, 21.0, 1.7e-14)`), for which `<beta^2>` = 1.7206 m^2:
+
+| wander offset `beta` | index without the weight | index with Eq. (25) | ratio |
+|---|---|---|---|
+| 0 (on axis) | 8.505 | 8.505 | 1.000 |
+| 0.928 m (one axis, 1 sigma) | 40.96 | 34.50 | 0.842 |
+| 1.312 m (radial rms) | 81.82 | 58.04 | 0.709 |
+| 2.623 m (2 x radial rms) | 14641 | 3706 | 0.253 |
+
+The self-checks stay green. `python my_analysis_modules/coupled_flux.py` passes
+its cross-validation and its demo. `python -m olb.turbulence.uplink_flux`
+passes, with these shifts (the runs are unseeded Monte Carlo, so a part of each
+shift is sampling noise):
+
+| self-check line | before | after |
+|---|---|---|
+| weak Cn2 `sigma2_x` | 0.0186 | 0.0177 |
+| strong Cn2 `sigma2_x` | 6.2978 | 6.2418 |
+| no jitter, loss | 12.073 dB | 12.038 dB |
+| no jitter, 99 % fade | 46.974 dB | 42.855 dB |
+| 5 urad jitter, loss | 18.131 dB | 18.055 dB |
+| 5 urad jitter, 99 % fade | 438.345 dB | 422.473 dB |
+| collimated `sigma2_x` | 0.9839 | 0.8959 |
+| 5x diverged `sigma2_x` | 0.5139 | 0.4549 |
+
+The deep-tail fade moves most, which is correct: the weight is smallest at a
+large wander offset, which is where the deep fades come from.
 
 ---
 
