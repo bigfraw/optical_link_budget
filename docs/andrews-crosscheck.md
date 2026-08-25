@@ -744,3 +744,83 @@ the decision is made.
 | C-08 | The "Ch. 9" docstring citation of the effective beam parameters at `gaussian_fried.py:96-99` (GF-06, GF-07). | (a) R3 called it a mis-citation, because the source is Ch. 7, Eq. (58) printed 242. (b) R5 found Ch. 9, Eqs. (85) and (86) printed 349, restated as Eq. (150) printed 382, which state the same result identically. | Ch. 9 Sec. 9.6.1 explicitly names Sec. 7.4.1 as the home of the derivation, then restates the result. | NOT a citation fault. Leave the docstring alone, or make it more specific by naming both: Ch. 7, Eq. (58) for the derivation and Ch. 9, Eqs. (85)-(86) for the restatement. Recorded here so that nobody "fixes" it. |
 | C-09 | The jitter fold at `uplink_flux.py:183` (UF-08), beta2 += 2 (sigma_theta L)^2. | (a) R4 marked the factor 2 `yes`: Ch. 8, Eq. (32) printed 271 treats the wander displacement as the two-dimensional variance, so a per-axis jitter variance doubles correctly. (b) R7 marked it `not found`: Andrews keeps the wander displacement (Ch. 12, Eqs. (50) and (51) printed 502) and the pointing-error variance (Eq. (53) printed 503) as SEPARATE quantities that share one integral, and feeds them into the untracked index Eq. (54) and the tracked index Eq. (57). Andrews NEVER adds a mechanical tracking jitter into the wander variance. | The two readers agree on the ARITHMETIC (per axis to two dimensions) and disagree on the CONSTRUCTION (whether the book supports adding a mechanical jitter into the wander variance at all). | Both are right. The factor 2 is correct arithmetic; the construction is an olb extension with no Andrews citation. Keep the code, and label the extension in the docstring. The memory note "pointing jitter into beta" already records why olb does it this way (to avoid double-counting a stacked pointing Term). Build Table 2 row G-140 (Ch. 12, Eq. (53)) to give the book's own route, then compare the two numerically before you decide whether to change anything. |
 | C-10 | Range-limited non-finds, as a class. 14 Table 1 rows were marked `unmatched` by one reader and then found by a second reader in another chapter. | The merged rows carry the POSITIVE result, and each note names the reader who could not find it and why. | Examples: AO-04 and PR-02 (Ch. 6 against Ch. 12), BW-17 and KR-26 and KR-27 (Ch. 3 and Ch. 8 against Ch. 12), DL-04 (Ch. 5 against Ch. 9), GF-08 and GF-09 (Ch. 9 against Ch. 7), KR-12 (Ch. 8 against Ch. 6), KR-28 (Ch. 3 against Ch. 6), KR-36 (App. III against Ch. 14). | No action. This is a property of the split reading, not a disagreement. Listed so that a future reader does not re-open them. |
+
+### C-01/C-03 measurements (WP5)
+
+`olb/turbulence/andrews/wander.py` is an INDEPENDENT implementation of the
+Andrews beam-wander chain: Ch. 6, Eq. (93) (general), Eq. (94) (infinite outer
+scale), Eq. (100) (short-term radius), Ch. 8, Eq. (36) (pointing error), and
+Ch. 12, Eqs. (50) and (53) (slant path). It changes NOTHING in the kernel
+`coupled_flux.py` and nothing in the olb Dios path. It only measures.
+
+The module first reproduces the book's own numbers. Ch. 6 Worked Example 2
+(printed p. 215) gives sqrt(<r_c^2>) = 3.35 cm; the module gives 3.3492 cm, a
+0.02 % difference. The same example gives W_LT = 6.52 cm (module 6.5195 cm,
+0.01 %) and W_ST = 5.59 cm (module 5.5934 cm, 0.06 %). Worked Example 4
+(printed p. 216) gives 1.81 cm collimated and 1.90 cm for a beam focused at
+900 m over a 1 km path; the module gives 1.811 cm and 1.902 cm.
+
+Two cases. TERRESTRIAL: lambda 1550 nm, L 2000 m, Cn2 3e-16, W0 5 cm,
+collimated. UPLINK: the defaults of the `olb/turbulence/uplink_flux.py`
+self-check, so W0 1 m, lambda 1550 nm, slant range 600 km, zenith, the
+`DEFAULT_HS` grid, and the HV5/7 profile `get_c2n(hs, 21.0, 1.7e-14)`.
+
+| case | quantity | value |
+|---|---|---|
+| terrestrial | Andrews Eq. (93)/(94) `<r_c^2>` | 1.57436e-05 m^2 (rms 3.968 mm) |
+| terrestrial | kernel 2.07, free-space W(z) | 4.48369e-06 m^2 |
+| terrestrial | kernel 2.07, geometrical-optics W(z) = W0 | 4.49508e-06 m^2 |
+| terrestrial | Eq. (94) reduced form 2.42 Cn2 L^3 W0^(-1/3) | 1.57436e-05 m^2 |
+| terrestrial | **ratio Andrews / kernel (free-space W(z))** | **3.5113** |
+| terrestrial | **ratio Andrews / kernel (same GOM W(z))** | **3.5024** |
+| terrestrial | ratio Eq. (94) reduced / Andrews general | 1.0000 |
+| terrestrial | ratio Eq. (94) reduced / kernel (GOM) | 3.5024 |
+| uplink | Andrews Ch. 12, Eq. (50) slant `<r_c^2>` | 6.0264 m^2 (rms 2.45 m, 4.09 urad) |
+| uplink | kernel 2.07, free-space W(z) | 1.72064 m^2 |
+| uplink | **ratio Andrews / kernel** | **3.5024** |
+| uplink | homogeneous 2.42 surrogate with Cn2 = mu0/L | 2.01517 m^2 |
+| uplink | ratio surrogate / Andrews slant | 0.3344 |
+| terrestrial | W_ST from the kernel, the shared input of the next three rows | 0.0537708 m |
+| terrestrial | W_LT by Andrews Eq. (100), factor 1 on a RADIAL `<r_c^2>` | 0.053917 m |
+| terrestrial | W_LT by the kernel, factor 2 on a PER-AXIS `<beta^2>` | 0.0538541 m |
+| terrestrial | **ratio W_LT Andrews / kernel** | **1.00117** |
+| both | 7.25 / (2 x 2.07), the factor-2 escape route | 1.7512 |
+
+Reading of the table.
+
+1. C-01. The constant ratio is 3.5024 = 7.25 / 2.07 EXACTLY, on both cases and
+   on both path geometries, once the two sides read the same beam-radius
+   profile W(z). The 3.5113 row differs from 3.5024 only because the kernel
+   takes the true free-space (diffracting) W(z) while Andrews Eq. (93) takes
+   the refractive (geometrical-optics) W(z) = W0 |Theta0 + Theta0_bar xi|. So
+   the integrand is the same and the whole gap is the leading constant. The
+   Eq. (94) reduced form and the Eq. (93) general form agree to 1 part in 1e12
+   for a collimated beam, so the reduced form is not a separate position.
+2. C-03. Feeding both combination rules the SAME short-term waist, the
+   long-term waists differ by only 0.12 %. That is a COINCIDENCE of this case,
+   not agreement: the kernel doubles a variance that is 3.50 times too small
+   (2 x 2.07 = 4.14 against 7.25, a residual factor 1.7512), and W_LT is
+   dominated by W_ST here, so the wander term is a small correction either way.
+   The coincidence disappears for a small transmitter or a strong path, where
+   the wander term dominates W_LT.
+3. NO convention reading reconciles the two. A radial reading of the kernel
+   leaves it 3.50 times low. A per-axis reading of the kernel leaves it 1.75
+   times low, and a per-axis reading also contradicts
+   `olb/turbulence/angle_of_arrival.py:57` and the Eq. (100) factor 1. The only
+   readings that close the gap are that Dios itself prints a constant other
+   than 2.07, or that the kernel mis-copies Dios. The Dios paper
+   (DOI 10.1364/AO.43.003866) is paywalled and still unread, so the owner must
+   decide with the numbers above.
+4. Uplink note. The homogeneous 2.42 form with an equivalent constant
+   Cn2 = mu0/L understates the slant answer by a factor 3 (row ratio 0.3344).
+   That is not a conflict. On an uplink all the turbulence sits in the first
+   20 km of a 600 km path, so the transmitter weight xi^2 is close to 1 over
+   the whole turbulent layer instead of averaging to 1/3. Do not use the
+   homogeneous reduction on a slant path.
+
+Not built here, and named so that nobody looks for them: Ch. 8, Eqs. (40),
+(41), (43) and (44), and Ch. 12, Eqs. (54), (56) and (57), put sqrt(<r_c^2>)
+and sigma_pe into the tracked and untracked scintillation index. Those live in
+`olb/turbulence/andrews/scintillation.py`, whose `scintillation_index` already
+takes `wander_rms_m` and `pointing_error_m`. `wander.py` supplies exactly those
+two quantities, as variances; take the square root at the call site.
