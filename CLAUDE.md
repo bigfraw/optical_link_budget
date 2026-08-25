@@ -161,3 +161,19 @@ Open items:
 - **Conflict C-01** needs Belmonte 2000 to close the 3.50 beam-wander gap.
 - **TL-05**: the terrestrial weak gate tests one plane-wave threshold on a
   Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs two.
+- **`downlink_budget` still defaults to `model="lognormal"`.** The selector
+  `model="auto"` exists but is opt-in. The switch is an owner decision,
+  because the gamma-gamma Term is point-receiver (see above) and the change
+  moves the strong-regime total by several dB.
+- **Built but NOT consumed by any budget yet** (each is a deliberate,
+  owner-gated wiring step, because each changes budget numbers):
+  `andrews/temporal.py` (Greenwood, tau0, fade rate and duration — no Term
+  reads them); the inner/outer-scale branches (no Term passes `l0`/`L0`);
+  the Andrews Ch. 6 wander route in `andrews/wander.py` (the uplink budget
+  keeps the Dios/Belmonte kernel route, per Conflict C-01); the K
+  distribution.
+- **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
+  `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
+  fixes sit in its working tree only. The owner must commit them.
+- **`examples/andrews/`** demonstrates the layer script by script; its
+  README repeats this wired-versus-available status.
