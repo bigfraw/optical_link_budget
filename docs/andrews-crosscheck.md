@@ -475,7 +475,7 @@ copies. `target module` names the planned home in `olb/turbulence/andrews/`.
 | G-114 | 10.3.5 | Ch. 10, Eqs. (87)-(90) | 420 | 445 | Gaussian-beam aperture-averaged flux variance for zero inner scale and infinite outer scale, in the beam parameters and Omega_G = 16 L/(k D_G^2). Valid weak to strong. olb has NO Gaussian-beam aperture averaging at all; it uses the plane-wave form for every receiver. | aperture.py | 9 | P1 |
 | G-115 | 10.3.6 | Ch. 10, Eqs. (91)-(97) | 421-422 | 446-447 | Aperture-averaged TEMPORAL covariance and temporal spectrum of the irradiance under Taylor frozen turbulence, with the closed forms (94) and (95), the Fresnel frequency, and the spectrum by Eqs. (96) and (97). olb has no temporal model of any kind. | temporal.py | 7 | P1 |
 | G-116 | 11.2.2 | Ch. 11, Eqs. (12) and (15) | 447-448 | 472-473 | Rice level-crossing rate: expected threshold crossings per second from the joint PDF of a process and its time derivative, and the quasi-frequency n0. The general machinery behind every fade-rate quantity. | temporal.py | 7 | P1 |
-| G-117 | 11.3.1 | Ch. 11, Eqs. (23), (24), (25); Ch. 12, Eqs. (69)-(71) | 451 (511) | 476 (536) | Probability of fade for a LOGNORMAL irradiance in closed form, Pr = 0.5{1 + erf[(0.5 sigma_I^2 + 0.23 F_T)/(sigma_I sqrt2)]}, with the fade threshold parameter F_T in dB. olb reaches the same number only by a Monte Carlo percentile (RS-04). | distributions.py | 7 | P1 |
+| G-117 | 11.3.1 | Ch. 11, Eqs. (23), (24), (25); Ch. 12, Eqs. (69)-(71) | 451 (511) | 476 (536) | Probability of fade for a LOGNORMAL irradiance in closed form, Pr = 0.5{1 + erf[(0.5 sigma_I^2 - 0.23 F_T)/(sigma_I sqrt2)]}, with the fade threshold parameter F_T in dB. SIGN CORRECTED by WP1: the reader read "+" from a two-column scan interleave; the minus follows from Ch. 12, Eq. (71) and the F_T = 0 check (Pr must exceed 0.5). Implemented and asserted in andrews/distributions.py. olb previously reached the same number only by a Monte Carlo percentile (RS-04). | distributions.py | 7 | P1 |
 | G-118 | 11.3.1 | Ch. 11, Eqs. (21), (26), (27), (28) | 450-452 | 475-477 | Gamma-gamma irradiance PDF in the DETECTOR plane and its closed-form cumulative fade probability, with alpha and beta set from the APERTURE-AVERAGED log variances. The book states the lognormal is optimistic in the deep-fade tail, which is exactly the region olb reports. | distributions.py | 5 | P1 |
 | G-119 | 11.3.2 | Ch. 11, Eqs. (33), (34), (35); Ch. 12, Eq. (72) | 455-456 (513) | 480-481 (538) | Expected number of fades per second for a lognormal irradiance, with the quasi-frequency n0 from the second derivative of the covariance. | temporal.py | 7 | P1 |
 | G-120 | 11.3.2 | Ch. 11, Eqs. (36), (37), (38); Ch. 12, Eq. (74) | 456 (514) | 481 (539) | Expected number of fades for a GAMMA-GAMMA irradiance, a modified-Bessel closed form, with its own quasi-frequency. | temporal.py, distributions.py | 7 | P1 |
@@ -734,7 +734,7 @@ the decision is made.
 
 | id | subject | the two positions | evidence | recommendation |
 |---|---|---|---|---|
-| C-01 | Beam-wander variance constant. `beam_wander_variance` at `coupled_flux.py:113` (Table 1 row KR-04), which feeds AA-01 and the whole uplink wander path. | (a) The kernel uses 2.07 and cites Dios et al. 2004, DOI 10.1364/AO.43.003866. (b) Andrews Ch. 6, Eqs. (93), (117) and (118) give 7.25 for an IDENTICAL integrand. | R3 re-derived 7.25 from Ch. 6, Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252. The book value enters W_LT^2 = W_ST^2 + <r_c^2> (Eq. (100)) and R3 verified it against the book Worked Example 2, printed 215. A full-book search for 2.07 returns only eta_Y = 2.07 sigma_R^(12/5) in Ch. 9, an unrelated quantity. The kernel is 3.50 times low as a radial variance, 1.75 times low as a per-axis variance. | CROSS-SOURCE CONFLICT, Dios against Andrews. Do NOT mark it a plain bug and do NOT silently swap the constant. Read the Dios paper definition of the wander variance first (per axis or radial, and which filter). Then decide. The factor 1.75 against 3.50 ambiguity is the SAME ambiguity as C-03, so decide C-01 and C-03 together. |
+| C-01 | Beam-wander variance constant. `beam_wander_variance` at `coupled_flux.py:113` (Table 1 row KR-04), which feeds AA-01 and the whole uplink wander path. | (a) The kernel uses 2.07 and cites Dios et al. 2004, DOI 10.1364/AO.43.003866. (b) Andrews Ch. 6, Eqs. (93), (117) and (118) give 7.25 for an IDENTICAL integrand. | R3 re-derived 7.25 from Ch. 6, Eq. (88) with the filter of Eq. (89): 8 pi^2 (0.033)(1/2) Gamma(1/6) = 7.252. The book value enters W_LT^2 = W_ST^2 + <r_c^2> (Eq. (100)) and R3 verified it against the book Worked Example 2, printed 215. A full-book search for 2.07 returns only eta_Y = 2.07 sigma_R^(12/5) in Ch. 9, an unrelated quantity. The kernel is 3.50 times low as a radial variance, 1.75 times low as a per-axis variance. UPDATE (kernel-patch agent, 2026-08-25): the per-axis escape is RULED OUT. Andrews Eq. (93) reduces through Eq. (94) to the standard 2.42 Cn2 L^3 W0^(-1/3); the kernel 2.07 gives 0.69, a factor 3.50 under EITHER axis convention (a per-axis reading needs 3.63, not 2.07). The Dios paper is paywalled, so its own definition stays unverified. The kernel keeps 2.07 with a comparison comment. | CROSS-SOURCE CONFLICT, Dios against Andrews. Do NOT mark it a plain bug and do NOT silently swap the constant. The remaining question is only whether Dios itself uses 2.07 or the kernel mis-copies Dios. WP5 (andrews/wander.py) implements the Andrews Ch. 6, Eq. (93) form independently; compare the two there and put the decision to the owner with both numbers. Decide C-01 and C-03 together. |
 | C-02 | Spherical and Gaussian-beam path weight direction. `gaussian_fried.py:319` (GF-18) and `coupled_flux.py:46` (KR-01) use ((L-z)/L)^(5/3); Andrews Ch. 6, Eqs. (115) and (116) use (z/L)^(5/3). | (a) R3: the book measures z FROM THE TRANSMITTER and states below Eq. (116) that the Cn2 near the RECEIVER carries the weight, so olb uses the MIRROR weight. (b) The olb form matches Dios, DOI 10.1364/AO.43.003866, Eq. (3), which gives the TRANSMITTER-plane (reciprocal) coherence radius of an UPLINK beam. | THE GEOMETRY RESOLVES IT. R4 found Ch. 8, Eq. (115) printed 299: the slant UPLINK plane-wave weighting is (1 - z/L)^(5/6), heavy near the TRANSMITTER. R7 found the book's own uplink wave structure function and coherence radius, Ch. 12, Eqs. (24)-(27) printed 492, which is a separate uplink derivation from the downlink pair Eqs. (17)-(22). And R3 confirmed that the same kernel weights the SPREADING integral correctly at `coupled_flux.py:234` (KR-09), where the book Ch. 6, Eq. (109) also measures from the transmitter. So Ch. 6, Eqs. (115) and (116) give the DOWNLINK (receiver-referred) coherence radius, and the olb weight is the UPLINK (transmitter-referred) one. | NOT A BUG, a plane-of-reference difference. DO NOT flip the weight. Do two things instead. (1) Document the reference plane in the GF-18 and KR-01 docstrings, and say which link direction each serves. (2) Build Table 2 row G-130 (Ch. 12, Eqs. (24)-(27)) and check the olb uplink form against the book's own uplink form, not against the downlink Eq. (115). |
 | C-03 | Long-term waist factor. `coupled_flux.py:127` (KR-05) computes W_LT^2 = W_ST^2 + 2 <beta^2>; Andrews Ch. 6, Eq. (100) printed 205 has the factor 1 on the wander variance. | (a) The kernel factor 2 is correct if <beta^2> is a PER-AXIS variance, because the book <r_c^2> is the two-dimensional (radial) displacement variance. (b) `olb/turbulence/angle_of_arrival.py:57` documents the SAME number as the RADIAL (two-axis) variance, in which case the factor must be 1. | The two readings cannot both hold. R4 independently read the same quantity as two-dimensional at `uplink_flux.py:183` and :190-191 (Table 3 rows), where olb doubles a per-axis jitter and then halves it again per Cartesian axis. So olb itself uses BOTH conventions in two places. | Pick ONE convention for the wander variance, write it in the kernel docstring, and make `angle_of_arrival.py:57`, `coupled_flux.py:127` and `uplink_flux.py:183` agree. Decide this together with C-01: a per-axis reading makes the kernel 1.75 times low, a radial reading makes it 3.50 times low. |
 | C-04 | Angle-of-arrival tilt coefficient. The batch-2 flag names 0.182 (D/r0)^(5/3)(lambda/D)^2; the Andrews route gives 0.174. | (a) Andrews Ch. 6, Eq. (84) printed 201 gives <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3), one axis. With D = 2 W_G and r0 = (0.423 k^2 Cn2 L)^(-3/5) this is 2.91/(0.423 x 4 pi^2) = 0.1743. (b) 0.182 is the Noll ZERNIKE tilt, a different tilt definition. | R3 searched Ch. 6 and Ch. 7 (printed 179-255) and found no 0.182 anywhere. Andrews Eq. (82) defines the tilt as a phase DIFFERENCE across the pupil (a gradient tilt); Noll defines it as the Zernike Z2/Z3 coefficient. | A DEFINITION CHOICE FOR THE OWNER, not an error in either source. Pick the tilt definition FIRST, then take the matching coefficient: gradient tilt gives 0.174 with Ch. 6, Eq. (84); Zernike tilt gives 0.182 with Noll 1976. Note that `olb/turbulence/ao.py` already uses the NOLL convention (1.0299 and 0.134), so the Noll 0.182 is the consistent choice inside olb. Record the choice in the `aperture_arrival_angle_variance` docstring before you fill the stub. |
@@ -827,7 +827,7 @@ two quantities, as variances; take the square root at the call site.
 
 ---
 
-## WP3 notes â€” spectra, structure functions and aperture averaging
+## WP3 notes — spectra, structure functions and aperture averaging
 
 Work package WP3 built `olb/turbulence/andrews/spectra.py`, `structure.py` and
 `aperture.py`, and it filled the inner-scale and outer-scale branches of
@@ -836,7 +836,7 @@ delegated, and what the book would not give.
 
 ### Built
 
-- `spectra.py` â€” Ch. 3, Eqs. (18) to (23), printed pp. 67 to 69. The five
+- `spectra.py` — Ch. 3, Eqs. (18) to (23), printed pp. 67 to 69. The five
   models `kolmogorov`, `tatarskii`, `von_karman`, `exponential` and
   `modified_atmospheric`, plus the plain dict `SPECTRA`. On the outer-scale
   constant the book is explicit and inconsistent on purpose: Eq. (20), printed
@@ -844,17 +844,17 @@ delegated, and what the book would not give.
   k0 = 1/L0"; Eq. (23), printed p. 69, prints k0 = 4 pi/L0 "or 2 pi/L0, or
   8 pi/L0"; the Ch. 9 scintillation model uses C0 = 8 pi. Each function names
   its default and takes the constant as a keyword. Closes G-04 to G-09.
-- `structure.py` â€” the wave structure function and the coherence radius of
+- `structure.py` — the wave structure function and the coherence radius of
   Appendix III, Tables I to VI, printed pp. 765 to 768, with Ch. 6, Secs. 6.4
   and 6.5. Also `fried_parameter` (r_0 = 2.1 rho_0, Ch. 6, text below Eq. (64),
   printed p. 194), `angle_of_arrival_variance` (Ch. 6, Eqs. (83) and (84),
   printed pp. 200 and 201) and `rms_image_jitter` (Ch. 6, Eq. (85), printed
   p. 201). Closes G-30 to G-36 and the coherence-radius half of G-43.
-- `aperture.py` â€” Ch. 10, Sec. 10.3. Plane weak Eq. (60) and the Eq. (61) fit,
+- `aperture.py` — Ch. 10, Sec. 10.3. Plane weak Eq. (60) and the Eq. (61) fit,
   spherical weak Eq. (53), plane strong Eq. (69) and the two-scale Eqs. (62) to
   (68), spherical strong Eq. (77) and the two-scale Eqs. (71) to (76), Gaussian
   strong Eqs. (87) to (90). Closes G-107, G-109, G-110, G-111, G-112 and G-114.
-- `scintillation.py` â€” `two_scale_parameters`, `weak_two_scale_index` (Ch. 9,
+- `scintillation.py` — `two_scale_parameters`, `weak_two_scale_index` (Ch. 9,
   Eqs. (48), (75) and (104)) and the two-scale large-scale and small-scale log
   variances for the plane and the spherical wave. Closes G-54, G-87, G-88 and
   G-91.
@@ -899,7 +899,7 @@ delegated, and what the book would not give.
 
 ### The book would not give (owner action needed)
 
-1. **Appendix III, Table III, printed p. 766 â€” the Gaussian row of the MODIFIED
+1. **Appendix III, Table III, printed p. 766 — the Gaussian row of the MODIFIED
    spectrum.** The two Lambda-only bump terms read as
    0.438 (Lambda Q_l)^(1/6) and 0.056 (Lambda Q_l)^(1/6). Those fall only as
    Lambda^(1/6), which breaks the plane-wave reduction by 2.3 %. Ch. 6, text
@@ -908,7 +908,7 @@ delegated, and what the book would not give.
    `structure.wave_structure_function` raises NotImplementedError for
    wave="gaussian" with spectrum="modified". Every other cell of Tables I to III
    is built and its plane and spherical reductions are measured.
-2. **Ch. 9, Eq. (109), printed p. 355, and Ch. 10, Eq. (84), printed p. 420 â€”
+2. **Ch. 9, Eq. (109), printed p. 355, and Ch. 10, Eq. (84), printed p. 420 —
    the Gaussian-beam eta_X of the two-scale STRONG theory.** No reading
    recovered from the scan gives both the plane-wave value 2.61 (Ch. 9,
    Eq. (54), printed p. 339) and the spherical-wave value 8.56 (Ch. 10,
@@ -917,7 +917,7 @@ delegated, and what the book would not give.
    `aperture.averaged_index`. Both raise NotImplementedError with the citation.
    The WEAK Gaussian two-scale index, Ch. 9, Eq. (104), printed p. 354, IS
    built, and its three limits are measured inside 1 %.
-3. **Ch. 10, Eq. (78), printed p. 419 â€” the weak Gaussian-beam flux-variance
+3. **Ch. 10, Eq. (78), printed p. 419 — the weak Gaussian-beam flux-variance
    double integral.** The book prints no closed form. `averaged_index` raises
    for wave="gaussian" with regime="weak" and points at the all-regime chain.
 
