@@ -534,6 +534,10 @@ def greenwood_frequency(hs, cn2_profile, wavelength, elevation_deg=90.0,
     The Greenwood frequency is the servo bandwidth that an adaptive-optics
     system needs. Below it the correction lags the turbulence.
 
+    SPECTRUM: Kolmogorov. The V^(5/3) wind weighting and the 2.91 constant are
+    the -11/3 power-law result (the same one that gives r0 ~ Cn2^(-3/5), with no
+    inner scale or outer scale). The book gives no scale-dependent form for it.
+
     Parameters:
         hs : numpy.ndarray
             Heights above the ground station [m], ascending.

@@ -16,12 +16,20 @@ THREE WARNINGS THAT THE PACKAGE CARRIES, shown by the tables below.
   1. nu0 has NO upper limit of its own. With a Kolmogorov spectrum and a zero
      inner scale the spectrum decays as f^(-8/3), so the second moment grows as
      f_max^(1/3): about x1.49 per decade of band. This is why the book fixes
-     nu0 = 550 Hz for its own figures. A caller MUST set the band.
+     nu0 = 550 Hz for its own figures. A caller MUST set the band. A finite inner
+     scale sets that band: the modified von Karman cutoff kappa_m = 5.92/l0
+     (Ch. 3, Eqs. (19) and (20), printed p. 67) maps to f_l = V kappa_m/(2 pi)
+     by frozen flow, which BOUNDS nu0. The fourth table shows it.
   2. The weak spectrum and the strong spectrum carry the same POWER but not the
      same SHAPE. The ratio table shows that.
-  3. An inner scale or an outer scale is REFUSED on the temporal spectrum, in
-     every regime (Ch. 9, Sec. 9.8, printed p. 364). So is a strong-regime
-     spherical wave or Gaussian beam.
+  3. An inner scale or an outer scale is REFUSED on the temporal spectrum SHAPE,
+     in every regime (Ch. 9, Sec. 9.8, printed p. 364). The book gives no closed
+     temporal form with a scale, so the code does not guess one. But the inner
+     scale still BOUNDS nu0 as the BAND edge (warning 1), not as a shape change;
+     the outer scale acts on the low-frequency end, so it barely moves nu0. A
+     strong-regime spherical wave or Gaussian beam is refused too: Ch. 9.8
+     carries only the plane wave, because the book gives no strong-regime
+     beam-wave covariance to transform.
 
 Run from the repo root:
     python -m examples.andrews.temporal_statistics
@@ -94,6 +102,43 @@ def print_nu0_band(bands):
           "f_max^(1/3)\n  law. Set the band from the detector bandwidth.\n")
 
 
+def print_nu0_inner_scale_bound(l0_values):
+    '''Bound nu0 with the modified von Karman inner-scale cutoff frequency.
+
+    The band table above shows nu0 with no upper limit: it grows as f_max^(1/3)
+    forever. A finite inner scale l0 stops that. The smallest eddy sets the
+    highest wavenumber kappa_m = 5.92/l0 of the modified von Karman spectrum
+    (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eqs. (19)
+    and (20), printed p. 67). The Taylor frozen-flow map, Ch. 3, Eq. (27),
+    printed p. 73, turns it into an upper frequency f_l = V kappa_m/(2 pi). Cut
+    the band there and nu0 CONVERGES to a value that l0 sets, not the grid.
+
+    The inner scale enters as the BAND, not as the spectrum SHAPE. The temporal
+    module refuses l0 inside S_I(f), because the book gives no closed temporal
+    form with a scale (Ch. 9.8, printed p. 364). So this keeps the Kolmogorov
+    shape and only caps the integral.
+    '''
+    print("nu0 bounded by the modified von Karman inner scale, weak plane "
+          "spectrum")
+    print(f"  {'l0 [mm]':>9} {'kappa_m [1/m]':>14} {'f_l [Hz]':>10} | "
+          f"{'nu0 [Hz]':>10}")
+    print("  " + "-" * 50)
+    for l0 in l0_values:
+        # Modified von Karman inner-scale wavenumber, Ch. 3, Eq. (19). The
+        # modified atmospheric spectrum uses kappa_l = 3.3/l0 instead (Eq. (22)),
+        # a ~1.8x lower cut, so a modestly lower bound.
+        kappa_m = 5.92 / l0
+        f_l = kappa_m * WIND_M_S / (2.0 * np.pi)   # invert kappa = 2 pi f / V
+        freq = np.logspace(-1.0, np.log10(f_l), 4001)
+        spectrum = irradiance_temporal_spectrum(freq, WIND_M_S, WAVELENGTH_M,
+                                                PATH_M, CN2, wave='plane',
+                                                regime='weak')
+        nu0 = float(quasi_frequency(freq, spectrum))
+        print(f"  {l0*1e3:>9.1f} {kappa_m:>14.1f} {f_l:>10.1f} | {nu0:>10.2f}")
+    print("  A smaller inner scale gives a higher cut and a higher nu0. Compare "
+          "the\n  unbounded band table above: there the number never settles.\n")
+
+
 def print_greenwood(elevations):
     '''Print the Greenwood frequency and tau0 on the H-V profile.'''
     hs = DEFAULT_HS
@@ -136,5 +181,6 @@ def print_fade_numbers():
 if __name__ == '__main__':
     print_spectrum(np.array([1.0, 10.0, 50.0, 100.0, 500.0, 1000.0]))
     print_nu0_band([10.0, 100.0, 1000.0, 10000.0, 100000.0])
+    print_nu0_inner_scale_bound([3e-3, 5e-3, 10e-3])
     print_greenwood([10.0, 20.0, 30.0, 45.0, 60.0, 90.0])
     print_fade_numbers()

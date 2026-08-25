@@ -293,6 +293,12 @@ def rytov_variance(wavelength, z, cn2, *, wave='plane', beam=None):
                               it. The Ch. 8 Summary prints it again as Eq. (130),
                               printed p. 303.
 
+    SPECTRUM: Kolmogorov. The 7/6 and 11/6 exponents (and the 1.23 constant) are
+    the signature of the -11/3 power law with a zero inner scale. This is the
+    ROOT of the weak theory: nearly every weak-regime quantity in the layer is
+    sigma_R^2 times a geometric factor, so it inherits Kolmogorov from here. For
+    a finite inner or outer scale use `weak_two_scale_index`.
+
     RESTRICTION on "gaussian": the book states that Eq. (23) holds "in the case
     of a collimated or divergent beam" (Ch. 8, text above Eq. (23), printed
     p. 264). So Theta0 must be 1 or more. A convergent beam needs the exact

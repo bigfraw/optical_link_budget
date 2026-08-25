@@ -106,7 +106,26 @@ def sweep_inner_scale(l0_values):
     print("  The spectral bump of Ch. 3, Eq. (23) adds power near the "
           "Fresnel scale.")
     print("  The OUTER scale is refused on this weak form: the book prints no "
-          "L0 branch\n  for Ch. 9, Eqs. (48), (75) and (104).\n")
+          "L0 branch\n  for Ch. 9, Eqs. (48), (75) and (104).")
+
+    # The STRONG two-scale index IS built for a plane and a spherical wave:
+    # scintillation_index(..., regime='strong', l0=...) reads the extended Rytov
+    # theory of Ch. 9, Secs. 9.4.2 and 9.5.2. The GAUSSIAN strong two-scale
+    # branch is NOT built, because Ch. 9, Eq. (109), printed p. 355, gives the
+    # cutoff eta_X in a form that no reading of the source PDF recovers with both
+    # the plane limit 2.61 and the spherical limit 8.56. The code refuses it
+    # rather than guess the coefficient. This block prints the refusal, so the
+    # gap stays visible.
+    try:
+        scintillation_index(WAVELENGTH_M, PATH_M, cn2, wave='gaussian',
+                            beam=bp, regime='strong', l0=l0_values[0])
+    except NotImplementedError:
+        print("  STRONG two-scale: plane and spherical are built "
+              "(regime='strong', l0=...);\n  the GAUSSIAN case is REFUSED, "
+              "Ch. 9, Eq. (109) eta_X is unresolved.\n")
+    else:
+        raise AssertionError('the Gaussian strong two-scale index must raise '
+                             'NotImplementedError')
 
 
 def sweep_tracking():
