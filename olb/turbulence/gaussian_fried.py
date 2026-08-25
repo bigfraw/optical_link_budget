@@ -15,20 +15,35 @@ Physics (collimated Gaussian beam, isotropic turbulence):
     r0_gauss = 2.1 * rho0_e * rho_pl
     rho_pl is the plane-wave coherence radius. rho0_e is the beam coherence radius
     divided by the plane-wave coherence radius. Source: Andrews and Phillips,
-    Laser Beam Propagation through Random Media, 2nd ed. (2005), Ch. 6 (Gaussian-
-    beam coherence) and Ch. 9 (effective beam parameters in strong turbulence).
+    Laser Beam Propagation through Random Media, 2nd ed. (2005),
+    DOI 10.1117/3.626196, Ch. 6, Eq. (64), printed p. 194 (Gaussian-beam
+    coherence) and Ch. 7, Eq. (58), printed p. 242 (effective beam parameters in
+    strong turbulence). The beam parameters Theta0, Lambda0, Theta, Theta_bar
+    and Lambda are Ch. 4, Eqs. (33), (44), (45) and (47), printed pp. 92 and 95.
 
     A radius w0 gives the beam its input size. The input Fresnel ratio is
     Lambda0 = 2 z / (k w0^2), with k = 2*pi/lambda. The beam is collimated, so
     the input curvature Theta0 = 1. The output parameters are
         Lambda = Lambda0 / (Lambda0^2 + Theta0^2)
         Theta  = Theta0  / (Theta0^2 + Lambda0^2)
+
+NEW HOME. The beam parameters and the Rytov variance now live in the Andrews
+foundation package, `olb.turbulence.andrews.beam` and
+`olb.turbulence.andrews.scintillation`. Those modules are general in the input
+curvature f0. The three functions below keep their names and their signatures,
+but they call the new home. Use the new home for new code.
 '''
 
 import numpy as np
 
+from .andrews.beam import beam_params
+from .andrews.beam import effective_beam_params as _andrews_effective
+from .andrews.scintillation import rytov_variance as _andrews_rytov_variance
+
 # Input curvature of a collimated beam. The waist sits at the transmitter.
-# Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+# Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
+# 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eq. (33), printed p. 92:
+# Theta0 = 1 - z/F0, which is 1 when F0 is infinite.
 COLLIMATED_THETA0 = 1.0
 
 
@@ -44,7 +59,8 @@ def input_fresnel_ratio(z, w0, wavelength):
     formula:
         Lambda0 = 2 z / (k w0^2),   k = 2*pi/lambda
     Here w0 is the beam RADIUS at the transmitter [m]. Source: Andrews and
-    Phillips, 2nd ed. (2005), Ch. 6.
+    Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eq. (33), printed
+    p. 92.
     '''
     return 2.0 * z / (_k(wavelength) * np.asarray(w0, dtype=float) ** 2)
 
@@ -56,13 +72,14 @@ def output_beam_params(z, w0, wavelength):
     formula:
         Lambda = Lambda0 / (Lambda0^2 + Theta0^2)
         Theta  = Theta0  / (Theta0^2 + Lambda0^2),   Theta0 = 1
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 6.
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4,
+    Eqs. (33) and (44), printed pp. 92 and 95.
+
+    NEW HOME: `olb.turbulence.andrews.beam.beam_params`. That function is
+    general in the input curvature f0 and it also gives Theta_bar and W.
     '''
-    lam0 = input_fresnel_ratio(z, w0, wavelength)
-    denom = lam0 ** 2 + COLLIMATED_THETA0 ** 2
-    lam = lam0 / denom
-    theta = COLLIMATED_THETA0 / denom
-    return theta, lam
+    bp = beam_params(w0, wavelength, z)
+    return bp.theta, bp.lam
 
 
 def rytov_std(z, cn2, wavelength):
@@ -71,12 +88,14 @@ def rytov_std(z, cn2, wavelength):
 
     formula:
         sigma_R = ( 1.23 Cn2 k^(7/6) z^(11/6) )^0.5,   k = 2*pi/lambda
-    The Rytov variance is sigma_R^2. Source: Andrews and Phillips, 2nd ed. (2005),
-    Ch. 5.
+    The Rytov variance is sigma_R^2. Source: Andrews and Phillips, 2nd ed.
+    (2005), DOI 10.1117/3.626196, Ch. 8, Eq. (20), printed p. 264.
+
+    NEW HOME: `olb.turbulence.andrews.scintillation.rytov_variance`. That
+    function gives the VARIANCE, and it also gives the spherical-wave and the
+    Gaussian-beam forms.
     '''
-    k = _k(wavelength)
-    return (1.23 * np.asarray(cn2, dtype=float) * k ** (7.0 / 6.0)
-            * np.asarray(z, dtype=float) ** (11.0 / 6.0)) ** 0.5
+    return np.sqrt(_andrews_rytov_variance(wavelength, z, cn2, wave='plane'))
 
 
 def effective_beam_params(z, w0, cn2, wavelength):
@@ -89,15 +108,18 @@ def effective_beam_params(z, w0, cn2, wavelength):
         Theta_e  = (Theta - 0.81 sigma_R^(12/5) Lambda)
                    / (1 + 1.63 sigma_R^(12/5) Lambda)
         Lambda_e = Lambda / (1 + 1.63 sigma_R^(12/5) Lambda)
-    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 9.
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 7,
+    Eq. (58), printed p. 242. Ch. 9, Eqs. (85) and (86), printed p. 349, restate
+    it.
+
+    NEW HOME: `olb.turbulence.andrews.beam.effective_beam_params`. That function
+    takes a BeamParams and the Rytov variance, and it also gives the long-term
+    beam radius W_LT.
     '''
-    theta, lam = output_beam_params(z, w0, wavelength)
-    sr = rytov_std(z, cn2, wavelength)
-    sr125 = sr ** (12.0 / 5.0)
-    denom = 1.0 + 1.63 * sr125 * lam
-    theta_e = (theta - 0.81 * sr125 * lam) / denom
-    lam_e = lam / denom
-    return theta_e, lam_e
+    bp = beam_params(w0, wavelength, z)
+    sigma2_R = _andrews_rytov_variance(wavelength, z, cn2, wave='plane')
+    bp_e = _andrews_effective(bp, sigma2_R)
+    return bp_e.theta, bp_e.lam
 
 
 def _a_factor(theta_e):
@@ -282,7 +304,14 @@ def gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
     Fried parameter. In the spherical-wave limit (Theta -> 0, Lambda -> 0) the
     weight is xi^(5/3): the turbulence at the transmitter carries the full
     weight, which matches Dios Eq. (3). Source: Andrews and Phillips, 2nd ed.
-    (2005), Sec. 12.4.1 (WSF) and Ch. 6 (beam parameters).
+    (2005), DOI 10.1117/3.626196, Ch. 12, Eq. (23), printed p. 492 (the slant
+    airmass), Ch. 6, Eq. (115), printed p. 209 (the path weight), and Ch. 4,
+    Eqs. (33), (44), (45) and (47), printed pp. 92 and 95 (the beam parameters).
+
+    PLANE OF REFERENCE: the weight xi = (L - z)/L is TRANSMITTER-referred, per
+    Dios et al., Appl. Opt. 43 (2004) 3866, DOI 10.1364/AO.43.003866, Eq. (3).
+    The book Ch. 6, Eq. (115) writes the mirror weight z/L, which is
+    RECEIVER-referred. The difference is the plane of reference, not a fault.
     '''
     hs = np.asarray(hs, dtype=float)
     cn2 = np.asarray(cn2_profile, dtype=float)

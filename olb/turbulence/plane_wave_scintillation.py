@@ -37,6 +37,9 @@ Physics (plane wave, weak fluctuation, isotropic turbulence):
 import numpy as np
 from scipy.special import j1
 
+from .andrews.scintillation import (
+    scintillation_index as _andrews_scintillation_index,
+)
 from .profiles import DEFAULT_HS, get_c2n
 
 # Weak-fluctuation limit for the plane-wave scintillation index. The lognormal
@@ -291,13 +294,14 @@ def plane_wave_scintillation_index_closed(cn2, wavelength, path_length_m):
     constants are repeated in Ch. 12, Eqs. (40) and (93), and in App. III
     Table VII(b). The d = 0 limit of `aperture_averaged_index_andrews`
     (Ch. 10, Eq. (69)) gives the same four constants.
+
+    NEW HOME: `olb.turbulence.andrews.scintillation.scintillation_index` with
+    wave="plane" and regime="strong". That function builds the same result from
+    the two log-irradiance variances of Ch. 9, Eqs. (41) and (46), printed
+    pp. 335 and 336, which also feed the gamma-gamma distribution.
     '''
-    s = sigma1_rytov(cn2, wavelength, path_length_m)
-    s2 = s ** 2
-    s125 = s ** (12.0 / 5.0)
-    term1 = 0.49 * s2 / (1.0 + 1.11 * s125) ** (7.0 / 6.0)
-    term2 = 0.51 * s2 / (1.0 + 0.69 * s125) ** (5.0 / 6.0)
-    return np.exp(term1 + term2) - 1.0
+    return _andrews_scintillation_index(wavelength, path_length_m, cn2,
+                                        wave='plane', regime='strong')
 
 
 def _d_param(rx_diameter_m, wavelength, path_length_m):

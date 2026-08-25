@@ -185,6 +185,20 @@ Ranked. The physics faults come first, then the citation faults.
    state the same result identically. The citation is valid, only less
    specific. Recorded so that nobody "fixes" it.
 
+**Measurements**
+
+1. **GAP 9 is now MEASURED and CLOSED.** The Andrews closed form Ch. 8, Eq. (23)
+   printed 264 is now built, as
+   `olb/turbulence/andrews/scintillation.py:beam_rytov_variance`. The self-check
+   of that module compares it with the Dios path integral
+   `beam_wave_scintillation.on_axis_scintillation_index` over one homogeneous
+   horizontal path (lambda = 1550 nm, L = 2000 m, Cn2 = 3e-16, sigma_R^2 =
+   0.0213, w0 = 5 cm). The measured difference is **+3.06 %** for a collimated
+   beam and **-1.57 %** for a divergent beam with f0 = -1000 m. So the two
+   models agree inside the 15 % gate. The residual is the book rounding of the
+   constants 3.86 and 0.40, which gives 0.998 and 0.3996 in the plane-wave and
+   spherical-wave limits.
+
 ## Table 1 — forward map
 
 One row per equation. Sorted by olb file path, then by line number.
