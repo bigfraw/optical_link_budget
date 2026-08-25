@@ -387,7 +387,16 @@ factors.
 - Plane wave, weak fluctuation, isotropic turbulence.
 - The lognormal irradiance PDF is trusted for `sigma2_I` below about
   `WEAK_FLUCTUATION_LIMIT = 0.25`. Above it, focusing and saturation make the
-  lognormal model depart from data.
+  lognormal model depart from data. That 0.25 is a HOUSE RULE, 4 times stricter
+  than the book bound `sigma_R^2 < 1` (Ch. 5, Eq. (15), printed p. 140). It is
+  kept, because Ch. 11, Sec. 11.3, printed p. 451, says the lognormal tail is
+  optimistic, and the fade faces report that tail.
+- `downlink_scintillation_term(..., model="auto")` reads the point index and
+  switches at that limit: below it the lognormal Term, at or above it the
+  gamma-gamma Term of Section 5h. The gamma-gamma chain holds at every
+  fluctuation strength (Ch. 12, Eq. (40), printed p. 497). It models a POINT
+  receiver, because the book gives no aperture-averaged downlink index in that
+  regime.
 - The aperture filter `(2*J1(x)/x)^2` assumes a uniform circular aperture with no
   central obscuration. An annular aperture is not modelled yet.
 - The Kolmogorov spectrum has no inner scale and no outer scale.
@@ -395,8 +404,10 @@ factors.
 #### Source
 
 - Andrews and Phillips, Laser Beam Propagation through Random Media, 2nd ed.
-  (2005): Eq. (12.44) for the plane-wave index; Ch. 10 for the aperture-averaging
-  filter and the closed-form factors; Ch. 5, 6, 9 for the single-path forms.
+  (2005), DOI 10.1117/3.626196: Ch. 12, Eq. (38), printed p. 495 (repeated as
+  Ch. 12, Eq. (92), printed p. 522) for the plane-wave index; Ch. 10 for the
+  aperture-averaging filter and the closed-form factors; Ch. 5, 6, 9 for the
+  single-path forms.
 - Churnside, Applied Optics 30 (1991) 1982, for the strong-turbulence
   aperture-averaging factor.
 
@@ -742,6 +753,140 @@ of magnitude for a small aperture (Stone Fig. 1).
 
 ---
 
+### 5h. The Andrews foundation layer
+
+Package: `olb/turbulence/andrews/`. Adapter: `olb/models/fade.py`.
+
+#### What the code models
+
+The nine modules of `olb/turbulence/andrews/` hold the propagation physics of
+one book:
+
+- L. C. Andrews and R. L. Phillips, *Laser Beam Propagation through Random
+  Media*, 2nd ed., SPIE Press (2005). DOI: 10.1117/3.626196.
+
+Each function names its chapter, its equation number and its printed page. The
+package holds physics only. No module in it imports a scenario, a terminal, a
+Term or a link, and no function in it returns decibels. So the package is the
+one place to read a book equation, and the link layer above it stays thin.
+
+| Module | What it gives | Book |
+| --- | --- | --- |
+| `beam.py` | Gaussian-beam parameters Theta0, Lambda0, Theta, Lambda, W, for ANY input curvature f0, and the strong-turbulence effective pair | Ch. 4, Eqs. (33), (37), (44), (45); Ch. 7, Eq. (58) |
+| `spectra.py` | The five refractive-index spectra: Kolmogorov, Tatarskii, von Karman, exponential, modified atmospheric | Ch. 3, Eqs. (18) to (23) |
+| `structure.py` | Wave structure function, coherence radius, Fried parameter, angle-of-arrival variance, rms image jitter | Ch. 6, Secs. 6.4 and 6.5; App. III, Tables I to VI |
+| `scintillation.py` | Rytov variance, the two-scale weak index, and the large-scale and small-scale log variances that feed the gamma-gamma parameters | Ch. 8, Eq. (20); Ch. 9, Eqs. (41), (46), (48), (97), (101) |
+| `wander.py` | Beam-wander variance, pointing-error variance, long-term and short-term beam radius, and their slant-path forms | Ch. 6, Eqs. (88) and (100); Ch. 12, Eqs. (50) to (53) |
+| `aperture.py` | Aperture averaging of the irradiance flux, weak and all-regime, on a homogeneous path | Ch. 10, Sec. 10.3 |
+| `distributions.py` | The irradiance PDFs (lognormal, gamma-gamma, K, lognormal-Rician), each with parameters, mean log, CDF, quantile and sampler; the probability of fade, the fade rate and the mean fade time | Ch. 9, Secs. 9.9 to 9.11; Ch. 11, Sec. 11.3 |
+| `temporal.py` | Temporal spectra of the irradiance, the quasi-frequency, the Greenwood frequency and the coherence time | Ch. 8, Sec. 8.5; Ch. 9, Sec. 9.8; Ch. 14, Eqs. (38) and (39) |
+| `paths.py` | The slant path and the satellite link: the H-V profile, the Bufton wind, the path moments mu_0 to mu_3, the uplink and downlink scintillation indices, the coherence radius, the isoplanatic angle and the point-ahead angle | Ch. 12 |
+
+#### One distribution drives all three Term faces
+
+A Term has three faces: `mean_db`, `quantile(p)` and `sampler(n, rng)`. Before
+the foundation layer, each link module built the three faces by hand from a
+lognormal. Now one irradiance model gives all three, through one adapter,
+`olb/models/fade.py`:
+
+    loss_db     = -10 log10(I),   with E[I] = 1
+    mean_db     = -(10/ln10) E[ln I]
+    quantile(p) = -10 log10( I(1 - p) )
+    sampler     = -10 log10( draws of I )
+
+`irradiance_fade_term(name, category, mean_log=..., quantile=..., rvs=...)`
+takes the three faces of any model in `distributions.py` and returns the Term.
+So a new distribution needs no new dB code. The loss at availability `p` reads
+the `1 - p` quantile of the irradiance, because a deeper loss is a smaller
+irradiance.
+
+The downlink uses that adapter for the gamma-gamma Term. See Section 5b for the
+selector: `downlink_scintillation_term(..., model="auto")` returns the lognormal
+Term while the point index stays below the house limit 0.25, and the gamma-gamma
+Term at or above it. The gamma-gamma chain is valid at every fluctuation
+strength (Ch. 12, Eq. (40), printed p. 497), so the early switch costs no
+validity. Its scintillation index `1/alpha + 1/beta + 1/(alpha beta)` (Ch. 9,
+Eq. (139), printed p. 371) is identically `exp(sigma_lnX^2 + sigma_lnY^2) - 1`,
+which is the book's own weak-to-strong downlink index. So the Term composes the
+book, it does not re-derive it.
+
+#### The delegation pattern
+
+An older module keeps its NAME and its SIGNATURE, and its body calls the
+foundation layer. Nothing above changed, and the physics has one home:
+
+| Old home | New home |
+| --- | --- |
+| `plane_wave_scintillation.coherence_radius` | `andrews.structure.coherence_radius` |
+| `plane_wave_scintillation.aperture_averaged_index_andrews` | `andrews.aperture.averaged_index` |
+| `gaussian_fried.plane_wave_coherence_radius` | `andrews.structure.coherence_radius` |
+| `gaussian_fried.plane_wave_fried_parameter` | `andrews.structure.fried_parameter` |
+| `gaussian_fried.output_beam_params`, `effective_beam_params`, `rytov_std` | `andrews.beam.beam_params`, `andrews.beam.effective_beam_params`, `andrews.scintillation.rytov_variance` |
+| `ao.plane_wave_fried_parameter_profile` | `andrews.structure.fried_parameter` |
+| `angle_of_arrival.aperture_arrival_angle_variance` | `andrews.structure.angle_of_arrival_variance` |
+
+The Churnside aperture-averaging trio in `plane_wave_scintillation.py` keeps its
+own body, because those constants are Churnside 1991, DOI 10.1364/AO.30.001982,
+not Andrews. Each docstring names its book-form alternative in
+`andrews.aperture`.
+
+#### Documented refusals
+
+The package refuses a form that the book does not print. It does not guess a
+coefficient. Each refusal raises `NotImplementedError` with its citation.
+
+- **The annular (centrally obscured) receive aperture.** A full-text search of
+  all 809 pages finds no aperture filter, no modulation transfer function and no
+  flux variance for an obscured receive aperture. Secs. 10.3.1 to 10.3.6 use the
+  soft Gaussian aperture or the unobscured circular transfer function of Ch. 10,
+  Eq. (54), printed p. 410. So this gap needs another source. The Terms that
+  assume an unobscured aperture keep saying so through `olb/assumptions.py`.
+- **The Gaussian-beam two-scale strong chain**, in
+  `scintillation.large_scale_log_variance` and in `aperture.averaged_index`. It
+  needs eta_X of Ch. 9, Eq. (109), printed p. 355 (repeated as Ch. 10, Eq. (84),
+  printed p. 420). No reading recovered from the scan gives both the plane-wave
+  value 2.61 and the spherical-wave value 8.56 in the two limits.
+- **The Gaussian row of the modified spectrum**, App. III, Table III, printed
+  p. 766, in `structure.wave_structure_function`. As read, the two bump terms
+  fall only as Lambda^(1/6), which breaks the plane-wave reduction by 2.3 %.
+  Ch. 6, text below Eq. (77), printed p. 197, states the row MUST reduce.
+- **The weak Gaussian-beam flux variance**, Ch. 10, Eq. (78), printed p. 419.
+  The book prints no closed form for that double integral.
+- **An inner scale or an outer scale on any Ch. 12 slant form**, in
+  `paths.downlink_scintillation_index` and `paths.uplink_scintillation_index`.
+  Chapter 12 uses the Kolmogorov spectrum only (Ch. 12, Eq. (15), printed
+  p. 490). Use `scintillation.weak_two_scale_index` on a single homogeneous
+  path.
+- **An aperture-averaged downlink index in the strong regime.** Ch. 12,
+  Eq. (39), printed p. 496, is a weak form and Ch. 12, Eq. (40) is a point form;
+  the book prints no product of the two. So the gamma-gamma downlink Term models
+  a POINT receiver, and its `Assumptions` record says so. That fade is deeper
+  than the true aperture fade, which is the safe direction.
+- **A temporal spectrum with a finite inner or outer scale, in any regime**, in
+  `temporal.irradiance_temporal_spectrum`. Ch. 9, Sec. 9.8, printed p. 364,
+  states that it ignores both scales.
+- **A strong-regime spherical wave or Gaussian beam in the temporal module.**
+  Ch. 9, Sec. 9.8, printed p. 364, limits that analysis to a plane wave.
+
+Two more limits are inherent, not refused. First, the slant forms use a
+plane-parallel atmosphere with no Earth-curvature correction, and the book
+limits the weak-fluctuation slant results to zenith angles that do not exceed 45
+to 60 deg (`paths.ZENITH_LIMIT_DEG`). Second, the two-scale large-scale log
+variance does NOT reduce to the Kolmogorov branch as the inner scale goes to
+zero: Ch. 9, Eq. (54), printed p. 339, states its substitution for the case
+rho_0 << l0 only. Treat that branch as a moderate-to-strong model WITH a real
+inner scale, not as a superset.
+
+#### Source
+
+- L. C. Andrews and R. L. Phillips, *Laser Beam Propagation through Random
+  Media*, 2nd ed., SPIE Press (2005). DOI: 10.1117/3.626196. Every equation in
+  the package cites its chapter, equation number and printed page.
+- The equation-by-equation audit, the conflicts and the measured findings are in
+  [andrews-crosscheck.md](andrews-crosscheck.md).
+
+---
+
 ## 6. Fibre coupling
 
 ### 6a. Analytic mean coupling (fidelity 0)
@@ -873,8 +1018,8 @@ an empty stack maps to `AO_MODE="NOAO"`. Subharmonics capture the low-order tilt
 #### Source
 
 FAST (`fast-aosim`), the modal-overlap engine, GPLv3. The regime constant comes
-from the plane-wave scintillation index (Section 5b, Andrews and Phillips, 2nd ed.,
-Eq. 12.44).
+from the plane-wave scintillation index (Section 5b; Andrews and Phillips, 2nd
+ed. (2005), DOI 10.1117/3.626196, Ch. 12, Eq. (38), printed p. 495).
 
 ### 6c. Fibre tip-tilt walk-off (terrestrial SMF and MMF)
 

@@ -138,7 +138,14 @@ flowchart LR
   TUR --> T1["Cn2 profiles ✅"]:::done
   TUR --> T2["Uplink coupled-flux MC ◑"]:::partial
   TUR --> T3["Downlink scintillation ✅"]:::done
+  T3 --> T3A["lognormal · weak ✅"]:::done
+  T3 --> T3B["gamma-gamma · all regimes ✅<br/>auto-selected above σ²=0.25<br/>point receiver"]:::done
   TUR --> T4["Wavefront / AO residual ✅"]:::done
+  TUR --> T5["Andrews foundation layer ✅<br/>9 modules · every equation cited"]:::done
+  T5 --> T5A["inner / outer-scale spectra ✅<br/>5 models · two-scale indices"]:::done
+  T5 --> T5B["temporal statistics ✅<br/>spectra · quasi-frequency<br/>Greenwood · fade rate &amp; duration"]:::done
+  T5 --> T5C["curvature-general Gaussian beam ◑<br/>physics takes f0 · call sites collimated"]:::partial
+  T5 --> T5D["annular receive aperture ⬚<br/>not in the book · needs a source"]:::planned
 
   A --> FIB["Fibre coupling"]
   FIB --> F1["FAST phase screens · fidelity-1 ◑"]:::partial
@@ -189,7 +196,9 @@ flowchart LR
   NT --> NT3["Obscuration in coupled-flux<br/>& mean-only fibre ⬚"]:::planned
   NT --> NT4["Tip-tilt wander removal ⬚"]:::planned
   NT --> NT5["Validate diverged<br/>coupled-flux feed ⬚"]:::planned
-  NT --> NT6["Temporal statistics side-step ⬚<br/>FAST TEMPORAL flag · frozen flow<br/>fade duration &amp; rate · applies to F1/F2"]:::planned
+  NT --> NT6["Temporal statistics side-step ⬚<br/>FAST TEMPORAL flag · frozen flow<br/>applies to F1/F2 · the analytic<br/>fade rate &amp; duration are done"]:::planned
+  NT --> NT7["Tracking-bandwidth / servo-lag Term ⬚<br/>Greenwood frequency is available,<br/>no Term reads it"]:::planned
+  NT --> NT8["Thread f0 into the terrestrial<br/>fibre-coupling Fried call ⬚"]:::planned
 
   N --> NC["Channels"]
   NC --> NC2["Short terrestrial retro module ⬚"]:::planned

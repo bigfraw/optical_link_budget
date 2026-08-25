@@ -311,19 +311,30 @@ standalone pointing Term, unlike the uplink.
 - `n_samples` — the FAST Monte Carlo draws for the SMF fidelity-1 coupling. It
   is ignored for an `Aperture` detector and for `smf_fidelity="mean"`.
 
+`downlink_budget` builds its scintillation Term with `model="lognormal"` and
+`aperture_average=True`. That is the safe default for a normal elevation. For a
+low elevation, build the Term with `model="auto"` and add it to your own
+`Budget`, because the gamma-gamma Term drops the aperture averaging and so it
+changes the total by several dB.
+
 `downlink_scintillation_term(scenario, geometry, *, model="lognormal",
 aperture_average=True, hs=None, cn2_profile=None)` builds the scintillation Term
 on its own. The `model` argument selects the physics through an auto-select
 dispatch:
 
-- `"lognormal"` — the analytic weak-fluctuation plane-wave Term. It is the only
-  implemented model.
-- `"gamma_gamma"` — a reserved slot for the moderate-to-strong regime. It raises
+- `"lognormal"` — the analytic weak-fluctuation plane-wave Term.
+- `"gamma_gamma"` — the analytic gamma-gamma Term. It holds at every fluctuation
+  strength (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 12,
+  Eq. (40), printed p. 497). It models a POINT receiver, because the book gives
+  no aperture-averaged downlink index in that regime, and its `Assumptions`
+  record flags that. It takes a scalar elevation only; an elevation array raises
   `NotImplementedError`.
 - `"montecarlo"` — a reserved slot for the phase-screen model. It raises
   `NotImplementedError`.
-- `"auto"` — the selector layer. It returns the lognormal Term now, and warns
-  when `sigma2_I` exceeds the weak-fluctuation limit.
+- `"auto"` — the selector layer. It reads the point `sigma2_I` and returns the
+  lognormal Term below `WEAK_FLUCTUATION_LIMIT = 0.25`, or the gamma-gamma Term
+  at or above it. For an elevation array that breaks the limit it keeps the
+  lognormal Term and warns.
 
 An unknown `model` name raises `ValueError`.
 

@@ -49,7 +49,14 @@ downlink, and retroreflected links to a LEO satellite.
   Carlo wrapper),
   `angle_of_arrival.py` (the received tip-tilt of a Gaussian beam: the
   beam-wander arrival tilt is the working model; the aperture angle-of-arrival
-  tilt is a DEFERRED stub that raises `NotImplementedError`, owner to specify).
+  tilt now delegates to `andrews/structure.py`),
+  and `andrews/` — the Andrews and Phillips foundation layer, nine modules of
+  pure book physics (`aperture.py`, `beam.py`, `distributions.py`, `paths.py`,
+  `scintillation.py`, `spectra.py`, `structure.py`, `temporal.py`,
+  `wander.py`). Each function cites its chapter, equation number and printed
+  page from DOI 10.1117/3.626196. The files above KEEP their names and their
+  signatures and call it. Put new book physics there, not in a link module.
+  `olb/models/fade.py` turns one irradiance model into the three Term faces.
 - `olb/models/` — Term factories `f(scenario, geometry) -> Term`. Each factory
   is named for the physics it computes. Some use a link-specific simplification,
   and the name says so: `geometric.py`, `extinction.py` (`slant_extinction_term`
@@ -119,22 +126,38 @@ downlink, and retroreflected links to a LEO satellite.
 - Every subagent prompt that writes code or documentation must include the
   ASD-STE100 rule.
 
-## Next task (ASAP)
+## Current state
 
-Generalise the Gaussian-beam Fried parameter past the collimated case. The
-single-path form `gaussian_fried_parameter` in
-`olb/turbulence/gaussian_fried.py` fixes the input curvature `Theta0 = 1`
-through the constant `COLLIMATED_THETA0`. So it holds only for a collimated
-beam. The profile form `gaussian_fried_parameter_profile` already accepts a
-phase-front radius of curvature `f0` and computes `Theta0 = 1 - L/f0`. But its
-default `f0 = inf` keeps the beam collimated, and the one call site (the
-terrestrial single-mode-fibre coupling in `olb/models/coupling/terrestrial.py`) does not
-pass `f0`.
+The Andrews foundation layer EXISTS. `olb/turbulence/andrews/` holds nine
+modules of pure book physics: `aperture.py`, `beam.py`, `distributions.py`,
+`paths.py`, `scintillation.py`, `spectra.py`, `structure.py`, `temporal.py` and
+`wander.py`. Every equation cites its chapter, equation number and printed page
+from Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196. The older
+turbulence modules keep their names and their signatures, and their bodies call
+the new layer. `olb/models/fade.py` turns one irradiance model into the three
+Term faces. See `docs/physics.md` Section 5h and `docs/andrews-crosscheck.md`.
 
-Plan: add a curvature argument to `gaussian_fried_parameter`. Thread it through
-`output_beam_params`, the way the profile form already does. A diverged beam has
-`f0 < 0`, so `Theta0 > 1`. A focused beam has `0 < f0`, so `Theta0 < 1`. Then
-feed the diverged-beam curvature into the coupling call. So a deliberately
-diverged uplink beam also drives the Fried parameter. The package already
-recasts that beam through a virtual waist in `olb/beam.py` for the geometric and
-the scintillation Terms. See the flag in `docs/physics.md` section 5e.
+The downlink budget now selects its distribution:
+`downlink_scintillation_term(..., model="auto")` gives the lognormal Term below
+sigma2_I = 0.25 and the gamma-gamma Term at or above it. The gamma-gamma Term is
+valid at every fluctuation strength, but it models a POINT receiver, because the
+book gives no aperture-averaged downlink index in that regime.
+
+Open items:
+
+- **Gap 2, the pre-compensated uplink, is STILL open.**
+  `andrews.paths.uplink_scintillation_index(tracked=True)` gives the floor of the
+  residual scintillation (Ch. 12, Eqs. (57) to (60)), but NO budget reads it yet.
+  The beacon-plus-adaptive-optics uplink budget stays phase-only, and its Terms
+  still say `NO SCINTILLATION`. Wiring that Term is the next physics task.
+- **Gap 3 is closed at the physics layer only.** `andrews.beam.beam_params`
+  takes any input curvature f0, and `andrews.structure.coherence_radius` takes
+  the beam. But the single-path `gaussian_fried.gaussian_fried_parameter` keeps
+  its collimated signature, and the terrestrial fibre-coupling call site in
+  `olb/models/coupling/terrestrial.py` still passes no curvature. Thread f0 into
+  that call to make a deliberately diverged beam drive the Fried parameter.
+- **Gap 8, the annular (obscured) receive aperture, needs another source.** A
+  full-text search of the book finds no obscured-aperture filter.
+- **Conflict C-01** needs Belmonte 2000 to close the 3.50 beam-wander gap.
+- **TL-05**: the terrestrial weak gate tests one plane-wave threshold on a
+  Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs two.

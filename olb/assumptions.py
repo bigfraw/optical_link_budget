@@ -31,9 +31,15 @@ REGIME_MODERATE = "moderate"
 REGIME_STRONG = "strong"
 REGIME_NA = "not applicable"
 
-# Turbulence spectrum.
-SPECTRUM_KOLMOGOROV = "Kolmogorov, no inner or outer scale"
-SPECTRUM_VON_KARMAN = "von Karman, finite inner or outer scale"
+# Turbulence spectrum. The five named models are the ones that
+# olb.turbulence.andrews.spectra builds. Source: Andrews and Phillips, Laser
+# Beam Propagation through Random Media, 2nd ed. (2005), DOI 10.1117/3.626196,
+# Ch. 3, Eqs. (18) to (23), printed pp. 67 to 69.
+SPECTRUM_KOLMOGOROV = "Kolmogorov, no inner or outer scale"      # Eq. (18)
+SPECTRUM_TATARSKII = "Tatarskii, finite inner scale"             # Eq. (19)
+SPECTRUM_VON_KARMAN = "von Karman, finite inner or outer scale"  # Eq. (20)
+SPECTRUM_EXPONENTIAL = "exponential outer-scale cut-off"         # Eq. (21)
+SPECTRUM_MODIFIED = "modified atmospheric, inner-scale bump"     # Eqs. (22), (23)
 SPECTRUM_NA = "not applicable"
 
 

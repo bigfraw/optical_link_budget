@@ -31,17 +31,17 @@ not valid, and the budget must fall back to a numerical path. See also
 
 | Section | Equations | Topic | Maps to | Status |
 | --- | --- | --- | --- | --- |
-| 6.8.1 | Ch. 6, Eq. (108); Eq. (40), (45) from 6.3.1 | Mean irradiance. Turbulence-induced beam spread for an arbitrary refractive-index structure function. | Beam spread / effective long-term beam radius. `olb/beam.py`, `olb/turbulence/gaussian_fried.py`, `docs/physics.md` §1 and §5e. | flagged — now answered by Table 1 rows KR-12 and KR-13 (Ch. 6, Eqs. (109) and (111), both `exact`) and GF-01 to GF-04. Eq. (108) itself stays a gap: Table 2 row G-42. |
-| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | checked — answered by Table 1 row KR-04 (`other source`: the kernel constant is 2.07, from Dios Eq. (11); the book gives 7.25). C-01 is RESOLVED on 2026-08-25: the kernel copies Dios correctly, so 2.07 stays, and the 3.50 gap is Belmonte 2000 against Andrews. See Conflicts C-01 and Table 2 rows G-38, G-44, G-49. |
-| 6.8 (general) | slant-path extension | Extension to slant paths for an arbitrary Cn2. | Slant-path generalisation of the Gaussian-beam turbulence Terms. Ties to the CLAUDE.md "Next task" (curvature past the collimated case). | flagged — now answered by Table 1 rows GF-15 to GF-21, of which GF-18 is `wrong` (mirrored path weight). See Conflicts C-02 and Table 2 rows G-43 and G-130. |
-| 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | flagged — no Table 1 row exists, because olb has no temporal axis. Table 2 rows G-40 and G-41 hold the book forms; see also G-11, G-67, G-99, G-115 and G-149. |
-| 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/plane_wave_scintillation.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5b and §5d. | flagged — now answered by Table 1 rows BW-08 to BW-16. The regime limits are `wrong` in three places: PW-01, UF-01 and TL-05. See Conflicts C-05 and Table 2 rows G-20, G-50 to G-53, G-84. |
+| 6.8.1 | Ch. 6, Eq. (108); Eq. (40), (45) from 6.3.1 | Mean irradiance. Turbulence-induced beam spread for an arbitrary refractive-index structure function. | Beam spread / effective long-term beam radius. `olb/beam.py`, `olb/turbulence/gaussian_fried.py`, `docs/physics.md` §1 and §5e. | incorporated in part — `olb/turbulence/andrews/wander.py` holds W_LT (Ch. 6, Eq. (86)) and W_ST (Ch. 6, Eq. (100)), and `andrews/beam.py` holds the curvature-general beam parameters. Answered by Table 1 rows KR-12 and KR-13 (Ch. 6, Eqs. (109) and (111), both `exact`) and GF-01 to GF-04. Eq. (108) itself stays a gap: Table 2 row G-42. |
+| 6.6.1 | Ch. 6, Eq. (88) | Beam wander. | Beam-wander variance that folds into the coupled-flux wander term and the Dios off-axis model. `olb/turbulence/uplink_flux.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5c and §5d. | incorporated — `olb/turbulence/andrews/wander.py` holds the book beam-wander variance (Ch. 6, Eqs. (93) to (99)), the pointing error (Ch. 8, Eqs. (36) to (38)) and their slant forms (Ch. 12, Eqs. (50) and (53)). Answered by Table 1 row KR-04 (`other source`: the kernel constant is 2.07, from Dios Eq. (11); the book gives 7.25). C-01 is RESOLVED on 2026-08-25: the kernel copies Dios correctly, so 2.07 stays, and the 3.50 gap is Belmonte 2000 against Andrews. See Conflicts C-01 and Table 2 rows G-38, G-44, G-49. |
+| 6.8 (general) | slant-path extension | Extension to slant paths for an arbitrary Cn2. | Slant-path generalisation of the Gaussian-beam turbulence Terms. Ties to the CLAUDE.md "Next task" (curvature past the collimated case). | incorporated — `olb/turbulence/andrews/paths.py` holds the Chapter 12 slant forms (the path moments mu_0 to mu_3, the uplink and downlink indices, the coherence radius, the isoplanatic angle), and `andrews/beam.py` takes any input curvature f0, which closes olb gap 3 at the physics layer. Answered by Table 1 rows GF-15 to GF-21, of which GF-18 is `wrong` (mirrored path weight). See Conflicts C-02 and Table 2 rows G-43 and G-130. |
+| 6.7 | temporal spectra | Temporal spectra of the beam parameters. | The planned temporal-vs-snapshot option. See the temporal-statistics side-step. | incorporated in part — `olb/turbulence/andrews/temporal.py` holds the irradiance temporal spectra (Ch. 8, Sec. 8.5; Ch. 9, Sec. 9.8), the quasi-frequency, the Greenwood frequency and the coherence time, and `andrews/distributions.py` holds the fade rate and the mean fade time. No Table 1 row exists, because the olb Terms still have no temporal axis. Row G-40 is closed; row G-41 (the Ch. 6.7 mutual-coherence temporal spectrum) stays open; see also G-11, G-67, G-99, G-115 and G-149. |
+| 8.2 | scintillation index | Scintillation index for a tracked and an untracked Gaussian beam. Find the restrictions of weak-fluctuation theory for this case. | Scintillation index Terms; the weak/strong regime limit that sets when we switch to a numerical path. `olb/turbulence/plane_wave_scintillation.py`, `olb/turbulence/beam_wave_scintillation.py`, `docs/physics.md` §5b and §5d. | incorporated — `olb/turbulence/andrews/scintillation.py` holds the tracked and untracked Gaussian-beam index with its weak and all-regime branches (Ch. 8, Sec. 8.2; Ch. 9, Sec. 9.6), and `andrews/paths.py` holds the slant-path pair (Ch. 12, Eqs. (54) to (61)). Answered by Table 1 rows BW-08 to BW-16. UF-01 is fixed. PW-01 keeps 0.25 as a labelled house rule, and `olb/links/downlink.py` now uses that limit as the switch point to the gamma-gamma Term. TL-05 stays `wrong`. See Conflicts C-05 and Table 2 rows G-20, G-50 to G-53, G-84. |
 
 ## Batch 2 — Gaussian-beam angle of arrival / aperture tip-tilt
 
 | Section | Equations | Topic | Maps to | Status |
 | --- | --- | --- | --- | --- |
-| (owner to specify) | (owner to specify) | Aperture angle-of-arrival "corrugation" tip-tilt of a Gaussian beam (the classic plane-wave form ~0.182*(D/r0)^(5/3)*(lambda/D)^2). | The second, smaller received tip-tilt term. `olb/turbulence/angle_of_arrival.py` `aperture_arrival_angle_variance` (a stub that raises NotImplementedError). The working received tip-tilt is the beam-wander term only. | **DEFERRED** — owner to specify the explicit Andrews form. Do not guess the coefficient. Now partly answered: Table 1 row AA-02 gives the book form, Ch. 6, Eq. (84), printed 201. That form converts to 0.174, NOT 0.182, because Andrews gives the gradient tilt and 0.182 is the Noll Zernike tilt. The owner must pick the tilt DEFINITION first. See Conflicts C-04 and Table 2 rows G-34 to G-36. |
+| (owner to specify) | (owner to specify) | Aperture angle-of-arrival "corrugation" tip-tilt of a Gaussian beam (the classic plane-wave form ~0.182*(D/r0)^(5/3)*(lambda/D)^2). | The second, smaller received tip-tilt term. `olb/turbulence/angle_of_arrival.py` `aperture_arrival_angle_variance` (a stub that raises NotImplementedError). The working received tip-tilt is the beam-wander term only. | incorporated — the owner DECIDED C-04 on the GRADIENT tilt. `olb/turbulence/andrews/structure.angle_of_arrival_variance` gives the book form, Ch. 6, Eq. (84), printed 201, with the inner-scale and outer-scale branches of Eq. (83), and the stub `aperture_arrival_angle_variance` now calls it with the same signature. The value is 0.174 (D/r0)^(5/3)(lambda/D)^2 per axis, NOT the Noll Zernike 0.182. Both docstrings say so. Note that `olb/turbulence/ao.py` still uses the Noll coefficients, so olb holds BOTH tilt conventions: a caller that adds the two must say which one it means. See Conflicts C-04 and Table 2 rows G-34 to G-36. |
 
 ### Notes for batch 2
 
@@ -224,7 +224,7 @@ One row per equation. Sorted by olb file path, then by line number.
 | DL-02 | mean_db = (5/ln10) sigma_l^2 | olb/links/downlink.py:68 | mean dB loss of a unit-mean lognormal | 9.11 | Ch. 9, Eq. (158) | 384 | 409 | weak | exact | Confirmed by 2 readers. A dB consequence of the lognormal PDF (Ch. 5, Eq. (93) printed 156), not a book constant. |
 | DL-03 | quantile(p) = -(10/ln10)(-sigma_l^2/2 + sigma_l Phi_inv(1-p)) | olb/links/downlink.py:73 | fade depth not exceeded a fraction p of the time | 9.11 | Ch. 9, Eq. (158) | 384 | 409 | weak | exact | Confirmed by 2 readers. The book warns on the same page that the lognormal tail near the origin is too thin. That tail is the fade-critical region this face reports. See also Ch. 5, Eq. (93) and Sec. 5.10 printed 167. |
 | DL-04 | mean-log offset = -sigma_l^2/2 | olb/links/downlink.py:73,76 | E[I] = 1 normalisation of the lognormal | 9.11 | Ch. 9, Eq. (158) | 384 | 409 | weak | exact | R2 marked this `unmatched` inside Ch. 4 and Ch. 5, because Ch. 5, Eq. (93) leaves the mean log-amplitude free. R5 then found the explicit -sigma_I^2/2 offset in Ch. 9, Eq. (158). Range-limited non-find, resolved. |
-| DL-05 | `_gamma_gamma_term` | olb/links/downlink.py:133 | RESERVED slot; raises NotImplementedError | 9.10 | Ch. 9, Eqs. (137), (138), (139), (140) | 370-371 | 395-396 | - | unmatched | The book supplies the complete recipe: PDF Eq. (137), parameters Eq. (138), consistency Eq. (139), closed-form CDF Eq. (140). See Table 2 rows G-102 to G-105. |
+| DL-05 | `_gamma_gamma_term` | olb/links/downlink.py | gamma-gamma downlink scintillation Term, all fluctuation strengths | 9.10 | Ch. 9, Eqs. (137), (138), (139), (140); Ch. 12, Eq. (40) | 370-371 (497) | 395-396 (522) | point receiver | incorporated | Was `unmatched` (a reserved slot that raised). WP7 built it. The Term composes `andrews.scintillation.large_scale_log_variance` and `small_scale_log_variance` (Ch. 9, Eqs. (41) and (46)) with `andrews.distributions.gamma_gamma_params` (Eq. (138)), then turns the model into the three dB faces through `olb/models/fade.py`. Its index 1/alpha + 1/beta + 1/(alpha beta) (Eq. (139)) is identically the book weak-to-strong index of Ch. 12, Eq. (40). `model="auto"` selects it at sigma2_I >= 0.25. POINT receiver only: the book gives no aperture-averaged downlink index in this regime. See Table 2 rows G-102 to G-105. |
 | RT-01 | top-hat correction | olb/links/retro_space.py:137 | Gaussian(waist = D/2) to uniform-aperture conversion | - | - | - | - | unobscured; on-axis | unmatched | Not in Ch. 12, Ch. 13.7 or Ch. 14. The source is `olb/models/gaussian_efficiency.py`, which no reader was assigned. |
 | RT-02 | independent-turbulence assumption | olb/links/retro_space.py:169 | down-leg turbulence drawn independently of the up-leg | 13.7.4 | Ch. 13, Eqs. (147)-(159) | 581-584 | 606-609 | - | unmatched | Ch. 13, Eq. (146) printed 581 DOES support the module for spatial coherence: the reflected coherence radius equals a one-way spherical wave. But the monostatic scintillation index of 13.7.4 is not the sum of two independent legs. The module docstring already limits itself to a long slant path, so the gap is declared, not hidden. |
 | RT-03 | P_return chain | olb/links/retro_space.py:190 | retroreflected return as an up-leg plus a down-leg dB sum | 13.7 | Ch. 13, Eqs. (132)-(142) | 577-580 | 602-605 | - | unmatched | The book models the double passage as one coupled problem and gives a backscatter amplification factor, which olb has no Term for. See Table 2 rows G-152 to G-156. |
@@ -242,7 +242,7 @@ One row per equation. Sorted by olb file path, then by line number.
 | RS-03 | total fade = SUM over terms of q_t(p) | olb/results.py:223 (sum at :249-258) | analytic fade margin of the whole budget | 11.3.1 | Ch. 11, Eq. (23) | 451 | 476 | none | approximate | The book computes the fade from ONE joint irradiance PDF. A sum of per-term p-quantiles is not a book form. It is a conservative upper bound, as the olb docstring itself states. |
 | RS-04 | fade level at availability p | olb/results.py:296 (monte_carlo percentile) | joint loss level not exceeded a fraction p of the time | 11.3.1 | Ch. 11, Eqs. (23) and (25) | 451 | 476 | none | exact | Numerical inverse of Pr(I <= I_T). The book fade threshold F_T = 10 log10(mean I / I_T) [dB] is the same dB quantity olb reports. |
 | AA-01 | sigma2_theta = <r_c^2>/L^2 | olb/turbulence/angle_of_arrival.py:60 | beam-wander arrival tilt | 6.6.2 | Ch. 6, Eq. (94) and the text below it | 204 | 229 | Kolmogorov; l0=0; L0=inf | exact | Book: "<r_c^2> = L^2 <beta_a^2> by equating W_G = W0". The MAPPING is exact. The INPUT <r_c^2> is not: it comes from the kernel row KR-04, which is `wrong`. |
-| AA-02 | <beta_a^2> | olb/turbulence/angle_of_arrival.py:75 | aperture angle-of-arrival tilt variance (DEFERRED stub; raises) | 6.5 | Ch. 6, Eq. (84); definition Eq. (82); scales Eq. (83) | 201 (200) | 226 (225) | Kolmogorov; l0=0; L0=inf; plane wave | unmatched | THE BOOK FORM: <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3) for 2 W_G >> l0. It is ONE AXIS. With D = 2 W_G and r0 = (0.423 k^2 Cn2 L)^(-3/5) it becomes 0.174 (D/r0)^(5/3)(lambda/D)^2, NOT the 0.182 named in batch 2. The slant-path version is Ch. 12, Eq. (28) printed 492. See Conflicts C-04. |
+| AA-02 | <beta_a^2> | olb/turbulence/angle_of_arrival.py:75 | aperture angle-of-arrival tilt variance | 6.5 | Ch. 6, Eq. (84); definition Eq. (82); scales Eq. (83) | 201 (200) | 226 (225) | Kolmogorov; l0=0; L0=inf; plane wave | incorporated | Was `unmatched` (a deferred stub that raised). The owner decided C-04 on the GRADIENT tilt, and the stub now delegates to `andrews.structure.angle_of_arrival_variance`, which also carries the inner-scale and outer-scale branches of Eq. (83). THE BOOK FORM: <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3) for 2 W_G >> l0. It is ONE AXIS. With D = 2 W_G and r0 = (0.423 k^2 Cn2 L)^(-3/5) it becomes 0.174 (D/r0)^(5/3)(lambda/D)^2, NOT the 0.182 named in batch 2. The slant-path version is Ch. 12, Eq. (28) printed 492. See Conflicts C-04. |
 | AN-01 | p_n(u) = 4 (n+1)^2 [J_{n+1}(u)/u]^2 | olb/turbulence/anisoplanatism.py:117 | Zernike radial-order weight | 14.5.3 | Ch. 14, Eq. (86) | 634 | 659 | unobscured; plane wave | exact | STRONG INDEPENDENT CONFIRMATION. Summing the Andrews per-mode filter over the n+1 azimuthal modes of radial order n and averaging over the azimuth gives exactly the Stone p_n. |
 | AN-02 | M(u) = 1 - p_0(u) | olb/turbulence/anisoplanatism.py:153 | piston-removed modal weight | 14.5.4 | Ch. 14, Eq. (89) | 635 | 660 | unobscured; plane wave | exact | The Andrews piston-removed integrand carries {1 - [2 J1(kappa D/2)/(kappa D/2)]^2}. |
 | AN-03 | (n+1)(n+2)/2 | olb/turbulence/anisoplanatism.py:225 | Noll mode count through radial order n | 14.5.2 | Ch. 14, Table 14.1 | 630 | 655 | - | exact | The counting rule implied by the Noll ordering that Andrews tabulates through (m, n) = (3, 3). |
@@ -1383,3 +1383,87 @@ G-97, G-98, G-151 stay open.
 - The off-axis (radial) weak temporal spectrum, Ch. 8, Eqs. (66) and (67),
   printed pp. 286-287 (row G-71). Not built: no olb caller reads an off-axis
   spectrum today. The longitudinal part is built.
+
+---
+
+# WP7 — the wire-in
+
+This block records the last work package of the Andrews foundation layer. WP7
+wrote no new physics. It connected the nine modules to the link budgets and
+synchronised the documentation.
+
+## What was wired
+
+1. **`olb/turbulence/andrews/__init__.py` exports all nine modules.** WP1 exported
+   `distributions.py` only. The file is now a flat name list with no logic, so
+   `from olb.turbulence.andrews import <name>` reaches every public function,
+   and `python -m olb.turbulence.andrews.<module>` still runs each self-check.
+2. **The gamma-gamma downlink Term is real.** `_gamma_gamma_term` in
+   `olb/links/downlink.py` no longer raises. It composes the slant plane-wave
+   Rytov variance (Ch. 12, Eq. (38), printed p. 495), the two log variances
+   (Ch. 9, Eqs. (41) and (46), printed pp. 335 and 336), the gamma-gamma
+   parameters (Ch. 9, Eq. (138), printed p. 370) and the Term adapter
+   `olb/models/fade.py`. Table 1 row DL-05 is now `incorporated`.
+3. **`_auto_select` switches model.** Below sigma2_I = 0.25 it returns the
+   lognormal Term; at or above it, the gamma-gamma Term. The old warning that
+   said only the lognormal model exists is gone. The switch point is the house
+   limit of Conflict C-05, not the book limit sigma_R^2 = 1: the book bound is 4
+   times looser, and the gamma-gamma chain of Ch. 12, Eq. (40), printed p. 497,
+   is valid at every strength, so the early switch costs no validity. The
+   gamma-gamma Term takes a scalar elevation only, because the quantile and the
+   sampler carry one (alpha, beta) pair; an elevation array is refused, and the
+   selector keeps the lognormal Term and warns.
+4. **`olb/assumptions.py` names five spectra.** `SPECTRUM_TATARSKII`,
+   `SPECTRUM_EXPONENTIAL` and `SPECTRUM_MODIFIED` join the two that were there,
+   one for each model in `andrews/spectra.py` (Ch. 3, Eqs. (18) to (23)). No
+   Term uses the new three yet.
+
+## Measured
+
+The downlink self-check now exercises the strong path. A 0.7 m ground aperture
+at 1550 nm, a 600 km orbit, 15 deg elevation, the default H-V Cn2 profile:
+
+| Quantity | Value |
+|---|---|
+| point sigma_R^2 (Ch. 12, Eq. (38)) | 0.7567 |
+| alpha, beta (Ch. 9, Eq. (138)) | 4.850, 3.143 |
+| sigma_I^2 (Ch. 9, Eq. (139)) | 0.5899 |
+| the same by Ch. 12, Eq. (40) through `andrews.paths` | 0.5892 (+0.114 %) |
+| gamma-gamma mean loss | 1.1901 dB |
+| gamma-gamma 99 % fade | 10.0710 dB |
+| lognormal point 99 % fade, same case | 8.8074 dB |
+
+Two notes on that table. First, the +0.114 % is a DATUM difference, not a
+physics difference: `andrews/paths.py` integrates (h - h0)^(5/6) and
+`plane_wave_scintillation.py` integrates h^(5/6), and `DEFAULT_HS` starts at
+h0 = 1 m. Second, the gamma-gamma fade is 1.26 dB DEEPER than the lognormal fade
+of the same point index. That is the tail that Ch. 11, Sec. 11.3, printed
+p. 451, says the lognormal model misses.
+
+## Still open after WP7
+
+- **The pre-compensated uplink still carries NO SCINTILLATION.**
+  `andrews/paths.uplink_scintillation_index(tracked=True)` gives the floor of
+  the residual (Ch. 12, Eqs. (57) to (60)), and WP6 recorded that. WP7 did NOT
+  wire that Term into `uplink_budget`. The beacon-plus-adaptive-optics budget is
+  still phase-only. This is olb gap 2.
+- **The gamma-gamma downlink Term models a POINT receiver.** The book gives no
+  aperture-averaged downlink index in the moderate-to-strong regime. The Term
+  flags that through its `Assumptions` record. Its fade is deeper than the true
+  aperture fade, which is the safe direction.
+- **`downlink_budget` still asks for `model="lognormal"`.** WP7 did not change
+  the budget default, because the gamma-gamma Term drops the aperture averaging
+  and so it would change the budget total by several dB at a low elevation. The
+  owner must choose that. Call `downlink_scintillation_term(model="auto")`
+  directly for the strong case.
+- **The annular receive aperture (olb gap 8) needs a source that is not this
+  book.** See the WP3 notes.
+- **Conflict C-01 needs Belmonte 2000** to close the 3.50 beam-wander gap.
+- **The curvature-general Fried parameter is closed at the physics layer only.**
+  `andrews.beam.beam_params` takes f0 and `andrews.structure.coherence_radius`
+  takes the beam, but the single-path `gaussian_fried.gaussian_fried_parameter`
+  keeps its collimated signature, and the terrestrial fibre-coupling call site
+  still passes no curvature. See `docs/physics.md` Section 5e.
+- **TL-05 stays `wrong`**: the terrestrial weak gate still tests one plane-wave
+  threshold on a Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs both
+  sigma_R^2 < 1 and sigma_R^2 Lambda^(5/6) < 1.

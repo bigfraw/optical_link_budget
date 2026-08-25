@@ -44,6 +44,12 @@ The turbulence files are:
 - [`angle_of_arrival.py`](../olb/turbulence/angle_of_arrival.py) — the received tip-tilt of a Gaussian beam. The beam-wander arrival tilt is the working model. The aperture angle-of-arrival tilt is a deferred stub.
 - [`anisoplanatism.py`](../olb/turbulence/anisoplanatism.py) — Stone angular anisoplanatic phase variance, with the finite adaptive-optics band.
 - [`uplink_flux.py`](../olb/turbulence/uplink_flux.py) — the LEO-uplink coupled-flux Monte Carlo wrapper.
+- [`andrews/`](../olb/turbulence/andrews/) — the Andrews and Phillips foundation
+  layer, nine modules: `aperture.py`, `beam.py`, `distributions.py`, `paths.py`,
+  `scintillation.py`, `spectra.py`, `structure.py`, `temporal.py`, `wander.py`.
+  Each function cites its chapter, equation number and printed page. The files
+  above delegate to it and keep their own names. See
+  [physics.md](physics.md) Section 5h.
 
 ## 2. The pure-data layer
 

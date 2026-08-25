@@ -2,8 +2,10 @@
 Downlink scintillation Term and budget assembly.
 
 This module builds the downlink scintillation Term and the downlink budget. The
-Term gives the analytic lognormal plane-wave fade for a LEO-to-ground link. The
-pure scintillation physics lives in olb.turbulence.plane_wave_scintillation.
+Term gives the analytic lognormal plane-wave fade for a LEO-to-ground link, or
+the gamma-gamma fade when the turbulence is too strong for the lognormal model.
+The pure scintillation physics lives in olb.turbulence.plane_wave_scintillation
+and in the Andrews foundation layer, olb.turbulence.andrews.
 
 The received power P is lognormal with E[P] = 1. With sigma_l^2 = ln(1 +
 sigma2_P) the loss faces are
@@ -15,8 +17,11 @@ standard normal CDF.
 
 Validity: the Rytov (lognormal) model is a weak-fluctuation model. The code
 carries sigma2_I in Term.meta and sets a weak_fluctuation_valid flag. It gives a
-warning when sigma2_I exceeds WEAK_FLUCTUATION_LIMIT. Above that limit use the
-gamma-gamma or the Monte Carlo model.
+warning when sigma2_I exceeds WEAK_FLUCTUATION_LIMIT. Above that limit use
+model="auto", which selects the gamma-gamma Term. The gamma-gamma Term holds for
+every fluctuation strength: Andrews and Phillips, 2nd ed. (2005),
+DOI 10.1117/3.626196, Ch. 9, Eqs. (137) and (138), printed p. 370, and Ch. 12,
+Eq. (40), printed p. 497.
 '''
 
 import warnings
@@ -25,11 +30,19 @@ import numpy as np
 from scipy.stats import norm
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_WEAK,
-                          SPECTRUM_KOLMOGOROV)
+from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_STRONG,
+                          REGIME_WEAK, SPECTRUM_KOLMOGOROV)
+from ..models.fade import irradiance_fade_term
 from ..models.geometric import geometric_loss_term
 from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
+from ..turbulence.andrews.distributions import (gamma_gamma_mean_log,
+                                                gamma_gamma_params,
+                                                gamma_gamma_quantile,
+                                                gamma_gamma_rvs,
+                                                gamma_gamma_scintillation_index)
+from ..turbulence.andrews.scintillation import (large_scale_log_variance,
+                                                small_scale_log_variance)
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
                                         aperture_averaged_scintillation_index,
@@ -132,16 +145,95 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
 
 def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     '''
-    Reserved slot: the analytic gamma-gamma downlink scintillation Term.
+    Build the analytic gamma-gamma downlink scintillation Term.
 
     The gamma-gamma model covers the moderate-to-strong fluctuation regime. Use
-    it when sigma2_I exceeds the weak-fluctuation limit. This slot is not
-    implemented yet.
+    it when sigma2_I meets or passes the weak-fluctuation limit. The Term gives
+    all three faces: mean_db, quantile(p), sampler(n, rng).
+
+    The Term COMPOSES the Andrews foundation layer. It derives no new physics:
+        sigma_R^2       the same slant plane-wave index the lognormal Term uses,
+                        Ch. 12, Eq. (38), printed p. 495
+        sigma_lnX^2     andrews.scintillation.large_scale_log_variance,
+                        Ch. 9, Eq. (41), printed p. 335
+        sigma_lnY^2     andrews.scintillation.small_scale_log_variance,
+                        Ch. 9, Eq. (46), printed p. 336
+        alpha, beta     andrews.distributions.gamma_gamma_params,
+                        Ch. 9, Eq. (138), printed p. 370
+        the dB faces    olb.models.fade.irradiance_fade_term
+    Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
+    2nd ed. (2005), DOI 10.1117/3.626196.
+
+    The scintillation index of the result, 1/alpha + 1/beta + 1/(alpha beta)
+    (Ch. 9, Eq. (139), printed p. 371), is identically
+    exp(sigma_lnX^2 + sigma_lnY^2) - 1, which is the book's own weak-to-strong
+    downlink index, Ch. 12, Eq. (40), printed p. 497. So this Term and
+    andrews.paths.downlink_scintillation_index(regime="strong") agree exactly.
+    The module self-check measures that identity.
+
+    POINT RECEIVER. The book gives NO aperture-averaged downlink index in the
+    moderate-to-strong regime: Ch. 12, Eq. (39), printed p. 496, is a weak-theory
+    form and Ch. 12, Eq. (40) is a point form, and the book prints no product of
+    the two. So this Term models a POINT receiver. Its fade is deeper than the
+    fade of a real aperture, which is the safe direction. The Assumptions record
+    flags that when aperture_average is true.
     '''
-    raise NotImplementedError(
-        "the gamma_gamma model is a reserved slot. It will hold the analytic "
-        "gamma-gamma downlink scintillation Term for the moderate-to-strong "
-        "fluctuation regime. Use model='lognormal' for now."
+    rx = scenario.rx_terminal
+    sigma2_R = plane_wave_scintillation_index(geometry.elevation_deg,
+                                              rx.wavelength_m, hs, cn2_profile)
+    if np.ndim(sigma2_R) != 0:
+        raise NotImplementedError(
+            "the gamma_gamma model takes a scalar elevation only. The "
+            "gamma-gamma quantile and sampler carry one (alpha, beta) pair "
+            "(olb.turbulence.andrews.distributions). Loop over the elevations."
+        )
+    sigma2_R = float(sigma2_R)
+    sigma2_lnX = float(large_scale_log_variance(sigma2_R, wave='plane'))
+    sigma2_lnY = float(small_scale_log_variance(sigma2_R, wave='plane'))
+    alpha, beta = gamma_gamma_params(sigma2_lnX, sigma2_lnY)
+    alpha, beta = float(alpha), float(beta)
+    sigma2_I = float(gamma_gamma_scintillation_index(alpha, beta))
+
+    assumptions = Assumptions(
+        beam_type=BEAM_PLANE_WAVE,
+        turbulence_regime=REGIME_STRONG,
+        spectrum=SPECTRUM_KOLMOGOROV,
+        validity="All fluctuation strengths. Andrews and Phillips, 2nd ed. "
+                 "(2005), DOI 10.1117/3.626196, state that the extended Rytov "
+                 "chain of Ch. 12, Eq. (40), printed p. 497, holds for every "
+                 "value of the Rytov variance. The chain uses the Kolmogorov "
+                 "spectrum only (Ch. 12, Eq. (15), printed p. 490), so it has "
+                 "no inner scale and no outer scale. The receiver is a POINT.",
+    )
+    if aperture_average:
+        assumptions.flag(
+            "aperture averaging is NOT applied: the book gives no "
+            "aperture-averaged downlink index in the moderate-to-strong regime "
+            "(Ch. 12, Eq. (39) is weak theory, Ch. 12, Eq. (40) is a point "
+            "form). This point-receiver fade is deeper than the true aperture "
+            "fade."
+        )
+
+    return irradiance_fade_term(
+        "scintillation", "turbulence",
+        mean_log=gamma_gamma_mean_log(alpha, beta),
+        quantile=lambda p: gamma_gamma_quantile(p, alpha, beta),
+        rvs=lambda n, rng: gamma_gamma_rvs(n, alpha, beta, rng),
+        note="plane-wave downlink gamma-gamma scintillation, point receiver",
+        meta={
+            "model": "gamma_gamma",
+            "alpha": alpha,
+            "beta": beta,
+            "sigma2_lnX": sigma2_lnX,
+            "sigma2_lnY": sigma2_lnY,
+            "sigma2_I": sigma2_I,
+            "sigma2_P": sigma2_I,
+            "aperture_averaging_factor": 1.0,
+            "sigma2_R": sigma2_R,
+            "weak_fluctuation_valid": bool(sigma2_R < WEAK_FLUCTUATION_LIMIT),
+            "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+        },
+        assumptions=assumptions,
     )
 
 
@@ -163,20 +255,45 @@ def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
     '''
     Selector layer: choose the downlink scintillation model from the regime.
 
-    This layer chooses the best model from the fluctuation regime. For now it
-    returns the lognormal Term. It warns when sigma2_I exceeds the
-    weak-fluctuation limit. In that case it should use the gamma-gamma model or
-    the Monte Carlo model once those slots exist.
+    The selector reads the POINT scintillation index sigma2_I, which is the
+    slant plane-wave Rytov variance. It returns:
+        sigma2_I <  WEAK_FLUCTUATION_LIMIT   the lognormal Term
+        sigma2_I >= WEAK_FLUCTUATION_LIMIT   the gamma-gamma Term
+
+    The switch point is the house limit 0.25, not the book limit 1.0. Andrews
+    and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, put the weak boundary at
+    sigma_R^2 < 1 (Ch. 5, Eq. (15), printed p. 140; Ch. 12, Eq. (40), printed
+    p. 497). olb keeps the 4 times stricter house threshold, because Ch. 11,
+    Sec. 11.3, printed p. 451, says the lognormal tail is too thin, and this
+    selector reports fade depths from that tail. The gamma-gamma chain of
+    Ch. 12, Eq. (40) is valid at every fluctuation strength, so the early switch
+    costs no validity. See `WEAK_FLUCTUATION_LIMIT` and Conflict C-05 in
+    docs/andrews-crosscheck.md.
+
+    The gamma-gamma Term takes a scalar elevation only. For an elevation array
+    that breaks the limit, the selector keeps the lognormal Term and warns.
     '''
-    term = _lognormal_term(scenario, geometry, aperture_average=aperture_average,
-                           hs=hs, cn2_profile=cn2_profile)
-    if not np.all(term.meta["weak_fluctuation_valid"]):
+    # Read the point index first, so that the lognormal Term is never built
+    # (and never warns) for a case that goes to the gamma-gamma Term.
+    sigma2_I = plane_wave_scintillation_index(geometry.elevation_deg,
+                                              scenario.rx_terminal.wavelength_m,
+                                              hs, cn2_profile)
+    weak = np.all(np.asarray(sigma2_I) < WEAK_FLUCTUATION_LIMIT)
+    if not weak and np.ndim(sigma2_I) != 0:
         warnings.warn(
-            "auto selector: sigma2_I exceeds the weak-fluctuation limit. The "
-            "lognormal Term is returned now. The selector should use the "
-            "gamma-gamma model or the Monte Carlo model once those slots exist."
+            "auto selector: sigma2_I exceeds the weak-fluctuation limit at one "
+            "elevation or more, but the gamma-gamma Term takes a scalar "
+            "elevation only. The lognormal Term is returned. Loop over the "
+            "elevations to get the gamma-gamma fade."
         )
-    return term
+        weak = True
+    if weak:
+        return _lognormal_term(scenario, geometry,
+                               aperture_average=aperture_average, hs=hs,
+                               cn2_profile=cn2_profile)
+    return _gamma_gamma_term(scenario, geometry,
+                             aperture_average=aperture_average, hs=hs,
+                             cn2_profile=cn2_profile)
 
 
 _MODELS = {
@@ -193,7 +310,8 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
     Build the downlink scintillation Term.
 
     Dispatch to the requested model. The "lognormal" model is the analytic
-    weak-fluctuation model. The "auto" model is the selector layer.
+    weak-fluctuation model. The "gamma_gamma" model is the analytic
+    moderate-to-strong model. The "auto" model is the selector layer.
 
     Parameters:
         scenario : SpaceScenario
@@ -220,7 +338,8 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
         ValueError
             If model is not a known name.
         NotImplementedError
-            If model is a reserved slot ("gamma_gamma" or "montecarlo").
+            If model is the reserved slot "montecarlo", or if model is
+            "gamma_gamma" with an elevation array.
     '''
     if model not in _MODELS:
         raise ValueError(
@@ -355,14 +474,58 @@ if __name__ == '__main__':
     assert sampled.shape == (200_000,)
     assert abs(sampled.mean() - term.mean_db) < 0.02, (sampled.mean(), term.mean_db)
 
-    # The reserved slots raise NotImplementedError.
-    for slot in ("gamma_gamma", "montecarlo"):
-        try:
-            downlink_scintillation_term(scenario, geom, model=slot, cn2_profile=cn2)
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError(f"model={slot!r} must raise NotImplementedError")
+    # The Monte Carlo slot is still reserved.
+    try:
+        downlink_scintillation_term(scenario, geom, model="montecarlo",
+                                    cn2_profile=cn2)
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("model='montecarlo' must raise NotImplementedError")
+
+    # --- gamma-gamma Term ---------------------------------------------------
+    # A 15 deg elevation is a strong case: the point index passes the house
+    # limit, so the auto selector must route to the gamma-gamma Term.
+    geom15 = CircularOrbit(600e3, 15.0)
+    gg = downlink_scintillation_term(scenario, geom15, model="auto",
+                                     cn2_profile=cn2)
+    assert gg.meta["model"] == "gamma_gamma", gg.meta["model"]
+    assert gg.meta["sigma2_R"] >= WEAK_FLUCTUATION_LIMIT, gg.meta["sigma2_R"]
+    gg99 = gg.quantile_db(0.99)
+    assert gg99 > gg.mean_db > 0.0, (gg99, gg.mean_db)
+    assert not gg.mean_only
+    # The Term reproduces the book weak-to-strong index, Ch. 12, Eq. (40),
+    # printed p. 497, which andrews.paths gives on the same slant path.
+    from ..turbulence.andrews.paths import downlink_scintillation_index
+    # The two feeders differ only by the ground datum: andrews.paths integrates
+    # (h - h0)^(5/6) and plane_wave_scintillation.py integrates h^(5/6), and
+    # DEFAULT_HS starts at h0 = 1 m. So this is a MEASUREMENT, not an identity.
+    book = downlink_scintillation_index(hs, cn2, lam, 15.0, regime="strong")
+    gg_gap = abs(gg.meta["sigma2_I"] / book - 1.0)
+    assert gg_gap < 1e-2, (gg.meta["sigma2_I"], book)
+    # The sampled mean of the dB loss matches mean_db.
+    gg_draws = gg.sample_db(200_000, np.random.default_rng(3))
+    assert abs(gg_draws.mean() - gg.mean_db) < 0.02, (gg_draws.mean(), gg.mean_db)
+    # A weak case still routes to the lognormal Term.
+    assert downlink_scintillation_term(scenario, CircularOrbit(600e3, 60.0),
+                                       model="auto",
+                                       cn2_profile=cn2).meta["model"] == "lognormal"
+    # The gamma-gamma fade is deeper than the lognormal fade of the same case.
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        ln15 = downlink_scintillation_term(scenario, geom15, model="lognormal",
+                                           aperture_average=False,
+                                           cn2_profile=cn2)
+    assert gg99 > ln15.quantile_db(0.99), (gg99, ln15.quantile_db(0.99))
+    # An elevation array is refused by the gamma-gamma model itself.
+    try:
+        downlink_scintillation_term(scenario,
+                                    CircularOrbit(600e3, np.array([15.0, 20.0])),
+                                    model="gamma_gamma", cn2_profile=cn2)
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("gamma_gamma must refuse an elevation array")
 
     # An elevation sweep broadcasts over the geometry shape.
     sweep = CircularOrbit(600e3, np.array([20.0, 45.0, 90.0]))
@@ -454,6 +617,14 @@ if __name__ == '__main__':
 
     print(f"mean loss = {term.mean_db:.4f} dB   99% fade = {q99:.4f} dB")
     print(f"sampled mean = {sampled.mean():.4f} dB (n=200000)")
+    print(f"auto @15deg: model={gg.meta['model']}  "
+          f"sigma2_R={gg.meta['sigma2_R']:.4f}  "
+          f"alpha={gg.meta['alpha']:.3f}  beta={gg.meta['beta']:.3f}  "
+          f"sigma2_I={gg.meta['sigma2_I']:.4f}  "
+          f"(book Ch. 12, Eq. (40) = {book:.4f}, {gg_gap * 100:+.3f} %)")
+    print(f"gamma-gamma @15deg: mean loss = {gg.mean_db:.4f} dB   "
+          f"99% fade = {gg99:.4f} dB   "
+          f"(lognormal point 99% fade = {ln15.quantile_db(0.99):.4f} dB)")
     print(down.to_frame().to_string(index=False))
     print(f"terminal totals @60deg: aperture={down_ap.total_loss_db():.3f} dB  "
           f"SMF no-AO={down_smf.total_loss_db():.3f} dB  "
