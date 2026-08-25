@@ -714,17 +714,43 @@ def probability_of_fade(fade_db, model, **params):
 
 def expected_number_of_fades(fade_db, nu0, model, **params):
     '''
-    The expected number of fades per second below a threshold. NOT BUILT YET.
+    The expected number of fades per second below a threshold.
 
     Ch. 11, Eq. (34), printed 455, gives the lognormal form. Ch. 11, Eq. (37),
     printed 456, gives the gamma-gamma form. Ch. 12, Eqs. (72) and (74), printed
     513-514, repeat them for a satellite downlink. Every form needs the
     quasi-frequency nu0 of Ch. 11, Eq. (35), printed 456, which comes from the
-    second derivative of the temporal irradiance covariance.
+    second derivative of the temporal irradiance covariance. Get nu0 from
+    `olb.turbulence.andrews.temporal.quasi_frequency`.
     DOI: 10.1117/3.626196
 
+    formula (lognormal, Ch. 11, Eq. (34), printed 455):
+        <n(I_T)> = nu0 exp{ -[ sigma_l2/2 - 0.23 F_T ]^2 / (2 sigma_l2) }
+    The book writes sigma_I in place of sigma_l, and the two agree in the
+    weak-fluctuation limit. This code keeps the exact sigma_l, exactly as
+    `lognormal_cdf` does, so that the pair (probability, rate) stays coherent.
+    At the threshold that makes 0.23 F_T equal sigma_l2/2 the rate becomes nu0.
+    The book states that same result at printed 448, below Eq. (15).
+
+    formula (gamma-gamma, Ch. 11, Eq. (37), printed 456):
+        <n(I_T)> = 2 sqrt(2 pi alpha beta) nu0 sigma_I / [Gamma(a) Gamma(b)]
+                   (alpha beta I_T)^((alpha+beta-1)/2)
+                   K_(alpha-beta)(2 sqrt(alpha beta I_T))
+    This code evaluates the ALGEBRAIC EQUIVALENT
+        <n(I_T)> = sqrt(2 pi) nu0 sigma_I sqrt(I_T) p(I_T),
+    with p the gamma-gamma PDF of Ch. 9, Eq. (137), printed 370. The two are the
+    same expression: Ch. 11, Eq. (36), printed 456, builds the joint PDF as the
+    product of the gamma-gamma PDF and a zero-mean Gaussian for the time
+    derivative with variance 4 b I. Ch. 11, Eq. (12) then integrates to
+    p(I_T) sqrt(2 b I_T/pi), and Ch. 11, Eq. (38), printed 456, gives
+    sqrt(b) = pi nu0 sigma_I. The PDF form is used because `gamma_gamma_pdf`
+    works in the log domain, so a large alpha and beta cannot overflow.
+
+    The K distribution is the gamma-gamma model at beta = 1 (printed 370), so
+    it delegates.
+
     Parameters:
-        fade_db : float
+        fade_db : float or ndarray
             Fade threshold parameter F_T [dB] below the mean irradiance.
         nu0 : float
             Quasi-frequency [Hz]. The book sets it to 550 Hz for its worked
@@ -733,29 +759,54 @@ def expected_number_of_fades(fade_db, nu0, model, **params):
         model : str
             One of the keys of MODELS.
         **params
-            The distribution parameters of that model.
+            The distribution parameters of that model. See MODELS.
+
+    Returns:
+        float or ndarray
+            The number of down-crossings of the threshold per second.
 
     Raises:
-        NotImplementedError
-            Always. The temporal model does not exist yet.
+        ValueError
+            If model is not a known name.
     '''
-    raise NotImplementedError(
-        "needs quasi-frequency nu0 from andrews.temporal -- WP4"
-    )
+    I_T = fade_threshold_irradiance(fade_db)
+    if model == "lognormal":
+        sigma_l2 = np.asarray(params["sigma_l2"], dtype=float)
+        sigma_l = np.sqrt(sigma_l2)
+        arg = (sigma_l2 / 2.0
+               - _LN10_OVER_10 * np.asarray(fade_db, dtype=float)) / sigma_l
+        return nu0 * np.exp(-arg ** 2 / 2.0)
+    if model == "gamma_gamma":
+        alpha, beta = float(params["alpha"]), float(params["beta"])
+    elif model == "k":
+        alpha, beta = float(params["alpha"]), _K_BETA
+    else:
+        raise ValueError(
+            f"unknown model {model!r}. Use one of {sorted(MODELS)}.")
+    sigma_I = np.sqrt(gamma_gamma_scintillation_index(alpha, beta))
+    return (np.sqrt(2.0 * np.pi) * nu0 * sigma_I * np.sqrt(I_T)
+            * gamma_gamma_pdf(I_T, alpha, beta))
 
 
 def mean_fade_time(fade_db, nu0, model, **params):
     '''
-    The mean time the irradiance stays below a threshold. NOT BUILT YET.
+    The mean time the irradiance stays below a threshold.
 
     Ch. 11, Eq. (39), printed 456, gives the mean fade time as the probability
-    of fade divided by the expected number of fades. Ch. 12, Eqs. (78) and (79),
-    printed 515, repeat it for a satellite downlink. It needs the same
-    quasi-frequency as expected_number_of_fades.
+    of fade divided by the expected number of fades:
+        <t(I_T)> = Pr(I <= I_T) / <n(I_T)>.
+    Ch. 12, Eqs. (78) and (79), printed 515, repeat it for a satellite downlink.
+    Ch. 12, Eq. (79) prints the lognormal ratio in full, which is the same
+    quotient that this function forms. It needs the same quasi-frequency as
+    `expected_number_of_fades`.
     DOI: 10.1117/3.626196
 
+    The book states at printed 457 that the quasi-frequency changes the expected
+    number of fades and the mean fade time, but it does not change the
+    probability of fade. So the mean fade time scales as 1/nu0.
+
     Parameters:
-        fade_db : float
+        fade_db : float or ndarray
             Fade threshold parameter F_T [dB] below the mean irradiance.
         nu0 : float
             Quasi-frequency [Hz].
@@ -764,13 +815,16 @@ def mean_fade_time(fade_db, nu0, model, **params):
         **params
             The distribution parameters of that model.
 
+    Returns:
+        float or ndarray
+            The mean duration of one fade [s].
+
     Raises:
-        NotImplementedError
-            Always. The temporal model does not exist yet.
+        ValueError
+            If model is not a known name.
     '''
-    raise NotImplementedError(
-        "needs quasi-frequency nu0 from andrews.temporal -- WP4"
-    )
+    return (probability_of_fade(fade_db, model, **params)
+            / expected_number_of_fades(fade_db, nu0, model, **params))
 
 
 if __name__ == '__main__':
@@ -949,14 +1003,98 @@ if __name__ == '__main__':
         assert rv(16, rng=rng, **prm).shape[0] == 16
     print("[reduce ] MODELS registry       ok")
 
-    # The temporal faces refuse until WP4 lands.
-    for fn in (expected_number_of_fades, mean_fade_time):
-        try:
-            fn(3.0, 550.0, "lognormal", sigma_l2=0.2)
-        except NotImplementedError:
-            pass
-        else:
-            raise AssertionError(f"{fn.__name__} must raise NotImplementedError")
-    print("[reduce ] temporal stubs refuse ok")
+    # === fade rate and fade time ===========================================
+    #
+    # The book gives NO numeric worked example for <n(I_T)> or <t(I_T)>.
+    # Ch. 11.7 Example 1, printed 472-473, stops at the probability of fade.
+    # Ch. 11 Problem 6, printed 474, asks for both at nu0 = 100 Hz but prints no
+    # answer. Ch. 12.10 has no fade-rate example either. So the checks below use
+    # the book's own internal identities, not a printed number.
+
+    NU0 = 550.0        # the book's nominal value, printed 457 and printed 514.
+
+    # Eq. (34), printed 455: the rate equals nu0 when 0.23 F_T = sigma_l2/2.
+    # The book states that at printed 448, below Eq. (15).
+    sl2 = lognormal_params(0.13)
+    F_peak = (sl2 / 2.0) / _LN10_OVER_10
+    n_peak = expected_number_of_fades(F_peak, NU0, "lognormal", sigma_l2=sl2)
+    print(f"[physics] Eq.(34) peak rate     = {n_peak:.6f} Hz (nu0={NU0})   "
+          f"err = {abs(n_peak - NU0) / NU0:.3e}")
+    assert abs(n_peak - NU0) / NU0 < 1e-12
+
+    # Eq. (34) against the Rice construction of Eqs. (12) and (33), printed 447
+    # and 455: <n> = sqrt(2 pi) nu0 sigma_I I_T p_lognormal(I_T). The two agree
+    # exactly when both use the same sigma. Eq. (34) prints sigma_I, this code
+    # keeps sigma_l, so the check uses sigma_l on both sides.
+    for F in (0.0, 3.0, 6.0, 10.0):
+        I_T = fade_threshold_irradiance(F)
+        pdf_ln = (np.exp(-(np.log(I_T) + sl2 / 2.0) ** 2 / (2.0 * sl2))
+                  / (I_T * np.sqrt(2.0 * np.pi * sl2)))
+        rice = np.sqrt(2.0 * np.pi) * NU0 * np.sqrt(sl2) * I_T * pdf_ln
+        book = expected_number_of_fades(F, NU0, "lognormal", sigma_l2=sl2)
+        print(f"[physics] Eq.(34) F_T={F:<5} rate = {book:.6f} Hz vs Rice "
+              f"{rice:.6f} Hz   err = {abs(book - rice) / rice:.3e}")
+        assert abs(book - rice) / rice < 1e-12
+
+    # Eq. (37), printed 456: the gamma-gamma rate, against the printed form.
+    # The printed form overflows for a large alpha, so test at a small pair.
+    a2, b2 = 4.0, 2.5
+    s_I = np.sqrt(gamma_gamma_scintillation_index(a2, b2))
+    for F in (0.0, 3.0, 6.0):
+        I_T = fade_threshold_irradiance(F)
+        printed = (2.0 * np.sqrt(2.0 * np.pi * a2 * b2) * NU0 * s_I
+                   / (_gamma(a2) * _gamma(b2))
+                   * (a2 * b2 * I_T) ** ((a2 + b2 - 1.0) / 2.0)
+                   * _kv(a2 - b2, 2.0 * np.sqrt(a2 * b2 * I_T)))
+        code = expected_number_of_fades(F, NU0, "gamma_gamma", alpha=a2,
+                                        beta=b2)
+        print(f"[physics] Eq.(37) F_T={F:<5} rate = {code:.6f} Hz vs printed "
+              f"{printed:.6f} Hz   err = {abs(code - printed) / printed:.3e}")
+        assert abs(code - printed) / printed < 1e-10
+
+    # Eq. (39), printed 456: the identity Pr(fade) = <n> <t>.
+    for nm, prm in (("lognormal", {"sigma_l2": sl2}),
+                    ("gamma_gamma", {"alpha": a2, "beta": b2}),
+                    ("k", {"alpha": 3.0})):
+        for F in (1.0, 5.0, 12.0):
+            p = probability_of_fade(F, nm, **prm)
+            n = expected_number_of_fades(F, NU0, nm, **prm)
+            t = mean_fade_time(F, NU0, nm, **prm)
+            print(f"[physics] Eq.(39) {nm:<11} F_T={F:<5} P={p:.6e} "
+                  f"<n>={n:.4e} <t>={t:.4e}   err = {abs(n * t - p) / p:.3e}")
+            assert abs(n * t - p) / p < 1e-9
+
+    # === reduction ==========================================================
+
+    # The gamma-gamma rate goes to the lognormal rate as the scintillation index
+    # falls, but ONLY near the mean irradiance. The rate reads the PDF at the
+    # threshold, not the CDF, so the deep tail separates the two models much
+    # faster than the quantile check above does. The book states at printed 452
+    # that the lognormal underestimates the tail. The loop measures both.
+    for s2I in (0.04, 0.01, 0.002):
+        sl2w = lognormal_params(s2I)
+        s = 0.5 * np.log(1.0 + s2I)
+        aw, bw = gamma_gamma_params(s, s)
+        n_ln = expected_number_of_fades(0.0, NU0, "lognormal", sigma_l2=sl2w)
+        n_gg = expected_number_of_fades(0.0, NU0, "gamma_gamma", alpha=aw,
+                                        beta=bw)
+        t_ln = expected_number_of_fades(3.0, NU0, "lognormal", sigma_l2=sl2w)
+        t_gg = expected_number_of_fades(3.0, NU0, "gamma_gamma", alpha=aw,
+                                        beta=bw)
+        print(f"[reduce ] GG/LN rate s2I={s2I:<6} at F_T=0 dB = "
+              f"{n_gg / n_ln:.4f}, at F_T=3 dB = {t_gg / t_ln:.3f} (tail)")
+        assert abs(n_gg - n_ln) / n_ln < 0.01
+
+    # The K faces are the gamma-gamma faces at beta = 1 (printed 370).
+    assert (expected_number_of_fades(4.0, NU0, "k", alpha=aK)
+            == expected_number_of_fades(4.0, NU0, "gamma_gamma", alpha=aK,
+                                        beta=1.0))
+    print("[reduce ] K rate == GG(beta=1)  ok")
+
+    # The mean fade time scales as 1/nu0, which the book states at printed 457.
+    t1 = mean_fade_time(6.0, 100.0, "lognormal", sigma_l2=sl2)
+    t2 = mean_fade_time(6.0, 200.0, "lognormal", sigma_l2=sl2)
+    print(f"[reduce ] <t> nu0 scaling ratio = {t1 / t2:.6f} (2 wanted)")
+    assert np.isclose(t1 / t2, 2.0)
 
     print("self-check passed")

@@ -1279,3 +1279,107 @@ model.
   p. 495 (row G-133). Not built: the book itself reduces the downlink to the
   plane wave (Ch. 12, text below Eq. (21), printed p. 491). Compose
   `mu(..., order=3, direction="downlink")` with a beam if it is ever needed.
+
+---
+
+# WP4 — temporal statistics and the two fade-rate faces
+
+This block records the work package that built
+`olb/turbulence/andrews/temporal.py` and filled the two fade-rate stubs of
+`olb/turbulence/andrews/distributions.py`. It closes the Table 2 rows G-11,
+G-12, G-67 to G-71, G-96, G-99, G-115, G-116, G-119 to G-121, G-149, G-159 and
+G-160. Row G-41 (Ch. 6.7, the mutual-coherence temporal spectrum) and rows G-75,
+G-97, G-98, G-151 stay open.
+
+## What is now built
+
+| Function | Book source | printed p |
+|---|---|---|
+| `taylor_wavenumber` | Ch. 3, Eq. (27) | 73 |
+| `fresnel_frequency` | Ch. 8, text below Eq. (57) | 283 |
+| `irradiance_temporal_spectrum`, weak | Ch. 8, Eq. (65), with Eqs. (57) and (59) as its limits | 285, 283, 284 |
+| `irradiance_temporal_spectrum`, strong | Ch. 10, Eqs. (93)-(97); at D = 0, Ch. 9, Eqs. (126)-(128) | 421-422, 365 |
+| `quasi_frequency` | Ch. 11, Eqs. (14), (15), (35), (38); Ch. 12, Eq. (73) | 448, 456, 514 |
+| `greenwood_frequency`, `coherence_time` | Ch. 14, Eqs. (38) and (39); text | 622, 623 |
+| `expected_number_of_fades` | Ch. 11, Eqs. (34) and (37); Ch. 12, Eqs. (72) and (74) | 455-456, 513-514 |
+| `mean_fade_time` | Ch. 11, Eq. (39); Ch. 12, Eqs. (78) and (79) | 456, 515 |
+
+## Findings
+
+1. **Ch. 8, Eq. (65) prints one factor in the wrong place.** The printed
+   equation puts `(omega/omega_t)^(-8/3)` in front of BOTH spectral groups. Its
+   own plane-wave and spherical-wave limits, Ch. 8, Eqs. (57) and (59), printed
+   pp. 283 and 284, put it in front of the FIRST group only. The code follows
+   Eqs. (57) and (59). With the printed placement the second group vanishes at
+   high frequency, and the constants 0.72 and 0.24 of Eqs. (57) and (59) have
+   nothing to cancel. With the code reading, Eq. (65) gives Eq. (57) at
+   Theta = 1, Lambda = 0 (measured amplitude 6.949 against the printed 6.95) and
+   Eq. (59) at Theta = 0, Lambda = 0 (measured 5.445 against the printed 5.47).
+
+2. **Ch. 8, Eq. (64) leaves a branch cut open.** Eq. (65) writes the second
+   group as `0.29 i^(4/3) a_j^(-4/3)`, and `a_j` is complex. The printed form
+   does not name the branch, and the principal branch does NOT reproduce
+   Eq. (57). The code writes every argument through `q_j = 1/(4 i a_j)`, which
+   is real and positive for a plane wave (1/2) and a spherical wave (2/9),
+   exactly as Eqs. (57) and (59) print the arguments.
+
+3. **The printed constants 0.72 and 0.24 make the spectrum go NEGATIVE.** Each
+   of the two spectral groups carries a 1/omega tail. The tails must cancel,
+   because the book states at printed p. 283 that the spectrum decays as
+   omega^(-8/3). The exact coefficient is
+   `C q^(4/3)` with `C = -Gamma(-1/3) Gamma(11/6)/[Gamma(1/2) Gamma(7/3)] =
+   1.810729`, which gives 0.7186 and 0.2437. The book rounds them to two
+   figures. With the printed 0.72 the residual tail takes the plane-wave
+   spectrum below zero above about 100 Fresnel frequencies (measured: -3.06e-10
+   at 10 kHz on the module test case), and the spectral integral no longer
+   converges. The code uses the derived C, and the self-check prints both.
+
+4. **The quasi-frequency nu0 has NO upper limit of its own.** The book defines
+   nu0 by the second spectral moment (Ch. 12, Eq. (73), printed p. 514). With a
+   Kolmogorov spectrum and a zero inner scale the spectrum decays as
+   omega^(-8/3), so the moment integrand decays as f^(-2/3) and b_2 grows as
+   f_max^(1/3). The measured growth is x1.49 per decade of band. This is why the
+   book sets nu0 to a fixed 550 Hz for its figures (printed pp. 457 and 514)
+   instead of computing it. Any olb caller MUST set the band from the detector
+   bandwidth or from an inner scale. The book gives no temporal spectrum with an
+   inner scale, so olb cannot close that gap from this source.
+
+5. **The book gives NO numeric worked example for the fade rate or the fade
+   time.** Ch. 11.7 Example 1, printed pp. 472-473, stops at the probability of
+   fade. Ch. 11 Problem 6, printed p. 474, asks for both at nu0 = 100 Hz and
+   prints no answer. Ch. 12.10 has none either. So the two new faces are checked
+   against the book's own internal identities instead: the rate equals nu0 at
+   the threshold where 0.23 F_T equals sigma_l2/2 (printed p. 448), the
+   gamma-gamma rate matches the printed Eq. (37) to 2e-15, and
+   Pr(fade) = <n> <t> holds to machine precision for all three models.
+
+6. **Ch. 9, Eq. (126) prints 0.50 where Ch. 9, Eq. (46) and Ch. 10, Eq. (95)
+   print 0.51** for the small-scale log-irradiance amplitude. The code uses
+   0.51, so that the strong temporal covariance at zero lag matches the
+   aperture-averaged index of Ch. 10, Eq. (69), printed p. 413. The residual
+   difference measured at zero lag is +0.58 %, which comes from the small-scale
+   limit `(x)^(5/12) K_(5/6)(sqrt(x)) -> 0.5 Gamma(5/6) 2^(5/6) = 1.0056`, not 1.
+
+7. **The weak and the strong temporal spectra carry the same POWER but not the
+   same SHAPE.** At sigma_R^2 = 7e-4 the two integrals agree to 0.30 %, but the
+   ratio of the two spectra is 1.374 at 1 Hz, 0.848 at 100 Hz and 0.422 at
+   1 kHz on the module test case. Ch. 8.5 comes from the Rytov covariance;
+   Ch. 9.8 comes from the two-scale extended-Rytov covariance. A caller that
+   needs a spectral SHAPE must pick one and say which.
+
+## Refused, and named so that nobody looks for it
+
+- A temporal spectrum with a finite inner scale or outer scale, in ANY regime.
+  Ch. 9.8, printed p. 364, states "We will also ignore the effects of a finite
+  inner scale and outer scale". Ch. 10, printed p. 425, states only that a scale
+  changes the peak values and does not shift the peak position. No closed form
+  is printed, so `irradiance_temporal_spectrum` raises NotImplementedError on
+  `l0` or `L0`.
+- A strong-regime spherical wave or Gaussian beam. Ch. 9.8, printed p. 364,
+  limits the analysis to a plane wave, and Ch. 9, printed p. 364, states that no
+  Gaussian-beam covariance has been computed.
+- A weak-only aperture-averaged temporal spectrum. Ch. 10.3.6, printed
+  pp. 421-422, gives the all-regime form only, so `D` needs `regime="strong"`.
+- The off-axis (radial) weak temporal spectrum, Ch. 8, Eqs. (66) and (67),
+  printed pp. 286-287 (row G-71). Not built: no olb caller reads an off-axis
+  spectrum today. The longitudinal part is built.
