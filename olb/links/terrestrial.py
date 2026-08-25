@@ -371,7 +371,8 @@ if __name__ == '__main__':
     assert scint.meta["weak_fluctuation_valid"] and scint.assumptions.ok
     # It has a real fade: a working analytic 99% quantile deeper than the mean.
     q99_scint = scint.quantile_db(0.99)
-    assert np.isfinite(q99_scint) and q99_scint > scint.mean_db, (q99_scint, scint.mean_db)
+    assert q99_scint is not None and np.isfinite(q99_scint) and q99_scint > scint.mean_db, \
+        (q99_scint, scint.mean_db)
 
     # The aperture-averaging win: a larger receive aperture shrinks the flux index
     # and the fade. Sweep D and check both fall monotonically.
@@ -381,7 +382,8 @@ if __name__ == '__main__':
         s = terrestrial_scintillation_term(
             _terr(0.02, 5e3, far_aperture=D), geom)
         sig_P.append(s.meta["sigma2_P"])
-        fades.append(float(s.quantile_db(0.99)))
+        q = s.quantile_db(0.99)
+        fades.append(float(q) if q is not None else float("nan"))
     assert all(np.diff(sig_P) < 0.0), sig_P        # flux index shrinks with D
     assert all(np.diff(fades) < 0.0), fades        # 99% fade shrinks with D
 
@@ -546,7 +548,8 @@ if __name__ == '__main__':
     wo_off = next(t for t in smf_off.terms if t.name == "SMF tip-tilt walk-off")
     assert cpl_off.meta["model"] == "static" and not cpl_off.mean_only
     assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
-    assert smf_off.provides_fade and wo_off.quantile_db(0.99) > wo_off.mean_db
+    wo_off_q99 = wo_off.quantile_db(0.99)
+    assert smf_off.provides_fade and wo_off_q99 is not None and wo_off_q99 > wo_off.mean_db
     # The jitter drives the coupling fade even with turbulence off (the whole point).
     scn_calm = TerrestrialScenario(
         near=scn_off.near, far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,

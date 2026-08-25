@@ -168,8 +168,10 @@ def main():
                                                    channel=channel),
                                HorizontalPath(L))
         s = next(t for t in b.terms if t.name == "scintillation")
+        q99 = s.quantile_db(0.99)
+        fade = float(q99) if q99 is not None else float("nan")
         print(f"{D_m * 100:7.1f} | {s.meta['aperture_averaging_factor']:7.3f} "
-              f"{s.meta['sigma2_P']:10.4f} {float(s.quantile_db(0.99)):9.3f}dB")
+              f"{s.meta['sigma2_P']:10.4f} {fade:9.3f}dB")
 
     print("\n" + "=" * 66)
     print("Fidelity 1 (the statistical coupling fade) is not built for terrestrial:\n"

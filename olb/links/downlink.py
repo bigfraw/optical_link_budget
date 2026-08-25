@@ -454,7 +454,7 @@ if __name__ == '__main__':
     term = downlink_scintillation_term(scenario, geom, cn2_profile=cn2)
     assert term.name == "scintillation", term.name
     q99 = term.quantile_db(0.99)
-    assert np.isfinite(q99) and q99 > term.mean_db, (q99, term.mean_db)
+    assert q99 is not None and np.isfinite(q99) and q99 > term.mean_db, (q99, term.mean_db)
     assert term.assumptions is not None
 
     # A 20 deg elevation breaks the weak-fluctuation limit; 60 deg does not.

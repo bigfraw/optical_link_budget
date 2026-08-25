@@ -23,12 +23,16 @@ fade margin, or a full Monte Carlo of the joint distribution.
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
 
 from .assumptions import Assumptions, SPECTRUM_NA
+
+# A loss or gain value in dB: a scalar, or a per-geometry array (for example one
+# value per elevation angle). Loss is positive, gain negative.
+NumDB = Union[float, np.ndarray]
 
 
 @dataclass
@@ -36,9 +40,9 @@ class Term:
     '''One contribution to the link budget (loss positive, gain negative, dB).'''
     name: str
     category: str                       # geometric | atmospheric | turbulence | pointing | system
-    mean_db: object = 0.0               # float or np.ndarray: deterministic value / E[loss]
+    mean_db: NumDB = 0.0                 # deterministic value / E[loss], scalar or per-geometry array
     sampler: Optional[Callable[[int, np.random.Generator], np.ndarray]] = None
-    quantile: Optional[Callable[[float], object]] = None
+    quantile: Optional[Callable[[float], NumDB]] = None
     note: str = ""
     meta: dict = field(default_factory=dict)
     assumptions: Optional[Assumptions] = None   # the regime the model is valid in
@@ -55,7 +59,7 @@ class Term:
         base = np.shape(self.mean_db)
         return np.broadcast_to(np.asarray(self.mean_db), (n, *base)).copy()
 
-    def quantile_db(self, p):
+    def quantile_db(self, p) -> Optional[NumDB]:
         '''
         Loss at availability p (the p-quantile of the loss of this term).
         Return None for Monte-Carlo-only terms that have no closed form. This

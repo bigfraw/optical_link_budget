@@ -315,7 +315,9 @@ if __name__ == '__main__':
             scn_ap, geom, cn2_profile=default_cn2_profile(scn_ap.channel.site, hs))
     assert t_ap.category == "coupling"
     assert np.isclose(t_ap.mean_db, t_scint.mean_db)    # exact parity
-    assert np.isclose(t_ap.quantile_db(0.99), t_scint.quantile_db(0.99))
+    q_ap, q_scint = t_ap.quantile_db(0.99), t_scint.quantile_db(0.99)
+    assert q_ap is not None and q_scint is not None
+    assert np.isclose(q_ap, q_scint)
 
     # --- SMF, no AO: mean-only Marechal / Dikmelik coupling loss ------------
     scn_smf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF()))
@@ -357,7 +359,8 @@ if __name__ == '__main__':
             t.assumptions.violations
         assert not t.assumptions.ok
         assert not t.stochastic and t.quantile is None
-        assert np.isclose(t.quantile_db(0.99), t.mean_db)
+        q99 = t.quantile_db(0.99)   # deterministic term returns its mean, never None
+        assert q99 is not None and np.isclose(q99, t.mean_db)
         draws = t.sample_db(1000, rng)
         assert draws.shape == (1000,) and np.allclose(draws, t.mean_db)
 

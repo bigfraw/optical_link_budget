@@ -116,14 +116,16 @@ def evaluate(scenario):
     assert np.isclose(mean_wander + mean_jitter, wo.mean_db), \
         (mean_wander, mean_jitter, wo.mean_db)
 
+    tx_q99 = tx.quantile_db(0.99)
+    wo_q99 = wo.quantile_db(0.99)
     return {
         "tx_jitter_mean": float(tx.mean_db),
-        "tx_jitter_q99": float(tx.quantile_db(0.99)) if tx.stochastic else float(tx.mean_db),
+        "tx_jitter_q99": float(tx_q99) if tx_q99 is not None else float(tx.mean_db),
         "floor_mean": float(floor.mean_db),
         "wander_mean": float(mean_wander),
         "rx_jitter_mean": float(mean_jitter),
         "walkoff_mean": float(wo.mean_db),
-        "walkoff_q99": float(wo.quantile_db(0.99)),
+        "walkoff_q99": float(wo_q99) if wo_q99 is not None else float("nan"),
         "w_eff_um": w_eff * 1e6,
         "spot_um": wo.meta["spot_radius_m"] * 1e6,
         "focal_cm": f * 100.0,

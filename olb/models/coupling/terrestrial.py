@@ -687,7 +687,8 @@ if __name__ == '__main__':
     wo_big = terrestrial_smf_walkoff_term(_terr(smf_opt, jitter=10e-6), hpath)
     assert wo_small.stochastic and wo_small.quantile is not None
     assert wo_big.mean_db > wo_small.mean_db
-    assert wo_big.quantile_db(0.99) > wo_big.mean_db   # exponential tail
+    wo_big_q = wo_big.quantile_db(0.99)
+    assert wo_big_q is not None and wo_big_q > wo_big.mean_db   # exponential tail
     rng = np.random.default_rng(0)
     draws = wo_big.sample_db(50_000, rng)
     assert np.abs(draws.mean() - wo_big.mean_db) / wo_big.mean_db < 0.03
@@ -727,7 +728,8 @@ if __name__ == '__main__':
     assert t_mmf.name == "receive coupling (MMF)" and t_mmf.category == "coupling"
     assert t_mmf.stochastic and t_mmf.quantile is not None and not t_mmf.mean_only
     assert 0.0 < t_mmf.meta["eta_static"] <= 1.0 and t_mmf.meta["static_loss_db"] >= 0.0
-    assert t_mmf.quantile_db(0.99) > t_mmf.mean_db          # walk-off adds a fade
+    t_mmf_q = t_mmf.quantile_db(0.99)
+    assert t_mmf_q is not None and t_mmf_q > t_mmf.mean_db  # walk-off adds a fade
     t_mmf_calm = terrestrial_mmf_coupling_term(
         _terr(mmf, jitter=2e-6, cn2=1e-15), hpath)
     assert t_mmf.mean_db > t_mmf_calm.mean_db               # more jitter, more loss
@@ -769,7 +771,8 @@ if __name__ == '__main__':
     wo_off = terrestrial_smf_walkoff_term(
         _terr(smf_opt, jitter=10e-6), hpath, turbulence=False)
     assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
-    assert wo_off.quantile_db(0.99) > wo_off.mean_db
+    wo_off_q = wo_off.quantile_db(0.99)
+    assert wo_off_q is not None and wo_off_q > wo_off.mean_db
     # An SMF static term needs no launch beam (turbulence off skips the r0 path).
     terr_off = terrestrial_smf_coupling_term(
         TerrestrialScenario(
@@ -780,8 +783,11 @@ if __name__ == '__main__':
         hpath, turbulence=False)
     assert terr_off.meta["model"] == "static" and not terr_off.mean_only
 
+    wo_big_q99 = wo_big.quantile_db(0.99)
+    t_mmf_q99 = t_mmf.quantile_db(0.99)
     print(f"SMF walk-off (10 urad): mean {wo_big.mean_db:.3f} dB  "
-          f"99% {float(wo_big.quantile_db(0.99)):.3f} dB")
+          f"99% {float(wo_big_q99) if wo_big_q99 is not None else float('nan'):.3f} dB")
     print(f"MMF (25 um core, 5 urad): static {t_mmf.meta['static_loss_db']:.3f} dB  "
-          f"mean {t_mmf.mean_db:.3f} dB  99% {float(t_mmf.quantile_db(0.99)):.3f} dB")
+          f"mean {t_mmf.mean_db:.3f} dB  "
+          f"99% {float(t_mmf_q99) if t_mmf_q99 is not None else float('nan'):.3f} dB")
     print("coupling terrestrial self-check passed")

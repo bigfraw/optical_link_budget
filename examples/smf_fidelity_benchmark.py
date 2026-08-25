@@ -52,8 +52,10 @@ def main():
             fast = downlink_coupling_term(scenario, geom, n_samples=1e5,
                                     smf_fidelity="fast")
         regime = "weak" if fast.meta["amplitude_regime_weak"] else "SAT"
+        fast_q99 = fast.quantile_db(0.99)
+        fast_q99 = float(fast_q99) if fast_q99 is not None else float("nan")
         print(f"{elevation_deg:5.0f} | {mean.mean_db:14.2f} | "
-              f"{fast.mean_db:10.2f} {fast.quantile_db(0.99):7.2f} | "
+              f"{fast.mean_db:10.2f} {fast_q99:7.2f} | "
               f"{fast.meta['amplitude_sigma2_I']:10.3f} {regime:>6}")
 
     print("\nThe analytic mean-only loss is the cheap, wavefront-free estimate of "

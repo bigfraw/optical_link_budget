@@ -324,7 +324,8 @@ if __name__ == '__main__':
     # Stochastic with an empirical quantile deeper than the mean.
     rng = np.random.default_rng(0)
     assert term.stochastic and term.quantile is not None
-    assert term.quantile_db(0.99) > term.mean_db
+    q99 = term.quantile_db(0.99)
+    assert q99 is not None and q99 > term.mean_db
     draws = term.sample_db(5000, rng)
     assert draws.shape == (5000,) and np.all(np.isfinite(draws))
     # Subharmonics on (captures the tilt); point-ahead caveat flagged.

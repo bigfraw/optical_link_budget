@@ -162,10 +162,13 @@ if __name__ == '__main__':
     assert draws.shape == (200_000, 3)
     rel = np.abs(draws.mean(axis=0) - term.mean_db) / term.mean_db
     assert np.all(rel < 0.02), rel
-    assert np.all(term.quantile_db(0.99) > term.mean_db)
+    q99 = term.quantile_db(0.99)
+    assert q99 is not None
+    q99_arr = np.atleast_1d(q99)
+    assert np.all(q99_arr > term.mean_db)
 
-    for el, mu, q99 in zip(geom.elevation_deg, np.atleast_1d(term.mean_db),
-                           np.atleast_1d(term.quantile_db(0.99))):
+    for el, mu, q99v in zip(geom.elevation_deg, np.atleast_1d(term.mean_db),
+                            q99_arr):
         print(f"elevation {el:>4.0f} deg  ->  mean {mu:6.3f} dB  "
-              f"99% fade {q99:6.3f} dB")
+              f"99% fade {q99v:6.3f} dB")
     print("self-check passed")

@@ -65,6 +65,7 @@ def evaluate(**kw):
     hp = HorizontalPath(scn.channel.path_length_m)
     t = terrestrial_mmf_coupling_term(scn, hp)
     m = t.meta
+    q99 = t.quantile_db(0.99)          # the MMF Term always gives a closed-form quantile
     # The dB losses split additively: the static loss folds in the NA gate, so the
     # pure spot-in-core loss is the static loss minus the gate. Then
     # static_pure + gate + walkoff = mean.
@@ -75,7 +76,7 @@ def evaluate(**kw):
         "walkoff_db": m["walkoff_mean_db"],
         "gate_db": m["na_gate_loss_db"],
         "mean_db": float(t.mean_db),
-        "q99_db": float(t.quantile_db(0.99)),
+        "q99_db": float(q99) if q99 is not None else float("nan"),
     }
 
 
