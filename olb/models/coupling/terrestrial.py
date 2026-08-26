@@ -623,6 +623,16 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
             f"angular gate cuts the coupled power by {(-10.0 * np.log10(na_factor)):.2f} "
             "dB. Shorten nothing further, or use a larger-NA fibre."
         )
+        assumptions.flag(
+            "The NA gate (NA/NA_optic)^2 is an aperture-AREA fraction, so it assumes "
+            "a uniformly illuminated pupil that fills the aperture. Here D is the "
+            "ILLUMINATED diameter, not only the mechanical stop. An underfilled or "
+            "Gaussian-apodized pupil carries less power in the steep marginal rays, "
+            "so its true NA loss is SMALLER. Thus this gate is CONSERVATIVE "
+            "(pessimistic) for an underfilled pupil, and exact for a filled uniform "
+            "one. A distant-source receive beam is near uniform, so the assumption "
+            "holds for a receive aperture."
+        )
     if rx.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The far aperture has a central obscuration "
