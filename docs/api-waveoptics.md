@@ -246,3 +246,40 @@ have:
 - An absorbing edge mask between the hops. `Forvard` is periodic, so the light
   that turbulence pushes to the edge comes back. A super-Gaussian mask removes
   it. LightPipes solves this inside `Steps`.
+
+### 9a. Where to put the screens on a non-uniform path
+
+The three constraints above set how SHORT a slab must be. They do not set WHERE
+the screen boundaries go. A slant path is not uniform: the ground holds most of
+the `Cn2`, and the high air holds little. So equal `Cn2` weight, NOT equal
+distance, sets the boundaries.
+
+- **Equal-strength partition.** Put the boundaries so that each slab holds the
+  same turbulence integral: the same `integral of Cn2 dz`. This is the same
+  quantity that sets the Fried parameter, `r0 = (0.423 k^2 integral Cn2 dz)^(-3/5)`.
+  So equal `Cn2` weight is equal `r0^(-5/3)` per slab, and equal phase variance
+  per screen. See Lane, Glindemann and Dainty, DOI 10.1088/0959-7174/2/3/003, and
+  Coles, Filice, Frehlich and Yadlowsky, DOI 10.1364/AO.34.002089.
+- **Why not equal distance.** Equal `dz` puts many screens in the thin high air,
+  where they add nothing, and too few screens at the ground, where the weak-scatter
+  bound breaks first. The screens bunch near the ground on an uplink.
+- **Reuse the profile.** The `Cn2` integral is the one that
+  `olb.turbulence.profiles.default_cn2_profile` already gives. The partition is
+  the inverse of its running integral, so the split-step layer must NOT hold its
+  own profile.
+
+The screen count comes from the weak-scatter bound and the total strength:
+`N >= sigma_R^2 / sigma_per_screen^2`, with `sigma_per_screen^2` about 0.1. See
+Martin and Flatte, DOI 10.1364/AO.27.002111.
+
+### 9b. The convergence check
+
+The bounds above give a screen count that SHOULD work. The honest check is to
+prove it. Run the propagation. Then double the screen count and run it again. If
+the receiver scintillation index (or the coupling efficiency) moves less than the
+tolerance, the first count was enough. Martin and Flatte validated the method this
+way, DOI 10.1364/JOSAA.7.000838.
+
+This check fits the layer style of this package: it WARNS, it does not raise. A
+path that does not converge at a practical screen count is an honest warning, the
+same as the `GridSpec` warnings in Section 5.
