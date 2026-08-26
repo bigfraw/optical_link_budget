@@ -165,6 +165,12 @@ This ladder is the downlink fibre coupling. Monte Carlo is not unique to it: the
 uplink turbulence Term is its own Dios coupled-flux Monte Carlo (beam wander +
 scintillation), sampled the same way — the Budget asks every Term for samples.
 
+Fidelity 2 is part built. The `olb/waveoptics/` package propagates a real complex
+field on a square grid, but it has NO turbulence, and no budget consumes it. It is
+the no-turbulence validator for the near-field and far-field limits of the
+analytic Terms. The turbulent split-step half, and a fidelity-2 Term, stay
+planned.
+
 A **temporal** side-step runs across the fidelity tiers, not along them (planned,
 NT6). Each statistical tier draws independent snapshots today, which give the
 correct marginal fade depth but no time correlation. FAST has a `TEMPORAL` flag
@@ -177,7 +183,7 @@ flowchart LR
   FL["Fibre-coupling fidelity"]
   FL --> F0["Fidelity 0 · Analytic ✅<br/>mean-only · NO fade<br/>Marechal / Dikmelik"]:::done
   FL --> F1["Fidelity 1 · Statistical ◑<br/>FAST · PSD phase screens<br/>+ log-normal amplitude<br/>true LP01 overlap · the fade"]:::partial
-  FL --> F2["Fidelity 2 · End-to-end ⬚<br/>split-step field propagation<br/>|∫ E·M*fibre|² per draw"]:::planned
+  FL --> F2["Fidelity 2 · End-to-end ◑<br/>olb/waveoptics · field propagation<br/>NO turbulence · NO Term yet<br/>split-step + |∫ E·M*fibre|² per draw ⬚"]:::partial
 
   classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
   classDef partial fill:#78350f,color:#fde68a,stroke:#f59e0b;

@@ -51,6 +51,33 @@ The turbulence files are:
   above delegate to it and keep their own names. See
   [physics.md](physics.md) Section 5h.
 
+### The wave-optics side layer
+
+The [`waveoptics/`](../olb/waveoptics) package is the fidelity-2 field
+propagation layer, WITHOUT turbulence. It propagates a scalar complex field
+through free space on a square grid. It is a trimmed port of LightPipes
+(BSD-3-Clause, see
+[`LIGHTPIPES_LICENSE.txt`](../olb/waveoptics/LIGHTPIPES_LICENSE.txt)), and it
+keeps the LightPipes names and call order:
+
+- `field.py` — `Field`, `Begin`, `Normal`, `Power`, `Intensity`, `Phase`, `SubIntensity`.
+- `sources.py` — `GaussBeam`, `PlaneWave`, `CircAperture`, `CircScreen`.
+- `propagators.py` — `Forvard`, `Fresnel`, `GForvard`.
+- `smf.py` — the single-mode-fibre pupil mode and the overlap coupling efficiency.
+- `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, and `forvard_max_z`.
+- `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
+
+The dependency stays one-way. The core (`field.py`, `sources.py`,
+`propagators.py`, `smf.py`) imports numpy and scipy only, and it imports nothing
+from the rest of olb. So the later turbulent split-step layer can use the same
+propagators. Only `grid.py` and `run.py` read a scenario.
+
+The package is built and each module holds a self-check, but it builds NO Term
+and it changes NO budget. It is the no-turbulence validator for the near-field
+and far-field limits of the analytic Terms. A fidelity-2 Term is an owner-gated
+later step. See [examples.md](examples.md) and
+[examples/waveoptics/README.md](../examples/waveoptics/README.md).
+
 ## 2. The pure-data layer
 
 The pure-data layer holds the inputs. It computes no physics. It is the values

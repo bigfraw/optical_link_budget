@@ -212,6 +212,29 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ---
 
+## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
+
+The `examples/waveoptics/` directory holds two scripts for the fidelity-2 field
+propagation layer (`olb/waveoptics/`). Each script propagates a real complex
+field on a square grid, prints a table of numbers, and saves a figure next to the
+script.
+
+- `terrestrial_stages.py` — the stage-by-stage propagation of a NEAR-FIELD
+  terrestrial link. It prints the fidelity-2 numbers against the fidelity-0
+  analytic Terms. The two totals disagree by 8.28 dB, because the analytic
+  transmit efficiency is a far-field form. The script then adds a retroreflected
+  return leg by hand, from three primitives.
+- `grid_artefacts.py` — the deliberate failure. It shows the FFT wrap-around
+  artefact of a grid that is too small, against the analytic ABCD route
+  (`GForvard`).
+
+The layer has NO turbulence, and no budget consumes it. Run each script as a
+module, for example `python -m examples.waveoptics.terrestrial_stages`. For the
+per-script guide and the status, see the suite README,
+[examples/waveoptics/README.md](../examples/waveoptics/README.md).
+
+---
+
 The four link families map to their example: uplink -> `uplink_sim.py`,
 downlink -> `downlink_terminal.py`, retro -> `retro_link.py`, terrestrial ->
 `terrestrial_link.py`.

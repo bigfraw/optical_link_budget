@@ -95,6 +95,18 @@ downlink, and retroreflected links to a LEO satellite.
   coupling Term keeps the higher-order residual only, so the tip-tilt is not
   counted two times. `terrestrial_budget` also takes a master `turbulence` switch
   that drops every turbulence quantity but keeps the static and jitter parts).
+- `olb/waveoptics/` — the fidelity-2 field propagation layer, WITHOUT turbulence.
+  A trimmed port of LightPipes (BSD-3-Clause, see `LIGHTPIPES_LICENSE.txt` in the
+  package) that keeps the LightPipes names and call order: `field.py` (Field,
+  Begin, Normal, Power, Intensity, Phase, SubIntensity), `sources.py` (GaussBeam,
+  PlaneWave, CircAperture, CircScreen), `propagators.py` (Forvard, Fresnel,
+  GForvard). Three olb-native modules sit on that core: `smf.py` (the fibre mode
+  and the overlap coupling efficiency), `grid.py` (`GridSpec.for_scenario`, the
+  automatic grid sizer with a manual override, and `forvard_max_z`), and `run.py`
+  (`propagate_scenario` -> `WaveResult`, one end-to-end propagation). The core is
+  pure numpy and scipy. It imports nothing from the rest of olb, so the later
+  turbulent split-step layer can use the same propagators. The package builds NO
+  Term and it changes NO budget.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
@@ -170,7 +182,16 @@ Open items:
   reads them); the inner/outer-scale branches (no Term passes `l0`/`L0`);
   the Andrews Ch. 6 wander route in `andrews/wander.py` (the uplink budget
   keeps the Dios/Belmonte kernel route, per Conflict C-01); the K
-  distribution.
+  distribution; the fidelity-2 `olb/waveoptics/` layer (see below).
+- **The fidelity-2 wave-optics layer is BUILT and SELF-CHECKED, but NO budget
+  consumes it.** `olb/waveoptics/` propagates a real complex field, and it agrees
+  with the fidelity-0 analytic Terms in the far field with a light truncation, to
+  0.02 dB. It is the no-turbulence validator that answers the near-field flag in
+  `olb/models/gaussian_efficiency.py`: a hard-truncated beam inside the Rayleigh
+  range breaks the far-field truncation efficiency. There is no fidelity-2 Term,
+  because such a Term moves the totals of an existing budget. That wiring is an
+  owner decision. The turbulent split-step part of fidelity 2 is NOT built.
+  `examples/waveoptics/` demonstrates the layer with two scripts.
 - **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
   `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
   fixes sit in its working tree only. The owner must commit them.

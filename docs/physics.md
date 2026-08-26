@@ -121,6 +121,11 @@ For an unobscured corner-cube (Cr = 0) the correction is +3.01 dB.
 - On-axis far-field gain of a truncated Gaussian, referenced to the untruncated
   source.
 - Paraxial beam. No turbulence.
+- The far-field form breaks in the near field. A hard-truncated beam that a
+  receiver sees inside the Rayleigh range `zR = pi*w_T^2/lambda` gets an on-axis
+  intensity that oscillates with range (Fresnel edge diffraction). The
+  `olb/waveoptics/` fidelity-2 layer is the no-turbulence check for such a link.
+  See [architecture.md](architecture.md) Section 1.
 
 #### Source
 
