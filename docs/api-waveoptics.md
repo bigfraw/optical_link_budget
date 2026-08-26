@@ -20,9 +20,9 @@ Status: the package builds NO Term and it changes NO budget. It is the
 no-turbulence validator for the near-field and far-field limits of the analytic
 Terms. A fidelity-2 Term is an owner-gated later step.
 
-The core (`field.py`, `sources.py`, `propagators.py`, `smf.py`) imports numpy and
-scipy only. It imports nothing from the rest of `olb`. Only `grid.py` and `run.py`
-read a scenario.
+The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`)
+imports numpy and scipy only. It imports nothing from the rest of `olb`. Only
+`grid.py` and `run.py` read a scenario.
 
 ---
 
@@ -46,6 +46,10 @@ is the axis. Do not call the constructor. Use `Begin()`.
 | `mgrid_R` | array | The radius of each pixel, in m. |
 | `Field.copy(Fin)` | classmethod | A deep copy. The copy shares no array. |
 | `Field.shallowcopy(Fin)` | classmethod | A shallow copy. The copy shares the array. |
+
+The field also carries a private `_curvature`, in 1/m. It is `0.0` on a flat
+grid. `LensForvard()` and `LensFresnel()` set it, and `Convert()` removes it. A
+copy keeps it. See Section 3a.
 
 ### The field functions
 
@@ -91,6 +95,68 @@ the tilt.
 
 Each function returns a new `Field`. A zero `z` returns a copy.
 
+The three functions work on a FLAT grid only. Each one raises `ValueError` when
+the field carries a curvature, because the grid side is then a function of the
+coordinate system. Call `Convert()` first. LightPipes prints a message and gives
+the field back unchanged; this port raises, because a silent bad result is worse
+than a stop.
+
+### 3a. The lens propagators (`olb/waveoptics/lenses.py`)
+
+These four functions hold the thin lens and the spherical (co-moving) coordinate
+route. The module imports numpy only.
+
+- `Lens(Fin, f, x_shift=0.0, y_shift=0.0)` — an ideal thin lens. It multiplies the
+  field with the quadratic phase `exp(-i*k*((x-dx)^2 + (y-dy)^2) / (2f))`
+  (Goodman, ISBN 978-0974707723). `f` is in m, and a negative `f` diverges the
+  beam. A pure Gaussian with no shift takes the analytic ABCD route with the lens
+  matrix `[[1, 0], [-1/f, 1]]` (Siegman, ISBN 978-0935702118). Each other case
+  takes the phase mask, and the mask clears the Gaussian flag.
+- `LensForvard(Fin, f, z)` — the spectral (FFT) propagator in spherical
+  coordinates. It puts a virtual lens of the focal length `f` in the plane of the
+  field and propagates a distance `z`. The internal step is `z1 = -z*f/(z - f)`.
+- `LensFresnel(Fin, f, z)` — the convolution propagator in spherical coordinates.
+  The same bookkeeping as `LensForvard`, with the `Fresnel` internal step. A plane
+  behind the focus of the virtual lens raises `ValueError`.
+- `Convert(Fin)` — the return to a flat grid. It multiplies the field with the
+  quadratic phase of a lens of the focal length `f = -1/curvature`, and it sets
+  the curvature to zero. The grid side and the amplitude do not change. A field
+  that is already flat comes back unchanged.
+
+For `LensForvard` and `LensFresnel` the grid side scales by `(f - z)/f`, the
+amplitude divides by the same factor, so the power does not change. The residual
+curvature `-1/(z - f)` goes into the field. `f` is the focal length of the
+COORDINATE SYSTEM, not of a lens in the beam, and the two functions add no phase
+to the field.
+
+`Lens(F, f)` with a curved input field combines the two powers first:
+`1/f_total = 1/f + 1/f1`, with `f1 = 1/curvature`.
+
+### The co-moving recipe
+
+Put the equal and opposite PHYSICAL lens in the beam before the coordinate lens.
+The two together add no optical power, so the link stays the same link. For a
+grid magnification `m > 1`:
+
+```python
+m = w_z / w0                          # for a Gaussian, m = w(z)/w0
+fA = z / (m - 1)                      # the physical lens. It converges.
+F = Lens(F, fA)                       # it holds the beam on the small grid
+F = LensFresnel(F, -fA, z)            # the coordinates diverge by m
+F = Convert(F)                        # it comes back to a flat grid
+```
+
+The identity behind the recipe is the ABCD factorisation of free space,
+`[[1, z], [0, 1]] = Scale(m) . Free(z/m) . Lens(fA)` with `m = 1 + z/fA`. The
+propagator does the SHORT step `z/m` on the launch grid, then it relabels the
+grid with the side `m*size`. See Schmidt, DOI 10.1117/3.866274, Ch. 7 (the scaled
+Fresnel propagator), and the LightPipes manual,
+https://opticspy.github.io/lightpipes/manual.html, "Spherical coordinates".
+
+The self-check propagates a 50 mm waist over 600 km on a 512-pixel grid. The beam
+radius agrees with the analytic ABCD value to 0.4 percent
+(`python -m olb.waveoptics.lenses`).
+
 ---
 
 ## 4. The fibre coupling (`olb/waveoptics/smf.py`)
@@ -113,32 +179,53 @@ realisations.
 
 ## 5. The grid (`olb/waveoptics/grid.py`)
 
-### `GridSpec(size_m, n)`
+### `GridSpec(size_m, n, scaled=False)`
 
-A frozen dataclass. It holds the two numbers that a propagation needs.
+A frozen dataclass. It holds the numbers that a propagation needs.
 
 | Field | Type | Unit | Meaning |
 |---|---|---|---|
-| `size_m` | float | m | The physical side of the square grid. |
+| `size_m` | float | m | The physical side of the square grid. It is the side at the LAUNCH plane when `scaled` is True. |
 | `n` | int | — | The number of pixels along one side. |
+| `scaled` | bool | — | True selects the scaled (co-moving) route of Section 3a. The grid then grows with the beam, and the side at the receive plane is `size_m` times the magnification. False keeps a flat grid. |
 | `pixel_m` | float | m | A property. The pitch, `size_m / n`. |
 
 ### `GridSpec.for_scenario(scenario, geometry, guard=4.0, pixels_per_feature=16, n_max=4096)`
 
-Derive a grid from a scenario and a geometry.
+Derive a grid from a scenario and a geometry. The method tries the FLAT route
+first, and it takes the SCALED (co-moving) route when the flat route cannot
+resolve the apertures.
 
-- The EXTENT rule: `size = guard * 2 * r_max`. `r_max` is the largest of the beam
-  radius at the launch plane, the beam radius at the longest range, the transmit
-  aperture radius, and the receive aperture radius.
+- The FLAT EXTENT rule: `size = guard * 2 * r_max`. `r_max` is the largest of the
+  beam radius at the launch plane, the beam radius at the longest range, the
+  transmit aperture radius, and the receive aperture radius.
+- The SCALED EXTENT rule: the grid starts at the launch plane, so
+  `size = guard * 2 * max(waist, transmit aperture radius)` only. The grid then
+  grows with the beam by the magnification `m`.
 - The RESOLUTION rule: the smallest feature gets `pixels_per_feature` pixels
-  across it. The pixel count goes up to the next power of two. It stays in the
-  interval `[256, n_max]`.
+  across it. The features are the transmit waist and the hard edges of the two
+  apertures (each aperture radius, and each central obscuration radius). The
+  scaled route measures a receive feature at the LAUNCH plane, so it divides that
+  feature by `m`. The pixel count goes up to the next power of two. It stays in
+  the interval `[256, n_max]`.
 - The transmit aperture obeys the bistatic rule of
   `olb.models.gaussian_efficiency`.
 
-The method WARNS. It does not raise. It warns when the `n_max` clamp leaves too
-few pixels on the smallest feature, and when the range is longer than
-`forvard_max_z()`. A transmit terminal with no `Transmitter` raises `ValueError`.
+A beam that does not grow (`m = 1`) has no scaled route, because the recipe needs
+a lens of the focal length `z/(m - 1)`.
+
+The method WARNS. It does not raise. It warns when NEITHER route resolves the
+smallest feature under the `n_max` clamp, and when the range of a flat grid is
+longer than `forvard_max_z()`. A transmit terminal with no `Transmitter` raises
+`ValueError`.
+
+### `beam_magnification(scenario, z)`
+
+The grid magnification `m = w(z)/w(0)` of the transmit beam, a float. It is 1.0 at
+`z = 0`. A deliberately diverged beam brings its own `w(z)`, because
+`olb.beam.free_space_radius` reads the `Transmitter` divergence. The sizer and
+`propagate_scenario()` both call this function, so the grid grows by exactly the
+factor that the beam grows by.
 
 ### `forvard_max_z(grid, wavelength_m)`
 
@@ -163,6 +250,10 @@ receive-aperture clip, and the fibre coupling. `grid=None` derives the grid with
 A deliberately diverged beam starts at a virtual waist behind the aperture (see
 `olb.beam`). Then the beam has the asked-for radius in the aperture plane.
 
+The propagation step selects one of three routes: the exact ABCD route, the flat
+`Fresnel` convolution, or the co-moving lens recipe. `GridSpec.for_scenario()`
+selects the grid route, and `grid.scaled` records it. See Section 7.
+
 ### `WaveResult`
 
 A frozen dataclass. All the losses are positive dB.
@@ -174,9 +265,27 @@ A frozen dataclass. All the losses are positive dB.
 | `tx_truncation_db` | float | The power that the launch aperture takes. |
 | `geometric_loss_db` | float | The power that the receive aperture does not collect. |
 | `smf_coupling_db` | float or None | The single-mode-fibre coupling loss. `None` when the receive terminal has no `SMF` detector. |
-| `propagator` | str | The name of the propagator that ran. |
+| `propagator` | str | The name of the propagator that ran: `"GForvard"`, `"Fresnel"` or `"LensFresnel"`. |
 
 `PURE_GAUSS_CLIP = 1e-6` is the dispatch threshold. See Section 7.
+
+### Compare the TOTAL, not the two parts
+
+The fidelity-2 numbers do NOT compare one to one with the fidelity-0 analytic
+Terms, because the two fidelities cut the loss in two different places:
+
+- `olb.models.gaussian_efficiency.tx_efficiency_loss_db` is an on-axis FAR-FIELD
+  gain ratio. `WaveResult.tx_truncation_db` is a plain power ratio at the launch
+  aperture.
+- `olb.models.geometric.geometric_loss_db` is the power fraction of the
+  UNtruncated Gaussian in the receive aperture. `WaveResult.geometric_loss_db` is
+  the power fraction of the PROPAGATED field.
+
+The product of the fidelity-0 pair is the collected power fraction in the far
+field with a small receiver. So the launch-to-collected TOTAL is the comparable
+quantity, and the split is not. On the 600 km space link of
+`examples/waveoptics/space_farfield.py` the two totals agree to 0.011 dB, and the
+two splits do not.
 
 ---
 
@@ -187,19 +296,31 @@ A frozen dataclass. All the losses are positive dB.
 | `GForvard` | Analytic ABCD (Siegman, ISBN 978-0935702118) | A pure Gaussian beam ONLY. It refuses a clipped field. | Any `z`. | None. There is no grid error, because the route is analytic. |
 | `Fresnel` | Convolution on a doubled grid (Schmidt, DOI 10.1117/3.866274, Ch. 7) | Any field. | MINIMUM `z`. The result is not valid when `z` is comparable with, or less than, the size of the diffracting aperture. (LightPipes manual; Schmidt Ch. 7) | No periodic wrap: the doubled grid absorbs it. The cost is 8 times the memory. The field must be zero at the grid edges. |
 | `Forvard` | FFT angular spectrum (Schmidt, DOI 10.1117/3.866274, Ch. 6) | Any field. | Any `z` down to zero. But EACH call needs `z < forvard_max_z = N*dx^2/lambda`. Past that limit the transfer function aliases. | The boundary is periodic. A beam that reaches the edge wraps to the opposite edge. Give the grid a side of about 8 times the largest beam radius. |
+| `LensFresnel` + `Convert` | The `Fresnel` convolution in spherical coordinates (Schmidt, DOI 10.1117/3.866274, Ch. 7; the LightPipes manual) | Any field. | The internal step is `z/m`, so the minimum-distance limit of `Fresnel` applies to `z/m`, not to `z`. A plane behind the focus of the virtual lens raises `ValueError`. | The grid GROWS with the beam by `m`. So one small pixel count holds a launch aperture and a far-field beam that is 100 times wider. The output is spherical until `Convert()` runs. |
+| `LensForvard` + `Convert` | The `Forvard` spectral method in spherical coordinates | Any field. | The internal step is `z1 = -z*f/(z - f)`, and that step keeps the `forvard_max_z` limit and the periodic artefact of `Forvard`. | The same co-moving grid as `LensFresnel`. Use `LensFresnel` for a long link. |
+
+The three flat-grid propagators refuse a spherical field. The two lens
+propagators leave the field spherical, so call `Convert()` before you go back to
+`Forvard`, `Fresnel` or `GForvard`. For the recipe that drives the two lens
+propagators, see Section 3a.
 
 ### The dispatch rule of `propagate_scenario`
 
-`propagate_scenario` reads the power that the launch aperture takes:
+`propagate_scenario` selects one of three routes. It reads the power that the
+launch aperture takes, and then the grid route:
 
 - The clip takes less than `PURE_GAUSS_CLIP = 1e-6` of the power: the field stays
   a pure Gaussian. The function propagates the UNCLIPPED launch field with
-  `GForvard`, the exact route.
-- The clip takes more: the field carries the aperture edge. The function
-  propagates the CLIPPED field with `Fresnel`.
+  `GForvard`, the exact route, at any range.
+- The clip takes more, and `grid.scaled` is False: the field carries the aperture
+  edge on a flat grid. The function propagates the CLIPPED field with `Fresnel`.
+- The clip takes more, and `grid.scaled` is True: the function runs the co-moving
+  recipe on the CLIPPED field,
+  `Convert(LensFresnel(Lens(F, fA), -fA, z))` with `fA = z/(m - 1)` and
+  `m = beam_magnification(scenario, z)`. `WaveResult.propagator` is then
+  `"LensFresnel"`. This is the route for a long space link.
 
-`propagate_scenario` does not call `Forvard`. A space link is longer than
-`forvard_max_z` on any practical grid, so `GridSpec.for_scenario()` warns there.
+`propagate_scenario` does not call `Forvard` or `LensForvard`.
 
 ---
 
@@ -211,7 +332,6 @@ when its trigger comes.
 | Function | Regime | The trigger to add it |
 |---|---|---|
 | `Forward` | The direct integral. The output grid is different from the input grid. | You must magnify or shrink the grid between two planes. |
-| `LensForvard`, `LensFresnel` with `Convert` | The co-moving spherical grid. The grid follows the beam, so a large expansion stays sampled. | This is the route to a samplable space link. Add it when a fidelity-2 space case must run. |
 | `Steps` | Propagation through a medium with an index term. It holds a built-in absorbing boundary. | The turbulent split-step layer, or an absorbing edge (see Section 9). |
 | `Interpol` | A regrid of the field: a new side, a new pixel count, a shift, or a rotation. | You must pass a field between two propagators that need different grids. |
 

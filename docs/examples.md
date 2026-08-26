@@ -214,7 +214,7 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds two scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds three scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
 script.
@@ -224,6 +224,13 @@ script.
   analytic Terms. The two totals disagree by 8.28 dB, because the analytic
   transmit efficiency is a far-field form. The script then adds a retroreflected
   return leg by hand, from three primitives.
+- `space_farfield.py` — the FAR-FIELD check on a space link: a 50 mm waist through
+  a 100 mm launch aperture with a 0.3 central obscuration, to a 500 mm receive
+  aperture at 600 km. A flat grid cannot hold this link, so
+  `GridSpec.for_scenario` selects the co-moving route and `propagate_scenario`
+  runs `LensFresnel`. The two TOTALS agree to 0.011 dB. The SPLIT does not agree,
+  because the fidelity-0 transmit efficiency is an on-axis far-field gain ratio
+  and the fidelity-2 number is a power ratio. Compare the total only.
 - `grid_artefacts.py` — the deliberate failure. It shows the FFT wrap-around
   artefact of a grid that is too small, against the analytic ABCD route
   (`GForvard`).

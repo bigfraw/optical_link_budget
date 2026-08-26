@@ -100,10 +100,20 @@ downlink, and retroreflected links to a LEO satellite.
   package) that keeps the LightPipes names and call order: `field.py` (Field,
   Begin, Normal, Power, Intensity, Phase, SubIntensity), `sources.py` (GaussBeam,
   PlaneWave, CircAperture, CircScreen), `propagators.py` (Forvard, Fresnel,
-  GForvard). Three olb-native modules sit on that core: `smf.py` (the fibre mode
+  GForvard; the three take a FLAT grid only, and each one raises on a spherical
+  field), and `lenses.py` (Lens, LensForvard, LensFresnel, Convert; the thin lens
+  and the spherical (co-moving) coordinate route, which moves the grid with the
+  beam so a long space link stays sampled on a small pixel count). Three
+  olb-native modules sit on that core: `smf.py` (the fibre mode
   and the overlap coupling efficiency), `grid.py` (`GridSpec.for_scenario`, the
-  automatic grid sizer with a manual override, and `forvard_max_z`), and `run.py`
-  (`propagate_scenario` -> `WaveResult`, one end-to-end propagation). The core is
+  automatic grid sizer with a manual override, `beam_magnification`, and
+  `forvard_max_z`), and `run.py`
+  (`propagate_scenario` -> `WaveResult`, one end-to-end propagation). The sizer
+  selects the ROUTE and the runner obeys it: `for_scenario` tries a flat grid
+  first and falls back to the scaled (co-moving) grid, `GridSpec.scaled` records
+  the choice, and `propagate_scenario` runs GForvard (an almost untouched
+  Gaussian), the flat Fresnel convolution, or the three-call lens recipe
+  (Lens -> LensFresnel -> Convert) on a scaled grid. The core is
   pure numpy and scipy. It imports nothing from the rest of olb, so the later
   turbulent split-step layer can use the same propagators. The package builds NO
   Term and it changes NO budget.
@@ -188,10 +198,16 @@ Open items:
   with the fidelity-0 analytic Terms in the far field with a light truncation, to
   0.02 dB. It is the no-turbulence validator that answers the near-field flag in
   `olb/models/gaussian_efficiency.py`: a hard-truncated beam inside the Rayleigh
-  range breaks the far-field truncation efficiency. There is no fidelity-2 Term,
+  range breaks the far-field truncation efficiency. The layer now covers the
+  SPACE link too, through the co-moving grid of `lenses.py`: a 600 km uplink with
+  a hard truncation and a central obscuration runs on a 2048-pixel grid, and its
+  total agrees with the fidelity-0 total to 0.011 dB. Compare the TOTAL only. The
+  per-Term numbers do NOT compare, because `tx_efficiency_loss_db` is an on-axis
+  far-field gain ratio and `tx_truncation_db` is a power ratio. There is no
+  fidelity-2 Term,
   because such a Term moves the totals of an existing budget. That wiring is an
   owner decision. The turbulent split-step part of fidelity 2 is NOT built.
-  `examples/waveoptics/` demonstrates the layer with two scripts.
+  `examples/waveoptics/` demonstrates the layer with three scripts.
 - **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
   `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
   fixes sit in its working tree only. The owner must commit them.

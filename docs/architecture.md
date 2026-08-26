@@ -62,15 +62,25 @@ keeps the LightPipes names and call order:
 
 - `field.py` — `Field`, `Begin`, `Normal`, `Power`, `Intensity`, `Phase`, `SubIntensity`.
 - `sources.py` — `GaussBeam`, `PlaneWave`, `CircAperture`, `CircScreen`.
-- `propagators.py` — `Forvard`, `Fresnel`, `GForvard`.
+- `propagators.py` — `Forvard`, `Fresnel`, `GForvard`. The three work on a flat grid only. Each one raises `ValueError` on a spherical field.
+- `lenses.py` — `Lens`, `LensForvard`, `LensFresnel`, `Convert`. The thin lens, and the spherical (co-moving) coordinate route. `LensFresnel` moves the grid with the beam, so a beam that grows by a factor of 100 stays sampled on a small pixel count. `Convert` comes back to a flat grid.
 - `smf.py` — the single-mode-fibre pupil mode and the overlap coupling efficiency.
-- `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, and `forvard_max_z`.
+- `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, `beam_magnification`, and `forvard_max_z`.
 - `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
 
+The grid sizer selects the ROUTE, and the runner obeys it. `for_scenario` tries a
+flat grid first, and it falls back to the scaled (co-moving) grid when the flat
+grid cannot resolve the apertures. `GridSpec.scaled` records the choice.
+`propagate_scenario` then runs one of three routes: the exact ABCD route
+(`GForvard`) for an almost untouched Gaussian, the flat `Fresnel` convolution, or
+the three-call lens recipe (`Lens`, `LensFresnel`, `Convert`) on a scaled grid.
+The last one is the route for a long space link. See Schmidt,
+DOI 10.1117/3.866274, Ch. 7.
+
 The dependency stays one-way. The core (`field.py`, `sources.py`,
-`propagators.py`, `smf.py`) imports numpy and scipy only, and it imports nothing
-from the rest of olb. So the later turbulent split-step layer can use the same
-propagators. Only `grid.py` and `run.py` read a scenario.
+`propagators.py`, `lenses.py`, `smf.py`) imports numpy and scipy only, and it
+imports nothing from the rest of olb. So the later turbulent split-step layer can
+use the same propagators. Only `grid.py` and `run.py` read a scenario.
 
 The package is built and each module holds a self-check, but it builds NO Term
 and it changes NO budget. It is the no-turbulence validator for the near-field
