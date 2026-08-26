@@ -27,12 +27,32 @@ truncated Gaussian (tn2_kepler test_gauss_prop).
 
 The transmitter is the ground station for an uplink, or the satellite for a
 downlink. The same code serves both.
+
+NEAR-FIELD WARNING. eta is a FAR-FIELD quantity. It is the on-axis gain ratio
+that the truncated beam settles to far past the aperture. A pure untruncated
+Gaussian keeps a smooth on-axis intensity at every range, but the hard aperture
+edge does not: inside the Rayleigh range zR = pi*w_T^2/lambda the on-axis
+intensity OSCILLATES with range (Fresnel edge diffraction). So for a receiver
+inside zR (the terrestrial near-field case; zR is about 5 km for a 5 cm beam at
+1.55 um) the true on-axis intensity can sit above OR below this eta. Unlike the
+geometric spreading Term (exact at all ranges through gaussz) this Term does NOT
+self-correct, and unlike the single-mode-fibre eta_max the error is NOT
+conservative. It bites only when the beam is HARD truncated (alpha near or below
+1, so real power sits in the clipped wings) AND the receiver is inside zR. A
+lightly clipped beam (alpha >~ 1.5) or a far-field target is safe. A fidelity-2
+no-turbulence field propagation is the check for a link that this Term flags.
 '''
 
 import numpy as np
 
 from ..results import Term
 from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
+
+# The far-field eta is safe above this alpha: the aperture is wide enough that
+# almost no power sits in the clipped wings, so the near-field edge ripple is
+# negligible even inside the Rayleigh range. Below it, a receiver inside zR gets
+# an active near-field violation flag. See the NEAR-FIELD WARNING above.
+TRUNCATION_NEAR_FIELD_ALPHA = 1.5
 
 
 def gaussian_efficiency(alpha, obscuration_ratio=0.0):
@@ -113,8 +133,12 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
     '''
     Transmit Gaussian-efficiency (truncation) Term for a scenario.
 
-    Range-independent, so the geometry is not read. The signature keeps the
-    common f(scenario, geometry) -> Term shape.
+    The loss is range-independent. The geometry is read only to test the
+    near-field validity: a hard-truncated beam (alpha below
+    TRUNCATION_NEAR_FIELD_ALPHA) with a receiver inside the Rayleigh range
+    zR = pi*w_T^2/lambda breaks the far-field eta, so the Term flags it (see the
+    NEAR-FIELD WARNING in the module docstring). A far-field target or a widely
+    open aperture keeps the Term valid, and geometry=None skips the test.
 
     Parameters:
         scenario : SpaceScenario or TerrestrialScenario
@@ -124,7 +148,8 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
             Terminal aperture_m and obscuration_ratio (monostatic). See
             olb.terminal.Transmitter and olb.scenario.
         geometry : object, optional
-            Unused. Present for a uniform model signature.
+            Read for slant_range_m to test the near-field validity only. None
+            skips the test (the loss is unchanged).
 
     Returns:
         Term
@@ -141,6 +166,32 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
                          else tx.obscuration_ratio)
     alpha = (aperture_m / 2) / waist_m
     loss = tx_efficiency_loss_db(aperture_m, waist_m, obscuration_ratio)
+    assumptions = Assumptions(
+        beam_type=BEAM_GAUSSIAN,
+        turbulence_regime=REGIME_NA,
+        spectrum=SPECTRUM_NA,
+        validity="On-axis FAR-FIELD gain of a truncated Gaussian, referenced "
+                 "to the untruncated source. Paraxial. No turbulence. Fails "
+                 "for a receiver inside the Rayleigh range zR=pi*w_T^2/lambda "
+                 "when the beam is hard truncated (alpha<~1): near-field "
+                 "on-axis intensity oscillates (Fresnel edge diffraction) and "
+                 "this far-field eta does not self-correct. Verify such a link "
+                 "with a fidelity-2 no-turbulence field propagation.",
+    )
+    # Active near-field violation: a hard-truncated beam (small alpha) with a
+    # receiver inside the Rayleigh range breaks the far-field eta. The loss is
+    # geometry-dependent to test, so it is an active flag, not just the prose
+    # validity string. geometry=None (space budgets, always far field) skips it.
+    range_m = getattr(geometry, "slant_range_m", None)
+    if range_m is not None and alpha < TRUNCATION_NEAR_FIELD_ALPHA:
+        rayleigh_range_m = np.pi * waist_m ** 2 / tx.wavelength_m
+        if np.any(np.asarray(range_m, dtype=float) < rayleigh_range_m):
+            assumptions.flag(
+                f"Receiver is inside the Rayleigh range "
+                f"(zR={rayleigh_range_m:.3g} m) and the beam is hard truncated "
+                f"(alpha={alpha:.3f}): the far-field truncation eta does not "
+                f"hold. Verify with a fidelity-2 no-turbulence field propagation."
+            )
     return Term(
         name="transmit Gaussian efficiency",
         category="system",
@@ -149,13 +200,7 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
              f"Cr={obscuration_ratio:g}",
         meta={"alpha": float(alpha),
               "eta": float(gaussian_efficiency(alpha, obscuration_ratio))},
-        assumptions=Assumptions(
-            beam_type=BEAM_GAUSSIAN,
-            turbulence_regime=REGIME_NA,
-            spectrum=SPECTRUM_NA,
-            validity="On-axis far-field gain of a truncated Gaussian, referenced "
-                     "to the untruncated source. Paraxial. No turbulence.",
-        ),
+        assumptions=assumptions,
     )
 
 
@@ -196,6 +241,22 @@ if __name__ == '__main__':
     assert np.isscalar(term.mean_db) and term.mean_db > 0
     assert 0.0 < term.meta["eta"] <= 1.0
     assert term.assumptions is not None
+    # geometry=None never flags (space budgets are always far field).
+    assert term.assumptions.ok
+
+    # Near-field flag: a hard-truncated beam (alpha=0.625) with a receiver inside
+    # the Rayleigh range breaks the far-field eta. zR = pi*0.12^2/1.55e-6 ~ 29 km,
+    # so a 1 km receiver flags; a 600 km one does not; and geometry=None does not.
+    from types import SimpleNamespace
+    near = tx_gaussian_efficiency_term(scn, SimpleNamespace(slant_range_m=1e3))
+    assert not near.assumptions.ok and "Rayleigh range" in near.assumptions.violations[0]
+    far = tx_gaussian_efficiency_term(scn, SimpleNamespace(slant_range_m=600e3))
+    assert far.assumptions.ok
+    # A widely open aperture (alpha above the threshold) does not flag, even near.
+    open_scn = SpaceScenario(
+        ground=Terminal(aperture_m=0.6, transmitter=Transmitter(waist_m=0.12)),
+        space=Terminal(aperture_m=0.05), direction="uplink")   # alpha = 2.5
+    assert tx_gaussian_efficiency_term(open_scn, SimpleNamespace(slant_range_m=1e3)).assumptions.ok
 
     # Bistatic override: the launch truncation reads the Transmitter beam-director
     # aperture, NOT the (large) receive telescope aperture. A ground terminal with

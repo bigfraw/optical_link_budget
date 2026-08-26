@@ -117,7 +117,18 @@ def smf_eta_max_from_a(a):
 
         eta_max(a) = 2 * [ (1 - exp(-a^2)) / a ]^2.
 
-    It peaks at eta_max=0.8145 near a=1.12, and it falls on both sides. Source:
+    It peaks at eta_max=0.8145 near a=1.12, and it falls on both sides.
+
+    Assumes a UNIFORMLY illuminated aperture and a FLAT (best-focus) wavefront.
+    So it holds when the received spot overfills the aperture (the aperture reads
+    the near-flat centre of the beam) and the receiver focuses for the incoming
+    curvature (the optimal_focus case). A near-field terrestrial link inside the
+    Rayleigh range can break BOTH: the received Gaussian tapers across the
+    aperture, and the wavefront is curved. Curvature is removable by refocus. The
+    residual taper error runs SAFE, because a Gaussian-into-Gaussian overlap can
+    exceed the 0.8145 top-hat value, so this constant is then conservative. A
+    curvature-aware, illumination-aware eta_max is the Gap-3 upgrade (see
+    CLAUDE.md and olb.models.coupling.terrestrial). Source:
     Shaklan and Roddier, Applied Optics 27, 2334 (1988), DOI
     10.1364/AO.27.002334 (also Ruilier, Proc. SPIE 3350, 1998, DOI
     10.1117/12.317094; and Dikmelik and Davidson, Applied Optics 44(23), 4946
