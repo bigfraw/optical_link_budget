@@ -1,13 +1,23 @@
 # examples/waveoptics — the fidelity-2 field propagation layer
 
-Three runnable scripts. Each one propagates a real complex field on a square
-grid with `olb.waveoptics`, it prints a labelled table of numbers, and it saves
-a figure next to the script.
+Six runnable scripts, in two groups. Each one propagates a real complex field
+on a square grid with `olb.waveoptics`, it prints a labelled table of numbers,
+and it saves its figures next to the script.
+
+- The first three scripts have NO turbulence. They show the vacuum layer at its
+  two limits, and they show how the grid breaks.
+- The last three scripts add the turbulent split step of
+  `olb/waveoptics/turbulence/`, and they compare its statistics with the
+  analytic fidelity-0 and fidelity-1 models of the budgets.
 
 The package is `olb/waveoptics/`. It is a trimmed port of LightPipes
 (BSD-3-Clause, see `olb/waveoptics/LIGHTPIPES_LICENSE.txt`), plus two modules
 that read an olb scenario: `grid.py` (GridSpec) and `run.py`
-(`propagate_scenario`).
+(`propagate_scenario`). The turbulent sub-package adds `screens.py`,
+`splitstep.py`, `sampling.py` and `run.py`
+(`propagate_turbulent_scenario`, and `propagate_turbulent_field` for one
+snapshot as a complex field). `threader.py` (`Threader`) runs the independent
+trials across threads.
 
 The physics comes from three sources:
 
@@ -24,11 +34,22 @@ From the repository root:
 
 The `-m` form is the house idiom of `examples/`. It puts the repository root on
 the import path, so `import olb` works. Run each script the same way, with its
-own module name. Each script saves its figure and then it calls `plt.show()`.
-A machine with no display shows no window, but the figure file is already on
-the disk.
+own module name. The three vacuum scripts save the figure and then they call
+`plt.show()`. A machine with no display shows no window, but the figure file is
+already on the disk. The three turbulent scripts save the figure and they open
+NO window at all, because each one runs for minutes and a blocking window would
+hold the terminal.
 
-## The scripts
+Each turbulent script runs the trials across threads with a `Threader`, and it
+prints a progress line for each block of trials. The trials are independent
+snapshots, and the FFT of the split step releases the GIL, so the threads give
+a real speed-up: the terrestrial script drops from about six minutes to about
+one on a desktop. Every seed is explicit, so a second run — threaded or not —
+repeats the first one exactly. Each script also prints how many phase screens
+it created (one fresh screen stack for each trial): about 3,200 for the
+terrestrial script, 4,200 for the downlink, and 4,000 for the uplink.
+
+## The vacuum scripts
 
 | Script | What it prints and draws |
 | --- | --- |
@@ -36,7 +57,44 @@ the disk.
 | `space_farfield.py` | The FAR-FIELD check on a space link (waist 50 mm, launch aperture 100 mm with a 0.3 central obscuration, receive aperture 500 mm, 600 km at zenith, 1550 nm). A flat grid cannot hold this link, so `GridSpec.for_scenario` selects the co-moving route and `propagate_scenario` runs `LensFresnel`. It prints the grid, and the fidelity-2 numbers against the fidelity-0 analytic Terms: the two TOTALS agree to 0.011 dB, but the split does not. Figure: `space_farfield.png`, the launch plane, the obscured annulus, the far-field map in log10, and a radial cut against the untruncated Gaussian. |
 | `grid_artefacts.py` | The deliberate failure. One Gaussian link (waist 5 mm, range 200 m, 1550 nm) on a proper grid and on a grid of only 2 times the final beam radius. The FFT propagator treats the grid as periodic, so the small grid folds the beam tail back onto the beam. It prints the bucket power of each run against the analytic ABCD route, with the relative error. Figure: `grid_artefacts.png`, four log-intensity panels on one colour scale. |
 
-## What the three scripts show together
+## The turbulent scripts
+
+Each of the three puts one turbulent split-step Monte Carlo against the
+analytic model that a budget already uses. Each one prints the SAMPLING REPORT
+of its grid, so the reader sees what the preset achieved, and each one prints
+the mean, the smallest and the largest per-trial wall time. (A per-trial time
+holds the thread contention, so the sum of the per-trial times runs past the
+real wall time of a threaded run.)
+
+Each turbulent script also saves a SECOND figure, `*_field.png`: the amplitude
+and the phase of the received complex field of one snapshot (trial 0 of the
+run), with the receive aperture drawn as a dashed ring. It comes from
+`propagate_turbulent_field`, a diagnostic entry point that returns the field
+without extending the scalar trial record.
+
+| Script | What it prints and draws |
+| --- | --- |
+| `turbulent_terrestrial.py` | A 2 km horizontal link at Cn2 = 3e-15 (the plane-wave Rytov variance is 0.21, firmly weak; the script ASSERTS that, because every analytic target here is a weak-fluctuation form). It runs 120 snapshots THREE times on the same screens and the same seeds, and it changes only the receive aperture: a 3-pixel pinhole, a 30 mm sampling bucket, and the 100 mm budget aperture with its single-mode fibre. The pinhole index and the 30 mm bucket index agree with the Dios on-axis form and the Andrews aperture-averaging factor. The 100 mm bucket does NOT, and the printed capture fraction says why: it holds 78 percent of the beam, and the split step conserves power. The fibre-coupling Term reads 2.5 dB more loss than the field does. Figure: `turbulent_terrestrial.png`, the two bucket fades against their lognormals, and the fibre-coupling histogram against the mean-only Term. |
+| `turbulent_downlink.py` | A 600 km downlink into a 500 mm obscured fibre receiver, at 30, 60 and 90 degrees, 70 snapshots each. The aperture scintillation index agrees with the fidelity-0 plane-wave integral at every elevation. The fibre coupling does not agree with the fidelity-1 FAST Term: the field reads 0.7 dB less loss at 30 degrees and 2.9 dB less at the zenith. The script prints the static mode-match floor of each model, so the turbulence part can be read alone, and it names the candidate causes without picking one. Figure: `turbulent_downlink.png`, the index against elevation on the analytic curve, and the coupling loss with error bars against the FAST mean and the FAST 99% fade. |
+| `turbulent_uplink_reciprocity.py` | A 600 km uplink at the zenith and at 30 degrees, 100 snapshots each. The satellite is outside the grid, so the uplink flux comes from the reciprocity overlap of the propagated downlink field with the ground transmit mode (Shapiro, DOI 10.1364/JOSA.61.000492). That loss goes against the Dios coupled-flux Monte Carlo of `olb.turbulence.uplink_flux`, which the uplink Term calls. The MEANS agree inside 1 dB at both elevations, and the field reads the smaller loss of the two. The 30-degree row is a REPORT, not a test: the coupled-flux model already says `weak_fluctuation_valid = False` there, so it is outside the regime of its own Rytov model. The TAILS are reported, not tested: a field Monte Carlo reaches deeper than a parametric lognormal. Both terminals carry zero pointing jitter, because the coupled-flux model folds a jitter into the same wander variance and the overlap does not. Figure: `turbulent_uplink_reciprocity.png`, the two loss distributions on one axis for each elevation. |
+
+## What the three turbulent scripts show together
+
+The layer reproduces the analytic models where the analytic assumptions hold,
+and it departs from them where they do not:
+
+- the scintillation indices agree, at every elevation and on the horizontal
+  path, whenever the receive aperture SAMPLES the beam;
+- the aperture-averaged form fails when the aperture nearly HOLDS the beam,
+  because the split step conserves power and the analytic factor does not know
+  about that;
+- the fibre-coupling models disagree by 1 to 3 dB, and the field reads LESS
+  loss than both the fidelity-0 Term and the fidelity-1 FAST Term.
+
+That last gap is the reason no fidelity-2 Term is wired. It moves budget
+numbers, so the default is an owner decision.
+
+## What the three vacuum scripts show together
 
 `terrestrial_stages.py` and `space_farfield.py` show the layer at work, at the
 two limits: a near-field link where the analytic total FAILS, and a far-field
@@ -68,7 +126,8 @@ reads it to run the three-call lens recipe of `olb/waveoptics/lenses.py`
 ## Status: built and self-checked, but NOT wired
 
 The `olb/waveoptics/` package is complete and each module holds a self-check
-(`python -m olb.waveoptics.run`, `python -m olb.waveoptics.grid`, and so on).
+(`python -m olb.waveoptics.run`, `python -m olb.waveoptics.grid`,
+`python -m olb.waveoptics.turbulence.run`, and so on).
 It agrees with the fidelity-0 analytic Terms in the far field with a light
 truncation, to 0.02 dB. On the 600 km space link of `space_farfield.py`, with
 a hard truncation and a central obscuration, the two TOTALS agree to 0.011 dB.
@@ -83,7 +142,9 @@ collected power fraction, so the totals compare, but the split does not.
 **NO budget consumes it.** The layer builds no Term, and it changes no budget
 number. A fidelity-2 Term is an owner-gated later step, for two reasons:
 
-- the layer has NO turbulence today. It is the no-turbulence validator that
-  flags the near-field and far-field limits of the analytic Terms;
+- the vacuum part is the no-turbulence validator that flags the near-field and
+  far-field limits of the analytic Terms;
 - a fidelity-2 Term would move the totals of an existing budget, so the owner
-  must decide the default.
+  must decide the default. The three turbulent scripts show HOW MUCH it would
+  move them: the scintillation stays put, and the fibre coupling moves by 1 to
+  3 dB.
