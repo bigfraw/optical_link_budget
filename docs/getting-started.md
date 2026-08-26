@@ -116,7 +116,7 @@ Loss is positive dB. Gain is negative dB.
 
 The uplink budget folds the tracking jitter into the coupled-flux turbulence
 Term. So it does not add a separate pointing Term when turbulence is on. For the
-full runnable script, see [../examples/uplink_divergence.py](../examples/uplink_divergence.py).
+full runnable script, see [../validation/uplink_divergence.py](../validation/uplink_divergence.py).
 
 ## 4. The four link families
 
@@ -126,7 +126,7 @@ Build a ground transmit terminal and a space receive terminal. Set the direction
 to `"uplink"`. Call `uplink_budget(scenario, geometry)`. Pass a diverged beam with
 `Transmitter(divergence_rad=...)`; a wider beam scintillates less and points more
 easily, but spreads more. See
-[../examples/uplink_divergence.py](../examples/uplink_divergence.py).
+[../validation/uplink_divergence.py](../validation/uplink_divergence.py).
 
 ### Downlink (space to ground)
 

@@ -32,7 +32,7 @@ Note: the receive-aperture angle-of-arrival term (the Andrews aperture tilt,
 contribution C) is not included yet. See docs/andrews-crosscheck.md batch 2.
 
 Run from the repo root:
-    python -m examples.terrestrial_coupling_jitter
+    python -m validation.terrestrial_coupling_jitter
 '''
 
 import warnings

@@ -15,7 +15,7 @@ spot deep inside the core loses almost nothing until it nears the edge. The old
 model wrongly loses power from zero angle and drops far too fast.
 
 Run from the repo root (saves a PNG; pass an output path to override):
-    python -m examples.mmf_coupling_validation [out.png]
+    python -m validation.mmf_coupling_validation [out.png]
 '''
 
 import sys

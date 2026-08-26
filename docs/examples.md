@@ -1,7 +1,8 @@
 # olb example scripts
 
-The `examples/` directory holds runnable scripts. Each script builds a link
-budget and prints the result. This guide describes each one.
+The `examples/` directory holds the curated runnable scripts. Each script builds
+a link budget and prints the result. The `validation/` directory holds the
+owner's cross-check scripts. This guide describes each one.
 
 ## How to run
 
@@ -52,32 +53,22 @@ receive `Terminal` changes the downlink budget across five front ends.
   loss, the total loss, and the 99% fade.
 - Run: `python -m examples.downlink_terminal`
 
-## [uplink_divergence.py](../examples/uplink_divergence.py)
-
-A trade study. The ground station widens (diverges) the transmit beam on
-purpose. The script shows the trade across four divergence values.
-
-- API: `uplink_budget(...)`; `Transmitter(waist_m=..., divergence_rad=...)`;
-  `dataclasses.replace` to vary only the divergence per case.
-- A wider beam raises the geometric spreading loss but lowers the pointing and
-  turbulence loss. The 99% fade tightens most, so a moderate divergence can
-  improve the 99% margin. The divergence is the far-field half-angle. It cannot
-  be smaller than the diffraction limit.
-- Output: an itemised table per case, a Monte Carlo margin per case, and a
-  summary table. The script names the divergence with the best 99% margin.
-- Run: `python -m examples.uplink_divergence`
-
-## [end_to_end.py](../examples/end_to_end.py)
+## [custom_budget.py](../examples/custom_budget.py)
 
 The lower-level path. It composes the four models into one `Budget` by hand,
-instead of a link factory. Use it to see how a budget is built term by term.
+instead of a link factory. Use it when a pre-built budget in `olb/links` does
+not fit: a link that no factory covers, a Term swap, or a what-if.
 
 - API: `Budget([...], scenario=...)` built from `geometric_loss_term`,
   `slant_extinction_term`, `pointing_loss_term`, and `uplink_turbulence_term`.
   A FAST-free Cn2 profile comes from `get_c2n`, so the script runs anywhere.
+- A hand-built Budget does not protect you from a double count. The script sets
+  the ground jitter to zero, because it keeps the pointing Term apart from the
+  coupled-flux turbulence Term.
 - It asserts that the table has all four terms and that the margin is finite.
-- Output: an itemised table, a Monte Carlo mean, a 99% fade, and a 99% margin.
-- Run: `python -m examples.end_to_end`
+- Output: an itemised table, the broken assumptions, a Monte Carlo mean, a 99%
+  fade, and a 99% margin.
+- Run: `python -m examples.custom_budget`
 
 ## [build_a_link.py](../examples/build_a_link.py)
 
@@ -145,7 +136,32 @@ distance, compensation, and receive aperture.
   of the fibre coupling loss, and an aperture-averaging table.
 - Run: `python -m examples.terrestrial_link`
 
-## [terrestrial_coupling_jitter.py](../examples/terrestrial_coupling_jitter.py)
+---
+
+## The validation scripts ([validation/](../validation/))
+
+The `validation/` directory at the repository root holds the owner's cross-check
+and validation scripts. They are not curated user examples. They can be
+specific, they can overlap, and they can be rough. Run each one as a module, for
+example `python -m validation.uplink_divergence`. For the folder guide, see
+[validation/README.md](../validation/README.md).
+
+## [uplink_divergence.py](../validation/uplink_divergence.py)
+
+A trade study. The ground station widens (diverges) the transmit beam on
+purpose. The script shows the trade across four divergence values.
+
+- API: `uplink_budget(...)`; `Transmitter(waist_m=..., divergence_rad=...)`;
+  `dataclasses.replace` to vary only the divergence per case.
+- A wider beam raises the geometric spreading loss but lowers the pointing and
+  turbulence loss. The 99% fade tightens most, so a moderate divergence can
+  improve the 99% margin. The divergence is the far-field half-angle. It cannot
+  be smaller than the diffraction limit.
+- Output: an itemised table per case, a Monte Carlo margin per case, and a
+  summary table. The script names the divergence with the best 99% margin.
+- Run: `python -m validation.uplink_divergence`
+
+## [terrestrial_coupling_jitter.py](../validation/terrestrial_coupling_jitter.py)
 
 A terrestrial single-mode-fibre receiver. It splits the coupling loss into three
 pointing mechanisms and keeps the free-space loss apart from the fibre loss:
@@ -162,9 +178,9 @@ pointing mechanisms and keeps the free-space loss apart from the fibre loss:
   the focal length comes from the mode field radius and the aperture at `a=1.12`.
 - Output: a loss breakdown by mechanism, then three sweeps (over Cn2, the receive
   jitter, and the transmit jitter) that show each mechanism scales on its own.
-- Run: `python -m examples.terrestrial_coupling_jitter`
+- Run: `python -m validation.terrestrial_coupling_jitter`
 
-## [mmf_coupling_validation.py](../examples/mmf_coupling_validation.py)
+## [mmf_coupling_validation.py](../validation/mmf_coupling_validation.py)
 
 A validation of the multimode-fibre (light-bucket) coupling. It plots the coupled
 power against the incident angle for the correct encircled-energy model and for
@@ -176,9 +192,9 @@ the old, wrong Gaussian roll-off, at two spot sizes.
   from zero angle.
 - Output: a two-panel PNG (`mmf_coupling_vs_angle.png`, or a path you pass), plus
   the coupled power at half the edge angle and at the edge.
-- Run: `python -m examples.mmf_coupling_validation [out.png]`
+- Run: `python -m validation.mmf_coupling_validation [out.png]`
 
-## [terrestrial_mmf_na.py](../examples/terrestrial_mmf_na.py)
+## [terrestrial_mmf_na.py](../validation/terrestrial_mmf_na.py)
 
 A terrestrial multimode-fibre link that shows the numerical-aperture angular gate.
 The focusing cone `NA_optic = (D/2)/f` must stay within the fibre NA, or the fibre
@@ -190,7 +206,7 @@ tolerates more walk-off but pays a larger gate.
   additively: spot-in-core + NA gate + walk-off = mean.
 - Output: an NA sweep (the gate turns on below `NA_optic`), then a focal-length
   sweep that shows the etendue trade and a best focal length.
-- Run: `python -m examples.terrestrial_mmf_na`
+- Run: `python -m validation.terrestrial_mmf_na`
 
 ---
 

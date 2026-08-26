@@ -24,8 +24,9 @@ All documentation uses ASD-STE100 Simplified Technical English. See
 6. [Physics reference](physics.md) — the models and the turbulence kernels, with
    a source DOI for each equation.
 7. [Examples](examples.md) — a guide to each runnable script in `examples/`. It
-   also points to the Andrews foundation suite in `examples/andrews/` and to the
-   wave-optics suite in `examples/waveoptics/`.
+   also points to the Andrews foundation suite in `examples/andrews/`, to the
+   wave-optics suite in `examples/waveoptics/`, and to the cross-check scripts
+   in `validation/`.
 8. [Andrews cross-check](andrews-crosscheck.md) — the running comparison of the
    olb equations against Andrews and Phillips, 2nd ed. (2005), with a status per
    entry and the adjudicated conflicts. This is the internal physics record.

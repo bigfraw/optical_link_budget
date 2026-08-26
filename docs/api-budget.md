@@ -283,8 +283,8 @@ The budget-building Terms:
   uncorrected phase variance. The Term is mean-only. It models the phase only,
   not the scintillation.
 
-Examples: `examples/uplink_sim.py`, `examples/uplink_divergence.py`,
-`examples/build_a_link.py`.
+Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
+`validation/uplink_divergence.py`.
 
 ### `downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, smf_fidelity="fast", fast_params=None)`
 
@@ -435,4 +435,4 @@ The receive-side Terms:
   `optimal_focus=True`), else it raises `ValueError`. See `physics.md` section 6c.
 
 Examples: `examples/terrestrial_link.py`,
-`examples/terrestrial_coupling_jitter.py`.
+`validation/terrestrial_coupling_jitter.py`.
