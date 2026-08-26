@@ -38,6 +38,7 @@ from .propagators import Forvard, Fresnel, GForvard
 from .run import WaveResult, propagate_scenario
 from .smf import coupling_efficiency, smf_mode
 from .sources import CircAperture, CircScreen, GaussBeam, PlaneWave
+from .threader import Threader
 
 __all__ = [
     "Field", "Begin", "Normal", "Power", "Intensity", "Phase", "SubIntensity",
@@ -47,4 +48,5 @@ __all__ = [
     "smf_mode", "coupling_efficiency",
     "GridSpec", "beam_magnification", "forvard_max_z",
     "propagate_scenario", "WaveResult",
+    "Threader",
 ]
