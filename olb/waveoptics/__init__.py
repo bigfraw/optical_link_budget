@@ -22,6 +22,7 @@ module docstring for the three-call recipe.
 Two modules on top of that core read an olb scenario:
 
 - grid.py: GridSpec, the grid extent and the grid resolution for a scenario.
+           It selects the flat grid or the scaled (co-moving) grid.
 - run.py:  propagate_scenario, one end-to-end propagation, and WaveResult.
 
 smf.py holds the single-mode-fibre pupil mode and the coupling efficiency.
@@ -31,7 +32,7 @@ The package builds NO Term and it changes NO budget.
 
 from .field import (Begin, Field, Intensity, Normal, Phase, Power,
                     SubIntensity)
-from .grid import GridSpec, forvard_max_z
+from .grid import GridSpec, beam_magnification, forvard_max_z
 from .lenses import Convert, Lens, LensForvard, LensFresnel
 from .propagators import Forvard, Fresnel, GForvard
 from .run import WaveResult, propagate_scenario
@@ -44,6 +45,6 @@ __all__ = [
     "Forvard", "Fresnel", "GForvard",
     "Lens", "LensForvard", "LensFresnel", "Convert",
     "smf_mode", "coupling_efficiency",
-    "GridSpec", "forvard_max_z",
+    "GridSpec", "beam_magnification", "forvard_max_z",
     "propagate_scenario", "WaveResult",
 ]

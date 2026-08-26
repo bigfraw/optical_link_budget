@@ -27,7 +27,8 @@ import numpy as np
 from ..beam import virtual_waist
 from ..terminal import SMF
 from .field import Begin, Field, Normal, Power
-from .grid import GridSpec
+from .grid import GridSpec, beam_magnification
+from .lenses import Convert, Lens, LensFresnel
 from .propagators import Fresnel, GForvard
 from .smf import coupling_efficiency
 from .sources import CircAperture, CircScreen, GaussBeam
@@ -54,7 +55,8 @@ class WaveResult:
                            collect, in positive dB.
         smf_coupling_db:   the single-mode-fibre coupling loss, in positive dB.
                            None if the receive terminal has no SMF detector.
-        propagator:        the name of the propagator that ran, a string.
+        propagator:        the name of the propagator that ran, a string:
+                           "GForvard", "Fresnel" or "LensFresnel".
     """
 
     stages: list
@@ -112,6 +114,13 @@ def propagate_scenario(scenario, geometry, grid=None):
     The steps are: launch, launch-aperture clip, free-space propagation,
     receive-aperture clip, and the fibre coupling.
 
+    The propagation step selects one of three routes. An almost untouched
+    Gaussian takes the exact ABCD route (GForvard) at any range. A clipped
+    field on a flat grid takes the Fresnel convolution. A clipped field on a
+    SCALED grid takes the co-moving lens recipe (LensFresnel), which is the
+    route for a long space link. GridSpec.for_scenario() selects the grid
+    route, and grid.scaled records it.
+
     Args:
         scenario: a SpaceScenario or a TerrestrialScenario. The transmit
                   terminal needs a Transmitter.
@@ -160,11 +169,21 @@ def propagate_scenario(scenario, geometry, grid=None):
     tx_truncation_db = _loss_db(power_clipped, power_launch)
 
     # ---- the propagation ----
-    # An almost untouched Gaussian keeps the exact ABCD route. A clipped field
-    # carries the aperture edge, so it needs the Fresnel convolution.
+    # An almost untouched Gaussian keeps the exact ABCD route, at any range.
+    # A clipped field carries the aperture edge, so it needs a numerical
+    # propagator: the Fresnel convolution on a flat grid, or the co-moving
+    # lens recipe on a scaled grid. See olb.waveoptics.lenses and Schmidt,
+    # DOI 10.1117/3.866274, Ch. 7.
     if 1.0 - power_clipped / power_launch < PURE_GAUSS_CLIP:
         at_rx = GForvard(launch, z)
         propagator = "GForvard"
+    elif grid.scaled:
+        # m comes from the same call that sized the grid, so the grid grows
+        # by exactly the factor that the beam grows by.
+        m = beam_magnification(scenario, z)
+        f_lens = z / (m - 1)
+        at_rx = Convert(LensFresnel(Lens(clipped, f_lens), -f_lens, z))
+        propagator = "LensFresnel"
     else:
         at_rx = Fresnel(clipped, z)
         propagator = "Fresnel"
@@ -190,10 +209,11 @@ def propagate_scenario(scenario, geometry, grid=None):
 
 
 if __name__ == '__main__':
-    from ..geometry import HorizontalPath
+    from ..geometry import CircularOrbit, HorizontalPath
     from ..models.gaussian_efficiency import tx_efficiency_loss_db
     from ..models.geometric import geometric_loss_db
-    from ..scenario import TerrestrialChannel, TerrestrialScenario
+    from ..scenario import (Channel, SpaceScenario, TerrestrialChannel,
+                            TerrestrialScenario)
     from ..terminal import Terminal, Transmitter
 
     lam = 1550e-9
@@ -276,6 +296,47 @@ if __name__ == '__main__':
     # of 0.8145, which is 0.891 dB. See olb.waveoptics.smf.
     assert smf_res.smf_coupling_db > 0.89, smf_res.smf_coupling_db
 
+    # ---- case 4: a space link on the co-moving grid ----
+    # An uplink to a 600 km orbit at zenith. The launch waist is 50 mm, the
+    # launch aperture is 100 mm (alpha = 1.0, a real truncation) with a 0.3
+    # central obscuration, and the receive aperture is 500 mm. The automatic
+    # sizer must select the scaled route, and the propagation must select
+    # LensFresnel.
+    space_scn = SpaceScenario(
+        ground=Terminal(aperture_m=0.10, obscuration_ratio=0.3,
+                        wavelength_m=lam,
+                        transmitter=Transmitter(waist_m=0.05)),
+        space=Terminal(aperture_m=0.50, wavelength_m=lam),
+        direction="uplink", channel=Channel(altitude_m=600e3))
+    orbit = CircularOrbit(altitude_m=600e3, elevation_deg=[90.0])
+    z_space = float(np.max(orbit.slant_range_m))
+    space = propagate_scenario(space_scn, orbit)      # the automatic grid
+    assert space.grid.scaled, "a 600 km link must take the co-moving route"
+    assert space.propagator == "LensFresnel", space.propagator
+
+    space_tx = float(tx_efficiency_loss_db(0.10, 0.05, obscuration_ratio=0.3))
+    # The receive terminal has no obscuration, so the launch obscuration is
+    # charged one time only, by the transmit efficiency.
+    space_geo = float(geometric_loss_db(z_space, 0.05, 0.50, wavelength=lam))
+
+    # ONLY THE TOTAL COMPARES. The fidelity-0 pair splits the loss in a way
+    # that the field does not: tx_efficiency_loss_db is an on-axis far-field
+    # GAIN ratio, and geometric_loss_db is the power fraction of the
+    # UNtruncated Gaussian in the receive aperture. The fidelity-2 pair is
+    # plain power bookkeeping at each plane. The product of the fidelity-0
+    # pair is the collected power fraction in the far field with a small
+    # receiver, so the TOTALS agree. See the printed table below.
+    p_launch = Power(space.stages[0][1])
+    p_collected = Power(space.stages[3][1])
+    space_total = _loss_db(p_collected, p_launch)
+    assert abs(space_total - (space_tx + space_geo)) < 0.1, \
+        (space_total, space_tx + space_geo)
+    # The grid holds the far-field power: the co-moving grid keeps 95 percent
+    # of the clipped power. The rest is the diffraction tail past the grid
+    # edge, which the 500 mm receiver would never collect.
+    keep = Power(space.stages[2][1]) / Power(space.stages[1][1])
+    assert keep > 0.9, keep
+
     # ---- an array geometry is a caller loop, not a case ----
     try:
         propagate_scenario(smf_scn, HorizontalPath([1e3, 2e3]),
@@ -303,4 +364,22 @@ if __name__ == '__main__':
     print(f"near-field propagator     {near.propagator}")
     print(f"diverged propagator       {div.propagator}")
     print(f"SMF coupling loss, 30 km  {smf_res.smf_coupling_db:.3f} dB")
+    print("")
+    print("space uplink, 600 km at zenith, the co-moving grid:")
+    print(f"  range                   {z_space * 1e-3:11.1f} km")
+    print(f"  propagator              {space.propagator:>11}")
+    print(f"  grid, launch side       {space.grid.size_m:11.3f} m "
+          f"({space.grid.n} pixels)")
+    print(f"  grid, receive side      "
+          f"{space.grid.size_m * beam_magnification(space_scn, z_space):11.3f} m")
+    print(f"  power kept on the grid  {keep:11.4f}")
+    print(f"  fid-2 launch truncation {space.tx_truncation_db:11.3f} dB")
+    print(f"  fid-0 launch truncation {space_tx:11.3f} dB")
+    print(f"  fid-2 geometric spread  {space.geometric_loss_db:11.3f} dB")
+    print(f"  fid-0 geometric spread  {space_geo:11.3f} dB")
+    print(f"  fid-2 TOTAL, collected  {space_total:11.3f} dB")
+    print(f"  fid-0 TOTAL             {space_tx + space_geo:11.3f} dB")
+    print(f"  difference              {space_total - (space_tx + space_geo):11.3f} dB")
+    print("  The split differs, because the two fidelities cut the loss in")
+    print("  two places. The TOTAL is the number that compares.")
     print("self-check passed")
