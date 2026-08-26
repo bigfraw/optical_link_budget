@@ -9,17 +9,32 @@ change.
 Ported and trimmed from LightPipes (https://github.com/opticspy/lightpipes),
 BSD-3-Clause. See LIGHTPIPES_LICENSE.txt in this package.
 
-The package is pure physics. It imports numpy and scipy only. It imports
-nothing from the rest of olb.
+The core (field.py, sources.py, propagators.py, smf.py) is pure physics. It
+imports numpy and scipy only. It imports nothing from the rest of olb.
+
+Two modules on top of that core read an olb scenario:
+
+- grid.py: GridSpec, the grid extent and the grid resolution for a scenario.
+- run.py:  propagate_scenario, one end-to-end propagation, and WaveResult.
+
+smf.py holds the single-mode-fibre pupil mode and the coupling efficiency.
+
+The package builds NO Term and it changes NO budget.
 """
 
 from .field import (Begin, Field, Intensity, Normal, Phase, Power,
                     SubIntensity)
+from .grid import GridSpec, forvard_max_z
 from .propagators import Forvard, Fresnel, GForvard
+from .run import WaveResult, propagate_scenario
+from .smf import coupling_efficiency, smf_mode
 from .sources import CircAperture, CircScreen, GaussBeam, PlaneWave
 
 __all__ = [
     "Field", "Begin", "Normal", "Power", "Intensity", "Phase", "SubIntensity",
     "GaussBeam", "PlaneWave", "CircAperture", "CircScreen",
     "Forvard", "Fresnel", "GForvard",
+    "smf_mode", "coupling_efficiency",
+    "GridSpec", "forvard_max_z",
+    "propagate_scenario", "WaveResult",
 ]
