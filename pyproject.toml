@@ -15,6 +15,10 @@ dependencies = [
 # FAST (fast-aosim) supplies HV57 Cn2 profiles (olb.turbulence) and the
 # fidelity-1 single-mode-fibre modal coupling (olb.models.coupling_fast).
 turbulence = ["fast-aosim"]
+# aotools (LGPL-3.0) draws the random phase screens of the fidelity-2
+# split-step layer (olb.waveoptics.turbulence). olb imports it. olb does
+# not copy it.
+screens = ["aotools"]
 
 [build-system]
 requires = ["setuptools>=61"]
