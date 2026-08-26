@@ -37,6 +37,23 @@ from scipy.special import fresnel as _fresnel
 from .field import Field
 
 
+def _reject_spherical(Fin, name):
+    """Refuse a field that is in spherical (co-moving) coordinates.
+
+    A flat-grid propagator cannot read a field that carries a curvature,
+    because the grid side is a function of the coordinate system. The
+    lens propagators in lenses.py set that curvature. Convert() removes it.
+    See the LightPipes manual,
+    https://opticspy.github.io/lightpipes/manual.html.
+
+    LightPipes prints a message and gives the field back unchanged. This
+    port raises, because a silent bad result is worse than a stop.
+    """
+    if Fin._curvature != 0.0:
+        raise ValueError(f'{name}: the field is in spherical coordinates. '
+                         'Use Convert() first.')
+
+
 def Forvard(Fin, z):
     """Propagate the field with the FFT spectral method.
 
@@ -57,7 +74,11 @@ def Forvard(Fin, z):
 
     Returns:
         A new Field.
+
+    Raises:
+        ValueError: the field is in spherical coordinates.
     """
+    _reject_spherical(Fin, 'Forvard')
     if z == 0:
         return Field.copy(Fin)
 
@@ -136,7 +157,11 @@ def Fresnel(Fin, z):
 
     Returns:
         A new Field.
+
+    Raises:
+        ValueError: z is negative, or the field is in spherical coordinates.
     """
+    _reject_spherical(Fin, 'Fresnel')
     if z < 0:
         raise ValueError('Fresnel does not support negative z')
     if z == 0:
@@ -247,8 +272,10 @@ def GForvard(Fin, z):
         A new Field.
 
     Raises:
-        ValueError: the input field is not a pure Gaussian beam.
+        ValueError: the input field is not a pure Gaussian beam, or the
+            field is in spherical coordinates.
     """
+    _reject_spherical(Fin, 'GForvard')
     return _ABCD(Fin, [[1.0, z], [0.0, 1.0]])
 
 
@@ -334,6 +361,18 @@ if __name__ == '__main__':
     b_gs = bucket_power(GForvard(F0s, z), wz)
     b_fs = bucket_power(Forvard(F0s, z), wz)
     assert abs(b_fs - b_gs) / b_gs > 1e-2, (b_fs, b_gs)
+
+    # ---- the spherical-coordinate guard ----
+    Fsph = Field.copy(F0)
+    Fsph._curvature = -1e-6
+    for name, call in (("Forvard", lambda: Forvard(Fsph, z)),
+                       ("Fresnel", lambda: Fresnel(Fsph, z)),
+                       ("GForvard", lambda: GForvard(Fsph, z))):
+        try:
+            call()
+            raise AssertionError(f"{name} must refuse a spherical field")
+        except ValueError as exc:
+            assert 'Convert' in str(exc), name
 
     print(f"wavelength              {lam * 1e9:9.1f} nm")
     print(f"waist radius w0         {w0 * 1e3:9.3f} mm")

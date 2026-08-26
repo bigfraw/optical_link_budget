@@ -57,6 +57,12 @@ class Field:
         self._field = Fin
         self._lam = wavelength
         self._siz = grid_size
+        # The curvature of the spherical coordinate system, in 1/m. It is
+        # 0.0 for a normal (flat) grid. LensForvard() and LensFresnel() set
+        # it. Convert() removes it. See the LightPipes manual,
+        # https://opticspy.github.io/lightpipes/manual.html, "Spherical
+        # coordinates".
+        self._curvature = 0.0
         # The Gaussian bookkeeping. GForvard reads these values.
         # q is the complex beam parameter, Siegman/Goodman convention:
         # q = z - i*z_R, with z_R = pi*w0^2/lam.
@@ -258,6 +264,13 @@ if __name__ == '__main__':
     # The grid is square and zero-centred.
     assert F.xvalues.shape == (N,)
     assert abs(F.mgrid_R[N // 2, N // 2]) < 1e-18
+
+    # A fresh field is on a flat grid, and a copy keeps the curvature.
+    assert F._curvature == 0.0
+    F._curvature = -1e-6
+    assert Field.copy(F)._curvature == -1e-6
+    assert Field.shallowcopy(F)._curvature == -1e-6
+    F._curvature = 0.0
 
     # Normal() always gives a power of 1.0.
     FN = Normal(F)

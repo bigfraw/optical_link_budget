@@ -9,8 +9,15 @@ change.
 Ported and trimmed from LightPipes (https://github.com/opticspy/lightpipes),
 BSD-3-Clause. See LIGHTPIPES_LICENSE.txt in this package.
 
-The core (field.py, sources.py, propagators.py, smf.py) is pure physics. It
-imports numpy and scipy only. It imports nothing from the rest of olb.
+The core (field.py, sources.py, propagators.py, lenses.py, smf.py) is pure
+physics. It imports numpy and scipy only. It imports nothing from the rest of
+olb.
+
+lenses.py holds the thin lens and the spherical (co-moving) coordinate route.
+A long space link makes the beam grow by a factor of 100 or more. A flat grid
+cannot hold that beam AND resolve the launch aperture. LensFresnel() moves
+the grid with the beam, and Convert() comes back to a flat grid. See the
+module docstring for the three-call recipe.
 
 Two modules on top of that core read an olb scenario:
 
@@ -25,6 +32,7 @@ The package builds NO Term and it changes NO budget.
 from .field import (Begin, Field, Intensity, Normal, Phase, Power,
                     SubIntensity)
 from .grid import GridSpec, forvard_max_z
+from .lenses import Convert, Lens, LensForvard, LensFresnel
 from .propagators import Forvard, Fresnel, GForvard
 from .run import WaveResult, propagate_scenario
 from .smf import coupling_efficiency, smf_mode
@@ -34,6 +42,7 @@ __all__ = [
     "Field", "Begin", "Normal", "Power", "Intensity", "Phase", "SubIntensity",
     "GaussBeam", "PlaneWave", "CircAperture", "CircScreen",
     "Forvard", "Fresnel", "GForvard",
+    "Lens", "LensForvard", "LensFresnel", "Convert",
     "smf_mode", "coupling_efficiency",
     "GridSpec", "forvard_max_z",
     "propagate_scenario", "WaveResult",
