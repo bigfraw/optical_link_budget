@@ -77,7 +77,14 @@ class QualityPreset:
                               screen. A screen that is stronger than this value
                               breaks the thin-screen approximation. See
                               Schmidt, DOI 10.1117/3.866274, Ch. 9.
-        min_screens:          the smallest screen count.
+        min_screens:          the smallest screen count. A weak path passes
+                              sigma2_r_screen_max with one screen, but one
+                              screen gives phase only and no scintillation, so
+                              a floor is needed. TO REVISE: the integers
+                              15/9/5 have NO derivation and NO DOI, unlike every
+                              other preset field. Justify them from Schmidt or a
+                              convergence sweep, and see the _merge_layers
+                              fallback note. (CLAUDE.md open items.)
         fresnel_weight_min:   the Rytov share above which a screen must obey
                               the Fresnel-scale pixel rule. A screen that
                               carries less than this share of the total Rytov
@@ -226,6 +233,14 @@ def _merge_layers(weights, cap, min_groups):
     if current:
         groups.append(current)
     if len(groups) < min_groups:
+        # TO REVISE (CLAUDE.md open items). This fallback couples the screen
+        # count to the profile sampling: it keeps ONE screen per layer, so a
+        # weak space slab gets len(DEFAULT_HS) = 20 screens, and a finely
+        # sampled profile would give hundreds. It should instead clamp UP to
+        # EXACTLY min_groups contiguous Cn2-weighted groups, and the caller
+        # should WARN only when len(weights) < min_groups (the model cannot
+        # split one layer). Fix this together with the min_screens
+        # justification, then re-run the three turbulent examples.
         return [[i] for i in range(len(weights))]
     return groups
 
