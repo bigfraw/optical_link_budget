@@ -78,6 +78,9 @@ and far-field limits of the analytic Terms. A fidelity-2 Term is an owner-gated
 later step. See [examples.md](examples.md) and
 [examples/waveoptics/README.md](../examples/waveoptics/README.md).
 
+For the full API, the propagator regimes, and the sampling limits, see
+[api-waveoptics.md](api-waveoptics.md).
+
 ## 2. The pure-data layer
 
 The pure-data layer holds the inputs. It computes no physics. It is the values

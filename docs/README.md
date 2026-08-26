@@ -18,11 +18,13 @@ All documentation uses ASD-STE100 Simplified Technical English. See
    pure-data classes that describe the hardware and the link case.
 4. [API — Terms, Budgets, and link entry points](api-budget.md) — the result
    objects, the assumption checks, and the per-link budget functions.
-5. [Physics reference](physics.md) — the models and the turbulence kernels, with
+5. [API — the wave-optics layer](api-waveoptics.md) — the fidelity-2 field
+   propagation package, the propagator regimes, and the sampling limits.
+6. [Physics reference](physics.md) — the models and the turbulence kernels, with
    a source DOI for each equation.
-6. [Examples](examples.md) — a guide to each runnable script in `examples/`. It
+7. [Examples](examples.md) — a guide to each runnable script in `examples/`. It
    also points to the Andrews foundation suite in `examples/andrews/` and to the
    wave-optics suite in `examples/waveoptics/`.
-7. [Andrews cross-check](andrews-crosscheck.md) — the running comparison of the
+8. [Andrews cross-check](andrews-crosscheck.md) — the running comparison of the
    olb equations against Andrews and Phillips, 2nd ed. (2005), with a status per
    entry and the adjudicated conflicts. This is the internal physics record.

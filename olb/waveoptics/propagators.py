@@ -124,6 +124,12 @@ def Fresnel(Fin, z):
     The doubled grid absorbs the periodic wrap of the spectral method.
     The method needs a field that is zero at the edges of the grid.
 
+    The method has a MINIMUM distance. The convolution does not give a
+    valid result when z is comparable with, or less than, the size of the
+    aperture that diffracts the field. Use Forvard for a short hop. See the
+    LightPipes manual, https://opticspy.github.io/lightpipes/manual.html,
+    and Schmidt, DOI 10.1117/3.866274, Ch. 7.
+
     Args:
         Fin: the input field.
         z:   the propagation distance, in m. It must not be negative.
