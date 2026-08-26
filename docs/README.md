@@ -19,7 +19,8 @@ All documentation uses ASD-STE100 Simplified Technical English. See
 4. [API — Terms, Budgets, and link entry points](api-budget.md) — the result
    objects, the assumption checks, and the per-link budget functions.
 5. [API — the wave-optics layer](api-waveoptics.md) — the fidelity-2 field
-   propagation package, the propagator regimes, and the sampling limits.
+   propagation package, the propagator regimes, the sampling limits, and the
+   turbulent split-step sub-package.
 6. [Physics reference](physics.md) — the models and the turbulence kernels, with
    a source DOI for each equation.
 7. [Examples](examples.md) — a guide to each runnable script in `examples/`. It

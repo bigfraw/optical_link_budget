@@ -214,10 +214,13 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds three scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds six scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
-script.
+script. The first three have NO turbulence. The last three add the turbulent
+split step of `olb/waveoptics/turbulence/`.
+
+The vacuum scripts:
 
 - `terrestrial_stages.py` — the stage-by-stage propagation of a NEAR-FIELD
   terrestrial link. It prints the fidelity-2 numbers against the fidelity-0
@@ -235,9 +238,44 @@ script.
   artefact of a grid that is too small, against the analytic ABCD route
   (`GForvard`).
 
-The layer has NO turbulence, and no budget consumes it. Run each script as a
-module, for example `python -m examples.waveoptics.terrestrial_stages`. For the
-per-script guide and the status, see the suite README,
+The turbulent scripts. Each one runs for about four to five minutes on a desktop,
+each one prints the SAMPLING REPORT of its grid and the per-trial wall times, and
+each one carries the fixed seed `SEED = 20260826`, so a second run repeats the
+first one exactly. Each one saves the figure and opens NO window, because a
+blocking window would hold the terminal for minutes.
+
+- `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`
+  (`sigma2_R = 0.21`, firmly weak; the script ASSERTS that, because every
+  analytic target here is a weak-fluctuation form). It runs 120 snapshots THREE
+  times on the same grid, the same screens and the same seeds, and it changes
+  only the receive aperture: a 3-pixel pinhole, a 30 mm sampling bucket, and the
+  100 mm budget aperture with its single-mode fibre. Headline: the pinhole index
+  and the 30 mm bucket index agree with the Dios on-axis form and the Andrews
+  weak aperture-averaging factor; the 100 mm bucket does NOT, because it holds 78
+  percent of the beam and the split step conserves power; and the fidelity-0
+  fibre-coupling Term reads about 2.5 dB MORE loss than the field.
+- `turbulent_downlink.py` — a 600 km downlink into a 500 mm obscured fibre
+  receiver, at 30, 60 and 90 degrees, 70 snapshots each, `rapid` preset.
+  Headline: the aperture scintillation index agrees with the fidelity-0
+  plane-wave integral at every elevation, and the fibre coupling does not agree
+  with the fidelity-1 FAST Term. The field reads 0.7 dB less loss at 30 degrees
+  and 2.9 dB less at the zenith. The script prints the static mode-match floor of
+  each model, so the turbulence part can be read alone, and it names the
+  candidate causes without picking one.
+- `turbulent_uplink_reciprocity.py` — a 600 km uplink at the zenith and at 30
+  degrees, 100 snapshots each, `rapid` preset. The satellite is outside the grid,
+  so the uplink flux comes from the reciprocity overlap of the propagated
+  downlink field with the ground transmit mode (Shapiro,
+  DOI 10.1364/JOSA.61.000492). Headline: that loss goes against the Dios
+  coupled-flux Monte Carlo of `olb.turbulence.uplink_flux`, and the MEANS agree
+  inside 1 dB at both elevations. The 30-degree row is a REPORT, not a test,
+  because the coupled-flux model already says `weak_fluctuation_valid = False`
+  there. The TAILS are reported, not tested: a field Monte Carlo reaches deeper
+  than a parametric lognormal. Both terminals carry zero pointing jitter.
+
+No budget consumes the layer. Run each script as a module, for example
+`python -m examples.waveoptics.terrestrial_stages`. For the per-script guide and
+the status, see the suite README,
 [examples/waveoptics/README.md](../examples/waveoptics/README.md).
 
 ---

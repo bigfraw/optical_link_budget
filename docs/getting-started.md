@@ -30,6 +30,12 @@ Without `fast-aosim`, pass an explicit `cn2_profile`, or use the built-in
 `default_cn2_profile`. For fibre coupling, use `smf_fidelity="mean"`. The mean
 model gives the mean coupling loss only. It gives no fade.
 
+`aotools` is a second optional extra (`pip install aotools`, or
+`pip install -e .[screens]`). It draws the random phase screens of the fidelity-2
+turbulent split-step layer, `olb.waveoptics.turbulence`. `olb` imports it. `olb`
+does not copy it, because `aotools` is LGPL-3.0. No budget needs it: the layer
+builds no Term.
+
 ## 2. The mental model
 
 All hardware lives on a `Terminal`. A `Terminal` owns a telescope aperture, an

@@ -22,6 +22,8 @@ The phenomena are:
 5. Turbulence (Cn2, scintillation, coupled-flux MC, Dios beam scintillation,
    Gaussian Fried parameter, AO residual)
 6. Fibre coupling (analytic mean, FAST statistical)
+7. The fidelity-2 turbulent split step (phase screens, sampling rules,
+   reciprocity)
 
 ---
 
@@ -126,6 +128,18 @@ For an unobscured corner-cube (Cr = 0) the correction is +3.01 dB.
   intensity that oscillates with range (Fresnel edge diffraction). The
   `olb/waveoptics/` fidelity-2 layer is the no-turbulence check for such a link.
   See [architecture.md](architecture.md) Section 1.
+- The Term now FLAGS that break. `tx_gaussian_efficiency_term(scenario,
+  geometry)` reads `geometry.slant_range_m` for the validity test only; the loss
+  stays range-independent. When `alpha` is below the module constant
+  `TRUNCATION_NEAR_FIELD_ALPHA = 1.5` AND a range sits inside `zR`, the Term sets
+  an ACTIVE assumptions violation, so `Budget.check()` reports it. A widely open
+  aperture (`alpha` at or above 1.5) keeps almost no power in the clipped wings,
+  so the near-field ripple is negligible. `geometry=None` skips the test, which
+  is the space-budget case: a space link is always far field.
+- The error is NOT conservative. Unlike the geometric spreading Term (exact at
+  every range through `gaussz`) this Term does not self-correct, and unlike the
+  single-mode-fibre `eta_max` of Section 6a the true value can sit above OR below
+  it. Verify a flagged link with a fidelity-2 no-turbulence field propagation.
 
 #### Source
 
@@ -952,6 +966,15 @@ standalone scintillation Term.
   budget reports no fade margin. Use `smf_fidelity="fast"` for the fade.
 - The Dikmelik-Davidson coupling assumes a uniform circular aperture with no
   central obscuration. The code flags an obscured receive aperture.
+- The static factor `eta_max(a) = 2*[(1 - exp(-a^2))/a]^2` (Section 6c) assumes a
+  UNIFORMLY illuminated aperture and a FLAT (best-focus) wavefront. It holds when
+  the received spot overfills the aperture and the receiver focuses for the
+  incoming curvature. A near-field terrestrial link inside the Rayleigh range can
+  break both: the received Gaussian tapers across the aperture, and the wavefront
+  is curved. A refocus removes the curvature. The residual taper error runs SAFE,
+  because a Gaussian-into-Gaussian overlap can pass the 0.8145 top-hat value, so
+  the constant is then CONSERVATIVE. A curvature-aware, illumination-aware
+  `eta_max` is the open Gap-3 upgrade. See `olb/models/coupling/_common.py`.
 - The code flags an effective D/r0 above `SMF_DEEP_TURBULENCE_DR0 = 10`, where the
   practical coupling curve is extrapolated.
 - The terrestrial form adds the effective-r0 weak-turbulence caveat: it evaluates
@@ -1155,6 +1178,142 @@ focal spot (that would need a re-truncated aperture).
 
 ---
 
+## 7. The fidelity-2 turbulent split step
+
+Files: `olb/waveoptics/turbulence/` (`screens.py`, `splitstep.py`, `sampling.py`,
+`run.py`, `temporal.py`)
+
+### What the code models
+
+The code moves a real complex field along the path and it puts a random phase
+screen at each slab of that path. Each seed gives one SNAPSHOT of the atmosphere.
+There is no time axis (`temporal.py` is PLANNED, NOT BUILT). The layer builds NO
+Term and it changes NO budget. It is the reference against which the analytic
+Terms of Sections 5 and 6 are read. For the API, see
+[api-waveoptics.md](api-waveoptics.md) Section 9.
+
+### Governing relations
+
+The split step is propagate, apply a thin phase screen, propagate again. See
+Schmidt, *Numerical Simulation of Optical Wave Propagation with Examples in
+MATLAB*, DOI 10.1117/3.866274, Ch. 9. Each screen is a thin pure phase element,
+`E_out = E_in * exp(i*phi)`, and each hop uses the `Forvard` FFT angular
+spectrum. Each screen carries the integrated `Cn2` of its slab through the Fried
+parameter `r0 = (0.423 k^2 INT Cn2 dz)^(-3/5)` (Fried,
+DOI 10.1364/JOSA.56.001372; Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12,
+Eq. (23)), and the screens add as `r0 = (SUM r0_i^(-5/3))^(-3/5)`. The screen
+spectrum is the modified von Karman form of Schmidt Ch. 9.
+
+Four sampling rules size the grid and the screen count. `sampling.py` states each
+one with its source, it WARNS when the grid misses one, and the `SamplingReport`
+gives the ACHIEVED number:
+
+1. **The extent.** `side = [guard*2*r_beam + 2*(lambda/r0_total)*z] / (1 - b)`.
+   The first part is the vacuum extent rule. The second part is the scattering
+   cone: turbulence scatters light through the angle `lambda/r0`, and that light
+   must stay off the edge of the periodic grid. The divisor makes room for the
+   absorbing band of width `b`. Schmidt, DOI 10.1117/3.866274, Ch. 9.
+2. **The coherence pixel.** `dx <= r0_total / pixels_per_r0`. Schmidt,
+   DOI 10.1117/3.866274, Ch. 9, and Martin and Flatte,
+   DOI 10.1364/AO.27.002111.
+3. **The Fresnel pixel.** `dx <= sqrt(lambda z_i) / 2` for the distance from
+   screen `i` to the receiver. It keeps the irradiance correlation width sampled.
+   Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8. A screen that carries less
+   than `fresnel_weight_min` of the total Rytov variance is exempt.
+4. **The per-screen strength.** The plane-wave Rytov contribution of one screen,
+   `2.25 k^(7/6) (INT Cn2 dz) (z_to_rx)^(5/6)`, must stay under
+   `sigma2_r_screen_max`. A stronger screen breaks the thin-screen approximation.
+   Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20), and Ch. 12,
+   Eqs. (36) and (38); Schmidt, DOI 10.1117/3.866274, Ch. 9.
+
+A fifth, weaker limit gives `PIXELS_PER_FEATURE = 8` pixels across the smallest
+hard edge.
+
+### The reciprocity route (uplink)
+
+The satellite of a space link sits outside the atmosphere, so a space scenario
+ALWAYS simulates the DOWNLINK slab: a unit plane wave enters at the top of the
+atmosphere on a flat grid. The uplink direction is never propagated. The
+turbulent atmosphere is reciprocal, so the uplink flux at the satellite is the
+overlap of the received downlink field with the ground transmit mode. See
+Shapiro, "Reciprocity of the turbulent atmosphere," DOI 10.1364/JOSA.61.000492.
+The code reads
+
+    eta_turb = |SUM E_rx conj(psi_tx)|^2 / |SUM E_vac conj(psi_tx)|^2
+
+with `psi_tx` the normalised ground transmit mode and `E_vac` a zero-screen
+vacuum run through the SAME mask and the SAME hops. So the vacuum limit is
+exactly 1.0, and `-10*log10(eta_turb)` sits on the free-space baseline of the
+analytic Terms. Point-ahead anisoplanatism is NOT modelled here: the uplink and
+the downlink read the same screens.
+
+### Two numerical gotchas
+
+- **The subharmonics fight the periodic propagator.** The subharmonic content of
+  a screen is not periodic on the grid, and `Forvard` is periodic. So a run with
+  subharmonics needs the absorbing boundary mask, and
+  `propagate_turbulent_scenario` always applies one. The sub-steps alone remove
+  no aliasing: the sampled transfer function of one long step is the product of
+  the sampled transfer functions of the sub-steps, so a split hop gives the same
+  array as one long hop. Only the mask helps, because it removes the edge energy
+  between two sub-steps. Without the mask the wrap RAISES the measured variance;
+  the self-check of `olb/waveoptics/turbulence/splitstep.py` therefore drops the
+  subharmonics for its unmasked plane-wave Rytov case. Schmidt,
+  DOI 10.1117/3.866274, Ch. 9.
+- **The structure-function read-back is biased.** A Fourier screen holds no power
+  above the grid Nyquist frequency and too little power below `1/(n*dx)`, so the
+  measured `D_phi(r)` stays BELOW the theory `6.88 (r/r0)^(5/3)`. The three
+  subharmonic levels lift it but they do not close the gap: the self-check of
+  `olb/waveoptics/turbulence/screens.py` measures a deficit inside 15 percent
+  over `r/r0` from 0.3 to 1.6. An `r0` read back from `D_phi` carries the same
+  bias, so read it as a RATIO between two cases, not as an absolute value. Fried,
+  DOI 10.1364/JOSA.56.001372; Schmidt, DOI 10.1117/3.866274, Ch. 9.
+
+A related rule sits in `screens.py`: make the screen AT the propagation pitch.
+A coarse screen that an FFT interpolates up carries no power above its own
+Nyquist frequency, so it loses the structure at the Fresnel scale
+`sqrt(lambda*z)` that builds the scintillation. That route is the documented
+anti-pattern.
+
+### Inputs and outputs
+
+- Inputs: a `SpaceScenario` or a `TerrestrialScenario`, a geometry with ONE
+  range, a quality preset, an optional `Cn2` profile and height grid, an outer
+  scale, and a seed.
+- Output: a `TurbWaveResult` of independent snapshots. Each `TurbTrial` holds the
+  collected power, the single-mode-fibre coupling efficiency, the uplink
+  `eta_turb`, its seed key, and its wall time. No Term, and no budget change.
+
+### Assumptions and limits
+
+- SNAPSHOT only. There is no fade rate and no fade duration.
+- The `"retro"` direction and `folded_terrestrial()` raise
+  `NotImplementedError`. The two passes of a retroreflector share the same
+  screens, so they are correlated, and that correlation needs its own design.
+- The split step runs on a FLAT grid only. `Screen()` and `split_step()` raise on
+  a spherical (co-moving) field.
+- The random draw comes from `aotools` (LGPL-3.0). `olb` imports it as the
+  optional extra `screens`. `olb` does not copy it.
+
+### Source
+
+- J. D. Schmidt, *Numerical Simulation of Optical Wave Propagation with Examples
+  in MATLAB*, SPIE Press (2010), DOI 10.1117/3.866274, Ch. 6, Ch. 7 and Ch. 9:
+  the split step, the Fourier screen, the subharmonics, the absorbing boundary,
+  the grid rules, and the range limit `z_max = N dx^2 / lambda`.
+- J. H. Shapiro, "Reciprocity of the turbulent atmosphere,"
+  DOI 10.1364/JOSA.61.000492: the uplink overlap.
+- D. L. Fried, DOI 10.1364/JOSA.56.001372: the Fried parameter and the phase
+  structure function.
+- J. M. Martin and S. M. Flatte, DOI 10.1364/AO.27.002111: the
+  pixel-per-coherence-length rule. The convergence practice is
+  DOI 10.1364/JOSAA.7.000838.
+- Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 7, Eq. (57),
+  Ch. 8, Eq. (20), and Ch. 12, Eqs. (14), (23), (36) and (38): the long-term beam
+  radius, the Rytov variance, the slant secant and the path weights.
+
+---
+
 ## Source summary
 
 - Andrews and Phillips, Laser Beam Propagation through Random Media, 2nd ed.
@@ -1172,6 +1331,11 @@ focal spot (that would need a re-truncated aperture).
 - Dikmelik and Davidson, Appl. Opt. 44(23), 4946-4952 (2005): analytic SMF coupling
   (6a).
 - FAST (`fast-aosim`): statistical SMF coupling (6b).
+- Schmidt, DOI 10.1117/3.866274: the split step, the Fourier phase screen, the
+  absorbing boundary, and the grid rules (7).
+- Shapiro, DOI 10.1364/JOSA.61.000492: the uplink reciprocity overlap (7).
+- Martin and Flatte, DOI 10.1364/AO.27.002111: the pixel-per-coherence-length
+  rule (7).
 
 Where a section gives no literal DOI, the code cites the source in words next to
 the equation. This document repeats those citations and names the file.

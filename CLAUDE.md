@@ -95,8 +95,8 @@ downlink, and retroreflected links to a LEO satellite.
   coupling Term keeps the higher-order residual only, so the tip-tilt is not
   counted two times. `terrestrial_budget` also takes a master `turbulence` switch
   that drops every turbulence quantity but keeps the static and jitter parts).
-- `olb/waveoptics/` — the fidelity-2 field propagation layer, WITHOUT turbulence.
-  A trimmed port of LightPipes (BSD-3-Clause, see `LIGHTPIPES_LICENSE.txt` in the
+- `olb/waveoptics/` — the fidelity-2 field propagation layer. The CORE carries no
+  turbulence. A trimmed port of LightPipes (BSD-3-Clause, see `LIGHTPIPES_LICENSE.txt` in the
   package) that keeps the LightPipes names and call order: `field.py` (Field,
   Begin, Normal, Power, Intensity, Phase, SubIntensity), `sources.py` (GaussBeam,
   PlaneWave, CircAperture, CircScreen), `propagators.py` (Forvard, Fresnel,
@@ -114,9 +114,25 @@ downlink, and retroreflected links to a LEO satellite.
   the choice, and `propagate_scenario` runs GForvard (an almost untouched
   Gaussian), the flat Fresnel convolution, or the three-call lens recipe
   (Lens -> LensFresnel -> Convert) on a scaled grid. The core is
-  pure numpy and scipy. It imports nothing from the rest of olb, so the later
-  turbulent split-step layer can use the same propagators. The package builds NO
-  Term and it changes NO budget.
+  pure numpy and scipy. It imports nothing from the rest of olb, so the turbulent
+  split-step layer uses the same propagators. That layer is the sub-package
+  `olb/waveoptics/turbulence/`: `screens.py` (aotools-backed phase screens, a
+  lazy LGPL import, `screen_r0`, `phase_screen`, `Screen`), `splitstep.py`
+  (`super_gaussian_boundary`, `split_step`), `sampling.py` (the turbulent grid
+  sizer and screen planner: `QualityPreset`, `PRESETS`
+  reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`),
+  `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
+  `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
+  for a plot; it does NOT extend the scalar record), the
+  `folded_terrestrial` stub), and `temporal.py` (the `TemporalScreens`
+  NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
+  axis. The trials are independent, so `propagate_turbulent_scenario` takes an
+  optional `threader` (`olb.waveoptics.Threader`, a general thread pool in
+  `threader.py`) that runs them across threads; the FFT releases the GIL, so the
+  threads give a real speed-up. A space scenario always propagates the DOWNLINK
+  slab, and an uplink reads the same field through the Shapiro reciprocity
+  overlap (DOI 10.1364/JOSA.61.000492). Neither part builds a Term, and neither
+  changes a budget.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
@@ -167,6 +183,27 @@ book gives no aperture-averaged downlink index in that regime.
 
 Open items:
 
+- **The turbulent screen-count floor `min_screens` is UNJUSTIFIED, and the
+  merge fallback couples the count to the profile sampling. TO REVISE.** In
+  `olb/waveoptics/turbulence/sampling.py` a `QualityPreset` carries two screen
+  rules. `sigma2_r_screen_max` (0.05 / 0.10 / 0.25) is the Rytov thin-screen
+  UPPER bound; it cites Schmidt Ch. 9 and it sets the count on strong paths.
+  `min_screens` (15 / 9 / 5) is a LOWER floor for weak paths, where the Rytov
+  cap passes with one screen but one screen gives phase only, no scintillation.
+  BUT `min_screens` has NO derivation and NO DOI (the one field in the preset
+  table without one), and it was never exercised: `_merge_layers` does not clamp
+  UP to `min_screens` when the natural merge undershoots it; it BAILS OUT and
+  returns one screen per Cn2 layer. So every weak space case gets 20 screens —
+  the layer count of `DEFAULT_HS`, not physics. A finely sampled real profile
+  would explode the count (a 200-layer profile gives 200 screens for a slab that
+  the Rytov cap says needs one). The revision has three parts: (1) make
+  `_merge_layers` clamp to EXACTLY `min_screens` contiguous Cn2-weighted groups,
+  decoupled from the layer count; (2) WARN (or raise) only when the profile has
+  fewer layers than `min_screens`, because the model cannot split a layer; (3)
+  JUSTIFY the `min_screens` integers from Schmidt (the owner has the book and
+  will feed the relevant chapters) or from a convergence sweep, because the fix
+  makes them load-bearing. The three turbulent examples measured their agreement
+  numbers at 20 screens, so re-run them after the change.
 - **Gap 2, the pre-compensated uplink, is STILL open.**
   `andrews.paths.uplink_scintillation_index(tracked=True)` gives the floor of the
   residual scintillation (Ch. 12, Eqs. (57) to (60)), but NO budget reads it yet.
@@ -192,7 +229,8 @@ Open items:
   reads them); the inner/outer-scale branches (no Term passes `l0`/`L0`);
   the Andrews Ch. 6 wander route in `andrews/wander.py` (the uplink budget
   keeps the Dios/Belmonte kernel route, per Conflict C-01); the K
-  distribution; the fidelity-2 `olb/waveoptics/` layer (see below).
+  distribution; the fidelity-2 `olb/waveoptics/` layer, the vacuum core AND the
+  turbulent `olb/waveoptics/turbulence/` split step (see below).
 - **The fidelity-2 wave-optics layer is BUILT and SELF-CHECKED, but NO budget
   consumes it.** `olb/waveoptics/` propagates a real complex field, and it agrees
   with the fidelity-0 analytic Terms in the far field with a light truncation, to
@@ -206,8 +244,25 @@ Open items:
   far-field gain ratio and `tx_truncation_db` is a power ratio. There is no
   fidelity-2 Term,
   because such a Term moves the totals of an existing budget. That wiring is an
-  owner decision. The turbulent split-step part of fidelity 2 is NOT built.
-  `examples/waveoptics/` demonstrates the layer with three scripts.
+  owner decision. The TURBULENT split-step part of fidelity 2 is now BUILT and
+  SELF-CHECKED too, at `olb/waveoptics/turbulence/`. It is SNAPSHOT-only (one
+  atmosphere per seed; `temporal.py` is a NotImplementedError stub). It imports
+  `aotools` for the screens (LGPL-3.0, the optional `screens` extra; olb imports
+  it, olb does not copy it). A space scenario ALWAYS propagates the downlink slab
+  and an uplink reads it through the Shapiro reciprocity overlap. Three
+  comparison examples run it: the uplink reciprocity mean agrees with the
+  coupled-flux MC to 0.18 dB at the zenith and 0.54 dB at 30 deg; the downlink
+  aperture scintillation agrees with the analytic index at 30/60/90 deg (ratios
+  1.10 to 1.27); and the fibre-coupling comparisons read LESS loss than the
+  analytic and FAST models (the terrestrial SMF Term is about 2.5 dB higher than
+  the field, and FAST is 0.7 to 3 dB higher across elevation). STILL: no budget
+  consumes it, no Term exists, and the wiring is an owner decision. Deliberately
+  deferred: the results record is minimal scalars (a results-processing design
+  chat is planned — do NOT extend `TurbWaveResult` piece by piece), the temporal
+  frozen-flow axis, a co-moving (spherical) screen, and the folded/retro double
+  pass (the two passes share screens, so they are correlated).
+  `examples/waveoptics/` demonstrates the layer with six scripts, three vacuum
+  and three turbulent.
 - **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
   `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
   fixes sit in its working tree only. The owner must commit them.

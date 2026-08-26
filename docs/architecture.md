@@ -54,8 +54,10 @@ The turbulence files are:
 ### The wave-optics side layer
 
 The [`waveoptics/`](../olb/waveoptics) package is the fidelity-2 field
-propagation layer, WITHOUT turbulence. It propagates a scalar complex field
-through free space on a square grid. It is a trimmed port of LightPipes
+propagation layer. Its core carries NO turbulence: it propagates a scalar complex
+field through free space on a square grid. The turbulent split step is the
+sub-package [`waveoptics/turbulence/`](../olb/waveoptics/turbulence), below. The
+core is a trimmed port of LightPipes
 (BSD-3-Clause, see
 [`LIGHTPIPES_LICENSE.txt`](../olb/waveoptics/LIGHTPIPES_LICENSE.txt)), and it
 keeps the LightPipes names and call order:
@@ -79,13 +81,26 @@ DOI 10.1117/3.866274, Ch. 7.
 
 The dependency stays one-way. The core (`field.py`, `sources.py`,
 `propagators.py`, `lenses.py`, `smf.py`) imports numpy and scipy only, and it
-imports nothing from the rest of olb. So the later turbulent split-step layer can
-use the same propagators. Only `grid.py` and `run.py` read a scenario.
+imports nothing from the rest of olb. Only `grid.py` and `run.py` read a
+scenario.
 
-The package is built and each module holds a self-check, but it builds NO Term
-and it changes NO budget. It is the no-turbulence validator for the near-field
-and far-field limits of the analytic Terms. A fidelity-2 Term is an owner-gated
-later step. See [examples.md](examples.md) and
+The turbulent split-step layer now EXISTS at `olb/waveoptics/turbulence/`, and it
+uses those same propagators. It holds `screens.py` (the random phase screens,
+from `aotools`), `splitstep.py` (the propagate-screen-propagate loop and the
+absorbing boundary mask), `sampling.py` (the turbulent grid sizer and the
+screen-placement planner), `run.py` (`propagate_turbulent_scenario`, one
+atmosphere snapshot for each seed), and `temporal.py` (the frozen-flow time axis,
+PLANNED, NOT BUILT). The sub-package keeps the same import tiers: `screens.py`
+and `splitstep.py` read the wave-optics core only, `sampling.py` and `run.py`
+read the rest of olb (a scenario, the Cn2 profiles, the Andrews layer), and
+`temporal.py` imports numpy only. A space scenario always propagates the DOWNLINK
+slab; an uplink reads the same field through the Shapiro reciprocity overlap,
+DOI 10.1364/JOSA.61.000492.
+
+Both parts are built and each module holds a self-check, but neither builds a
+Term and neither changes a budget. The vacuum core is the no-turbulence validator
+for the near-field and far-field limits of the analytic Terms. A fidelity-2 Term
+is an owner-gated later step. See [examples.md](examples.md) and
 [examples/waveoptics/README.md](../examples/waveoptics/README.md).
 
 For the full API, the propagator regimes, and the sampling limits, see

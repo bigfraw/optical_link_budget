@@ -4,7 +4,9 @@ This page documents `olb.waveoptics`, the fidelity-2 field propagation layer. It
 gives the exact signatures and defaults from the source.
 
 The package propagates a scalar complex field through free space on a square
-grid. There is NO turbulence in it. The core is a trimmed port of LightPipes
+grid. There is NO turbulence in the core. The turbulent split-step layer is the
+sub-package `olb.waveoptics.turbulence`, and Section 9 documents it. The core is
+a trimmed port of LightPipes
 (https://github.com/opticspy/lightpipes, BSD-3-Clause). See
 [`LIGHTPIPES_LICENSE.txt`](../olb/waveoptics/LIGHTPIPES_LICENSE.txt) in the
 package. The port keeps the LightPipes names and the LightPipes call order, so a
@@ -16,13 +18,15 @@ Import from the package root:
 from olb.waveoptics import Begin, GaussBeam, Fresnel, GridSpec, propagate_scenario
 ```
 
-Status: the package builds NO Term and it changes NO budget. It is the
-no-turbulence validator for the near-field and far-field limits of the analytic
-Terms. A fidelity-2 Term is an owner-gated later step.
+Status: the package builds NO Term and it changes NO budget. The vacuum core is
+the no-turbulence validator for the near-field and far-field limits of the
+analytic Terms. The turbulent sub-package gives snapshot statistics against the
+same Terms. A fidelity-2 Term is an owner-gated later step.
 
 The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`)
 imports numpy and scipy only. It imports nothing from the rest of `olb`. Only
-`grid.py` and `run.py` read a scenario.
+`grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
+tiers (see Section 9).
 
 ---
 
@@ -332,74 +336,377 @@ when its trigger comes.
 | Function | Regime | The trigger to add it |
 |---|---|---|
 | `Forward` | The direct integral. The output grid is different from the input grid. | You must magnify or shrink the grid between two planes. |
-| `Steps` | Propagation through a medium with an index term. It holds a built-in absorbing boundary. | The turbulent split-step layer, or an absorbing edge (see Section 9). |
+| `Steps` | Propagation through a medium with an index term. It holds a built-in absorbing boundary. | Nothing now. The turbulent split-step layer of Section 9 does the same work with `Forvard` and its own absorbing mask. |
 | `Interpol` | A regrid of the field: a new side, a new pixel count, a shift, or a rotation. | You must pass a field between two propagators that need different grids. |
 
 ---
 
-## 9. Sampling design for the split-step layer (not built)
+## 9. The turbulent split-step layer (`olb/waveoptics/turbulence/`)
 
-The turbulent split-step layer is NOT built. This section states the constraints
-that it must satisfy. It does not design the layer.
+The turbulent split-step layer is BUILT and self-checked. It moves a complex
+field along a path and it puts a random phase screen at each slab of that path.
+It gives one SNAPSHOT of the atmosphere for each seed. It carries NO time axis.
 
-Three constraints apply, and two of them look like a conflict:
+Status: the sub-package builds NO Term and it changes NO budget. The wiring is an
+owner decision. See `examples/waveoptics/README.md`.
 
-1. **The screen spacing must be SHORT.** Each slab between two phase screens must
-   scatter weakly: its Rytov variance must stay small. A slab that is too long
-   puts the diffraction of the slab into a single screen, so the layer loses the
-   correct irradiance statistics. See Martin and Flatte,
-   DOI 10.1364/AO.27.002111, and Schmidt, DOI 10.1117/3.866274, Ch. 9.
-2. **`Fresnel` cannot take a short hop.** The convolution method has a minimum
-   distance (see Section 7). So `Fresnel` is NOT the split-step propagator.
-3. **`Forvard` is the split-step propagator.** It has no minimum distance, and
-   its `forvard_max_z` limit is PER CALL, not per path. A short hop therefore
-   satisfies the weak-scatter bound and the sampling bound at the same time. A
-   long path is many short `Forvard` calls, each one below `forvard_max_z`.
+Import from the sub-package:
 
-The split-step layer must also add three things that the current layer does not
-have:
+```python
+from olb.waveoptics.turbulence import (propagate_turbulent_scenario,
+                                       turbulent_grid)
+```
 
-- A pixel pitch that resolves the coherence radius `r0`. The screen carries no
-  phase structure below one pixel.
-- A grid extent that holds the scattered spread, not only the free-space beam
-  radius. Turbulence widens the beam.
-- An absorbing edge mask between the hops. `Forvard` is periodic, so the light
-  that turbulence pushes to the edge comes back. A super-Gaussian mask removes
-  it. LightPipes solves this inside `Steps`.
+The five modules are:
 
-### 9a. Where to put the screens on a non-uniform path
+| Module | What it holds |
+|---|---|
+| `screens.py` | One phase screen, and how to put it into a field. |
+| `splitstep.py` | The propagate-screen-propagate loop, and the boundary mask. |
+| `sampling.py` | The turbulent grid sizer, and the screen-placement planner. |
+| `run.py` | The trial runner: one snapshot for each seed. |
+| `temporal.py` | The frozen-flow time axis. PLANNED, NOT BUILT. |
 
-The three constraints above set how SHORT a slab must be. They do not set WHERE
-the screen boundaries go. A slant path is not uniform: the ground holds most of
-the `Cn2`, and the high air holds little. So equal `Cn2` weight, NOT equal
-distance, sets the boundaries.
+The random draw comes from `aotools`. The package is a DEPENDENCY, and
+`screens.py` imports it lazily. `olb` does not copy it, because `aotools` is
+LGPL-3.0. Install it with `pip install aotools`, or with the extra
+`pip install olb[screens]`. An absent `aotools` raises `ImportError` with that
+text, and only when a screen is drawn.
 
-- **Equal-strength partition.** Put the boundaries so that each slab holds the
-  same turbulence integral: the same `integral of Cn2 dz`. This is the same
-  quantity that sets the Fried parameter, `r0 = (0.423 k^2 integral Cn2 dz)^(-3/5)`.
-  So equal `Cn2` weight is equal `r0^(-5/3)` per slab, and equal phase variance
-  per screen. See Lane, Glindemann and Dainty, DOI 10.1088/0959-7174/2/3/003, and
-  Coles, Filice, Frehlich and Yadlowsky, DOI 10.1364/AO.34.002089.
-- **Why not equal distance.** Equal `dz` puts many screens in the thin high air,
-  where they add nothing, and too few screens at the ground, where the weak-scatter
-  bound breaks first. The screens bunch near the ground on an uplink.
-- **Reuse the profile.** The `Cn2` integral is the one that
-  `olb.turbulence.profiles.default_cn2_profile` already gives. The partition is
-  the inverse of its running integral, so the split-step layer must NOT hold its
-  own profile.
+The import tiers follow the tiers of the vacuum package. `screens.py` and
+`splitstep.py` read the wave-optics core only. `sampling.py` and `run.py` read
+the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
+`temporal.py` imports numpy only.
 
-The screen count comes from the weak-scatter bound and the total strength:
-`N >= sigma_R^2 / sigma_per_screen^2`, with `sigma_per_screen^2` about 0.1. See
-Martin and Flatte, DOI 10.1364/AO.27.002111.
+### 9a. The phase screens (`olb/waveoptics/turbulence/screens.py`)
 
-### 9b. The convergence check
+- `screen_r0(cn2_integral_m13, wavelength_m)` — the Fried parameter of one slab,
+  `r0 = (0.423 * k^2 * INT Cn2 dz)^(-3/5)` with `k = 2*pi/lambda`. The caller
+  gives the INTEGRAL of `Cn2` over the slab, in m^(1/3), and that integral
+  carries any slant factor already. The function adds no geometry. The input can
+  be a scalar or an array, and the type of the result follows the input. See
+  Fried, DOI 10.1364/JOSA.56.001372, and Andrews and Phillips,
+  DOI 10.1117/3.626196, Ch. 12, Eq. (23).
+- `phase_screen(r0_m, n, pixel_m, L0_m=np.inf, l0_m=1e-6, seed=None,
+  subharmonics=True)` — one `n` x `n` random screen, in radians. It holds the
+  modified von Karman spectrum
+  `PHI(f) = 0.023 r0^(-5/3) exp(-(f/fm)^2) / (f^2 + f0^2)^(11/6)`, with
+  `fm = 5.92/(2*pi*l0)` and `f0 = 1/L0`. The defaults give the pure Kolmogorov
+  spectrum. `subharmonics=True` adds three low-frequency levels. `seed` is an
+  INTEGER, because `aotools` builds its own generator. See Schmidt,
+  DOI 10.1117/3.866274, Ch. 9.
+- `Screen(Fin, phase_rad)` — a new `Field` with `E_out = E_in * exp(i*phi)`. The
+  screen is a thin, pure phase element, so the power does not change. It raises
+  `ValueError` on a spherical field and on a wrong-shape phase array.
 
-The bounds above give a screen count that SHOULD work. The honest check is to
-prove it. Run the propagation. Then double the screen count and run it again. If
-the receiver scintillation index (or the coupling efficiency) moves less than the
-tolerance, the first count was enough. Martin and Flatte validated the method this
-way, DOI 10.1364/JOSAA.7.000838.
+**Make the screen AT the propagation pitch.** `phase_screen` takes the pitch and
+the pixel count of the propagation grid. Do not make a coarse screen and
+interpolate it up: a coarse screen carries no power above its own Nyquist
+frequency, so it loses the structure at the Fresnel scale `sqrt(lambda*z)`, and
+that structure builds the scintillation. The result then follows the coarse grid,
+not the atmosphere. That route is the documented anti-pattern.
 
-This check fits the layer style of this package: it WARNS, it does not raise. A
-path that does not converge at a practical screen count is an honest warning, the
-same as the `GridSpec` warnings in Section 5.
+**The screen is band-limited, so the read-back is biased.** A Fourier screen
+holds no power above the grid Nyquist frequency and too little power below
+`1/(n*dx)`. So the measured structure function `D_phi(r)` stays BELOW the theory
+`6.88 (r/r0)^(5/3)`. The three subharmonic levels lift it, but they do not close
+the gap: the self-check of `screens.py` measures a deficit inside 15 percent over
+`r/r0` from 0.3 to 1.6. An `r0` that is read back from `D_phi` therefore carries
+that same bias. Read the bias as a RATIO between two cases, not as an absolute
+value.
+
+### 9b. The split-step engine (`olb/waveoptics/turbulence/splitstep.py`)
+
+- `super_gaussian_boundary(n, width_frac=0.125, power=8)` — an `n` x `n`
+  absorbing mask, real, in the interval `[0, 1]`. It is exactly 1.0 inside the
+  radius `(1 - width_frac)` of the half-side, and it falls as `exp(-t^p)` with
+  `t = (rho - r_flat)/width_frac` outside it. `rho` is the radius in units of the
+  half-side, so the mask is `exp(-1)` at the middle of an edge and zero at the
+  corners. It raises `ValueError` when `width_frac` is outside `(0, 1]` or
+  `power` is not positive.
+- `split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
+  max_step_m=None)` — one hop to each screen, the screen, and a last hop to
+  `z_total_m`. Each hop uses `Forvard`. A hop longer than `max_step_m` breaks
+  into EQUAL sub-steps. The default limit is `max_step = N * dx^2 / lambda`, the
+  same formula as `forvard_max_z()` (the module repeats it, because `grid.py`
+  reads the rest of `olb`). It returns a new `Field` at `z_total_m`. It raises
+  `ValueError` on a spherical field, on unsorted distances, on a distance outside
+  `[0, z_total_m]`, on a screen count that does not match the distances, and on a
+  wrong-shape screen or mask.
+
+**THE MASK IS NECESSARY. The sub-steps alone remove NO aliasing.** The sampled
+transfer function of one long step is the product of the sampled transfer
+functions of the sub-steps, so a split hop gives the same array as one long hop.
+The mask is the part that helps: it removes the energy at the edge of the grid
+between two sub-steps, before the periodic propagator brings that energy back at
+the opposite edge. See Schmidt, DOI 10.1117/3.866274, Ch. 9. Give a boundary from
+`super_gaussian_boundary()` for any path that spreads the beam.
+`propagate_turbulent_scenario()` always does so.
+
+**The subharmonics fight the periodic propagator.** The subharmonic content of a
+screen is not periodic on the grid, and `Forvard` is periodic. So a run with
+subharmonics needs the absorbing mask. The self-check of `splitstep.py` drops the
+subharmonics for its plane-wave Rytov case, because that case fills the whole
+grid and uses no mask: with the subharmonics on and no mask, the wrap raises the
+measured variance. With the mask on, keep the subharmonics: the tilt content
+drives the beam wander, and the uplink overlap of Section 9d reads that wander.
+
+### 9c. The turbulent grid sizer (`olb/waveoptics/turbulence/sampling.py`)
+
+The vacuum sizer `GridSpec.for_scenario()` is not sufficient for a turbulent
+path. Turbulence spreads the beam, so the grid needs a wider side, and it adds
+coherence structure at the Fried scale `r0`, so the grid needs a finer pixel.
+
+#### `turbulent_grid(scenario, geometry, *, preset="standard", hs=None, cn2_profile=None, L0_m=np.inf)`
+
+It returns the tuple `(GridSpec, ScreenPlan, SamplingReport)`. The geometry gives
+`slant_range_m` (terrestrial) or `elevation_deg` (space), and the sizer takes the
+WORST case: the longest range, or the lowest elevation. `hs` and `cn2_profile`
+are space only; `None` takes `DEFAULT_HS` and the site profile. `L0_m` sits here
+so that one call site holds all the turbulence options; the SIZER does not read
+it, and the runner passes it to `phase_screen()`.
+
+It raises `ValueError` on an unknown preset name, and on a terrestrial transmit
+terminal with no `Transmitter`. It WARNS on a sampling problem. It does not
+raise, because an honest warning is better than a silent bad answer. The report
+holds the same texts and the ACHIEVED numbers.
+
+**THE EXTENT RULE.** The grid holds the beam AND the light that the turbulence
+scatters out of it:
+
+    side = [guard * 2 * r_beam + 2 * (lambda / r0_total) * z] / (1 - b)
+
+The first part is the vacuum extent rule of `GridSpec.for_scenario()`. The second
+part is the scattering cone: turbulence scatters light through the angle
+`lambda/r0`, and that light must stay off the edge of the periodic grid. The
+divisor `(1 - b)` makes room for the absorbing band, where `b` is
+`boundary_width_frac`. See Schmidt, DOI 10.1117/3.866274, Ch. 9.
+
+**THE PIXEL RULE.** The pixel obeys three limits, and the smallest wins:
+
+    dx <= r0_total / pixels_per_r0    the coherence structure
+    dx <= sqrt(lambda z_i) / 2        the Fresnel scale of screen i
+    dx <= feature / (P / 2)           the hard edges, P = PIXELS_PER_FEATURE
+
+The first limit comes from Schmidt, DOI 10.1117/3.866274, Ch. 9, and from Martin
+and Flatte, DOI 10.1364/AO.27.002111. The second limit keeps the irradiance
+correlation width sampled; the width is the Fresnel scale of the distance from
+the screen to the receiver (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8).
+Only a screen that carries more than `fresnel_weight_min` of the total Rytov
+variance must obey it. A weak screen close to the receiver is exempt, because it
+adds almost no scintillation.
+
+**THE PIXEL COUNT.** `n` is the next power of two of `side/dx`, inside the
+interval `[256, n_max]`. A clamp does NOT shrink the side, because the extent is
+physics. The pixel grows instead, and the report says so.
+
+Two module constants set the rest:
+
+- `PIXELS_PER_FEATURE = 8` — the pixels across the smallest hard edge. The vacuum
+  sizer asks for 16, but a turbulent grid is much wider, so 16 pixels across a
+  small aperture makes an impossible pixel count. Pass a manual `GridSpec` to the
+  runner for a finer edge.
+- `MAX_SCREENS = 500` — the largest screen count that the planner builds. A path
+  that asks for more gets the cap and a warning.
+
+#### `QualityPreset` and `PRESETS`
+
+A frozen dataclass, one named set of sampling rules. `PRESETS` maps the name to
+the preset. `turbulent_grid()` and `propagate_turbulent_scenario()` both take a
+name or a `QualityPreset`.
+
+| Field | `reference` | `standard` (default) | `rapid` | Meaning |
+|---|---|---|---|---|
+| `pixels_per_r0` | 4 | 3 | 2 | `dx <= r0_total / pixels_per_r0`. Martin and Flatte, DOI 10.1364/AO.27.002111. |
+| `guard` | 4 | 3 | 2 | The grid half-side over the beam radius. The same meaning as the guard of `GridSpec.for_scenario`. |
+| `n_max` | 4096 | 2048 | 1024 | The largest pixel count. |
+| `sigma2_r_screen_max` | 0.05 | 0.10 | 0.25 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. Schmidt, DOI 10.1117/3.866274, Ch. 9. |
+| `min_screens` | 15 | 9 | 5 | The smallest screen count. |
+| `fresnel_weight_min` | 0.005 | 0.02 | 0.05 | The Rytov share above which a screen must obey the Fresnel-scale pixel rule. |
+| `boundary_width_frac` | 0.125 | 0.125 | 0.10 | The width of the absorbing band, as a fraction of the half-side. It goes to `super_gaussian_boundary()`. |
+
+#### `ScreenPlan`
+
+A frozen dataclass. Where the screens sit, and what each one carries. THE PLAN IS
+A LIST OF SLABS.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `z_m` | array | The distance of each screen from the INPUT plane, in m. The values go up. |
+| `cn2_int_m13` | array | The integrated `Cn2` of each screen, in m^(1/3). It carries the slant factor already. |
+| `r0_m` | array | The Fried parameter of each screen, in m. |
+| `sigma2_r` | array | The plane-wave Rytov contribution of each screen. |
+| `z_total_m` | float | The length of the gridded path, in m. |
+| `r0_total_m` | float | The composite Fried parameter of the whole path, `(SUM r0_i^(-5/3))^(-3/5)`. |
+| `direction` | str | `"terrestrial"` or `"down"`. A space plan always propagates DOWN. |
+
+The per-screen Rytov contribution is
+`d(sigma_R^2) = 2.25 k^(7/6) (INT Cn2 dz) (z_to_rx)^(5/6)`. A constant `Cn2`
+gives the familiar `1.23 Cn2 k^(7/6) L^(11/6)`, because `2.25 * (6/11) = 1.23`.
+See Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20), and Ch. 12,
+Eqs. (36) and (38).
+
+Where the boundaries go:
+
+- **Terrestrial.** The path is uniform, so the screens share it EQUALLY and each
+  screen sits at the centre of its slab. The planner starts from the mean-share
+  estimate `sigma2_total / sigma2_r_screen_max` and raises the count until the
+  STRONGEST screen (the one farthest from the receiver) obeys the cap.
+- **Space.** The layers of the `Cn2` profile come from
+  `olb.turbulence.profiles.default_cn2_profile`, times the airmass `sec(zenith)`
+  (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14)). The planner
+  MERGES adjacent layers until each group stays under the Rytov cap, and it puts
+  the screen at the `Cn2`-weighted centre of the group. It only merges: it does
+  not split one layer, because a profile gives no sub-layer structure. A single
+  layer that is stronger than the cap keeps its own screen, and the sizer warns
+  to ask for a finer `hs` grid.
+
+#### `SamplingReport`
+
+A frozen dataclass. What the grid ACHIEVES, against what the preset asks for.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `pixels_per_r0` | float | The achieved `r0_total / dx`. |
+| `grid_margin` | float | The untouched interior half-side, divided by the beam radius plus the scattering cone. 1.0 means the light just fits. The preset `guard` is the target. |
+| `fresnel_pixels_min` | float | The smallest achieved pixel count across a REQUIRED Fresnel scale `sqrt(lambda z)`. It is infinite when no screen passes `fresnel_weight_min`. 2 or more is good. |
+| `step_over_limit_max` | float | The largest planned gap between two screens, divided by `forvard_max_z()`. 1.0 or less is good. The engine cuts a longer gap into sub-steps. |
+| `sigma2_r_screen_max` | float | The largest per-screen Rytov contribution that the plan holds. |
+| `n_clamped` | bool | True means the pixel count hit `n_max`. |
+| `warnings` | tuple | The warning texts that the sizer sent. |
+
+The sizer warns when the pixel count hits `n_max`, when the achieved
+`pixels_per_r0` is below the preset value, when `fresnel_pixels_min` is below
+2.0, when the strongest screen passes `sigma2_r_screen_max`, and when the plan
+hits `MAX_SCREENS`.
+
+The report gives the achieved numbers of ONE grid. The layer runs NO automatic
+convergence check. To prove a case, run it again on a finer preset, or on a wider
+manual grid, and compare. Martin and Flatte validated the method that way,
+DOI 10.1364/JOSAA.7.000838. The example scripts of Section 9f do exactly this by
+hand.
+
+### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
+
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True)`
+
+It runs a set of turbulent split-step trials for one scenario and it returns a
+`TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
+it. The trials are independent snapshots.
+
+- `grid` and `plan` come together, or neither comes. `None` for both calls
+  `turbulent_grid()`, and the result then carries the report.
+- The geometry must give ONE range. More than one raises `ValueError`. Loop in
+  the caller.
+- A `"retro"` direction raises `NotImplementedError`.
+- `subharmonics=True` is the value to keep: the tilt content drives the beam
+  wander, and the uplink overlap reads that wander.
+
+**THE BOUNDARY MASK IS ALWAYS ON.** The runner builds
+`super_gaussian_boundary(grid.n, preset.boundary_width_frac)` and it gives that
+mask to every hop and every screen. The sizer keeps the receive aperture inside
+the untouched interior of the mask, and the runner CHECKS that: a receive
+aperture radius at or past `(1 - boundary_width_frac) * size_m / 2` warns that
+the collected power is too low.
+
+**TWO CASES.**
+
+- **TERRESTRIAL.** The runner launches the transmit beam of the near terminal
+  with the launch recipe of `propagate_scenario()` (a Gaussian at the virtual
+  waist, an offset propagation, and the launch-aperture clip), and it propagates
+  that beam along the horizontal path. It imports those helpers, so the vacuum
+  limit of this module IS the vacuum module.
+- **SPACE.** The gridded path is the DOWNLINK atmosphere slab ONLY. The satellite
+  sits outside the atmosphere, so a unit PLANE WAVE enters at the top of the
+  slab, and the vacuum above the slab carries no turbulence. **The uplink
+  direction is never propagated.** A downlink reads the collected power at the
+  ground. An uplink reads the SAME field through reciprocity.
+
+**THE VACUUM BASELINE (space).** A unit plane wave fills the grid, so the
+absorbing mask acts as a soft aperture, and over a long slab that soft edge makes
+strong Fresnel rings on the axis. Those rings are a property of the GRID, not of
+the atmosphere. So the space reference is the SAME plane wave, along the SAME
+hops, through the SAME mask, with FLAT screens. Then the vacuum limit of each
+space output is exactly 1.0, and each number is a pure turbulence penalty.
+
+**THE RECIPROCITY OVERLAP (uplink).** The turbulent atmosphere is reciprocal, so
+the uplink flux at the satellite is the overlap of the received downlink field
+with the ground transmit mode. See Shapiro, DOI 10.1364/JOSA.61.000492. The
+transmit mode `psi_tx` is the launch recipe above, scaled so that
+`sum(|psi_tx|^2) = 1.0`. Then
+
+    eta_turb = |SUM E_rx conj(psi_tx)|^2 / |SUM E_vac conj(psi_tx)|^2
+
+where `E_vac` is the zero-screen vacuum run through the same mask and the same
+hops. So the vacuum limit of `eta_turb` is exactly 1.0, and
+`-10*log10(eta_turb)` is the uplink turbulence loss on the free-space baseline.
+That is the baseline of the `(w_free/w_st)^2` rescale of
+`olb.turbulence.uplink_flux`, so the two numbers compare. Point-ahead
+anisoplanatism is NOT modelled: the uplink and the downlink read the same
+screens.
+
+**THE SEED CONTRACT.** `seed` takes an int, a numpy `Generator`, or `None` for a
+fresh entropy, and the runner resolves it to ONE integer. Each screen then draws
+from `SeedSequence(entropy, spawn_key=(trial, screen))`. So trial `k` is
+bit-identical for one entropy, and the trial count does not change it: a longer
+run repeats the trials of a shorter run. `TurbWaveResult.seed_entropy` gives the
+integer back, and each trial records its own `seed_key`.
+
+#### `TurbTrial`
+
+A frozen dataclass. One atmosphere snapshot.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `collected_power` | float | The power inside the receive aperture, as a fraction of the input power. The terrestrial case divides by the launched power AFTER the transmit clip, so it holds the geometric spread too. The space case divides by the VACUUM baseline on the same grid, so it holds the turbulence penalty only, and its vacuum limit is 1.0. |
+| `smf_eta` | float or None | The single-mode-fibre coupling efficiency, from `olb.waveoptics.smf.coupling_efficiency`. `None` when the receive terminal has no `SMF` detector. |
+| `eta_turb` | float or None | The uplink reciprocity overlap ratio, against the free-space baseline. `None` for a downlink and for a terrestrial case. |
+| `seed_key` | tuple | The pair `(seed_entropy, trial_index)`. |
+| `wall_time_s` | float | The time of the trial, in s. It holds the screen generation and the propagation. |
+
+#### `TurbWaveResult`
+
+A frozen dataclass. The result of a set of trials.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `trials` | list | One `TurbTrial` for each trial. |
+| `grid` | `GridSpec` | The grid that the trials used. |
+| `plan` | `ScreenPlan` | The screen plan that the trials used. |
+| `report` | `SamplingReport` or None | `None` when the caller gives its own grid and plan. |
+| `preset` | str | The name of the quality preset. |
+| `seed_entropy` | int | The integer that seeds every trial. Give it back to repeat the set. |
+
+**This is a MINIMAL record, on purpose.** The rich per-trial record is a known
+need. Most of all it must hold the electric field inside the receive aperture,
+which serves later ad-hoc analysis. The design of that record is DEFERRED to a
+dedicated results-processing session. Do not extend this record piece by piece.
+`turbulent_terrestrial.py` works around the limit: it passes the SAME grid, the
+SAME plan and the SAME seeds again, and it changes only the receive aperture.
+
+### 9e. The stubs
+
+Each of these raises. Each one is a deliberate deferral, not a defect.
+
+| Name | Where | Why it is deferred |
+|---|---|---|
+| `TemporalScreens` | `temporal.py` | The frozen-flow time axis. The constructor and `step()` raise `NotImplementedError`. The class docstring holds the recorded design: one `aotools` `PhaseScreenVonKarman` for each layer, `add_row()` to extrude, and a layer drift velocity that is the vector sum of the Bufton wind (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3)) and the apparent translation `omega_slew * z_i` of a tracked satellite. See also Assemat, Wilson and Gendron, DOI 10.1364/OE.14.000988, and Taylor, DOI 10.1098/rspa.1938.0032. |
+| `folded_terrestrial()` | `run.py` | The double pass of a corner-cube retroreflector. The two passes share the same screens, so they are correlated. That correlation is the physics of the link, and it needs its own design. |
+| The `"retro"` direction | `run.py` | `propagate_turbulent_scenario()` raises `NotImplementedError`. The same correlated double pass. |
+| A co-moving screen | `screens.py`, `splitstep.py` | `Screen()` and `split_step()` raise `ValueError` on a spherical field. The split step runs on a FLAT grid only. Call `Convert()` first. |
+
+### 9f. The example scripts
+
+Three scripts in `examples/waveoptics/` put the layer against the analytic models
+that the budgets already use. Each one runs for about four to five minutes.
+
+- `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`, three
+  receive apertures on the same screens and the same seeds.
+- `turbulent_downlink.py` — a 600 km downlink into a 500 mm obscured fibre
+  receiver, at 30, 60 and 90 degrees.
+- `turbulent_uplink_reciprocity.py` — a 600 km uplink through the overlap of
+  Section 9d, at the zenith and at 30 degrees.
+
+See [examples.md](examples.md) and
+[examples/waveoptics/README.md](../examples/waveoptics/README.md) for what each
+one prints and what it shows.
