@@ -42,7 +42,7 @@ from .._deps import (coupled_flux_montecarlo, gaussz, zR,
                      spherical_wave_coherence_diameter, short_term_beam_waist,
                      long_term_beam_waist, beam_wander_variance,
                      coupled_flux_sample, on_axis_irradiance)
-from ..beam import free_space_radius, virtual_waist
+from ..beam import free_space_radius, launch_curvature
 from .profiles import DEFAULT_HS
 
 # Log-amplitude variance limit. Above it the Rytov model is not valid
@@ -99,13 +99,11 @@ def _scintillation_beam(w0, L, wavelength, divergence_rad):
     # cos[(5/6)atan((1+2Theta)/(2Lambda))] - (11/16)Lambda^(5/6)} to a few
     # percent, for the collimated AND the diverged beam. Not added yet.
     k = 2 * np.pi / wavelength
-    w_v, d = virtual_waist(w0, divergence_rad, wavelength)
     lambda0 = 2 * L / (k * w0 ** 2)
-    if d == 0:
-        theta0 = 1.0                       # collimated: flat wavefront at the aperture
-    else:
-        f0 = -(d + zR(w_v, wavelength) ** 2 / d)   # diverging wavefront -> F0 < 0
-        theta0 = 1.0 - L / f0                       # > 1
+    # launch_curvature gives f0 = inf (collimated) or f0 < 0 (diverging), in
+    # this repo's Theta0 = 1 - L/f0 convention. One shared implementation.
+    f0 = launch_curvature(w0, divergence_rad, wavelength)
+    theta0 = 1.0 - L / f0                  # 1.0 collimated, > 1 diverging
     theta = theta0 / (theta0 ** 2 + lambda0 ** 2)
     z0_eff = L / np.sqrt(1.0 / theta - 1.0)
     wL = float(free_space_radius(w0, L, divergence_rad, wavelength))

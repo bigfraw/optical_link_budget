@@ -22,7 +22,7 @@ from ...results import Term
 from ...assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                             SPECTRUM_KOLMOGOROV)
 from ...terminal import SMF, MMF, TipTilt, AO
-from ...beam import free_space_radius
+from ...beam import free_space_radius, launch_curvature
 from ...turbulence.gaussian_fried import gaussian_fried_parameter_profile
 from ...turbulence.angle_of_arrival import wander_arrival_angle_variance
 from ...turbulence.ao import apply_compensation
@@ -270,11 +270,15 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
     L = float(scenario.channel.path_length_m)
     cn2 = float(scenario.channel.cn2)
 
-    # Horizontal Gaussian-beam Fried parameter over the constant-Cn2 path.
+    # Horizontal Gaussian-beam Fried parameter over the constant-Cn2 path. The
+    # launch curvature f0 of a deliberately diverged beam enters the beam
+    # parameters (Theta0 = 1 - L/f0), so a diverged beam gets its own r0.
+    # This closes olb Gap 3. See olb.beam.launch_curvature.
+    f0 = launch_curvature(w0, tx.transmitter.divergence_rad, wavelength)
     hs = np.linspace(0.0, L, int(n_grid))
     cn2_profile = np.full_like(hs, cn2)
     r0 = gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
-                                          path='terrestrial')
+                                          path='terrestrial', f0=f0)
 
     # When the receive tip-tilt walk-off Term is active, it carries the tip-tilt
     # coupling loss. So this coupling Term keeps the HIGHER-ORDER residual only.
@@ -344,6 +348,7 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
             "sigma2_res": float(sigma2_res) if np.ndim(sigma2_res) == 0 else np.asarray(sigma2_res),
             "effective_D_over_r0": float(dr0_eff) if np.ndim(dr0_eff) == 0 else np.asarray(dr0_eff),
             "r0_m": float(r0) if np.ndim(r0) == 0 else np.asarray(r0),
+            "f0_m": float(f0),
             "n_comp_modes": residual.n_modes,
         },
         assumptions=assumptions,
@@ -671,10 +676,11 @@ if __name__ == '__main__':
     f_opt = np.pi * (D_test / 2.0) * wm / (lam * 1.12)   # a = 1.12
 
     def _terr(detector, *, jitter=0.0, compensation=None, cn2=1e-14,
-              far_aperture=0.2, w0=0.02, L=3e3):
+              far_aperture=0.2, w0=0.02, L=3e3, divergence=None):
         return TerrestrialScenario(
             near=Terminal(aperture_m=0.3, wavelength_m=lam,
-                          transmitter=Transmitter(waist_m=w0, power_dbm=30)),
+                          transmitter=Transmitter(waist_m=w0, power_dbm=30,
+                                                  divergence_rad=divergence)),
             far=Terminal(aperture_m=far_aperture, wavelength_m=lam,
                          pointing_jitter_rad=jitter, detector=detector,
                          compensation=compensation or []),
@@ -772,6 +778,19 @@ if __name__ == '__main__':
         raise AssertionError("MMF without a focal length must raise")
     except ValueError:
         pass
+
+    # --- Gap 3: the launch curvature reaches the Fried parameter -------------
+    smf_plain = SMF(sensitivity_dbm=-40)
+    c_coll = terrestrial_smf_coupling_term(_terr(smf_plain), hpath)
+    theta_min_terr = lam / (np.pi * 0.02)
+    c_div = terrestrial_smf_coupling_term(
+        _terr(smf_plain, divergence=5 * theta_min_terr), hpath)
+    assert np.isinf(c_coll.meta["f0_m"]) and c_div.meta["f0_m"] < 0.0
+    # A diverged beam is more spherical (Theta0 > 1), so the transmitter-referred
+    # path weight drops: r0 grows, the residual falls, the loss falls.
+    assert c_div.meta["r0_m"] > c_coll.meta["r0_m"], (
+        c_div.meta["r0_m"], c_coll.meta["r0_m"])
+    assert c_div.mean_db < c_coll.mean_db, (c_div.mean_db, c_coll.mean_db)
 
     # --- turbulence=False: static coupling + jitter, no turbulence quantity --
     v_off, m_off = _received_tiptilt_variance(_terr(Aperture(), jitter=5e-6),

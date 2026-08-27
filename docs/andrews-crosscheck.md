@@ -277,7 +277,7 @@ One row per equation. Sorted by olb file path, then by line number.
 | BW-15 | 0.404 sigma2_R | olb/turbulence/beam_wave_scintillation.py:216 | spherical-wave limit beta0^2 | 8.2 | Ch. 8, Eq. (20) | 264 | 289 | Kolmogorov; l0=0; L0=inf; weak; homogeneous Cn2 | exact | The book gives 0.4 exactly; the code asserts 0.404 with rtol 3e-2. Ch. 9, Eqs. (63) and (64) printed 341 give the same pair. |
 | BW-16 | sigma2_I approximately 4 sigma2_chi | olb/turbulence/beam_wave_scintillation.py:242, 261 | link between the index and the log-amplitude variance | 8.2 | Ch. 8, Eq. (13) | 262 | 287 | weak | exact | Book: sigma_I^2 = exp(4 sigma_x^2) - 1, which is approximately 4 sigma_x^2. |
 | BW-17 | Hufnagel-Valley Cn2(h) | olb/turbulence/beam_wave_scintillation.py:246-249 | Cn2 profile used in the self-check | 12.2.1 | Ch. 12, Eq. (1) | 481 | 506 | - | exact | R4 marked this `unmatched` inside Ch. 8, which has no Cn2 profile. R7 resolved it: every constant, exponent and scale height matches Ch. 12, Eq. (1). The defaults w = 21 m/s and A = 1.7e-14 are the book H-V5/7. |
-| GF-01 | COLLIMATED_THETA0 = 1 | olb/turbulence/gaussian_fried.py:32 | input-plane curvature parameter, fixed at 1 | 6.2.1 | Ch. 6, Eq. (6) | 183 | 208 | collimated | reduction | Confirmed by 3 readers. Also Ch. 4, Eq. (33) printed 92 and the Ch. 9 worked example printed 384. Andrews keeps Theta0 = 1 - L/F0 general: Theta0 = 1 collimated, less than 1 convergent, more than 1 divergent. This is olb gap 3 and the CLAUDE.md "Next task". The profile form at line 310 already carries the general 1 - L/f0. |
+| GF-01 | COLLIMATED_THETA0 = 1 | olb/turbulence/gaussian_fried.py:32 | input-plane curvature parameter, fixed at 1 | 6.2.1 | Ch. 6, Eq. (6) | 183 | 208 | collimated | reduction | Confirmed by 3 readers. Also Ch. 4, Eq. (33) printed 92 and the Ch. 9 worked example printed 384. Andrews keeps Theta0 = 1 - L/F0 general: Theta0 = 1 collimated, less than 1 convergent, more than 1 divergent. The profile form at line 310 already carries the general 1 - L/f0, and the terrestrial call site now passes f0 (Gap 3 wired, 2026-08-27). Only this single-path form keeps the fixed Theta0, and no budget calls it. |
 | GF-02 | Lambda0 = 2 z/(k w0^2) | olb/turbulence/gaussian_fried.py:49 | input-plane Fresnel ratio | 6.2.1 | Ch. 6, Eq. (6) | 183 | 208 | - | exact | Confirmed by 3 readers. Also Ch. 4, Eqs. (33) and (136) printed 92 and 118. |
 | GF-03 | Lambda = Lambda0/(Theta0^2+Lambda0^2) | olb/turbulence/gaussian_fried.py:63 | output-plane diffraction parameter | 6.2.1 | Ch. 6, Eq. (7) | 183 | 208 | collimated | reduction | Confirmed by 3 readers. The form is exact; only the hard-wired Theta0 = 1 reduces it. Also Ch. 4, Eqs. (44) and (138) printed 95. |
 | GF-04 | Theta = Theta0/(Theta0^2+Lambda0^2) | olb/turbulence/gaussian_fried.py:64 | output-plane refraction parameter | 6.2.1 | Ch. 6, Eq. (7) | 183 | 208 | collimated | reduction | Confirmed by 3 readers. Andrews Ch. 4, Eq. (45) adds the complement Theta_bar = 1 - Theta, which olb computes only in the profile form. |
@@ -1539,11 +1539,12 @@ p. 451, says the lognormal model misses.
   the same 2.07 wander form, gives its image-motion provenance, and validates it
   against a split-step simulation. Keep 2.07 in the Dios kernel; the Andrews
   7.25 form over-counts by 3.50. See the C-01 closure block.
-- **The curvature-general Fried parameter is closed at the physics layer only.**
-  `andrews.beam.beam_params` takes f0 and `andrews.structure.coherence_radius`
-  takes the beam, but the single-path `gaussian_fried.gaussian_fried_parameter`
-  keeps its collimated signature, and the terrestrial fibre-coupling call site
-  still passes no curvature. See `docs/physics.md` Section 5e.
+- **The curvature-general Fried parameter is WIRED (2026-08-27).** The
+  terrestrial fibre-coupling call site now passes f0 from the transmitter
+  divergence (through `olb.beam.launch_curvature`), so a diverged beam drives
+  its own r0. The single-path `gaussian_fried.gaussian_fried_parameter` still
+  keeps its collimated signature (a tidy-up; the budgets use the profile form,
+  which is general in f0). See `docs/physics.md` Section 5e.
 - **TL-05 stays `wrong`**: the terrestrial weak gate still tests one plane-wave
   threshold on a Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs both
   sigma_R^2 < 1 and sigma_R^2 Lambda^(5/6) < 1.

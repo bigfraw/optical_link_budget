@@ -61,6 +61,38 @@ def virtual_waist(w0, divergence_rad=None, wavelength=1550e-9):
     return w_v, d
 
 
+def launch_curvature(w0, divergence_rad=None, wavelength=1550e-9):
+    '''
+    Phase-front radius of curvature f0 at the exit aperture [m].
+
+    A deliberately diverged beam is a Gaussian beam from a virtual waist at the
+    distance d behind the aperture. The Gaussian phase-front radius at the
+    distance z from a waist is R(z) = z + zR^2 / z. Source: Andrews and
+    Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eqs. (7) and (8),
+    printed p. 87. This repo writes the transmitter beam parameter as
+    Theta0 = 1 - L / f0, so a DIVERGING wavefront has f0 < 0 and Theta0 > 1.
+    A collimated beam has f0 = infinity (Theta0 = 1).
+
+    Parameters:
+        w0 : float
+            Beam radius at the transmit aperture [m].
+        divergence_rad : float, optional
+            Far-field HALF-angle divergence [rad]. None (or the diffraction
+            limit) means collimated.
+        wavelength : float
+            Wavelength [m].
+
+    Returns:
+        float
+            f0 [m]. numpy.inf for a collimated beam, negative for a diverged
+            beam.
+    '''
+    w_v, d = virtual_waist(w0, divergence_rad, wavelength)
+    if d == 0:
+        return np.inf
+    return -(d + zR(w_v, wavelength) ** 2 / d)
+
+
 def free_space_radius(w0, z, divergence_rad=None, wavelength=1550e-9):
     '''
     Turbulence-free beam radius at range z, for a transmitter of aperture radius
@@ -112,6 +144,21 @@ if __name__ == '__main__':
         raise AssertionError("sub-diffraction divergence should raise ValueError")
     except ValueError:
         pass
+
+    # Launch curvature: collimated is flat (f0 = inf); a diverged beam has a
+    # NEGATIVE finite f0; more divergence gives a shorter |f0|; near the
+    # diffraction limit |f0| grows toward the collimated case.
+    assert np.isinf(launch_curvature(w0, None, lam))
+    assert np.isinf(launch_curvature(w0, theta_min, lam))
+    f0_2 = launch_curvature(w0, 2 * theta_min, lam)
+    f0_5 = launch_curvature(w0, 5 * theta_min, lam)
+    f0_near = launch_curvature(w0, 1.01 * theta_min, lam)
+    assert f0_2 < 0 and f0_5 < 0
+    assert abs(f0_5) < abs(f0_2) < abs(f0_near)
+    # The recast is self-consistent: R at the aperture equals the Gaussian
+    # R(d) = d + zR^2/d of the virtual waist.
+    w_v, d = virtual_waist(w0, 2 * theta_min, lam)
+    assert np.isclose(-f0_2, d + zR(w_v, lam) ** 2 / d)
 
     print(f"diffraction limit for w0={w0} m: {theta_min * 1e6:.2f} urad")
     print(f"collimated w at 600 km: {free_space_radius(w0, 600e3, None, lam):.2f} m")

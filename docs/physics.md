@@ -599,17 +599,18 @@ or `terrestrial`.
 > `gaussian_fried_parameter_profile` is NOT limited this way: it takes a
 > phase-front radius of curvature `f0` and computes `Theta0 = 1 - L/f0`. Its
 > default `f0 = inf` still gives a collimated beam. The one call site, the
-> terrestrial single-mode-fibre coupling in `olb/models/coupling/terrestrial.py`, does not
-> pass `f0`, so it uses the collimated default too.
+> terrestrial single-mode-fibre coupling in `olb/models/coupling/terrestrial.py`,
+> now passes `f0`: it reads the launch curvature from the transmitter divergence
+> through `olb.beam.launch_curvature`, so a deliberately diverged beam gets its
+> own r0 (olb Gap 3, closed 2026-08-27). `launch_curvature` shares one
+> implementation with the Dios scintillation feed in
+> `olb/turbulence/uplink_flux.py`, so the geometric, the scintillation, and the
+> Fried-parameter Terms read the SAME f0.
 >
-> To generalise, stop pinning `Theta0` to 1. For the profile form, pass a finite
-> `f0` (a diverged beam has `f0 < 0`, so `Theta0 > 1`; a focused beam has
-> `0 < f0`, so `Theta0 < 1`). For the single-path form, add a curvature argument
-> and thread it through `output_beam_params`, the way the profile form already
-> does. This matters for a deliberately diverged uplink beam: the package already
-> recasts that beam through a virtual waist in `olb/beam.py` for the geometric and
-> the scintillation Terms, but the Fried-parameter feed still assumes a collimated
-> input.
+> STILL OPEN: the single-path form `gaussian_fried_parameter` keeps the
+> collimated signature. To generalise it, add a curvature argument and thread it
+> through `output_beam_params`, the way the profile form already does. The
+> profile form is the one the budgets use, so this is a tidy-up, not a gap.
 
 - The profile form assumes a Gaussian beam in the weak turbulence regime with a
   Kolmogorov spectrum (no inner scale, no outer scale). It holds to about a Rytov

@@ -240,12 +240,14 @@ Open items:
   (2026-08-27): `uplink_fast_term` in `olb/models/coupling/fast.py`, consumed
   by `uplink_budget(precomp_fidelity="fast")` (the default). The remaining
   FAST limits are backlog 1-2.
-- **Gap 3 is closed at the physics layer only.** `andrews.beam.beam_params`
-  takes any input curvature f0, and `andrews.structure.coherence_radius` takes
-  the beam. But the single-path `gaussian_fried.gaussian_fried_parameter` keeps
-  its collimated signature, and the terrestrial fibre-coupling call site in
-  `olb/models/coupling/terrestrial.py` still passes no curvature. Thread f0 into
-  that call to make a deliberately diverged beam drive the Fried parameter.
+- **Gap 3 is WIRED (2026-08-27).** The terrestrial fibre-coupling call site in
+  `olb/models/coupling/terrestrial.py` now reads the launch curvature f0 from
+  the transmitter divergence through `olb.beam.launch_curvature` and passes it
+  to `gaussian_fried_parameter_profile`, so a deliberately diverged beam drives
+  its own r0. `launch_curvature` is one shared implementation (the Dios feed in
+  `olb/turbulence/uplink_flux.py` calls it too). The single-path
+  `gaussian_fried.gaussian_fried_parameter` keeps its collimated signature (a
+  tidy-up; the budgets use the profile form, which is general in f0).
 - **Gap 8, the annular (obscured) receive aperture, needs another source.** A
   full-text search of the book finds no obscured-aperture filter.
 - **TL-05**: the terrestrial weak gate tests one plane-wave threshold on a

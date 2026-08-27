@@ -28,8 +28,8 @@ are from 2026-08-26 and can drift.
    2-I2.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
-4. **Gap 3 — thread the beam curvature f0 into the Fried call site.** Small,
-   already prepared at the physics layer. See 0-W2.
+4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
+   Closed 2026-08-27. See 0-W2.
 5. **The stale docs that contradict the code.** Cheap, and they mislead every
    later session. See the documentation-debt group.
 6. **The kernel repo commit.** One `git add` in `my_analysis_modules`, plus
@@ -69,11 +69,19 @@ are from 2026-08-26 and can drift.
   does not read), so the reciprocity mapping needs no static-floor
   correction. Docs updated 2026-08-27: paths.py docstring, CLAUDE.md,
   docs/physics.md, docs/api-budget.md.
-- **0-W2. Gap 3: thread the curvature f0 into the Fried parameter.**
-  `andrews.beam.beam_params` takes any f0; `gaussian_fried_parameter` stays
-  collimated, and the call site in olb/models/coupling/terrestrial.py passes
-  no f0. A deliberately diverged beam gets a wrong r0. Docs:
-  docs/physics.md:594, crosscheck GF-01.
+- **0-W2. Gap 3: thread the curvature f0 into the Fried parameter — DONE
+  (2026-08-27).** The terrestrial SMF coupling call site in
+  olb/models/coupling/terrestrial.py now reads the launch curvature from the
+  transmitter divergence through the new `olb.beam.launch_curvature` and passes
+  it as `f0` to `gaussian_fried_parameter_profile`. So a deliberately diverged
+  beam gets its own r0. `launch_curvature` is ONE shared implementation: the
+  Dios scintillation feed in olb/turbulence/uplink_flux.py now calls it too
+  (it held a private copy of the same f0 algebra). The self-check asserts a
+  diverged beam gives a larger r0 and a smaller coupling loss than a collimated
+  one. STILL OPEN (a tidy-up, not a gap): the single-path
+  `gaussian_fried_parameter` keeps the collimated signature; the budgets use
+  the profile form, which is fixed. Docs: docs/physics.md GF-01 note updated;
+  crosscheck GF-01.
 - **0-W3. Gap 1: the aperture angle-of-arrival tilt feeds no Term.**
   `andrews.structure.angle_of_arrival_variance` is built and delegated to;
   no coupling Term adds contribution C, so the received tip-tilt is a lower
