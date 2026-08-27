@@ -18,15 +18,19 @@ are from 2026-08-26 and can drift.
 
 1. **Gap 2 — the pre-compensated uplink models NO scintillation.** The one
    item both sweeps call MAJOR. See 0-W1.
-2. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
+2. **HIGH (owner-flagged, 2026-08-27) — stop the reliance on the
+   `DEFAULT_HS` 20-layer array.** HV5/7 is a continuous profile; the planner
+   and the physics must take a callable, not a hand-discretised grid. See
+   2-I2.
+3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
-3. **Gap 3 — thread the beam curvature f0 into the Fried call site.** Small,
+4. **Gap 3 — thread the beam curvature f0 into the Fried call site.** Small,
    already prepared at the physics layer. See 0-W2.
-4. **The stale docs that contradict the code.** Cheap, and they mislead every
+5. **The stale docs that contradict the code.** Cheap, and they mislead every
    later session. See the documentation-debt group.
-5. **The kernel repo commit.** One `git add` in `my_analysis_modules`, plus
+6. **The kernel repo commit.** One `git add` in `my_analysis_modules`, plus
    the KR-24 constants. See the external group.
-6. **The owner decisions.** `downlink_budget` default, the fidelity-2 Term,
+7. **The owner decisions.** `downlink_budget` default, the fidelity-2 Term,
    the FAST-versus-field reference model. Decide once; then wire. See 0-W5,
    2-W1.
 
@@ -229,6 +233,24 @@ The path forward for each is a second reference or a derivation.
   measures it instead, against `olb/waveoptics/schmidt/turbulence.py`, and
   the Cn2-weighted centroid grouping holds every moment inside 1 percent.
   olb/waveoptics/turbulence/sampling.py:271, :311.
+- **2-I2. Continuous Cn2 profiles — drop the `DEFAULT_HS` crutch (HIGH,
+  owner-flagged 2026-08-27).** HV5/7 and the other Cn2 models are continuous
+  functions; the 20-layer `DEFAULT_HS` array is a hand-made discretisation,
+  and it leaks into the physics wherever a decision reads the grid instead of
+  the profile. Work package 7 removed the worst leak (the screen count), but
+  the screen PLACEMENT still comes from the array: the bottom-group centroid
+  question (the ~1.2 dB downlink SMF shift at 30 degrees, see the WP7 note in
+  docs/schmidt-crosscheck.md) is only answerable against the continuous
+  ground layer. The change, in two separate steps: (1) `turbulent_grid` and
+  `_plan_space` in olb/waveoptics/turbulence/sampling.py accept a callable
+  `cn2(h)` and compute the group integrals, centroids, Rytov shares, and the
+  Eq. (9.65) moments by quadrature on the callable; `DEFAULT_HS` stays only
+  as the fallback for an array caller. This also makes the Gauss-quadrature
+  screen placement (tracker candidate, S-22) implementable. (2) LATER, and
+  separately: the fidelity-0/1 modules that integrate over `hs` arrays
+  (slant extinction and scintillation, uplink flux, FAST) move to callables;
+  that step is wide, mechanical, and must move no numbers. The owner decided
+  on 2026-08-27 to flag this here and NOT build it yet.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
