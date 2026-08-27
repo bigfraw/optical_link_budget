@@ -255,6 +255,22 @@ The path forward for each is a second reference or a derivation.
   (slant extinction and scintillation, uplink flux, FAST) move to callables;
   that step is wide, mechanical, and must move no numbers. The owner decided
   on 2026-08-27 to flag this here and NOT build it yet.
+- **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27).**
+  One preset table serves two channel families that measure differently, and
+  the convergence data says they deserve different numbers. The evidence, all
+  in the WP7 and post-WP7 notes of docs/schmidt-crosscheck.md: the
+  terrestrial case converges by 4 to 5 screens while the slant case needs 7,
+  so `min_screens` 15 / 9 / 5 over-serves a horizontal path and the
+  terrestrial floor could sit lower; the `rapid` floor of 5 reads 10 percent
+  low on an APERTURE index but 22 percent low on a POINT index, so the right
+  floor also depends on the receiver (a fibre pays the point figure); and the
+  space planner reads the cap per LAYER GROUP while the terrestrial planner
+  reads it per EQUAL SLAB, so one `sigma2_r_screen_max` value binds the two
+  families differently. The revision: split the preset table per channel
+  family (terrestrial / space), and decide whether the floor keys on the
+  receiver kind; source every number from the existing sweep data or a new
+  sweep, and record it in the tracker. Owner decision on the shape; flagged,
+  not built.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
