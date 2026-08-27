@@ -415,11 +415,17 @@ that olb has no name for it yet.
 
 | olb id | location (file:line) | quantity | book eq | printed p | pdf p | status | note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `Power`, `Normal` | `olb/waveoptics/field.py:181` | Riemann-sum scaling, `sum(I) * dx^2` | (2.3), (2.32) | 15, 36 | 28, 48 | checked | The same rule that puts `dx^2` on `ft2`. The two agree. The book cites it for the transform; olb cites Goodman for the power. No change needed. |
+| `Forvard`, `Fresnel` | `olb/waveoptics/propagators.py:121` | UNSCALED `fft2`/`ifft2` | (2.6), (2.9) | 16, 17 | 29, 30 | checked | The LightPipes propagators use a bare `fft2` with a sign-alternation trick in place of `fftshift`. The forward and the inverse transform cancel inside one propagator, so the missing `dx^2` and `(N df)^2` cancel too. The result is correct, but the intermediate spectrum carries NO physical scaling. Do NOT mix `schmidt.fourier.ft2` with those intermediates. |
 
 # Table 2 — gaps and suggestions
 
 | gap id | book section | book eq | capability | target module | priority |
 | --- | --- | --- | --- | --- | --- |
+| S-01 | 3.3 | (3.15), (3.17), (3.25) | The structure function of a phase screen. olb generates screens but never verifies one against D(r) = 6.88 (r/r0)^(5/3), Eq. (9.44). | `olb/waveoptics/schmidt/fourier.py` (built), then a screen check in WP4 | high |
+| S-02 | 3.2 | (3.11), (3.14) | The windowed auto-correlation, which gives the coherence factor mu(r) of Sec. 9.5.5. It is the OTHER verification of a turbulent run. | a later work package | medium |
+| S-03 | 2.5.2, 2.5.3 | (2.27), (2.31) | The p-fraction bandwidth of a Gaussian, with and without a quadratic phase. It gives a grid pitch from the beam alone. `GridSpec.for_scenario` uses a `pixels_per_feature` guess instead. | `olb/waveoptics/grid.py` | low |
+| S-04 | 3.4 | (3.26) | The derivative by transform. The book states it is not used again. olb has no wavefront sensor. Do NOT build it. | none | none |
 
 # Table 3 — constants ledger
 
@@ -447,6 +453,47 @@ not yet found a source, or that the book gives none.
 # Work-package notes
 
 ## WP1 — Fourier foundations (Chs. 2, 3)
+
+**Built.** The sub-package `olb/waveoptics/schmidt/` and its first module
+`fourier.py`. The module gives four names:
+
+- `ft2(g, dx)` — Ch. 2, Eq. (2.6), printed p. 16, with the two-dimensional
+  scaling of Sec. 2.6, printed p. 36.
+- `ift2(G, df)` — Ch. 2, Eq. (2.9), printed p. 17, with the two-dimensional
+  scaling of Sec. 2.6, printed p. 37.
+- `freq_pitch(n, dx)` — df = 1/(N dx). Ch. 2, text below Eq. (2.3), printed
+  p. 16; Ch. 6, Eq. (6.51), printed p. 99.
+- `structure_function(ph, mask, dx)` — Ch. 3, Eqs. (3.15), (3.17), (3.19) to
+  (3.25), printed pp. 47 to 50.
+
+**Decisions.**
+
+- The shift pair is `fftshift(fft2(ifftshift(g)))`. The book prints
+  `fftshift(fft2(fftshift(g)))` (Listing 2.5, printed p. 36). The two agree for
+  an even grid count, which is the only count the book discusses (Sec. 2.1.3,
+  printed p. 18). The form above is also correct for an odd count.
+- `structure_function` uses the INVERSE transform of Listing 3.7, printed p. 48,
+  not the forward transform of Eq. (3.25), printed p. 50. The bracket is real
+  and even in f, so the two give the same result.
+- `structure_function` does NOT multiply the result by the mask, and it needs no
+  extra `dx^2`. The book's Listing 3.8, printed p. 48, divides its example by
+  `delta^2`. A ramp check to a relative error of 1.8e-15 shows that the plain
+  Eqs. (3.17) and (3.25) need no such factor. The listing's factor belongs to
+  its example, not to the equation.
+- The result is left unmasked. The caller selects the separation range where the
+  overlap area A(dr) is not zero.
+- Convolution (Sec. 3.1), correlation (Sec. 3.2), and the derivative (Sec. 3.4)
+  are NOT built. Nothing needs them yet. See Table 2, rows S-02 and S-04.
+
+**The book would not give.**
+
+- The two-dimensional Gaussian transform pair. Section 2.5.2, printed pp. 31 and
+  32, prints the ONE-dimensional pair, Eqs. (2.23) and (2.24), and the
+  one-dimensional bandwidth, Eq. (2.27). The self-check builds the
+  two-dimensional pair from Eq. (2.32), printed p. 36, and it writes the
+  constants from the transform convention of Eq. (2.1), printed p. 15.
+- A tolerance for the structure function. The book compares its figures by eye.
+  The self-check sets its own targets.
 
 ## WP2 — Fresnel propagators (Ch. 6)
 
