@@ -622,16 +622,21 @@ def uplink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     alpha_r = r/L, and puts (H - h0)^2 sec^2(zeta) = L^2 in front. The code
     cancels the two, which gives (r/W)^2.
 
-    THIS PARTLY CLOSES OLB GAP 2. `olb/links/uplink.py` flags its
-    pre-compensated (beacon plus adaptive optics) budget NO SCINTILLATION,
-    because the phase-only error budget drops the intensity fluctuation that the
-    coupled-flux Term carried. Ch. 12, Eqs. (57) to (60) give the missing
-    number: a TRACKED uplink beam still scintillates, by sigma_B_u^2 on axis.
-    Tracking removes the wander term, not the Rytov term. A pre-compensated
-    uplink is at least as bright as a tracked one, so `tracked=True` here is the
-    floor of the residual scintillation that the corrected budget must carry.
-    The remaining part of the gap is the higher-order adaptive-optics
-    correction, which Chapter 12 does not model.
+    THIS DOES NOT MODEL A PRE-COMPENSATED UPLINK (OLB GAP 2, decision
+    2026-08-27). `tracked=True` models a beam with the wander FULLY removed:
+    a perfect tilt correction. A real beacon measurement decorrelates from
+    the uplink path over the point-ahead angle, so a residual tilt survives,
+    and this form charges nothing for it. The same argument applies to each
+    higher corrected order. Also, a decorrelated higher-order correction
+    reshapes the beam at the satellite, and these forms normalise by the
+    vacuum-diffraction beam radius W. So `tracked=True` is OPTIMISTIC for a
+    pre-compensated uplink, and it is not a bound in either direction. An
+    earlier docstring called it the floor of the residual scintillation; that
+    claim was wrong. Decision: no analytic Term models the pre-compensated
+    scintillation. The model of record is the fidelity-1 FAST Monte Carlo
+    with the point-ahead offset (olb/models/coupling/fast.py, DTHETA;
+    backlog item 1-2). The tracked form stays valid for what it names: a
+    tilt-tracked, otherwise uncorrected beam.
 
     RESTRICTION. The beam-wander term stays a weak-fluctuation result in every
     branch, which the book states below Eq. (59), printed p. 506. The book also

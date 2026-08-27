@@ -16,8 +16,10 @@ are from 2026-08-26 and can drift.
 
 ## Top of the stack (the recommended order)
 
-1. **Gap 2 — the pre-compensated uplink models NO scintillation.** The one
-   item both sweeps call MAJOR. See 0-W1.
+1. **Gap 2 is DECIDED (2026-08-27): the pre-compensated uplink gets NO
+   analytic scintillation Term.** No trustworthy closed form exists; the
+   model of record is the fidelity-1 FAST route. The remaining work is the
+   FAST uplink wiring in 1-2. See 0-W1 for the decision record.
 2. **HIGH (owner-flagged, 2026-08-27) — stop the reliance on the
    `DEFAULT_HS` 20-layer array.** HV5/7 is a continuous profile; the planner
    and the physics must take a callable, not a hand-discretised grid. See
@@ -40,13 +42,26 @@ are from 2026-08-26 and can drift.
 
 ### Wiring steps (built, no budget consumes it)
 
-- **0-W1. Gap 2: add the residual-scintillation Term to the pre-compensated
-  uplink (MAJOR).** The beacon + AO budget is phase-only; its Terms flag
-  `NO SCINTILLATION` (olb/links/uplink.py:285, :398). The missing number is
-  built: `andrews.paths.uplink_scintillation_index(tracked=True)` (Ch. 12,
-  Eqs. (57)–(60); see olb/turbulence/andrews/paths.py:625). No budget reads
-  it. Do not trust the corrected uplink fade until this Term exists. Docs:
-  CLAUDE.md:207, docs/api-budget.md:241, docs/physics.md:760.
+- **0-W1. Gap 2 — DECIDED 2026-08-27: the pre-compensated uplink gets NO
+  analytic scintillation Term.** The owner rejected the earlier plan to wire
+  `andrews.paths.uplink_scintillation_index(tracked=True)`. Three reasons:
+  the tracked form removes the wander fully, which is a perfect tilt
+  correction, and the beacon tilt decorrelates from the uplink path over the
+  point-ahead angle; the same decorrelation applies to each higher corrected
+  order; and a decorrelated correction reshapes the beam, so the Ch. 12
+  normalisation by the vacuum-diffraction beam radius breaks. The tracked
+  form is OPTIMISTIC, not a bound. No trustworthy closed form exists; the
+  literature computes this case numerically. Resolution: the beacon + AO
+  budget stays phase-only and mean-only, returns with LOUD flags
+  (`NO SCINTILLATION, NO FADE`, plus the new extended-Marechal limit flag at
+  sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), and stays useful
+  for the geometric-only path (turbulence=False). The model of record is the
+  fidelity-1 FAST Monte Carlo with the point-ahead offset, so the remaining
+  work moved to 1-2. Note for that work: fast-aosim 0.1.7 comments out the
+  `PROP_DIR="up"` Monte-Carlo branches, so the uplink number comes through
+  the reciprocity of a "down" run with DTHETA set, and the static-floor
+  normalisation needs a check. Docs updated 2026-08-27: paths.py docstring,
+  CLAUDE.md, docs/physics.md, docs/api-budget.md.
 - **0-W2. Gap 3: thread the curvature f0 into the Fried parameter.**
   `andrews.beam.beam_params` takes any f0; `gaussian_fried_parameter` stays
   collimated, and the call site in olb/models/coupling/terrestrial.py passes
@@ -188,10 +203,17 @@ The path forward for each is a second reference or a derivation.
   (olb/models/coupling/terrestrial.py:302, olb/results.py:299). FAST is
   far-field only; a near-field Gaussian beam needs the split-step model —
   so the real fix is the fidelity-2 wiring (2-W1).
-- **1-2. FAST limits NT1–NT4.** Point-ahead is off (`DTHETA=0`;
+- **1-2. FAST limits NT1–NT4 — NOW CARRIES GAP 2 (see 0-W1).** The FAST
+  route is the model of record for the pre-compensated uplink, so this item
+  gained two parts. (a) NT1: point-ahead is off (`DTHETA=0`;
   olb/models/coupling/fast.py:239) — compute it from the orbit and pass it.
-  Scalar elevation only (fast.py:132). No obscuration in the coupled flux
-  or the mean-only fibre model. No tip-tilt wander removal.
+  (b) NEW: build the uplink entry point. fast-aosim 0.1.7 comments out the
+  `PROP_DIR="up"` Monte-Carlo branches, so the uplink coupled flux comes
+  through the reciprocity of a "down" run with DTHETA set; check the
+  static-floor normalisation (`compute_link_budget` DOES know "up") and the
+  weak-regime lognormal amplitude flag on the slant path. Still open from
+  the first cut: scalar elevation only (fast.py:132); no obscuration in the
+  coupled flux or the mean-only fibre model; no tip-tilt wander removal.
 - **1-3. Strong-fluctuation routing.** The uplink and terrestrial links
   only WARN when the weak-fluctuation limit is exceeded; the downlink
   already routes to gamma-gamma. Route the other links to a strong-regime

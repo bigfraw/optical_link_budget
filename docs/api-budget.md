@@ -238,13 +238,19 @@ turbulence Term depends on the pre-compensation source on the scenario
   anisoplanatism (`uplink_point_ahead_term`, category `anisoplanatism`). Both
   are mean-only, so the budget then locks to fidelity 0.
 
-  > **MAJOR LIMITATION — no scintillation.** The two pre-compensation Terms
-  > model the PHASE only. The replaced coupled-flux Term carried the
-  > scintillation, so the pre-compensated budget MISSES the scintillation and
-  > understates the deep fade. Adaptive optics corrects the phase, not the
-  > amplitude, so a real corrected uplink still scintillates. Do NOT trust the
-  > corrected uplink fade until a scintillation Term is added. Both Terms flag
-  > this, so `Budget.check()` warns.
+  > **MAJOR LIMITATION — no scintillation, no fade.** The two pre-compensation
+  > Terms model the PHASE only, and both are mean-only. The replaced
+  > coupled-flux Term carried the scintillation, so the pre-compensated budget
+  > has no scintillation and no fade of any kind. This is a recorded DECISION
+  > (2026-08-27, backlog 0-W1), not a Term that waits for wiring: no
+  > trustworthy analytic form exists for the scintillation of a
+  > pre-compensated beam. The model of record is the fidelity-1 FAST Monte
+  > Carlo with the point-ahead offset (backlog 1-2). Both Terms flag this, and
+  > they also flag a residual past the extended-Marechal limit
+  > (sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), so
+  > `Budget.check()` warns. The budget still returns: the geometric,
+  > extinction, and pointing Terms stay exact, and `turbulence=False` gives
+  > the geometric-only budget.
 - `DownlinkBeacon` with only a tip-tilt stage: no order above the tilt is
   corrected, so the uplink stays uncorrected (coupled flux).
 - `LaserGuideStar`: not modelled yet. `uplink_budget` raises
@@ -276,12 +282,14 @@ The budget-building Terms:
   from the transmit terminal: an `AO(n_modes)` stage sets the highest corrected
   radial order; no AO stage gives the infinite-order upper bound. The phase
   variance becomes a loss with the extended Marechal approximation. The Term is
-  mean-only.
+  mean-only. It flags a residual past the Marechal limit (sigma2 > 1 rad^2,
+  T. S. Ross, DOI 10.1364/AO.48.001812), where the exponential form overstates
+  the loss.
 - `uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None)` builds the
   AO fitting-error Term. It is the Noll residual of the uncorrected high orders
   (see `physics.md` section 5f). An empty compensation stack gives the total
   uncorrected phase variance. The Term is mean-only. It models the phase only,
-  not the scintillation.
+  not the scintillation, and it carries the same Marechal-limit flag.
 
 Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
 `validation/uplink_divergence.py`.

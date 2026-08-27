@@ -72,10 +72,12 @@ downlink, and retroreflected links to a LEO satellite.
   `uplink_budget`; the budget dispatches on the scenario `precompensation`
   source, so a DownlinkBeacon + AO replaces the coupled-flux Term with the AO
   error budget = fitting error (Noll) + point-ahead anisoplanatism (Stone). BUT
-  that corrected budget is PHASE-ONLY: it drops the scintillation that the
-  coupled-flux Term carried, so it understates the deep fade. This is a MAJOR
-  known gap. The Terms flag it (`NO SCINTILLATION`). Fix it before the corrected
-  uplink fade is trusted), `downlink.py`
+  that corrected budget is PHASE-ONLY and MEAN-ONLY: no scintillation and no
+  fade. That is a DECISION (2026-08-27), not a gap that waits for a Term: no
+  trustworthy analytic form exists for the scintillation of a pre-compensated
+  beam. The Terms carry loud flags (`NO SCINTILLATION, NO FADE`, plus the
+  extended-Marechal limit flag), and the model of record is the fidelity-1
+  FAST route (backlog 0-W1 and 1-2)), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
   `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
@@ -222,11 +224,17 @@ Open items:
   better than 1 percent; the module self-check measures that against the
   `olb.waveoptics.schmidt` reference layer. See WP7 in
   `docs/schmidt-crosscheck.md` for the full sweep table.
-- **Gap 2, the pre-compensated uplink, is STILL open.**
-  `andrews.paths.uplink_scintillation_index(tracked=True)` gives the floor of the
-  residual scintillation (Ch. 12, Eqs. (57) to (60)), but NO budget reads it yet.
-  The beacon-plus-adaptive-optics uplink budget stays phase-only, and its Terms
-  still say `NO SCINTILLATION`. Wiring that Term is the next physics task.
+- **Gap 2 is DECIDED (2026-08-27): the pre-compensated uplink gets NO analytic
+  scintillation Term.** `andrews.paths.uplink_scintillation_index(tracked=True)`
+  is OPTIMISTIC there, not a floor: it models a perfect tilt removal, the
+  correction decorrelates over the point-ahead angle mode by mode, and a
+  decorrelated correction reshapes the beam, so the Ch. 12 normalisation
+  breaks. The beacon-plus-adaptive-optics budget stays phase-only and
+  mean-only, and its Terms carry loud flags (`NO SCINTILLATION, NO FADE`, plus
+  the extended-Marechal flag past sigma2 = 1 rad^2, T. S. Ross,
+  DOI 10.1364/AO.48.001812). The model of record is the fidelity-1 FAST Monte
+  Carlo with the point-ahead DTHETA; the uplink entry point is the open work
+  (backlog 0-W1 and 1-2).
 - **Gap 3 is closed at the physics layer only.** `andrews.beam.beam_params`
   takes any input curvature f0, and `andrews.structure.coherence_radius` takes
   the beam. But the single-path `gaussian_fried.gaussian_fried_parameter` keeps

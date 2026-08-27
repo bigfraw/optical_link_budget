@@ -68,10 +68,13 @@ list is honest about that split.
   the default, because the gamma-gamma Term drops the aperture averaging and so
   it moves the budget total by several dB at a low elevation.
 - **The tracked uplink index.** `andrews.paths.uplink_scintillation_index(...,
-  tracked=True)` gives the scintillation floor that a tracked uplink keeps
-  (Ch. 12, Eqs. (57) to (60)). `uplink_budget` does NOT read it. The
-  beacon-plus-adaptive-optics uplink budget is still phase-only and flags itself
-  `NO SCINTILLATION`. This is olb gap 2.
+  tracked=True)` gives the scintillation that a tilt-tracked, otherwise
+  uncorrected uplink keeps (Ch. 12, Eqs. (57) to (60)). `uplink_budget` does
+  NOT read it, and by decision (2026-08-27) it never will for the
+  pre-compensated case: the form is optimistic there (a perfect tilt removal;
+  the correction decorrelates over the point-ahead angle; a decorrelated
+  correction reshapes the beam). The pre-compensated model of record is the
+  fidelity-1 FAST route. See backlog 0-W1 and 1-2.
 - **The inner scale and the outer scale.** `andrews.spectra`,
   `andrews.structure` and `andrews.scintillation.weak_two_scale_index` all take
   `l0` and `L0`. No Term passes either one today. Every Ch. 12 slant form

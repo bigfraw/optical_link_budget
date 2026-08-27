@@ -759,8 +759,11 @@ of magnitude for a small aperture (Stone Fig. 1).
   beam that a separate tracking loop points.
 - This is a phase quantity. It carries no amplitude scintillation. The uplink
   pre-compensation budget that uses this Term (`uplink_budget` with a
-  `DownlinkBeacon` source) is therefore phase-only. It MISSES the scintillation
-  and understates the deep fade. This is a major known gap. See `api-budget.md`.
+  `DownlinkBeacon` source) is therefore phase-only and mean-only: no
+  scintillation and no fade. That is a recorded decision (2026-08-27, backlog
+  0-W1): no trustworthy analytic form exists for the scintillation of a
+  pre-compensated beam, and the model of record is the fidelity-1 FAST route.
+  See `api-budget.md`.
 
 #### Source
 
@@ -986,7 +989,9 @@ standalone scintillation Term.
 - Y. Dikmelik and F. M. Davidson, "Fiber-coupling efficiency for free-space optical
   communication through atmospheric turbulence," Appl. Opt. 44(23), 4946-4952
   (2005), for the uncorrected coupling curve and its limits.
-- Extended Marechal approximation (Chan and others), for the small-residual limit.
+- Extended Marechal approximation (Chan and others), for the small-residual
+  limit. Derivation and validity: T. S. Ross, Appl. Opt. 48(10), 1812 (2009),
+  DOI 10.1364/AO.48.001812.
 - Noll 1976, for the residual variance (Section 5f).
 
 ### 6b. FAST statistical coupling (fidelity 1)

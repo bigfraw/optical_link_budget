@@ -516,7 +516,7 @@ copies. `target module` names the planned home in `olb/turbulence/andrews/`.
 | G-140 | 12.6.3 | Ch. 12, Eq. (53) | 503 | 528 | Uplink pointing-error variance with the scaling constant Cr. This is the book's own home for the jitter fold of UF-08, and the book form that PT-02 lacks. | wander.py | - | P1 |
 | G-141 | 12.6.3 | Ch. 12, Eq. (54); repeated as Eq. (100) | 503 (524) | 528 (549) | Uplink UNTRACKED longitudinal scintillation index, 5.95 (H-h0)^2 sec^2(zeta)(2W0/r0)^(5/3)(alpha_pe/W)^2 plus the Rytov term. | scintillation.py | 2 | P1 |
 | G-142 | 12.6.3 | Ch. 12, Eq. (56) | 504 | 529 | Uplink untracked OFF-AXIS scintillation index, with the unit step at a radial angle beyond the pointing error. | scintillation.py | 2 | P1 |
-| G-143 | 12.6.3 | Ch. 12, Eqs. (57) and (58) | 504 | 529 | Uplink TRACKED scintillation index and its Rytov variance. This is the missing piece behind the NO-SCINTILLATION flag: a tracked or pre-compensated uplink still scintillates. | scintillation.py | 2 | P1 |
+| G-143 | 12.6.3 | Ch. 12, Eqs. (57) and (58) | 504 | 529 | Uplink TRACKED scintillation index and its Rytov variance. A tilt-tracked uplink still scintillates. NOTE (2026-08-27): this is NOT the pre-compensated residual — that case has no analytic form, by decision (backlog 0-W1). | scintillation.py | 2 | P1 |
 | G-144 | 12.6.4 | Ch. 12, Eqs. (59)-(61); repeated as Eqs. (99) and (100) | 506 (524) | 531 (549) | Uplink strong-fluctuation scintillation index, tracked and untracked, valid for all beam Rytov variances. | scintillation.py | 4 | P1 |
 | G-145 | 12.6.4 | Ch. 12, Eq. (62) | 509 | 534 | Uplink spherical-wave weak scintillation index, 2.25 k^(7/6)(H-h0)^(5/6) sec^(11/6)(zeta) INT Cn2 (1-x)^(5/6) x^(5/6) dh. | scintillation.py | - | P2 |
 | G-146 | 12.6.5 | Ch. 12, Eqs. (63) and (64) | 509-510 | 534-535 | Uplink irradiance covariance function. Out of scope: Andrews states the uplink correlation width is tens of metres, so any satellite receiver is a point receiver and aperture averaging never applies. | out of scope | - | P3 |
@@ -1322,13 +1322,18 @@ example. The module self-check prints both numbers.
 
 `olb/links/uplink.py` flags its beacon-plus-adaptive-optics budget NO
 SCINTILLATION, because the phase-only error budget drops the intensity
-fluctuation that the coupled-flux Term carried. Ch. 12, Eqs. (57) to (60) supply
-the missing floor: a TRACKED uplink beam still scintillates by sigma_B_u^2 on
+fluctuation that the coupled-flux Term carried. Ch. 12, Eqs. (57) to (60) give
+the TRACKED index: a tracked uplink beam still scintillates by sigma_B_u^2 on
 axis. Tracking removes the WANDER term, not the RYTOV term. On the case above
-that floor is 1.1e-02, not zero. `uplink_scintillation_index(..., tracked=True)`
-is the number the corrected budget must carry. The part of the gap that stays
-open is the higher-order adaptive-optics correction, which Chapter 12 does not
-model.
+that index is 1.1e-02, not zero. WP6 read `uplink_scintillation_index(...,
+tracked=True)` as the floor the corrected budget must carry. The owner
+REJECTED that reading (2026-08-27, backlog 0-W1): the tracked form removes
+the wander fully, which is a perfect tilt correction, the beacon decorrelates
+from the uplink path over the point-ahead angle mode by mode, and a
+decorrelated correction reshapes the beam, so the form is OPTIMISTIC for a
+pre-compensated uplink and is not a bound in either direction. No analytic
+Term will model the pre-compensated scintillation. The model of record is the
+fidelity-1 FAST Monte Carlo with the point-ahead offset (backlog 1-2).
 
 ### Refused, and named so that nobody looks for it
 
@@ -1510,11 +1515,13 @@ p. 451, says the lognormal model misses.
 
 ## Still open after WP7
 
-- **The pre-compensated uplink still carries NO SCINTILLATION.**
-  `andrews/paths.uplink_scintillation_index(tracked=True)` gives the floor of
-  the residual (Ch. 12, Eqs. (57) to (60)), and WP6 recorded that. WP7 did NOT
-  wire that Term into `uplink_budget`. The beacon-plus-adaptive-optics budget is
-  still phase-only. This is olb gap 2.
+- **The pre-compensated uplink carries NO SCINTILLATION, by DECISION.** WP6
+  recorded `andrews/paths.uplink_scintillation_index(tracked=True)` as the
+  floor of the residual. The owner rejected that reading on 2026-08-27: the
+  form is optimistic for a pre-compensated beam, and no trustworthy analytic
+  form exists for that case. The budget stays phase-only and mean-only, with
+  loud flags. The model of record is the fidelity-1 FAST route. See backlog
+  0-W1 and the "Bearing on olb gap 2" note above.
 - **The gamma-gamma downlink Term models a POINT receiver.** The book gives no
   aperture-averaged downlink index in the moderate-to-strong regime. The Term
   flags that through its `Assumptions` record. Its fade is deeper than the true

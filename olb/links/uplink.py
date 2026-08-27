@@ -34,6 +34,27 @@ from ..scenario import DownlinkBeacon, LaserGuideStar
 # transmit Gaussian-efficiency term is skipped [dB].
 TX_TRUNCATION_MIN_DB = 1e-2
 
+# Above this residual phase variance [rad^2] the extended Marechal mean
+# eta = exp(-sigma2) departs from the true on-axis mean. The real far field
+# breaks into a speckled core plus a halo, and the exponential decays faster
+# than the real core, so the Term overstates the loss. Source: T. S. Ross,
+# Appl. Opt. 48(10), 1812 (2009), DOI 10.1364/AO.48.001812.
+MARECHAL_SIGMA2_MAX = 1.0
+
+
+def _flag_marechal(assumptions, sigma2):
+    '''Flag a residual phase variance past the extended-Marechal limit.'''
+    worst = float(np.max(sigma2))
+    if worst > MARECHAL_SIGMA2_MAX:
+        assumptions.flag(
+            f"MARECHAL LIMIT: the residual phase variance sigma2={worst:.2f} "
+            f"rad^2 is more than {MARECHAL_SIGMA2_MAX:g} rad^2. The extended "
+            "Marechal mean eta = exp(-sigma2) is a small-residual form. Past "
+            "this limit the exponential decays faster than the true on-axis "
+            "mean, so the Term overstates the loss. Source: T. S. Ross, "
+            "Appl. Opt. 48(10), 1812 (2009), DOI 10.1364/AO.48.001812."
+        )
+
 
 def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
                            hs=None, cn2_profile=None):
@@ -236,8 +257,9 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
                                      elevation_deg=e)
         for e, t in zip(elev, theta)])
     # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
-    # Source: V. W. S. Chan and others; extended Marechal approximation. The
-    # same relation is in olb.models.coupling.
+    # Source: V. W. S. Chan and others; extended Marechal approximation.
+    # Derivation and validity: T. S. Ross, Appl. Opt. 48(10), 1812 (2009),
+    # DOI 10.1364/AO.48.001812. The same relation is in olb.models.coupling.
     loss_db = (10.0 / np.log(10.0)) * sigma2
 
     order_note = "all orders" if max_order is None else f"orders 2..{max_order}"
@@ -277,18 +299,24 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
                  "accuracy. This Term does not correct it. "
                  "This Term gives the mean loss only. It models no fade.",
     )
-    # BIG LIMITATION: the pre-compensated uplink model is phase-only. Adaptive
-    # optics corrects the phase; it does not remove the amplitude scintillation.
-    # So the corrected budget MISSES the scintillation and understates the deep
-    # fade. This is a known gap, not a small one. Fix it before the corrected
-    # uplink fade is trusted.
+    # BIG LIMITATION: the pre-compensated uplink model is phase-only and
+    # mean-only. Adaptive optics corrects the phase; it does not remove the
+    # amplitude scintillation. No trustworthy analytic model exists for the
+    # scintillation of a pre-compensated beam (decision 2026-08-27): the
+    # correction decorrelates over the point-ahead angle mode by mode, and a
+    # decorrelated correction reshapes the beam, so the analytic normalisation
+    # breaks. The model of record is the fidelity-1 FAST Monte Carlo.
     assumptions.flag(
-        "NO SCINTILLATION: the pre-compensated uplink budget models the phase "
-        "(wavefront) only. Adaptive optics does not remove the amplitude "
-        "scintillation, so the corrected budget MISSES the scintillation and "
-        "understates the deep fade. This is a major known gap. Do not trust the "
-        "corrected uplink fade until a scintillation Term is added."
+        "NO SCINTILLATION, NO FADE: the pre-compensated uplink budget models "
+        "the phase (wavefront) only, and this Term gives the mean Strehl loss "
+        "only. Adaptive optics does not remove the amplitude scintillation, "
+        "and no trustworthy analytic model exists for the scintillation of a "
+        "pre-compensated beam. The model of record is the fidelity-1 FAST "
+        "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
+        "DTHETA); its uplink entry point is not built yet (backlog 1-2). Do "
+        "not read a fade for a pre-compensated uplink from this budget."
     )
+    _flag_marechal(assumptions, sigma2)
     # With no adaptive-optics stage the correction order is unknown, so the Term
     # uses the infinite-order limit. That is an UPPER bound of the true error.
     if max_order is None:
@@ -370,8 +398,9 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
     residual = apply_compensation(tx.compensation, D, r0)
     sigma2_fit = np.asarray(residual.variance, dtype=float)
     # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
-    # Source: V. W. S. Chan and others; extended Marechal approximation. The same
-    # relation is in olb.models.coupling.
+    # Source: V. W. S. Chan and others; extended Marechal approximation.
+    # Derivation and validity: T. S. Ross, Appl. Opt. 48(10), 1812 (2009),
+    # DOI 10.1364/AO.48.001812. The same relation is in olb.models.coupling.
     loss_db = (10.0 / np.log(10.0)) * sigma2_fit
 
     note = (f"AO fitting error, {residual.n_modes} modes corrected, "
@@ -390,18 +419,23 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
                  "to the up and down paths. The variance becomes a loss with the "
                  "extended Marechal approximation (olb.models.coupling; "
                  "V. W. S. Chan and others). It holds for a small residual "
-                 "(sigma^2 < 1). This Term gives the mean loss only. It models no "
+                 "(sigma2 <= MARECHAL_SIGMA2_MAX; a larger residual gets a "
+                 "flag). This Term gives the mean loss only. It models no "
                  "fade and no scintillation.",
     )
-    # BIG LIMITATION: the pre-compensated uplink model is phase-only. See
-    # uplink_point_ahead_term. The corrected budget MISSES the scintillation.
+    # BIG LIMITATION: the pre-compensated uplink model is phase-only and
+    # mean-only. See uplink_point_ahead_term for the full decision note.
     assumptions.flag(
-        "NO SCINTILLATION: the pre-compensated uplink budget models the phase "
-        "(wavefront) only. Adaptive optics does not remove the amplitude "
-        "scintillation, so the corrected budget MISSES the scintillation and "
-        "understates the deep fade. This is a major known gap. Do not trust the "
-        "corrected uplink fade until a scintillation Term is added."
+        "NO SCINTILLATION, NO FADE: the pre-compensated uplink budget models "
+        "the phase (wavefront) only, and this Term gives the mean Strehl loss "
+        "only. Adaptive optics does not remove the amplitude scintillation, "
+        "and no trustworthy analytic model exists for the scintillation of a "
+        "pre-compensated beam. The model of record is the fidelity-1 FAST "
+        "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
+        "DTHETA); its uplink entry point is not built yet (backlog 1-2). Do "
+        "not read a fade for a pre-compensated uplink from this budget."
     )
+    _flag_marechal(assumptions, sigma2_fit)
     return Term(
         name="AO fitting error",
         category="fitting",
@@ -436,13 +470,19 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
           (the Noll residual of the uncorrected high orders,
           uplink_fitting_term). Together they are the AO error budget of the
           corrected wavefront.
-          BIG LIMITATION: these two Terms model the PHASE only. The replaced
-          coupled-flux Term carried the scintillation, so the pre-compensated
-          budget MISSES the scintillation and understates the deep fade.
-          Adaptive optics corrects the phase, not the amplitude, so a real
-          corrected uplink still scintillates. This is a major known gap. Do not
-          trust the corrected uplink fade until a scintillation Term is added.
-          The Terms flag it, so Budget.check() warns.
+          BIG LIMITATION: these two Terms model the PHASE only, and they give
+          the MEAN loss only. The replaced coupled-flux Term carried the
+          scintillation, so the pre-compensated budget has no scintillation
+          and no fade of any kind. No trustworthy analytic model exists for
+          the scintillation of a pre-compensated beam (decision 2026-08-27):
+          the correction decorrelates over the point-ahead angle mode by
+          mode, and a decorrelated correction reshapes the beam, so the
+          analytic normalisation breaks. The model of record is the
+          fidelity-1 FAST Monte Carlo with the point-ahead offset
+          (olb.models.coupling.fast, DTHETA; the uplink entry point is
+          backlog item 1-2). The Terms flag it, so Budget.check() warns. The
+          budget still returns: the geometric, extinction, and pointing Terms
+          stay exact, and turbulence=False gives the geometric-only budget.
       LaserGuideStar: not implemented yet. It raises NotImplementedError.
 
     A DownlinkBeacon with only a tip-tilt stage corrects no order above the tilt,
@@ -713,6 +753,10 @@ if __name__ == '__main__':
     large_term = uplink_point_ahead_term(large_scn, pa_geom)
     assert large_term.mean_db > small_term.mean_db, (large_term.mean_db,
                                                      small_term.mean_db)
+    # A small residual gets no extended-Marechal flag.
+    assert small_term.meta["sigma2_rad2"] <= MARECHAL_SIGMA2_MAX, \
+        small_term.meta["sigma2_rad2"]
+    assert not any("MARECHAL" in v for v in small_term.assumptions.violations)
 
     # A direct call with no AO stage falls back to the infinite-order upper bound.
     tt_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
@@ -736,6 +780,11 @@ if __name__ == '__main__':
     assert fit_none.category == "fitting"
     # The fitting Term flags the missing scintillation too.
     assert any("NO SCINTILLATION" in v for v in fit_ao60.assumptions.violations)
+    # The uncompensated stack leaves a residual far past the extended-Marechal
+    # limit, so the Term flags it (T. S. Ross, DOI 10.1364/AO.48.001812).
+    assert fit_none.meta["sigma2_fit_rad2"] > MARECHAL_SIGMA2_MAX
+    assert any("MARECHAL" in v for v in fit_none.assumptions.violations), \
+        fit_none.assumptions.violations
 
     # --- source-driven budget dispatch ---------------------------------------
     pa_cn2 = default_cn2_profile(ao_scn.channel.site)
