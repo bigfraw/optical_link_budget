@@ -759,11 +759,17 @@ of magnitude for a small aperture (Stone Fig. 1).
   beam that a separate tracking loop points.
 - This is a phase quantity. It carries no amplitude scintillation. The uplink
   pre-compensation budget that uses this Term (`uplink_budget` with a
-  `DownlinkBeacon` source) is therefore phase-only and mean-only: no
-  scintillation and no fade. That is a recorded decision (2026-08-27, backlog
-  0-W1): no trustworthy analytic form exists for the scintillation of a
-  pre-compensated beam, and the model of record is the fidelity-1 FAST route.
-  See `api-budget.md`.
+  `DownlinkBeacon` source and `precomp_fidelity="mean"`) is therefore
+  phase-only and mean-only: no scintillation and no fade. That is a recorded
+  decision (2026-08-27, backlog 0-W1): no trustworthy analytic form exists for
+  the scintillation of a pre-compensated beam. The model of record is the
+  fidelity-1 FAST route, wired the same day: `uplink_fast_term`
+  (olb/models/coupling/fast.py) overlaps the ground-pupil field with the
+  adaptive-optics residual phase (the point-ahead decorrelation included) and
+  a log-normal log-amplitude, and reads the uplink flux by reciprocity
+  (Shapiro, DOI 10.1364/JOSA.61.000492; Farley and others,
+  DOI 10.1364/OE.458659). `uplink_budget(precomp_fidelity="fast")` (the
+  default) consumes it. See `api-budget.md`.
 
 #### Source
 

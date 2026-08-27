@@ -1,5 +1,10 @@
 '''
-Fidelity-1 single-mode-fibre coupling from FAST (the true LP01 modal overlap).
+Fidelity-1 FAST models: downlink fibre coupling, and the pre-compensated uplink.
+
+This module holds two FAST-driven Terms. `smf_fast_term` gives the downlink
+single-mode-fibre coupling. `uplink_fast_term` gives the turbulence penalty of a
+pre-compensated (downlink-beacon plus adaptive-optics) uplink. The two share the
+FAST loader, the Cn2 layering, and the adaptive-optics mapping below.
 
 The analytic mean-only (Dikmelik/Marechal) model does NOT compute the true fibre-
 mode overlap, and it carries no fade. This module does both. It drives FAST (the
@@ -90,6 +95,38 @@ def _ao_params(compensation):
     if any(isinstance(c, TipTilt) for c in compensation):
         return {"AO_MODE": "TT"}
     return {"AO_MODE": "NOAO"}
+
+
+def _spectrum_label(params):
+    '''
+    Read the spectrum label and the scale note from the RESOLVED FAST scales.
+
+    FAST is a von Karman engine (it always calls turb_powerspectrum_vonKarman).
+    olb sets the scales itself (L0=inf, l0=1e-6), so the spectrum is Kolmogorov
+    by our own choice, not inherited from the FAST conf.py. A finite L0 (or a
+    large l0) from fast_params makes it a true von Karman spectrum. So read the
+    label from the resolved scales, not from a fixed constant. The two spectra
+    are Ch. 3 of Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196.
+
+    Parameters:
+        params : dict
+            The resolved FAST parameters. Reads L0 and l0.
+
+    Returns:
+        tuple
+            (spectrum, scale_note, L0, l0).
+    '''
+    L0 = float(params["L0"])
+    l0 = float(params["l0"])
+    kolmogorov = np.isinf(L0) and l0 <= 1e-3
+    spectrum = SPECTRUM_KOLMOGOROV if kolmogorov else SPECTRUM_VON_KARMAN
+    scale_note = (
+        "The outer scale is infinite and the inner scale is 1 um (the Kolmogorov "
+        "limit); pass fast_params={'L0': ...} [m] or {'l0': ...} for a finite "
+        "von Karman scale." if kolmogorov else
+        f"von Karman spectrum with outer scale L0={L0:g} m and inner scale "
+        f"l0={l0:g} m.")
+    return spectrum, scale_note, L0, l0
 
 
 def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
@@ -206,21 +243,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     def sampler(n, rng):
         return rng.choice(loss_db, size=n, replace=True)
 
-    # FAST is a von Karman engine (it always calls turb_powerspectrum_vonKarman).
-    # olb sets the scales itself (L0=inf, l0=1e-6 above), so the spectrum is
-    # Kolmogorov by our own choice, not inherited from FAST's conf.py. A finite
-    # L0 (or a large l0) from fast_params makes it a true von Karman spectrum, so
-    # read the label from the RESOLVED scales, not from a fixed constant.
-    L0 = float(params["L0"])
-    l0 = float(params["l0"])
-    kolmogorov = np.isinf(L0) and l0 <= 1e-3
-    spectrum = SPECTRUM_KOLMOGOROV if kolmogorov else SPECTRUM_VON_KARMAN
-    scale_note = (
-        "The outer scale is infinite and the inner scale is 1 um (the Kolmogorov "
-        "limit); pass fast_params={'L0': ...} [m] or {'l0': ...} for a finite "
-        "von Karman scale." if kolmogorov else
-        f"von Karman spectrum with outer scale L0={L0:g} m and inner scale "
-        f"l0={l0:g} m.")
+    # The spectrum label follows the RESOLVED scales (see _spectrum_label).
+    spectrum, scale_note, L0, l0 = _spectrum_label(params)
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
@@ -273,6 +297,259 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "floor_db": floor_db,
             "subharmonics": bool(params.get("SUBHARM", False)),
             "npxls": int(getattr(sim, "Npxls", 0)),
+            "coupled_scintillation_index": float(result.scintillation_index),
+            "amplitude_sigma2_I": sigma2_I_amp,
+            "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
+            "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
+            "L0_m": L0,
+            "l0_m": l0,
+            "n_samples": int(params["NITER"]),
+        },
+        assumptions=assumptions,
+    )
+
+
+# Arcsec per radian (180 / pi * 3600). FAST takes the point-ahead offset DTHETA
+# in arcsec, and olb keeps every angle in radians.
+ARCSEC_PER_RAD = 206265.0
+
+
+def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
+                     n_samples=1000, fast_params=None):
+    '''
+    Fidelity-1 turbulence Term for a PRE-COMPENSATED uplink, computed by FAST.
+
+    This is the model of record for a downlink-beacon plus adaptive-optics
+    uplink. It replaces the two analytic phase Terms of olb.links.uplink, which
+    give the mean Strehl loss only and carry no scintillation and no fade.
+
+    HOW FAST GIVES AN UPLINK NUMBER. The FAST Monte Carlo is direction-agnostic.
+    `compute_detector` overlaps the ground-pupil field (a hard circular aperture
+    times a Gaussian mode) with the residual phase and a log-normal
+    log-amplitude, and it normalises to the vacuum overlap. By reciprocity that
+    normalised overlap is the uplink on-axis flux at the satellite, when the
+    launch mode is that Gaussian and the residual phase is the pre-compensation
+    error at the pupil. Source: J. H. Shapiro, JOSA 61(4), 492 (1971),
+    DOI 10.1364/JOSA.61.000492. The FAST parameter PROP_DIR changes the analytic
+    `compute_link_budget` only, which olb does not read here. FAST is the
+    published tool for this case: O. J. D. Farley and others, Opt. Express
+    30(13), 23050 (2022), DOI 10.1364/OE.458659.
+
+    POINT-AHEAD. DTHETA is the point-ahead offset in arcsec, [x, y].
+    `ao_power_spectra.G_AO_PAOLA` turns it into a per-layer displacement
+    h * theta / 206265, and it builds the anisoplanatism-plus-servo residual
+    filter on the CORRECTED (low-order) mask only. So DTHETA models exactly the
+    point-ahead decorrelation of the corrected modes.
+
+    WHAT THIS TERM DOES NOT HOLD. `result.dB_rel` is the received power in dB
+    relative to the diffraction limit (no turbulence), so this Term is the PURE
+    turbulence penalty. It holds no static loss. Do not double-count: the
+    free-space spread and the receive capture are in the geometric Term, the
+    launch truncation is in tx_gaussian_efficiency_term, and the mechanical
+    tracking jitter is in the standalone pointing Term.
+
+    PHASE-ONLY PRE-COMPENSATION. The adaptive-optics filter touches the phase
+    only. The log-amplitude stays an aperture-and-mode-filtered log-normal, so
+    the amplitude scintillation is NOT corrected. That is the physics: a
+    wavefront correction does not remove the amplitude fluctuation. The
+    log-normal holds in the weak-fluctuation regime only, so this Term gates on
+    the plane-wave scintillation index, the same as smf_fast_term.
+
+    Parameters:
+        scenario : SpaceScenario
+            The uplink case. Reads tx_terminal (the ground terminal: aperture,
+            obscuration, wavelength, Transmitter waist, compensation),
+            rx_terminal (the satellite aperture), the site (Cn2, wind), and the
+            orbit altitude.
+        geometry : CircularOrbit or TLEPass
+            The link geometry. SCALAR elevation only. Reads elevation_deg and
+            point_ahead_rad.
+        hs : numpy.ndarray, optional
+            Zenith height grid [m]. Defaults to DEFAULT_HS.
+        cn2_profile : numpy.ndarray, optional
+            Zenith Cn2(h) profile matching hs. Defaults to the site profile.
+        n_samples : int
+            FAST Monte Carlo draws (NITER).
+        fast_params : dict, optional
+            Extra FAST parameters, merged last (for example {'NPXLS': 128,
+            'DTHETA': [0, 0], 'L0': 25.0}). Overrides the mapped defaults.
+
+    Returns:
+        Term
+            name="turbulence (pre-compensated, FAST)", category="turbulence".
+            Carries an empirical mean, quantile, and sampler from the draws.
+
+    Raises:
+        ImportError
+            If fast-aosim is not installed.
+        ValueError
+            If the scenario is not an uplink, if the elevation is not scalar, if
+            the ground terminal has no Transmitter waist, or if the ground
+            terminal has no adaptive-optics stage.
+    '''
+    fast = _load_fast()
+
+    if getattr(scenario, "direction", None) != "uplink":
+        raise ValueError(
+            "uplink_fast_term takes an uplink SpaceScenario. Set "
+            "direction='uplink', or use smf_fast_term for the downlink."
+        )
+
+    elev = np.asarray(geometry.elevation_deg, dtype=float)
+    if elev.ndim != 0:
+        raise ValueError(
+            "uplink_fast_term takes a scalar elevation in this first cut. Loop "
+            "over elevations and build one Term each."
+        )
+    elev = float(elev)
+
+    tx = scenario.tx_terminal
+    if tx.transmitter is None or tx.transmitter.waist_m is None:
+        raise ValueError(
+            "uplink_fast_term needs a launch beam. Give the ground terminal a "
+            "Transmitter with waist_m."
+        )
+    if not any(isinstance(c, AO) for c in tx.compensation):
+        raise ValueError(
+            "uplink_fast_term models a PRE-COMPENSATED uplink, so the ground "
+            "terminal must have an AO(n_modes) stage in its compensation "
+            "stack. With no adaptive optics the FAST run degenerates to an "
+            "uncorrected beam that FAST does not model correctly for an "
+            "uplink. Use olb.links.uplink.uplink_turbulence_term (the "
+            "coupled-flux Monte Carlo) for the uncorrected route."
+        )
+
+    # Bistatic override (see olb.terminal.Transmitter): the Transmitter values
+    # win when they are set, else the owning Terminal values apply.
+    D = (tx.transmitter.aperture_m if tx.transmitter.aperture_m is not None
+         else tx.aperture_m)
+    obsc_ratio = (tx.transmitter.obscuration_ratio
+                  if tx.transmitter.obscuration_ratio is not None
+                  else tx.obscuration_ratio)
+
+    rx = scenario.rx_terminal
+    hs = DEFAULT_HS if hs is None else hs
+    if cn2_profile is None:
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
+    hs = np.asarray(hs, dtype=float)
+    cn2_layer = _cn2_layers(cn2_profile, hs)
+    wind = float(scenario.channel.site.wind_rms_m_s)
+    ao_params = _ao_params(tx.compensation)   # AO_MODE, MODAL, ZMAX
+
+    params = dict(
+        WVL=tx.wavelength_m,
+        D_GROUND=D,
+        OBSC_GROUND=obsc_ratio * D,          # FAST wants the obscuration DIAMETER
+        W0=float(tx.transmitter.waist_m),    # the numeric launch waist, not "opt"
+        PROP_DIR="up",                       # analytic budget only; the MC is agnostic
+        SMF=False,                           # the satellite is not a fibre receiver
+        D_SAT=rx.aperture_m,
+        OBSC_SAT=rx.obscuration_ratio * rx.aperture_m,
+        H_SAT=scenario.channel.altitude_m,
+        ZENITH_ANGLE=90.0 - elev,
+        H_TURB=hs,
+        CN2_TURB=cn2_layer,
+        WIND_SPD=wind * np.ones_like(hs),
+        WIND_DIR=np.zeros_like(hs),
+        # Point-ahead: rad -> arcsec, along x. This drives the decorrelation of
+        # the corrected modes (G_AO_PAOLA, see the docstring).
+        DTHETA=[float(geometry.point_ahead_rad) * ARCSEC_PER_RAD, 0.0],
+        SUBHARM=True,                        # capture low-order tilt
+        L0=np.inf,                           # outer scale: infinite -> Kolmogorov
+        l0=1e-6,                             # inner scale: 1 um, below any optical scale
+        NITER=int(n_samples),
+        LOGLEVEL="ERROR",
+    )
+    params.update(ao_params)
+    if fast_params:
+        params.update(fast_params)           # a finite L0/l0 here makes it von Karman
+
+    # Quiet the FAST logger and its tqdm progress bar, the same as smf_fast_term.
+    fast_logger = logging.getLogger("fast")
+    old_level = fast_logger.level
+    old_tqdm = fast.fast.tqdm
+    fast_logger.setLevel(logging.ERROR)
+    fast.fast.tqdm = lambda iterable=None, *a, **k: iterable
+    try:
+        sim = fast.Fast(params)
+        result = sim.run()
+    finally:
+        fast_logger.setLevel(old_level)
+        fast.fast.tqdm = old_tqdm
+
+    # dB_rel is negative for a turbulence penalty, and olb loss is positive.
+    # No static floor is added: this Term is the PURE turbulence penalty.
+    loss_db = -np.asarray(result.dB_rel, dtype=float)
+    mean_db = float(loss_db.mean())
+
+    # AMPLITUDE-regime check. The adaptive-optics filter does not touch the
+    # log-amplitude, and that log-normal holds in the weak-fluctuation regime
+    # only. Gate on the plane-wave index, NOT on result.scintillation_index
+    # (which is the COUPLED-power index and is phase-dominated).
+    sigma2_I_amp = float(plane_wave_scintillation_index(
+        elev, tx.wavelength_m, hs, cn2_profile))
+
+    def quantile(p):
+        return float(np.quantile(loss_db, p))
+
+    def sampler(n, rng):
+        return rng.choice(loss_db, size=n, replace=True)
+
+    spectrum, scale_note, L0, l0 = _spectrum_label(params)
+    assumptions = Assumptions(
+        beam_type=BEAM_GAUSSIAN,
+        turbulence_regime=REGIME_WEAK,
+        spectrum=spectrum,
+        validity="Fidelity-1 pre-compensated uplink turbulence penalty from FAST "
+                 "(fast-aosim). Source: O. J. D. Farley and others, Opt. Express "
+                 "30(13), 23050 (2022), DOI 10.1364/OE.458659. The FAST Monte "
+                 "Carlo overlaps the ground-pupil field with the residual phase "
+                 "and a log-normal log-amplitude, and it normalises to the vacuum "
+                 "overlap. By reciprocity that overlap is the uplink on-axis flux "
+                 "at the satellite. Source: J. H. Shapiro, JOSA 61(4), 492 "
+                 "(1971), DOI 10.1364/JOSA.61.000492. The point-ahead offset "
+                 "DTHETA decorrelates the CORRECTED modes only "
+                 "(ao_power_spectra.G_AO_PAOLA). "
+                 "PHASE-ONLY PRE-COMPENSATION: the adaptive-optics filter does "
+                 "not touch the log-amplitude, so the amplitude scintillation "
+                 "stays uncorrected. That log-normal holds in the weak "
+                 "fluctuation regime only. "
+                 "FAST servo and wavefront-sensor defaults in force: DSUBAP=0.02 "
+                 "m, TLOOP=0.001 s, TEXP=0.001 s, ALIAS=True, NOISE=0. Pass "
+                 "fast_params to change them. " + scale_note + " "
+                 "This Term is the PURE turbulence penalty. It holds no static "
+                 "loss. The free-space spread and the receive capture are in the "
+                 "geometric Term, the launch truncation is in "
+                 "tx_gaussian_efficiency_term, and the mechanical tracking "
+                 "jitter is in the standalone pointing Term. Do not "
+                 "double-count them.",
+    )
+    if sigma2_I_amp > WEAK_FLUCTUATION_LIMIT:
+        assumptions.flag(
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} exceeds "
+            f"the weak-fluctuation limit {WEAK_FLUCTUATION_LIMIT}; FAST's log-normal "
+            "scintillation (the amplitude part) departs from data in saturation. The "
+            "phase-driven fade is still modelled by the screens, but the amplitude "
+            "contribution to the fade tail is not trustworthy. Raise the elevation, "
+            "or note the amplitude regime."
+        )
+
+    zmax = params.get("ZMAX")
+    dtheta_arcsec = float(params["DTHETA"][0])
+    note = (f"FAST pre-compensated uplink, AO(ZMAX={zmax}), "
+            f"point-ahead {dtheta_arcsec:.2f} arcsec, NITER={params['NITER']}")
+    return Term(
+        name="turbulence (pre-compensated, FAST)",
+        category="turbulence",
+        mean_db=mean_db,
+        sampler=sampler,
+        quantile=quantile,
+        note=note,
+        meta={
+            "model": "fast-precomp-uplink",
+            "ao_mode": params["AO_MODE"],
+            "zmax": zmax,
+            "dtheta_arcsec": dtheta_arcsec,
             "coupled_scintillation_index": float(result.scintillation_index),
             "amplitude_sigma2_I": sigma2_I_amp,
             "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
@@ -378,4 +655,66 @@ if __name__ == '__main__':
     print(f"FAST fidelity-1 SMF (0.7 m, 30 deg): "
           f"NOAO {term.mean_db:.2f} dB | TT {t_tt.mean_db:.2f} dB | "
           f"AO(6) {t_ao6.mean_db:.2f} dB | AO(20) {t_ao20.mean_db:.2f} dB")
+
+    # --- pre-compensated uplink (uplink_fast_term) ---------------------------
+    from ...scenario import DownlinkBeacon
+
+    def _uplink(comp, aperture_m=1.5):
+        return SpaceScenario(
+            ground=Terminal(aperture_m=aperture_m, wavelength_m=lam,
+                            transmitter=Transmitter(waist_m=0.2),
+                            compensation=comp),
+            space=Terminal(aperture_m=0.05, wavelength_m=lam),
+            direction="uplink",
+            channel=Channel(site=Site(cn2_ground=1.7e-14), altitude_m=600e3),
+            precompensation=DownlinkBeacon())
+
+    up_geom = CircularOrbit(600e3, elevation_deg=60.0)
+    up_scn = _uplink([TipTilt(), AO(60)])
+
+    def up_term(scn, n=400, **kw):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return uplink_fast_term(scn, up_geom, n_samples=n, **kw)
+
+    u60 = up_term(up_scn)
+    assert u60.name == "turbulence (pre-compensated, FAST)"
+    assert u60.category == "turbulence" and u60.meta["model"] == "fast-precomp-uplink"
+    # Stochastic: a 99% quantile is deeper than the mean.
+    assert u60.stochastic and u60.quantile is not None and not u60.mean_only
+    u_q99 = u60.quantile_db(0.99)
+    assert u_q99 is not None and u_q99 > u60.mean_db, (u_q99, u60.mean_db)
+    assert np.all(np.isfinite(u60.sample_db(2000, np.random.default_rng(1))))
+    # The orbit gives a real point-ahead offset.
+    assert u60.meta["dtheta_arcsec"] > 0, u60.meta["dtheta_arcsec"]
+    assert u60.meta["zmax"] == 60 and u60.meta["ao_mode"] == "AO"
+
+    # More corrected modes -> less mean loss.
+    u6 = up_term(_uplink([TipTilt(), AO(6)]))
+    assert u6.mean_db > u60.mean_db, (u6.mean_db, u60.mean_db)
+
+    # Point-ahead costs loss: a zero offset gives less mean loss than the orbit.
+    u_nopa = up_term(up_scn, fast_params={"DTHETA": [0, 0]})
+    assert u_nopa.meta["dtheta_arcsec"] == 0.0
+    assert u_nopa.mean_db < u60.mean_db, (u_nopa.mean_db, u60.mean_db)
+
+    # A downlink scenario is refused.
+    try:
+        uplink_fast_term(scn, up_geom, n_samples=100)
+        raise AssertionError("a downlink scenario must raise")
+    except ValueError:
+        pass
+
+    # A ground terminal with no AO stage is refused.
+    try:
+        uplink_fast_term(_uplink([TipTilt()]), up_geom, n_samples=100)
+        raise AssertionError("no AO stage must raise")
+    except ValueError:
+        pass
+
+    print(f"FAST pre-compensated uplink (1.5 m, 60 deg, "
+          f"{u60.meta['dtheta_arcsec']:.2f} arcsec point-ahead): "
+          f"AO(6) {u6.mean_db:.2f} dB | AO(60) {u60.mean_db:.2f} dB | "
+          f"AO(60) no point-ahead {u_nopa.mean_db:.2f} dB "
+          f"(99% fade {u_q99:.2f} dB)")
     print("self-check passed")

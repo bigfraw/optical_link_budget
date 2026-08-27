@@ -313,8 +313,9 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
         "and no trustworthy analytic model exists for the scintillation of a "
         "pre-compensated beam. The model of record is the fidelity-1 FAST "
         "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
-        "DTHETA); its uplink entry point is not built yet (backlog 1-2). Do "
-        "not read a fade for a pre-compensated uplink from this budget."
+        "uplink_fast_term). Call uplink_budget with precomp_fidelity='fast' "
+        "to get it. Do not read a fade for a pre-compensated uplink from this "
+        "budget."
     )
     _flag_marechal(assumptions, sigma2)
     # With no adaptive-optics stage the correction order is unknown, so the Term
@@ -432,8 +433,9 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
         "and no trustworthy analytic model exists for the scintillation of a "
         "pre-compensated beam. The model of record is the fidelity-1 FAST "
         "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
-        "DTHETA); its uplink entry point is not built yet (backlog 1-2). Do "
-        "not read a fade for a pre-compensated uplink from this budget."
+        "uplink_fast_term). Call uplink_budget with precomp_fidelity='fast' "
+        "to get it. Do not read a fade for a pre-compensated uplink from this "
+        "budget."
     )
     _flag_marechal(assumptions, sigma2_fit)
     return Term(
@@ -453,7 +455,7 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
 
 
 def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
-                  n_samples=3000, cn2_profile=None):
+                  n_samples=3000, cn2_profile=None, precomp_fidelity="fast"):
     '''
     Assemble the uplink budget: geometric, atmospheric, turbulence.
 
@@ -464,25 +466,36 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
           coupled-flux Monte Carlo (beam wander + scintillation). This carries
           the tracking jitter too.
       DownlinkBeacon with an AO stage: the uplink is pre-compensated. The
-          coupled-flux Term is REPLACED by TWO analytic wavefront Terms that add:
-          the point-ahead anisoplanatism (the decorrelation residual of the
-          corrected orders, uplink_point_ahead_term) and the AO fitting error
-          (the Noll residual of the uncorrected high orders,
-          uplink_fitting_term). Together they are the AO error budget of the
-          corrected wavefront.
-          BIG LIMITATION: these two Terms model the PHASE only, and they give
-          the MEAN loss only. The replaced coupled-flux Term carried the
-          scintillation, so the pre-compensated budget has no scintillation
-          and no fade of any kind. No trustworthy analytic model exists for
-          the scintillation of a pre-compensated beam (decision 2026-08-27):
-          the correction decorrelates over the point-ahead angle mode by
-          mode, and a decorrelated correction reshapes the beam, so the
-          analytic normalisation breaks. The model of record is the
-          fidelity-1 FAST Monte Carlo with the point-ahead offset
-          (olb.models.coupling.fast, DTHETA; the uplink entry point is
-          backlog item 1-2). The Terms flag it, so Budget.check() warns. The
-          budget still returns: the geometric, extinction, and pointing Terms
-          stay exact, and turbulence=False gives the geometric-only budget.
+          coupled-flux Term is REPLACED, and `precomp_fidelity` selects the
+          replacement:
+
+          "fast" (the default, fidelity 1, the model of record): ONE Monte-Carlo
+              Term from olb.models.coupling.fast.uplink_fast_term. FAST computes
+              the residual phase of the adaptive optics with the point-ahead
+              decorrelation, plus the uncorrected log-amplitude, and gives the
+              flux at the satellite by reciprocity. So this Term carries the
+              scintillation AND a real fade. It needs the optional `fast-aosim`
+              package; without it the ImportError of the loader propagates, and
+              precomp_fidelity="mean" is the no-dependency fallback. The Term is
+              the PURE turbulence penalty, so the standalone pointing Term still
+              fires and carries the mechanical tracking jitter.
+          "mean" (fidelity 0): TWO analytic wavefront Terms that add: the
+              point-ahead anisoplanatism (the decorrelation residual of the
+              corrected orders, uplink_point_ahead_term) and the AO fitting
+              error (the Noll residual of the uncorrected high orders,
+              uplink_fitting_term). Together they are the AO error budget of the
+              corrected wavefront.
+              BIG LIMITATION: these two Terms model the PHASE only, and they
+              give the MEAN loss only. The replaced coupled-flux Term carried
+              the scintillation, so this budget has no scintillation and no
+              fade of any kind. No trustworthy analytic model exists for the
+              scintillation of a pre-compensated beam (decision 2026-08-27):
+              the correction decorrelates over the point-ahead angle mode by
+              mode, and a decorrelated correction reshapes the beam, so the
+              analytic normalisation breaks. The Terms flag it, so
+              Budget.check() warns. The budget still returns: the geometric,
+              extinction, and pointing Terms stay exact, and turbulence=False
+              gives the geometric-only budget.
       LaserGuideStar: not implemented yet. It raises NotImplementedError.
 
     A DownlinkBeacon with only a tip-tilt stage corrects no order above the tilt,
@@ -509,8 +522,14 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
             Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         n_samples : int
             Monte Carlo draws for the coupled-flux turbulence Term mean estimate.
+            It is also the FAST draw count (NITER) when precomp_fidelity="fast".
         cn2_profile : numpy.ndarray, optional
             Explicit zenith Cn2 profile. Defaults to default_cn2_profile.
+        precomp_fidelity : str
+            The pre-compensated-uplink model: "fast" (the default, fidelity 1,
+            one FAST Monte-Carlo Term with a real fade, needs `fast-aosim`) or
+            "mean" (fidelity 0, the two analytic phase Terms, no fade, no
+            dependency). It applies to a DownlinkBeacon-plus-AO scenario only.
 
     Returns:
         Budget
@@ -519,7 +538,16 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     Raises:
         NotImplementedError
             If the scenario uses a LaserGuideStar pre-compensation source.
+        ValueError
+            If precomp_fidelity is not "fast" or "mean".
+        ImportError
+            If precomp_fidelity="fast" and `fast-aosim` is not installed. Use
+            precomp_fidelity="mean" for the no-dependency fallback.
     '''
+    if precomp_fidelity not in ("fast", "mean"):
+        raise ValueError(
+            f"precomp_fidelity must be 'fast' or 'mean', got {precomp_fidelity!r}."
+        )
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
     terms = [
         geometric_loss_term(scenario, geometry),
@@ -556,8 +584,18 @@ def uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
     if turbulence:
         if cn2_profile is None:
             cn2_profile = default_cn2_profile(scenario.channel.site)
-        if precomp:
-            # Pre-compensated uplink: the AO error budget replaces the uncorrected
+        if precomp and precomp_fidelity == "fast":
+            # Fidelity 1, the model of record: ONE FAST Monte-Carlo Term. It
+            # holds the residual phase, the point-ahead decorrelation, and the
+            # uncorrected log-amplitude, so it carries a real fade. Import it
+            # here to keep the `fast-aosim` dependency optional, the same as
+            # olb.models.coupling.downlink does.
+            from ..models.coupling.fast import uplink_fast_term
+            terms.append(uplink_fast_term(scenario, geometry,
+                                          cn2_profile=cn2_profile,
+                                          n_samples=n_samples))
+        elif precomp:
+            # Fidelity 0: the AO error budget replaces the uncorrected
             # coupled-flux Term. It is two adding phase Terms: the fitting error of
             # the uncorrected high orders (Noll) and the point-ahead decorrelation
             # residual of the corrected orders (Stone).
@@ -802,7 +840,8 @@ if __name__ == '__main__':
     beacon_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
                          ground_aperture=1.5, compensation=[TipTilt(), AO(60)],
                          precompensation=DownlinkBeacon())
-    precomp = uplink_budget(beacon_scn, pa_geom, cn2_profile=pa_cn2)
+    precomp = uplink_budget(beacon_scn, pa_geom, cn2_profile=pa_cn2,
+                            precomp_fidelity="mean")
     assert any(t.category == "anisoplanatism" for t in precomp.terms)
     assert any(t.category == "fitting" for t in precomp.terms)          # Noll piece
     assert not any(t.category == "turbulence" for t in precomp.terms)   # replaced
@@ -822,6 +861,41 @@ if __name__ == '__main__':
     # The missing scintillation is a flagged violation, so Budget.check() warns.
     assert any("NO SCINTILLATION" in reason
                for _, reason in precomp.check(warn=False))
+
+    # precomp_fidelity takes "fast" or "mean" only.
+    try:
+        uplink_budget(beacon_scn, pa_geom, cn2_profile=pa_cn2,
+                      precomp_fidelity="analytic")
+    except ValueError as e:
+        assert "precomp_fidelity" in str(e)
+    else:
+        raise AssertionError("an unknown precomp_fidelity must raise")
+
+    # --- fidelity-1 pre-compensated uplink (precomp_fidelity="fast") ---------
+    # This needs the optional `fast-aosim` package, so skip it when it is
+    # absent. ONE FAST Monte-Carlo Term replaces the two analytic phase Terms,
+    # and it carries a real fade. The pointing Term stays, because the FAST Term
+    # holds no mechanical jitter.
+    try:
+        precomp_fast = uplink_budget(beacon_scn, pa_geom, cn2_profile=pa_cn2,
+                                     n_samples=400, precomp_fidelity="fast")
+    except ImportError as e:
+        precomp_fast = None
+        print(f"`fast-aosim` unavailable ({e.__class__.__name__}); skipping the "
+              "precomp_fidelity='fast' check.")
+    if precomp_fast is not None:
+        turb_terms = [t for t in precomp_fast.terms if t.category == "turbulence"]
+        assert len(turb_terms) == 1, [t.name for t in turb_terms]
+        assert not any(t.category == "anisoplanatism" for t in precomp_fast.terms)
+        assert not any(t.category == "fitting" for t in precomp_fast.terms)
+        assert any(t.category == "pointing" for t in precomp_fast.terms)
+        assert precomp_fast.provides_fade
+        fast_margin = precomp_fast.fade_margin_db(0.99)
+        assert np.isfinite(fast_margin), fast_margin
+        print(f"\npre-compensated uplink, FAST (D=1.5 m, 60 deg): turbulence "
+              f"{turb_terms[0].mean_db:.2f} dB mean, 99% budget margin "
+              f"{fast_margin:.2f} dB")
+        print(f"  ({turb_terms[0].note})")
 
     # DownlinkBeacon with only a tip-tilt stage corrects no order above the tilt,
     # so the uplink stays uncorrected (coupled flux), no anisoplanatism Term.

@@ -1333,7 +1333,8 @@ from the uplink path over the point-ahead angle mode by mode, and a
 decorrelated correction reshapes the beam, so the form is OPTIMISTIC for a
 pre-compensated uplink and is not a bound in either direction. No analytic
 Term will model the pre-compensated scintillation. The model of record is the
-fidelity-1 FAST Monte Carlo with the point-ahead offset (backlog 1-2).
+fidelity-1 FAST Monte Carlo with the point-ahead offset, wired 2026-08-27 as
+`uplink_fast_term` (`uplink_budget(precomp_fidelity="fast")`, the default).
 
 ### Refused, and named so that nobody looks for it
 
@@ -1520,8 +1521,9 @@ p. 451, says the lognormal model misses.
   floor of the residual. The owner rejected that reading on 2026-08-27: the
   form is optimistic for a pre-compensated beam, and no trustworthy analytic
   form exists for that case. The budget stays phase-only and mean-only, with
-  loud flags. The model of record is the fidelity-1 FAST route. See backlog
-  0-W1 and the "Bearing on olb gap 2" note above.
+  loud flags. The model of record is the fidelity-1 FAST route, wired
+  2026-08-27 as `uplink_fast_term`. See backlog 0-W1 and the "Bearing on olb
+  gap 2" note above.
 - **The gamma-gamma downlink Term models a POINT receiver.** The book gives no
   aperture-averaged downlink index in the moderate-to-strong regime. The Term
   flags that through its `Assumptions` record. Its fade is deeper than the true

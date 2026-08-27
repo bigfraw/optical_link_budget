@@ -65,19 +65,22 @@ downlink, and retroreflected links to a LEO satellite.
   (`_common.py` holds the shared SMF physics; `downlink.py` holds
   `downlink_coupling_term`; `terrestrial.py` holds `terrestrial_smf_coupling_term`,
   `terrestrial_smf_walkoff_term`, and `terrestrial_mmf_coupling_term`; `fast.py`
-  holds the FAST fibre coupling. `from olb.models.coupling import <name>` still
+  holds the FAST fibre coupling AND `uplink_fast_term`, the fidelity-1
+  pre-compensated uplink Term. `from olb.models.coupling import <name>` still
   works).
 - `olb/links/` — per-link Terms and budget assembly: `uplink.py`
   (`uplink_turbulence_term`, `uplink_point_ahead_term`, `uplink_fitting_term`,
   `uplink_budget`; the budget dispatches on the scenario `precompensation`
   source, so a DownlinkBeacon + AO replaces the coupled-flux Term with the AO
-  error budget = fitting error (Noll) + point-ahead anisoplanatism (Stone). BUT
-  that corrected budget is PHASE-ONLY and MEAN-ONLY: no scintillation and no
-  fade. That is a DECISION (2026-08-27), not a gap that waits for a Term: no
-  trustworthy analytic form exists for the scintillation of a pre-compensated
-  beam. The Terms carry loud flags (`NO SCINTILLATION, NO FADE`, plus the
-  extended-Marechal limit flag), and the model of record is the fidelity-1
-  FAST route (backlog 0-W1 and 1-2)), `downlink.py`
+  error budget. `precomp_fidelity` selects it: "fast" (the default, the model
+  of record) is ONE FAST Monte-Carlo Term (`uplink_fast_term`) with the
+  point-ahead decorrelation and a real fade; "mean" is the analytic pair =
+  fitting error (Noll) + point-ahead anisoplanatism (Stone), PHASE-ONLY and
+  MEAN-ONLY: no scintillation and no fade. That "mean" limit is a DECISION
+  (2026-08-27): no trustworthy analytic form exists for the scintillation of a
+  pre-compensated beam. The analytic Terms carry loud flags
+  (`NO SCINTILLATION, NO FADE`, plus the extended-Marechal limit flag). See
+  backlog 0-W1 and 1-2), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
   `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
@@ -233,8 +236,10 @@ Open items:
   mean-only, and its Terms carry loud flags (`NO SCINTILLATION, NO FADE`, plus
   the extended-Marechal flag past sigma2 = 1 rad^2, T. S. Ross,
   DOI 10.1364/AO.48.001812). The model of record is the fidelity-1 FAST Monte
-  Carlo with the point-ahead DTHETA; the uplink entry point is the open work
-  (backlog 0-W1 and 1-2).
+  Carlo with the point-ahead DTHETA, and its uplink entry point EXISTS
+  (2026-08-27): `uplink_fast_term` in `olb/models/coupling/fast.py`, consumed
+  by `uplink_budget(precomp_fidelity="fast")` (the default). The remaining
+  FAST limits are backlog 1-2.
 - **Gap 3 is closed at the physics layer only.** `andrews.beam.beam_params`
   takes any input curvature f0, and `andrews.structure.coherence_radius` takes
   the beam. But the single-path `gaussian_fried.gaussian_fried_parameter` keeps

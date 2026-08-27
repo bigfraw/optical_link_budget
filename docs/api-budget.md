@@ -221,7 +221,7 @@ a fixed set of Terms.
 (the near-IR clear-sky zenith optical depth). All keyword arguments after the
 first two are keyword-only.
 
-### `uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None)`
+### `uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, precomp_fidelity="fast")`
 
 Assemble the uplink budget. The Terms are the geometric loss, the atmospheric
 loss, and, when `turbulence` is `True`, the turbulence physics. The
@@ -233,19 +233,31 @@ turbulence Term depends on the pre-compensation source on the scenario
   scintillation). It is a Monte-Carlo-only Term (`quantile=None`), so the budget
   must use `monte_carlo()`. This Term also carries the tracking jitter.
 - `DownlinkBeacon` with an `AO` stage: the uplink is pre-compensated. The
-  coupled-flux Term is REPLACED by two adding analytic wavefront Terms: the AO
-  fitting error (`uplink_fitting_term`, category `fitting`) and the point-ahead
-  anisoplanatism (`uplink_point_ahead_term`, category `anisoplanatism`). Both
-  are mean-only, so the budget then locks to fidelity 0.
+  coupled-flux Term is REPLACED, and `precomp_fidelity` selects the
+  replacement:
+  - `"fast"` (the default, fidelity 1, the model of record): ONE Monte-Carlo
+    Term from `uplink_fast_term` (category `turbulence`). FAST computes the
+    residual phase of the adaptive optics with the point-ahead decorrelation
+    (`DTHETA` from `geometry.point_ahead_rad`), plus the uncorrected
+    log-amplitude, and gives the flux at the satellite by reciprocity
+    (Shapiro, DOI 10.1364/JOSA.61.000492; Farley, DOI 10.1364/OE.458659).
+    The Term carries the scintillation AND a real fade, so
+    `fade_margin_db()` works. It is the pure turbulence penalty: the
+    standalone pointing Term still fires and carries the mechanical jitter.
+    Needs `fast-aosim`; without it the ImportError names the fallback.
+  - `"mean"` (fidelity 0, no dependency): two adding analytic wavefront
+    Terms: the AO fitting error (`uplink_fitting_term`, category `fitting`)
+    and the point-ahead anisoplanatism (`uplink_point_ahead_term`, category
+    `anisoplanatism`). Both are mean-only, so the budget then locks to
+    fidelity 0.
 
-  > **MAJOR LIMITATION — no scintillation, no fade.** The two pre-compensation
-  > Terms model the PHASE only, and both are mean-only. The replaced
-  > coupled-flux Term carried the scintillation, so the pre-compensated budget
-  > has no scintillation and no fade of any kind. This is a recorded DECISION
-  > (2026-08-27, backlog 0-W1), not a Term that waits for wiring: no
-  > trustworthy analytic form exists for the scintillation of a
-  > pre-compensated beam. The model of record is the fidelity-1 FAST Monte
-  > Carlo with the point-ahead offset (backlog 1-2). Both Terms flag this, and
+  > **`"mean"` LIMITATION — no scintillation, no fade.** The two analytic
+  > pre-compensation Terms model the PHASE only, and both are mean-only. The
+  > replaced coupled-flux Term carried the scintillation, so the `"mean"`
+  > budget has no scintillation and no fade of any kind. This is a recorded
+  > DECISION (2026-08-27, backlog 0-W1): no trustworthy analytic form exists
+  > for the scintillation of a pre-compensated beam. The fidelity-1 FAST
+  > Term above is the model of record. Both analytic Terms flag this, and
   > they also flag a residual past the extended-Marechal limit
   > (sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), so
   > `Budget.check()` warns. The budget still returns: the geometric,
@@ -290,6 +302,16 @@ The budget-building Terms:
   (see `physics.md` section 5f). An empty compensation stack gives the total
   uncorrected phase variance. The Term is mean-only. It models the phase only,
   not the scintillation, and it carries the same Marechal-limit flag.
+- `uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
+  n_samples=1000, fast_params=None)` (in `olb.models.coupling.fast`) builds the
+  fidelity-1 pre-compensated turbulence Term. FAST overlaps the ground-pupil
+  field with the adaptive-optics residual phase (point-ahead decorrelation
+  included) and a log-normal log-amplitude; by reciprocity that overlap is the
+  uplink on-axis flux at the satellite. The Term is the pure turbulence
+  penalty (no static loss) with an empirical mean, quantile, and sampler.
+  Scalar elevation only. Needs `fast-aosim`. It requires a `Transmitter`
+  waist and an `AO` stage on the ground terminal, and it refuses a
+  non-uplink scenario.
 
 Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
 `validation/uplink_divergence.py`.
