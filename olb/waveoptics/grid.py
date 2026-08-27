@@ -21,9 +21,19 @@ gets an honest warning, because that is better than a silent bad answer.
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
-  MATLAB, DOI 10.1117/3.866274, Ch. 6 and Ch. 7. The grid extent rule, the
-  pixel-per-feature rule, the scaled propagator, and the angular-spectrum
-  range limit z_max = N * dx^2 / lambda.
+  MATLAB, DOI 10.1117/3.866274. The angular-spectrum range limit
+  z_max = N * dx^2 / lambda is constraint 4, Ch. 7, Eq. (7.59), printed
+  p. 127, at m = 1. The same limit is the step cap of Ch. 8, Eq. (8.24),
+  printed p. 144. The pixel count goes up to the next power of two, as
+  Listing 7.1, line 11, printed p. 124, does.
+  THE EXTENT RULE AND THE PIXEL-PER-FEATURE RULE OF THIS MODULE ARE NOT THE
+  BOOK'S. The book sizes the grid from the illuminated diameter and the
+  region of interest, Ch. 7, Eq. (7.18), printed p. 120, and it lets the
+  wrapped light come up to the edge of that region. This module keeps a
+  fixed margin around the beam instead. The book also gives no fixed
+  pixels-per-feature number: it picks 50 points across the aperture in
+  Listing 7.1, printed p. 124, and 30 points in the Ch. 8 example, printed
+  p. 144. See docs/schmidt-crosscheck.md, gaps S-07 and S-16.
 """
 
 import warnings
@@ -33,6 +43,10 @@ import numpy as np
 
 from ..beam import free_space_radius
 
+# The floor on the pixel count. It is a convenience of this module, not
+# physics. Schmidt, DOI 10.1117/3.866274, gives no floor: the three worked
+# examples use N = 128 (Ch. 7, printed p. 123), N = 512 (Ch. 7, printed
+# p. 128) and N = 128 (Ch. 8, printed p. 144).
 N_MIN = 256
 
 
@@ -106,22 +120,35 @@ class GridSpec:
         the free-space beam radius at the launch plane, the free-space beam
         radius at the longest range, the transmit aperture radius, and the
         receive aperture radius. The guard keeps the beam away from the grid
-        edge, because the FFT propagators are periodic. See Schmidt,
-        DOI 10.1117/3.866274, Ch. 6.
+        edge, because the FFT propagators are periodic. THE GUARD IS AN olb
+        RULE, not a book rule. Schmidt, DOI 10.1117/3.866274, Ch. 7,
+        Eqs. (7.18) and (7.20), printed p. 120, size the grid from the
+        illuminated diameter D_illum and the region of interest D2, and they
+        let the wrapped light come up to the edge of D2. The observation
+        extent D2 never enters this rule. See docs/schmidt-crosscheck.md,
+        gaps S-07 and S-16.
 
         The SCALED EXTENT rule: the grid starts at the launch plane, so
         size = guard * 2 * max(launch radii) only. The launch radii are the
         transmit waist and the transmit aperture radius. The grid then grows
         with the beam by the magnification m = w(z)/w(0). See
-        olb.waveoptics.lenses and Schmidt, DOI 10.1117/3.866274, Ch. 7.
+        olb.waveoptics.lenses. THE BOOK GIVES NO EQUATION FOR A CO-MOVING
+        GRID: Schmidt, DOI 10.1117/3.866274, Ch. 6, text, printed p. 87, names
+        the Coles and Rubio angular-grid method and does not develop it. The
+        book's own answer to the same problem is the scaling parameter m of
+        Ch. 6, Eq. (6.65), printed p. 100, on a FLAT grid. See gap S-13.
 
         The RESOLUTION rule: the smallest feature gets pixels_per_feature
         pixels across it. The features are the transmit waist and the hard
         edges of the two apertures (each aperture radius, and each central
         obscuration radius). The scaled route measures a receive feature at
         the LAUNCH plane, so it divides that feature by m. The pixel count
-        goes up to the next power of two, and it stays in the interval
-        [256, n_max].
+        goes up to the next power of two, as Schmidt, DOI 10.1117/3.866274,
+        Listing 7.1, line 11, printed p. 124, does, and it stays in the
+        interval [256, n_max]. The book gives no pixels-per-feature equation.
+        It picks 50 points across the aperture in Listing 7.1, printed p. 124,
+        and 30 points in the Ch. 8 example, printed p. 144, so the default of
+        16 is coarser than both.
 
         The transmit aperture obeys the bistatic rule of
         olb.models.gaussian_efficiency: the Transmitter aperture_m and
@@ -211,7 +238,15 @@ def forvard_max_z(grid, wavelength_m):
 
     z_max = N * dx^2 / lambda. Past this range the quadratic phase of the
     transfer function turns faster than one sample, so the spectral propagator
-    aliases. See Schmidt, DOI 10.1117/3.866274, Ch. 6.
+    aliases.
+
+    This IS constraint 4 of Schmidt (2010), DOI 10.1117/3.866274, Ch. 7,
+    Eq. (7.59), printed p. 127: N >= lambda z / (dx1 dx2). A flat grid has
+    dx1 = dx2 = dx, so the rule inverts to z <= N dx^2 / lambda. The same
+    expression is the partial-propagation step cap of Ch. 8, Eq. (8.24),
+    printed p. 144, with min(dx1, dxn) = dx, and the turbulent form of Ch. 9,
+    Eq. (9.89), printed p. 174. The constant is DERIVED, not a guess.
+    olb.waveoptics.schmidt.sampling.angular_spectrum_max_z reproduces it.
 
     Args:
         grid:          a GridSpec.

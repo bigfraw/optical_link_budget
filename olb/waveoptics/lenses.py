@@ -35,10 +35,21 @@ The identity behind the recipe is the ABCD factorisation of free space:
     [[1, z], [0, 1]] = Scale(m) . Free(z/m) . Lens(fA),   m = 1 + z/fA
 
 The propagator does the SHORT step z/m on the launch grid. Then it relabels
-the grid with the side m*size, and it keeps the residual curvature. See
-Schmidt, DOI 10.1117/3.866274, Ch. 7 (the scaled Fresnel propagator), and
-the LightPipes manual,
-https://opticspy.github.io/lightpipes/manual.html, "Spherical coordinates".
+the grid with the side m*size, and it keeps the residual curvature. See the
+LightPipes manual, https://opticspy.github.io/lightpipes/manual.html,
+"Spherical coordinates".
+
+THE CO-MOVING GRID HAS NO SCHMIDT EQUATION. Schmidt (2010),
+DOI 10.1117/3.866274, Ch. 6, text, printed p. 87, names the Coles and Rubio
+angular-grid method and then does not develop it. The book never leaves the
+flat grid. Its own answer to the same problem is the SCALING PARAMETER m of
+Ch. 6, Eq. (6.65), printed p. 100, which frees the output pitch on a flat
+grid, and the two-step Fresnel route of Sec. 6.3.2, Eqs. (6.18) to (6.25),
+printed pp. 93 and 94. The olb m and the book m mean the same thing, the
+ratio of the two grid pitches, but olb gets it from a virtual lens and the
+book gets it from a free parameter in the exponent. The two are not the same
+algorithm, and no book equation checks this module. See
+docs/schmidt-crosscheck.md, gap S-13.
 
 The flat-grid propagators refuse a field that carries a curvature. Call
 Convert() before you go back to Forvard() or Fresnel().
@@ -47,9 +58,11 @@ Sources:
 - Goodman, Introduction to Fourier Optics, ISBN 978-0974707723. The thin-lens
   quadratic phase, and the focal spot of a Gaussian beam.
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
-  MATLAB, DOI 10.1117/3.866274, Ch. 7 (the scaled two-step Fresnel
-  propagator). The co-moving grid is the same idea: one internal step at a
-  shorter distance, plus a coordinate scale factor.
+  MATLAB, DOI 10.1117/3.866274. The book gives the thin-lens ray matrix,
+  Ch. 6, Eq. (6.76), printed p. 104, and it states the lens phase delay at
+  Sec. 6.5, printed p. 104. It gives NO equation for a spherical or co-moving
+  grid. Read the note above before you cite this book for LensForvard,
+  LensFresnel or Convert.
 - Siegman, Lasers, ISBN 978-0935702118. The ABCD matrix of a thin lens.
 - LightPipes manual, https://opticspy.github.io/lightpipes/manual.html.
   The implementation lineage.
@@ -75,6 +88,10 @@ def Lens(Fin, f, x_shift=0.0, y_shift=0.0):
         E_out(x,y) = E_in(x,y) * exp(-i*k*((x-dx)^2 + (y-dy)^2) / (2f))
 
     See Goodman, ISBN 978-0974707723 (the thin-lens phase transformation).
+    The same phase is the operator Q[-1/f, r] of Schmidt (2010),
+    DOI 10.1117/3.866274, Ch. 6, Eq. (6.7), printed p. 89, and the book
+    states the lens phase delay at Sec. 6.5, printed p. 104. The ray matrix
+    below is Eq. (6.76), printed p. 104.
 
     A pure Gaussian beam with no shift takes the analytic ABCD route, with
     the lens matrix [[1, 0], [-1/f, 1]]. See Siegman, ISBN 978-0935702118.
@@ -127,7 +144,9 @@ def LensForvard(Fin, f, z):
     (f - z)/f, and the internal spectral step is z1 = -z*f/(z - f). The
     residual curvature -1/(z - f) goes into the field. See the LightPipes
     manual, https://opticspy.github.io/lightpipes/manual.html, "Spherical
-    coordinates", and Schmidt, DOI 10.1117/3.866274, Ch. 7.
+    coordinates". Schmidt (2010), DOI 10.1117/3.866274, gives NO equation for
+    this route. See the module docstring and gap S-13 of
+    docs/schmidt-crosscheck.md.
 
     Use LensFresnel() for a long link. The spectral step of this function
     keeps the periodic artefact of Forvard().
@@ -179,6 +198,10 @@ def LensFresnel(Fin, f, z):
     z1 = -z*f/(z - f), which is much shorter than z for a diverging virtual
     lens. The residual curvature -1/(z - f) goes into the field, so the
     output is NOT on a flat grid. Call Convert() to come back.
+
+    Schmidt (2010), DOI 10.1117/3.866274, gives NO equation for this route.
+    The book's equivalent is the scaling parameter m of Ch. 6, Eq. (6.65),
+    printed p. 100, on a flat grid. See the module docstring.
 
     THE RECIPE. f is the focal length of the COORDINATE SYSTEM. The function
     adds no phase to the field, so put the opposite PHYSICAL lens in the beam
@@ -238,7 +261,9 @@ def Convert(Fin):
     length f = -1/curvature, and it sets the curvature to zero. The grid
     side and the amplitude do not change. See Goodman,
     ISBN 978-0974707723, and the LightPipes manual,
-    https://opticspy.github.io/lightpipes/manual.html.
+    https://opticspy.github.io/lightpipes/manual.html. Schmidt (2010),
+    DOI 10.1117/3.866274, gives NO equation for this step, because the book
+    never leaves the flat grid. See the module docstring.
 
     A field that is already on a flat grid comes back unchanged.
 

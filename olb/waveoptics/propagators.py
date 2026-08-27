@@ -19,8 +19,10 @@ branch.
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples
-  in MATLAB, DOI 10.1117/3.866274. The angular-spectrum transfer function,
-  the Fresnel convolution, the sampling limits and the periodic artefact.
+  in MATLAB, DOI 10.1117/3.866274. The angular-spectrum form is Ch. 6,
+  Eqs. (6.31) and (6.32), printed p. 95. The Fresnel convolution form is
+  Ch. 6, Eq. (6.6), printed p. 88. The sampling limits are Ch. 7,
+  Eqs. (7.41), (7.42) and (7.59), printed pp. 123 and 127.
 - Goodman, Introduction to Fourier Optics, ISBN 978-0974707723. The Fresnel
   diffraction integral.
 - Siegman, Lasers, ISBN 978-0935702118. The ABCD law for the complex beam
@@ -61,12 +63,24 @@ def Forvard(Fin, z):
 
         H(fx,fy) = exp(i*k*z) * exp(-i*pi*lam*z*(fx^2 + fy^2))
 
-    See Schmidt, DOI 10.1117/3.866274, Ch. 6 (the angular-spectrum
-    propagator), and Goodman, ISBN 978-0974707723.
+    That expression is exactly Schmidt (2010), DOI 10.1117/3.866274, Ch. 6,
+    Eq. (6.32), printed p. 95, and the two-transform chain is Eq. (6.31) on
+    the same page. See also Goodman, ISBN 978-0974707723. NOTE: this function
+    KEEPS the piston factor exp(i*k*z). The book's Listings 6.1, 6.3 and 6.5
+    (printed pp. 91, 96 and 102) drop it, and so does
+    olb.waveoptics.schmidt.fresnel.angular_spectrum. The irradiance is the
+    same; a phase comparison must add or remove the factor.
+
+    The range limit of the method is constraint 4, Ch. 7, Eq. (7.59), printed
+    p. 127. olb.waveoptics.grid.forvard_max_z gives the number.
 
     The grid keeps its side and its pitch. The method is periodic. A beam
     that becomes wider than the grid wraps around the edges. Give the grid
-    a side of about 8 times the largest beam radius.
+    a side of about 8 times the largest beam radius. THAT SIDE RULE IS A
+    RULE OF THUMB WITH NO BOOK SOURCE. The book's bound is constraints 1 and
+    2, Ch. 7, Eqs. (7.14) and (7.20), printed pp. 119 and 120, and both need
+    the source extent D1, the observation extent D2 and the range z. See
+    docs/schmidt-crosscheck.md, gap S-16.
 
     Args:
         Fin: the input field.
@@ -106,7 +120,8 @@ def Forvard(Fin, z):
     in_out *= iiij
 
     # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
-    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6.
+    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6, Eq. (6.32), printed
+    # p. 95.
     z1 = z * lam / 2
     No2 = int(N / 2)
     SW = np.arange(-No2, N - No2) / size
@@ -137,19 +152,32 @@ def Fresnel(Fin, z):
     """Propagate the field with the convolution method.
 
     The method convolves the field with the Fresnel kernel on a grid of
-    twice the side. The kernel integral over one pixel has a closed form
-    in the Fresnel integrals C(x) and S(x). See Goodman,
-    ISBN 978-0974707723 (the Fresnel diffraction integral), and Schmidt,
-    DOI 10.1117/3.866274, Ch. 7 (the convolution form).
+    twice the side. That is the CONVOLUTION form of the Fresnel integral,
+    Schmidt (2010), DOI 10.1117/3.866274, Ch. 6, Eq. (6.6), printed p. 88.
+    See also Goodman, ISBN 978-0974707723.
+
+    THE PIXEL-INTEGRATED KERNEL IS NOT THE BOOK'S. The kernel integral over
+    one pixel has a closed form in the Fresnel integrals C(x) and S(x), and
+    this port uses it. The book multiplies by the analytic transfer function
+    of Ch. 6, Eq. (6.49), printed p. 99, instead. The two solve the same
+    Eq. (6.6). The pixel integral is a refinement of the book, not a
+    departure from it.
 
     The doubled grid absorbs the periodic wrap of the spectral method.
-    The method needs a field that is zero at the edges of the grid.
+    The method needs a field that is zero at the edges of the grid. THE BOOK
+    HAS NO ZERO-PADDED CONVOLUTION: it controls the wrap with the absorbing
+    boundary of Ch. 8, Eq. (8.1), printed p. 134, and with the grid-size rule
+    of Ch. 7, Eq. (7.20), printed p. 120. Two cures for one problem.
 
     The method has a MINIMUM distance. The convolution does not give a
     valid result when z is comparable with, or less than, the size of the
     aperture that diffracts the field. Use Forvard for a short hop. See the
-    LightPipes manual, https://opticspy.github.io/lightpipes/manual.html,
-    and Schmidt, DOI 10.1117/3.866274, Ch. 7.
+    LightPipes manual, https://opticspy.github.io/lightpipes/manual.html.
+    Schmidt, DOI 10.1117/3.866274, Ch. 7, Eqs. (7.41) and (7.42), printed
+    p. 123, give the number: z >= D1 dx1 R / (lambda R - D1 dx1) for a source
+    of the wavefront radius R, and z >= D1 dx1 / lambda for a flat source.
+    This function states the rule in words only and it does not check it.
+    olb.waveoptics.schmidt.sampling.fresnel_min_distance gives the bound.
 
     Args:
         Fin: the input field.
@@ -199,7 +227,10 @@ def _field_Fresnel(z, field, dx, lam):
     iiijN = iiij2N[:N, :N]
 
     # The kernel pixel integral. C(x) and S(x) are the Fresnel integrals.
-    # Goodman, ISBN 978-0974707723; Schmidt, DOI 10.1117/3.866274.
+    # Goodman, ISBN 978-0974707723. The kernel itself is Schmidt,
+    # DOI 10.1117/3.866274, Ch. 6, Eq. (6.6), printed p. 88. The book does
+    # not integrate it over a pixel; it transforms it, Eq. (6.49), printed
+    # p. 99.
     RR = np.sqrt(1 / (2 * lam * z)) * dx * 2
     io = np.arange(0, (2 * No2) + 1)    # one extra sample to stride
     R1 = RR * (io - No2)
@@ -263,6 +294,13 @@ def GForvard(Fin, z):
 
     Then w^2 = -lam/pi * (Im(q) + Re(q)^2/Im(q)), and 1/R = Re(1/q).
     See Siegman, Lasers, ISBN 978-0935702118.
+
+    Schmidt (2010), DOI 10.1117/3.866274, Ch. 6, Sec. 6.5, gives the ray
+    matrices, Eq. (6.70), printed p. 103, the thin-lens matrix, Eq. (6.76),
+    printed p. 104, and the generalized Huygens-Fresnel (ABCD) integral,
+    Eq. (6.77), printed p. 104. It does NOT give the closed-form q transform
+    above, so the source of that step is Siegman. Eq. (6.77) holds for an
+    azimuthally symmetric field, which a pure Gaussian is.
 
     Args:
         Fin: the input field. It must come from GaussBeam().

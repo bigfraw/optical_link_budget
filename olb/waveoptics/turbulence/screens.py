@@ -22,8 +22,18 @@ Sources:
 - Andrews and Phillips, Laser Beam Propagation through Random Media, 2nd ed.,
   DOI 10.1117/3.626196, Ch. 12, Eq. (23). The same r0 for a path integral.
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
-  MATLAB, DOI 10.1117/3.866274, Ch. 9. The Fourier screen, the subharmonics
-  and the screen sampling rules.
+  MATLAB, DOI 10.1117/3.866274, Ch. 9. The modified von Karman phase PSD is
+  Eq. (9.51), printed p. 161, and its ordinary-frequency form is Eq. (9.52) on
+  the same page. The Fourier-series screen is Eqs. (9.78) to (9.80), printed
+  pp. 166 and 167, with Listing 9.2, printed p. 168. The subharmonic screen is
+  Eq. (9.81), printed p. 169, with Listing 9.3, printed p. 170. The per-screen
+  Fried parameter is Eq. (9.70), printed p. 165. The pitch rules are Sec. 9.4,
+  printed p. 172.
+- Lane, Glindemann and Dainty, Simulation of a Kolmogorov phase screen,
+  DOI 10.1088/0959-7174/2/3/003. The subharmonic method that Eq. (9.81) uses.
+- Johansson and Gavel, Simulation of stellar speckle imaging,
+  DOI 10.1117/12.177254. The subharmonic set that the book calls the closest
+  match to theory (Ch. 9, text above Sec. 9.4, printed p. 172).
 """
 
 import numpy as np
@@ -59,7 +69,10 @@ def screen_r0(cn2_integral_m13, wavelength_m):
         r0 = (0.423 * k^2 * INT Cn2 dz)^(-3/5),  k = 2*pi/lambda
 
     See Fried, DOI 10.1364/JOSA.56.001372, and Andrews and Phillips,
-    DOI 10.1117/3.626196, Ch. 12, Eq. (23).
+    DOI 10.1117/3.626196, Ch. 12, Eq. (23). The same expression, the constant
+    included, is Schmidt (2010), DOI 10.1117/3.866274, Ch. 9, Eq. (9.70),
+    printed p. 165. It is the PLANE-wave r0 of one layer, so the layer must be
+    thin.
 
     The caller gives the INTEGRAL of Cn2 over the slab, in m^(1/3). That
     integral carries any slant factor already. For a slant path the caller
@@ -86,22 +99,39 @@ def phase_screen(r0_m, n, pixel_m, L0_m=np.inf, l0_m=1e-6, seed=None,
 
         PHI(f) = 0.023 r0^(-5/3) exp(-(f/fm)^2) / (f^2 + f0^2)^(11/6)
 
-    with fm = 5.92/(2*pi*l0) and f0 = 1/L0. See Schmidt,
-    DOI 10.1117/3.866274, Ch. 9. The default scales give the pure
-    Kolmogorov spectrum: L0 is infinite and l0 is 1 um.
+    with fm = 5.92/(2*pi*l0) and f0 = 1/L0. That is Schmidt (2010),
+    DOI 10.1117/3.866274, Ch. 9, Eq. (9.51), printed p. 161, written in
+    ORDINARY frequency, as Eq. (9.52) on the same page does. The angular
+    constant converts: 0.49 (2 pi)^(-5/3) = 0.02290, which is 0.42% from the
+    printed 0.023. The default scales give the pure Kolmogorov spectrum: L0
+    is infinite and l0 is 1 um.
 
     The screen has the SAME pitch and the SAME pixel count as the
     propagation grid. Do not make a coarse screen and interpolate it up. A
     coarse screen carries no power above its own Nyquist frequency. It
     misses the structure at the Fresnel scale sqrt(lambda*z), which is the
     scale that builds the scintillation. The result then follows the coarse
-    grid, not the atmosphere. See Schmidt, DOI 10.1117/3.866274, Ch. 9.
+    grid, not the atmosphere. See Schmidt, DOI 10.1117/3.866274, Sec. 9.4,
+    printed p. 172.
 
-    The Fourier screen is band-limited in the two directions. It holds no
-    power above the grid Nyquist frequency, and it holds too little power
-    below 1/(n*pixel). The subharmonics add three levels of low frequency
-    back. They lift the structure function, but they do not close the gap.
+    The Fourier screen is the Fourier-series draw of Schmidt,
+    DOI 10.1117/3.866274, Ch. 9, Eqs. (9.78) to (9.80), printed pp. 166 and
+    167, with Listing 9.2, printed p. 168. It is band-limited in the two
+    directions. It holds no power above the grid Nyquist frequency, and it
+    holds too little power below 1/(n*pixel). The subharmonics of Eq. (9.81),
+    printed p. 169, add three levels of low frequency back. That method comes
+    from Lane, Glindemann and Dainty, DOI 10.1088/0959-7174/2/3/003. The
+    subharmonics lift the structure function, but they do not close the gap.
     The self-check measures the residual deficit.
+
+    THE aotools SUBHARMONIC SCREEN IS NOT THE BOOK'S GENERATOR. Against
+    Eq. (9.44), printed p. 160, the two agree well in the band r/r0 = 0.3 to
+    1.6: the book generator reaches 0.88 to 0.93 of theory there, and aotools
+    reaches 1 to 3% above it. Both fall away at a larger separation. The book
+    calls the subharmonic set of Johansson and Gavel, DOI 10.1117/12.177254,
+    the closest match to theory (Ch. 9, text above Sec. 9.4, printed p. 172).
+    See docs/schmidt-crosscheck.md, gap S-27, and
+    examples/schmidt/screens_and_turbulence.py.
 
     aotools takes an INTEGER seed. It builds numpy.random.default_rng(seed)
     itself. A caller that runs many screens bridges from its own
@@ -141,7 +171,9 @@ def Screen(Fin, phase_rad):
         E_out(x,y) = E_in(x,y) * exp(i * phi(x,y))
 
     The screen is a thin, pure phase element. The power does not change.
-    See Schmidt, DOI 10.1117/3.866274, Ch. 9 (the split-step screen).
+    It is the refraction operator T = exp(-i psi) of Schmidt (2010),
+    DOI 10.1117/3.866274, Ch. 9, Eq. (9.2), printed p. 150. The sign of the
+    exponent follows the phase convention of the field.
 
     Args:
         Fin:       the input field. It must be on a flat grid.

@@ -12,8 +12,14 @@ The module gives two functions:
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
-  MATLAB, DOI 10.1117/3.866274, Ch. 6 (the sampling limit of the spectral
-  propagator) and Ch. 9 (the split-step method and the absorbing boundary).
+  MATLAB, DOI 10.1117/3.866274. The split-step chain is Ch. 9, Eqs. (9.1) to
+  (9.3), printed p. 150. The general partial-propagation chain is Ch. 8,
+  Eq. (8.18), printed p. 139. The absorbing boundary is Ch. 8, Eq. (8.1),
+  printed p. 134. The step cap is Ch. 8, Eq. (8.24), printed p. 144, repeated
+  as Ch. 9, Eq. (9.89), printed p. 174. NOTE: this module keeps ONE flat pitch
+  for the whole path, and Eq. (8.18) gives each step its own pitch, from the
+  linear rule of Eq. (8.8), printed p. 136. See docs/schmidt-crosscheck.md,
+  gap S-14.
 - Andrews and Phillips, Laser Beam Propagation through Random Media, 2nd ed.,
   DOI 10.1117/3.626196, Ch. 8. The plane-wave Rytov variance that the
   self-check reproduces.
@@ -40,7 +46,20 @@ def super_gaussian_boundary(n, width_frac=0.125, power=8):
 
     The mask removes the energy that reaches the edge of the grid. The FFT
     propagator is periodic, so that energy comes back at the opposite edge.
-    See Schmidt, DOI 10.1117/3.866274, Ch. 9 (the absorbing boundary).
+    The concept is Schmidt (2010), DOI 10.1117/3.866274, Ch. 8, Eq. (8.1),
+    printed p. 134: g = exp(-(r/sigma)^n) with n > 2.
+
+    THE NUMBERS ARE NOT THE BOOK'S, AND THE SHAPE IS NOT EITHER. Eq. (8.1)
+    gives the family and no values. The book RUNS power 16 and one half-width
+    sigma = 0.47 N pixels from the centre (Listing 8.1, line 11, printed
+    p. 142; Listing 9.7, line 19, printed p. 179; Fig. 8.1, printed p. 134,
+    prints 0.45 L). This function runs power 8 and a taper BAND of 0.125 of
+    the half-side, with a hard flat region inside it. So the book mask is
+    0.068 at the middle of an edge and this mask is exp(-1) = 0.368 there: the
+    book absorbs about 5 times harder. The book itself records that Flatte and
+    others used n = 8 (Ch. 8, text, printed p. 134), so the power has a source
+    in the literature, not in the book's own runs. The conflict is RECORDED,
+    not changed. See docs/schmidt-crosscheck.md, gap S-15.
 
     Args:
         n:          the number of pixels along one side.
@@ -105,19 +124,30 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
         max_step = N * dx^2 / lambda
 
     Past that range the quadratic phase of the transfer function turns
-    faster than one sample, so the propagator aliases. See Schmidt,
-    DOI 10.1117/3.866274, Ch. 6. (The same formula is in
-    olb.waveoptics.grid.forvard_max_z. This module does not import that
+    faster than one sample, so the propagator aliases. The rule is Schmidt
+    (2010), DOI 10.1117/3.866274, Ch. 8, Eq. (8.24), printed p. 144, and the
+    turbulent statement of it is Ch. 9, Eq. (9.89), printed p. 174. Both come
+    from constraint 4, Ch. 7, Eq. (7.59), printed p. 127. (The same formula is
+    in olb.waveoptics.grid.forvard_max_z. This module does not import that
     module, because grid.py reads the rest of olb.)
 
     THE MASK IS NECESSARY. The sub-steps alone remove NO aliasing: the
     sampled transfer function of the full step is the product of the
     sampled transfer functions of the sub-steps, so a split hop gives the
-    same array as one long hop. The mask is the part that helps. It removes
-    the energy at the edge of the grid between two sub-steps, before the
-    periodic propagator brings that energy back at the opposite edge. See
-    Schmidt, DOI 10.1117/3.866274, Ch. 9. Give a boundary from
+    same array as one long hop. The book gives the same result: Ch. 8,
+    Eqs. (8.19) to (8.22), printed pp. 139 and 143, show that the
+    intermediate pitches cancel and that constraint 3 does not change with
+    the number of partial propagations. The mask is the part that helps. It
+    removes the energy at the edge of the grid between two sub-steps, before
+    the periodic propagator brings that energy back at the opposite edge. The
+    book puts the boundary operator A at each intermediate plane too, Ch. 8,
+    Eq. (8.18), printed p. 139. Give a boundary from
     super_gaussian_boundary() for any path that spreads the beam.
+
+    THE SCREEN PLACEMENT DIFFERS FROM THE BOOK. Ch. 9, Eq. (9.3), printed
+    p. 150, puts one screen AT each partial-propagation plane. The olb planner
+    puts each screen at the Cn2-weighted centre of a merged slab, so the two
+    differ by half a slab. The book does not treat that placement.
 
     Args:
         Fin:         the input field. It must be on a flat grid.

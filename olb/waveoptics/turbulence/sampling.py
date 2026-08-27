@@ -27,9 +27,15 @@ Sources:
   Ch. 8, Eq. (20): the plane-wave Rytov variance. Ch. 12, Eqs. (14), (36) and
   (38): the slant secant and the path weight of the downlink index.
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
-  MATLAB, DOI 10.1117/3.866274. Ch. 6, Ch. 7 and Ch. 9: the grid extent rule,
-  the pixels-per-r0 rule, the scattering-cone margin, the absorbing boundary,
-  and the range limit z_max = N dx^2 / lambda.
+  MATLAB, DOI 10.1117/3.866274. The scattering cone is Ch. 9, Eqs. (9.84) and
+  (9.85), printed p. 173, at c = 2. The pixel rules are Sec. 9.4, printed
+  p. 172. The per-screen cap is Listing 9.5, lines 37 and 38, printed p. 175.
+  The absorbing boundary is Ch. 8, Eq. (8.1), printed p. 134. The range limit
+  z_max = N dx^2 / lambda is Ch. 7, Eq. (7.59), printed p. 127, and Ch. 9,
+  Eq. (9.89), printed p. 174. NOTE: this sizer evaluates NONE of the three
+  turbulent geometry constraints, Eqs. (9.86) to (9.88), printed pp. 173 and
+  174, and it matches no moment of the layer rule, Eq. (9.65), printed p. 164.
+  See docs/schmidt-crosscheck.md, gaps S-21 and S-22.
 - Martin and Flatte, Intensity images and statistics from numerical simulation
   of wave propagation in 3-D random media, DOI 10.1364/AO.27.002111. The
   pixel-per-coherence-length rule of a split-step simulation.
@@ -68,30 +74,67 @@ class QualityPreset:
         name:                 the name of the preset.
         pixels_per_r0:        the pixel pitch obeys dx <= r0_total /
                               pixels_per_r0. See Martin and Flatte,
-                              DOI 10.1364/AO.27.002111.
+                              DOI 10.1364/AO.27.002111. Schmidt,
+                              DOI 10.1117/3.866274, Sec. 9.4, printed p. 172,
+                              gives the same rule in prose, from Johnston and
+                              Lane: the phase step between two adjacent
+                              samples stays below pi more than 99.7% of the
+                              time. With Ch. 9, Eq. (9.44), printed p. 160,
+                              that reads dx <= 0.332 r0, which is 3.01 pixels
+                              per r0. The standard preset value of 3 lands on
+                              it.
         guard:                the ratio of the grid half-side to the beam
                               radius. It has the same meaning as the guard of
                               GridSpec.for_scenario.
         n_max:                the largest pixel count.
         sigma2_r_screen_max:  the largest plane-wave Rytov contribution of one
                               screen. A screen that is stronger than this value
-                              breaks the thin-screen approximation. See
-                              Schmidt, DOI 10.1117/3.866274, Ch. 9.
+                              breaks the thin-screen approximation. The book
+                              rule is rmax = 0.1 of Schmidt,
+                              DOI 10.1117/3.866274, Listing 9.5, lines 37 and
+                              38, printed p. 175, which the book credits to
+                              Martin and Flatte. THE TWO NUMBERS ARE NOT THE
+                              SAME QUANTITY. The book caps the LOG-AMPLITUDE
+                              variance sigma_chi^2 of Ch. 9, Eqs. (9.64) and
+                              (9.74), printed pp. 163 and 165. This field caps
+                              the PLANE-WAVE RYTOV variance sigma_R^2, and
+                              sigma_R^2 = 4 sigma_chi^2 (the self-check of
+                              olb.waveoptics.schmidt.turbulence measures
+                              3.9994). So rmax = 0.1 is a cap of 0.4 on this
+                              field, and 0.05 / 0.10 / 0.25 are 8x / 4x / 1.6x
+                              STRICTER than the book. olb is conservative here,
+                              and it is not wrong.
         min_screens:          the smallest screen count. A weak path passes
                               sigma2_r_screen_max with one screen, but one
                               screen gives phase only and no scintillation, so
                               a floor is needed. TO REVISE: the integers
                               15/9/5 have NO derivation and NO DOI, unlike every
-                              other preset field. Justify them from Schmidt or a
-                              convergence sweep, and see the _merge_layers
+                              other preset field. Schmidt gives NO screen-count
+                              floor either: Eq. (9.90), printed p. 174, is a
+                              sampling floor only, and the 11 planes of
+                              Sec. 9.5.2, printed p. 177, come with no formula.
+                              The principled replacement is the layer moment
+                              rule, Eq. (9.65), printed p. 164, which fixes the
+                              screen positions and strengths together and gives
+                              a real floor of 4. See the WP7 gate verdict in
+                              docs/schmidt-crosscheck.md, and the _merge_layers
                               fallback note. (CLAUDE.md open items.)
         fresnel_weight_min:   the Rytov share above which a screen must obey
                               the Fresnel-scale pixel rule. A screen that
                               carries less than this share of the total Rytov
-                              variance is exempt.
+                              variance is exempt. THE EXEMPTION IS AN olb RULE.
+                              Schmidt, DOI 10.1117/3.866274, Sec. 9.4, printed
+                              p. 172, applies the rule to every step. The
+                              exemption saves real time, so it stays. See
+                              docs/schmidt-crosscheck.md, gap S-25.
         boundary_width_frac:  the width of the absorbing band, as a fraction of
                               the half-side. It goes to
-                              splitstep.super_gaussian_boundary.
+                              splitstep.super_gaussian_boundary. The book
+                              parameterises the boundary differently: Schmidt,
+                              DOI 10.1117/3.866274, Listing 9.7, line 19,
+                              printed p. 179, gives one half-width of 0.47 N
+                              pixels from the centre. The two forms do not
+                              convert. See gap S-15.
     """
 
     name: str
@@ -156,9 +199,17 @@ class SamplingReport:
         step_over_limit_max: the largest planned gap between two screens,
                              divided by forvard_max_z. A value of 1.0 or less
                              is good. The split-step engine cuts a longer gap
-                             into sub-steps.
+                             into sub-steps. The limit is the step cap of
+                             Schmidt, DOI 10.1117/3.866274, Ch. 8, Eq. (8.24),
+                             printed p. 144, repeated as Ch. 9, Eq. (9.89),
+                             printed p. 174. THE ROUTE DIFFERS: the book SETS
+                             the plane count from that cap, Eq. (9.90). This
+                             planner sets the count from the Cn2 profile and
+                             only REPORTS the ratio. See gap S-10.
         sigma2_r_screen_max: the largest per-screen Rytov contribution that the
-                             plan holds.
+                             plan holds. It is a plane-wave Rytov variance, so
+                             it is 4 times the book quantity. See
+                             QualityPreset.sigma2_r_screen_max.
         n_clamped:           True means the pixel count hit n_max.
         warnings:            a tuple of the warning texts that the sizer sent.
     """
@@ -183,6 +234,13 @@ def _screen_rytov(k, cn2_int, z_to_rx):
     Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20), and the same
     constant in Ch. 12, Eqs. (36) and (38).
 
+    THE BOOK USES THE OTHER VARIANCE. Schmidt, DOI 10.1117/3.866274, Ch. 9,
+    Eqs. (9.63) and (9.73), printed pp. 163 and 165, give the same path weight
+    with the constant 0.563, which is the LOG-AMPLITUDE variance
+    sigma_chi^2. The ratio is 2.25 / 0.563 = 3.997, so the value that this
+    function returns is sigma_R^2 = 4 sigma_chi^2. Do not compare it directly
+    with the book cap rmax = 0.1 of Listing 9.5, printed p. 175.
+
     Args:
         k:        the wavenumber, in rad/m.
         cn2_int:  the integrated Cn2 of the slab, in m^(1/3).
@@ -200,7 +258,9 @@ def _composite_r0(r0_m):
 
     The phase variances of independent screens add, and the variance goes as
     r0^(-5/3). See Fried, DOI 10.1364/JOSA.56.001372, and Andrews and Phillips,
-    DOI 10.1117/3.626196, Ch. 12, Eq. (23).
+    DOI 10.1117/3.626196, Ch. 12, Eq. (23). The same sum is Schmidt,
+    DOI 10.1117/3.866274, Ch. 9, Eq. (9.71), printed p. 165. It is the
+    PLANE-wave composite; the spherical one is Eq. (9.72) on the same page.
     """
     return float(np.sum(np.asarray(r0_m, dtype=float) ** (-5.0 / 3.0))
                  ** (-3.0 / 5.0))
@@ -241,6 +301,13 @@ def _merge_layers(weights, cap, min_groups):
         # should WARN only when len(weights) < min_groups (the model cannot
         # split one layer). Fix this together with the min_screens
         # justification, then re-run the three turbulent examples.
+        # The book rule for a layering is Schmidt, DOI 10.1117/3.866274,
+        # Ch. 9, Eq. (9.65), printed p. 164: the layered Cn2 must match the
+        # continuous profile for the moments 0 <= m <= 7. That rule fixes the
+        # positions and the strengths together, it decouples the screen count
+        # from the profile sampling, and it gives a floor of 4 screens. This
+        # merge matches moment 0 only. See gap S-22 and the WP7 gate verdict
+        # in docs/schmidt-crosscheck.md.
         return [[i] for i in range(len(weights))]
     return groups
 
@@ -375,9 +442,15 @@ def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
     The first part is the vacuum extent rule of GridSpec.for_scenario. The
     second part is the scattering cone: turbulence scatters light through the
     angle lambda/r0, and that light must stay off the edge of the periodic
-    grid. See Schmidt, DOI 10.1117/3.866274, Ch. 9. The divisor (1 - b) makes
-    room for the absorbing band of the boundary mask, where b is
-    boundary_width_frac.
+    grid. The added term is c lambda z / r0 with c = 2, from Schmidt,
+    DOI 10.1117/3.866274, Ch. 9, Eqs. (9.84) and (9.85), printed p. 173. The
+    book states that c = 2 holds 97% of the light and c = 4 holds 99%, and its
+    own Listing 9.6, line 2, printed p. 177, uses c = 2. THE ROUTE DIFFERS:
+    the book adds the blur to the extents D1' and D2' and then feeds
+    constraints 1 to 3, Eqs. (9.86) to (9.88), printed pp. 173 and 174. This
+    sizer adds it to the grid SIDE and checks no constraint. See
+    docs/schmidt-crosscheck.md, gap S-21. The divisor (1 - b) makes room for
+    the absorbing band of the boundary mask, where b is boundary_width_frac.
 
     THE PIXEL RULE. The pixel obeys three limits, and the smallest wins:
 
@@ -385,17 +458,24 @@ def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
         dx <= sqrt(lambda z_i) / 2        the Fresnel scale of screen i
         dx <= feature / (P / 2)           the hard edges, P = PIXELS_PER_FEATURE
 
-    The first limit comes from Schmidt, DOI 10.1117/3.866274, Ch. 9, and from
-    Martin and Flatte, DOI 10.1364/AO.27.002111. The second limit keeps the
-    irradiance correlation width sampled; the width is the Fresnel scale of the
-    distance from the screen to the receiver (Andrews and Phillips,
-    DOI 10.1117/3.626196, Ch. 8). Only a screen that carries more than
-    fresnel_weight_min of the total Rytov variance must obey it. A weak screen
-    close to the receiver is exempt, because it adds almost no scintillation.
+    The first limit comes from Schmidt, DOI 10.1117/3.866274, Sec. 9.4, printed
+    p. 172, and from Martin and Flatte, DOI 10.1364/AO.27.002111. The book
+    states it in prose, from Johnston and Lane, and with Ch. 9, Eq. (9.44),
+    printed p. 160, it reads dx <= 0.332 r0, that is 3.01 pixels per r0. The
+    second limit keeps the irradiance correlation width sampled; the width is
+    the Fresnel scale of the distance from the screen to the receiver (Andrews
+    and Phillips, DOI 10.1117/3.626196, Ch. 8). It is the SAME rule as the
+    sqrt(lambda z)/2 pitch cap of Schmidt, Sec. 9.4, printed p. 172, which the
+    book also credits to Johnston and Lane. Only a screen that carries more
+    than fresnel_weight_min of the total Rytov variance must obey it. A weak
+    screen close to the receiver is exempt, because it adds almost no
+    scintillation. That exemption is an olb rule; the book gives none.
 
-    THE PIXEL COUNT. n is the next power of two of side/dx, inside the interval
-    [256, n_max]. A clamp does NOT shrink the side, because the extent is
-    physics. The pixel grows instead, and the report says so.
+    THE PIXEL COUNT. n is the next power of two of side/dx, as Schmidt,
+    DOI 10.1117/3.866274, Listing 7.2, line 13, printed p. 128, does, inside
+    the interval [256, n_max]. The clamp has no book source. A clamp does NOT
+    shrink the side, because the extent is physics. The pixel grows instead,
+    and the report says so.
 
     Args:
         scenario:    a SpaceScenario or a TerrestrialScenario.
