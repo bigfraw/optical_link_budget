@@ -126,6 +126,14 @@ class QualityPreset:
                               from 7 up; the mean power holds inside 0.11 dB
                               everywhere. So 9 and 15 sit on the plateau, and 5
                               is the stated rapid compromise.
+                              CAVEAT ON THE RAPID COMPROMISE: the 10 percent is
+                              the 500 mm APERTURE index. The POINT index on the
+                              same slab converges at the same count (7), but at
+                              5 screens it is about 22 percent low. A receiver
+                              that is small against the irradiance correlation
+                              width (a fibre, a small sensor) pays the point
+                              figure, not the aperture figure. See the post-WP7
+                              measurement in docs/schmidt-crosscheck.md, WP7.
                               THE ABSOLUTE LOWER BOUND IS 4. A layering with n
                               screens has 2n free numbers, and the layer moment
                               rule of Schmidt, DOI 10.1117/3.866274, Ch. 9,

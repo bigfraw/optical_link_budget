@@ -238,10 +238,14 @@ The path forward for each is a second reference or a derivation.
   functions; the 20-layer `DEFAULT_HS` array is a hand-made discretisation,
   and it leaks into the physics wherever a decision reads the grid instead of
   the profile. Work package 7 removed the worst leak (the screen count), but
-  the screen PLACEMENT still comes from the array: the bottom-group centroid
-  question (the ~1.2 dB downlink SMF shift at 30 degrees, see the WP7 note in
-  docs/schmidt-crosscheck.md) is only answerable against the continuous
-  ground layer. The change, in two separate steps: (1) `turbulent_grid` and
+  the screen PLACEMENT still comes from the array. The post-WP7 matched-seed
+  measurement (the WP7 note in docs/schmidt-crosscheck.md) sharpened the
+  question: the bottom screen HEIGHT is a null, and the live variable is
+  whether the near-ground `Cn2` is spread over many thin screens or lumped
+  into one — a resolution question that only the continuous ground layer can
+  answer. The same measurement shows the placement moves the deep SMF fade
+  tail (about 2 dB at p5, direction consistent, not yet resolved above the
+  Monte-Carlo noise at 200 trials). The change, in two separate steps: (1) `turbulent_grid` and
   `_plan_space` in olb/waveoptics/turbulence/sampling.py accept a callable
   `cn2(h)` and compute the group integrals, centroids, Rytov shares, and the
   Eq. (9.65) moments by quadrature on the callable; `DEFAULT_HS` stays only

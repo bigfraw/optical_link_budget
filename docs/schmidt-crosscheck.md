@@ -1269,3 +1269,32 @@ from the pupil, and the new bottom group sits at the `Cn2`-weighted centroid of
 the ground layers, about 150 m away. Which layering is right for a near-pupil
 `Cn2` spike is an open question. It is a candidate for the Gauss-quadrature
 route of decision 3.
+
+**Post-WP7 measurement (2026-08-27) — the paragraph above is PARTLY WRONG.**
+A controlled re-test put the three placements on ONE grid with ONE seed set
+(200 trials, 30 degrees, SMF; plans: the 5-screen plan; the old
+one-screen-per-layer plan, bottom screens 2 m from the pupil; the 5-screen
+plan with the bottom screen moved onto the pupil). Findings:
+
+1. **The 1.2 dB MEAN shift did not reproduce.** With matched seeds the mean
+   moves 0.23 +/- 0.48 dB. The 1.2 dB came from seed scatter between two
+   separate example runs, which the sweep's own `smf` scatter (1.1 dB, no
+   trend) already suggested.
+2. **The placement moves the DEEP TAIL, not the body.** The one-per-layer
+   plan reads about 1.1 dB more fade at p10 and about 2.3 dB more at p5 and
+   p1, and 11 percent more normalised variance. The direction is consistent
+   across every quantile, but NO single difference is resolved above the
+   Monte-Carlo noise at 200 trials (all at or under 1.2 sigma). Resolving
+   the p5 gap to 1 dB needs about 4x the trials.
+3. **The bottom screen HEIGHT is a null.** Moving the bottom screen the last
+   290 m onto the pupil changes the mean by 0.007 dB and no quantile by more
+   than 0.24 dB. The live variable is whether the near-ground `Cn2` is
+   SPREAD over many thin screens or LUMPED into one — a resolution question,
+   which the continuous-profile work (backlog 2-I2) is the right frame for.
+4. **The point index doubles the rapid deficit.** The point (pinhole) index
+   converges at the same count as the aperture index (7), and it agrees with
+   the analytic plane-wave index to a ratio of 1.049 at 15 screens. But at
+   the `rapid` count of 5 it reads about 22 percent low, against the
+   aperture's 10 percent. The preset docstring now carries the caveat.
+
+Per-trial samples: the session scratchpad, `expA_eta.npz` (not committed).
