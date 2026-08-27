@@ -1001,6 +1001,53 @@ chapter, equation number and printed page:
 
 ## WP6 — Retrofit and documentation
 
+**Done.** Two parts, and neither one moved a number.
+
+Part 1, the citation retrofit. Table 1 gave the map; the equation numbers now
+sit in the production modules, in the docstrings and the comments only. The
+bodies did not change, and the six self-checks
+(`olb.waveoptics.grid`, `.propagators`, `.lenses`, `.turbulence.sampling`,
+`.turbulence.splitstep`, `.turbulence.screens`) print the same numbers as
+before. The changes:
+
+- `grid.py` — `forvard_max_z` cited "Ch. 6". It is now Ch. 7, Eq. (7.59),
+  printed p. 127, constraint 4 at m = 1, and Ch. 8, Eq. (8.24), printed p. 144.
+  Gap S-12 is CLOSED. The guard, the pixels-per-feature value and `N_MIN` now
+  say that they are olb rules, against Eq. (7.18) (gaps S-07 and S-16).
+- `propagators.py` — `Forvard` cites Eqs. (6.31) and (6.32), and it records
+  that it KEEPS the piston phase that the book listings drop. `Fresnel` cites
+  the convolution form, Eq. (6.6), and it records that the pixel-integrated
+  kernel is a refinement that the book does not use (the book transforms it,
+  Eq. (6.49)). The doubled grid has no book equation. The minimum distance now
+  carries Eqs. (7.41) and (7.42).
+- `lenses.py` — the Ch. 7 hint is GONE. The module now records that the book
+  names the Coles and Rubio angular grid and does not develop it, and that the
+  book answer is the scaling parameter m of Eq. (6.65) on a flat grid (gap
+  S-13). `Lens` keeps a real citation: Eqs. (6.7) and (6.76).
+- `turbulence/sampling.py` — the `sqrt(lambda z)/2` pitch rule gains Sec. 9.4,
+  printed p. 172; `pixels_per_r0` gains the 3.01 derivation;
+  `sigma2_r_screen_max` gains the `rmax = 0.1` relation and the factor of 4;
+  the scattering cone gains Eqs. (9.84) and (9.85) at c = 2;
+  `fresnel_weight_min` is marked an olb rule; `_merge_layers` gains the
+  Eq. (9.65) pointer.
+- `turbulence/splitstep.py` — the absorber cites Eq. (8.1) and records the
+  conflict with the book values (power 16, sigma 0.47 N). The sub-step note
+  cites Eqs. (8.19) to (8.22). The screen placement at a slab centre is
+  recorded against Eq. (9.3).
+- `turbulence/screens.py` — the PSD cites Eq. (9.51); the screen draw cites
+  Eqs. (9.78) to (9.80); the subharmonics cite Eq. (9.81), with Lane et al.,
+  DOI 10.1088/0959-7174/2/3/003, and Johansson and Gavel,
+  DOI 10.1117/12.177254. `screen_r0` cites Eq. (9.70), and `Screen` cites
+  Eq. (9.2).
+
+Part 2, the documentation. `docs/physics.md` gains Section 8, the twin of the
+Andrews Section 5h. `docs/api-waveoptics.md` gains Section 10, the public
+functions of the four modules, and the `QualityPreset` table gains the
+`min_screens` caveat and the factor-4 note. `examples/schmidt/README.md` is
+new. `docs/examples.md` gains the suite. `CLAUDE.md` records the layer and the
+new `min_screens` evidence. `docs/backlog.md` gains the item 2-S1, a pointer to
+Table 2.
+
 ## WP7 — The `min_screens` revision
 
 ### WP7 GATE VERDICT — what Chapter 9 does and does not justify

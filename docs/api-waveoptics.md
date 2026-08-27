@@ -517,12 +517,12 @@ name or a `QualityPreset`.
 
 | Field | `reference` | `standard` (default) | `rapid` | Meaning |
 |---|---|---|---|---|
-| `pixels_per_r0` | 4 | 3 | 2 | `dx <= r0_total / pixels_per_r0`. Martin and Flatte, DOI 10.1364/AO.27.002111. |
+| `pixels_per_r0` | 4 | 3 | 2 | `dx <= r0_total / pixels_per_r0`. Martin and Flatte, DOI 10.1364/AO.27.002111. Schmidt, DOI 10.1117/3.866274, Sec. 9.4, printed p. 172, gives the same rule from Johnston and Lane, and with Eq. (9.44) it reads 3.01 pixels per r0. So `standard` lands on the book value. |
 | `guard` | 4 | 3 | 2 | The grid half-side over the beam radius. The same meaning as the guard of `GridSpec.for_scenario`. |
 | `n_max` | 4096 | 2048 | 1024 | The largest pixel count. |
-| `sigma2_r_screen_max` | 0.05 | 0.10 | 0.25 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. Schmidt, DOI 10.1117/3.866274, Ch. 9. |
-| `min_screens` | 15 | 9 | 5 | The smallest screen count. |
-| `fresnel_weight_min` | 0.005 | 0.02 | 0.05 | The Rytov share above which a screen must obey the Fresnel-scale pixel rule. |
+| `sigma2_r_screen_max` | 0.05 | 0.10 | 0.25 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. The book cap is `rmax = 0.1` on the LOG-AMPLITUDE variance (Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175), and `sigma_R^2 = 4 sigma_chi^2`, so the book cap is 0.4 on this field. The three presets are 8x / 4x / 1.6x stricter than the book. |
+| `min_screens` | 15 | 9 | 5 | The smallest screen count. CAVEAT: these integers have NO derivation and NO DOI, and the `_merge_layers` fallback never applies them: it returns one screen per Cn2 layer instead. Schmidt gives no screen-count floor either. See the backlog item 2-N1 and the WP7 gate verdict in [schmidt-crosscheck.md](schmidt-crosscheck.md). |
+| `fresnel_weight_min` | 0.005 | 0.02 | 0.05 | The Rytov share above which a screen must obey the Fresnel-scale pixel rule. The exemption is an olb rule; Schmidt, Sec. 9.4, applies the rule to every step. |
 | `boundary_width_frac` | 0.125 | 0.125 | 0.10 | The width of the absorbing band, as a fraction of the half-side. It goes to `super_gaussian_boundary()`. |
 
 #### `ScreenPlan`
@@ -710,3 +710,115 @@ that the budgets already use. Each one runs for about four to five minutes.
 See [examples.md](examples.md) and
 [examples/waveoptics/README.md](../examples/waveoptics/README.md) for what each
 one prints and what it shows.
+
+---
+
+## 10. The Schmidt foundation layer (`olb/waveoptics/schmidt/`)
+
+The sub-package holds the numerical method of Schmidt (2010),
+DOI 10.1117/3.866274, as pure book physics. It imports numpy and scipy only, it
+imports nothing from the rest of `olb`, and it returns no decibels. Each
+function names its chapter, its equation number and its printed page.
+
+Status: the layer is VALIDATION ONLY. No budget, no Term, no sizer and no runner
+consumes it, by owner decision. `olb/waveoptics/schmidt/__init__.py` exports
+nothing, so import each module by name:
+
+```python
+from olb.waveoptics.schmidt.fresnel import angular_spectrum
+from olb.waveoptics.schmidt.sampling import check_sampling
+```
+
+The physics is in [physics.md](physics.md) Section 8. The equation-by-equation
+map, the gaps and the constants ledger are in
+[schmidt-crosscheck.md](schmidt-crosscheck.md).
+
+### 10a. The transforms (`fourier.py`)
+
+| Name | What it gives |
+|---|---|
+| `freq_pitch(n, dx)` | The frequency pitch `df = 1/(N dx)`. Ch. 2, text below Eq. (2.3); Ch. 6, Eq. (6.51). |
+| `ft2(g, dx)` | The scaled two-dimensional forward transform. Ch. 2, Eq. (2.6), with the 2-D scaling of Sec. 2.6. |
+| `ift2(G, df)` | The scaled two-dimensional inverse transform. Ch. 2, Eq. (2.9). |
+| `structure_function(ph, mask, dx)` | The structure function of a masked phase screen, by transform. Ch. 3, Eqs. (3.15) to (3.25). |
+
+### 10b. The propagation kernels (`fresnel.py`)
+
+Every kernel DROPS the piston factor `exp(i k z)`, as the book listings do. The
+production `Forvard` keeps it. Bridge that before any phase comparison.
+
+| Name | What it gives |
+|---|---|
+| `one_step_fresnel(Uin, wavelength, dx1, z)` | The one-step Fresnel transform, and its FIXED output pitch `lambda z/(N dx1)`. Ch. 6, Eqs. (6.5), (6.15), (6.16). |
+| `two_step_fresnel(Uin, wavelength, dx1, dx2, z)` | Two partial Fresnel integrals with a FREE output pitch. It refuses m = 1. Ch. 6, Eqs. (6.18) to (6.25). |
+| `angular_spectrum(Uin, wavelength, dx, z, dx2=None)` | The angular-spectrum propagator. `dx2=None` gives the baseline form, Eqs. (6.31) and (6.32); a value gives the SCALED form, Eq. (6.65). |
+| `super_gaussian_absorber(n, sigma_frac=0.47, power=16)` | The book absorbing boundary. Ch. 8, Eq. (8.1), with the values of Listing 8.1. |
+| `partial_propagations(Uin, wavelength, dx1, dxn, z_planes, absorber=None)` | The general partial-propagation chain, with the linear per-plane pitch rule. Ch. 8, Eqs. (8.8), (8.14) to (8.18). |
+
+### 10c. The sampling constraints (`sampling.py`)
+
+Small pure functions. Nothing warns and nothing raises on a broken rule: the
+module measures, and the caller acts.
+
+| Name | What it gives |
+|---|---|
+| `nyquist_max_angle(wavelength_m, delta)` | The largest ray angle the grid carries. Ch. 7, Eq. (7.7). |
+| `geometric_max_angle(D1, D2, delta1, delta2, z)` | The angle the geometry demands. Ch. 7, Eqs. (7.8), (7.9), (7.12). |
+| `constraint1_max_delta2(D1, D2, delta1, wavelength_m, z)` | Constraint 1. Ch. 7, Eq. (7.14). |
+| `illuminated_diameter(D1, delta1, delta2, wavelength_m, z)` | D_illum, the diameter that the source illuminates. Ch. 7, Eq. (7.16). |
+| `constraint2_min_n(D1, D2, delta1, delta2, wavelength_m, z)` | Constraint 2. Ch. 7, Eq. (7.20). |
+| `local_spatial_frequency_source(x1, wavelength_m, z, R=inf, m=None)` | The local frequency of the source quadratic phase. `m=None` gives Eq. (7.39); a value gives Eq. (7.51). |
+| `local_spatial_frequency_transfer(f1, wavelength_m, z, delta1, delta2)` | The local frequency of the transfer function. Ch. 7, Eqs. (7.55), (7.57). |
+| `constraint3_delta2_window(D1, delta1, wavelength_m, z, R=inf)` | Constraint 3, as a window on delta2. Ch. 7, Eq. (7.53). |
+| `constraint3_is_slack(D1, D2, z, R=inf)` | True when constraint 3 does not apply. Ch. 7, Eq. (7.60). |
+| `constraint4_min_n(delta1, delta2, wavelength_m, z)` | Constraint 4. Ch. 7, Eq. (7.59). |
+| `one_step_delta2(N, delta1, wavelength_m, z)` | The fixed one-step output pitch. Ch. 7, Eq. (7.21). |
+| `one_step_min_n(D1, D2, delta1, wavelength_m, z)` | The minimum N of a one-step run. Ch. 7, Eq. (7.25). |
+| `fresnel_min_distance(D1, delta1, wavelength_m, R=inf)` | The MINIMUM one-step distance. Ch. 7, Eqs. (7.41), (7.42). |
+| `two_step_planes(z, m)` | The two intermediate-plane geometries of a two-step run. Ch. 6, Eqs. (6.24) to (6.29). |
+| `angular_spectrum_max_z(N, delta1, wavelength_m)` | The range limit `N dx^2/lambda`. Ch. 7, Eq. (7.59), inverted. It reproduces `olb.waveoptics.grid.forvard_max_z`. |
+| `partial_grid_spacing(delta1, delta_n, alpha)` | The per-plane pitch of a partial propagation. Ch. 8, Table 8.2. |
+| `partial_max_step(N, delta1, delta_n, wavelength_m)` | The step cap. Ch. 8, Eq. (8.24). |
+| `partial_plane_count(z, N, delta1, delta_n, wavelength_m)` | The plane count from that cap. Ch. 8, text below Eq. (8.24). |
+| `absorbing_boundary_sigma(N, frac=0.47)` | The book absorber half-width, in pixels. Ch. 8, Listing 8.1; Fig. 8.1. |
+| `check_sampling(D1, D2, delta1, delta2, N, wavelength_m, z, R=inf)` | Five `Rule(name, satisfied, bound, actual, citation)` tuples. Ch. 7. |
+
+### 10d. The turbulence and the screens (`turbulence.py`)
+
+| Name | What it gives |
+|---|---|
+| `phase_psd(f, r0_m, L0_m=inf, l0_m=0.0)` | The one shared phase PSD expression. Ch. 9, Eqs. (9.49) to (9.52). |
+| `kolmogorov_phase_psd`, `von_karman_phase_psd`, `modified_von_karman_phase_psd` | The three named spectra, as wrappers over `phase_psd`. Ch. 9, Eqs. (9.49), (9.50), (9.51). |
+| `kolmogorov_structure_function(r_m, r0_m)` | `D(r) = 6.88 (r/r0)^(5/3)`. Ch. 9, Eq. (9.44). |
+| `ft_phase_screen(r0_m, n, dx_m, L0_m=inf, l0_m=0.0, rng=None)` | The Fourier-series screen. Ch. 9, Eqs. (9.78) to (9.80). |
+| `subharmonic_screen(..., n_p=3)` | The low-frequency part alone. Ch. 9, Eq. (9.81). |
+| `ft_sh_phase_screen(..., n_p=3)` | The sum of the two. Ch. 9, Listings 9.2 and 9.3. |
+| `screen_r0(cn2_integral_m13, wavelength_m)` | The per-screen Fried parameter. Ch. 9, Eq. (9.70). |
+| `composite_r0(r0_i_m, alpha_i=None, wave='plane')` | The composite Fried parameter. Ch. 9, Eqs. (9.71), (9.72). |
+| `screen_rytov_share(...)` | One screen's share of the LOG-AMPLITUDE variance. Ch. 9, Eqs. (9.73), (9.74). |
+| `max_screen_strength(...)`, `RMAX = 0.1` | The per-screen cap of Listing 9.5, lines 37 to 39. |
+| `screen_strengths(...)` | The bounded least-squares solve for the screen strengths. Ch. 9, Eq. (9.75). |
+| `profile_moments`, `layer_moments`, `moment_error` | The layer moment rule for `0 <= m <= 7`. Ch. 9, Eq. (9.65). |
+| `fresnel_pitch_max(wavelength_m, z_m)` | The `sqrt(lambda z)/2` pitch cap. Sec. 9.4. |
+| `phase_pitch_max(r0_m, max_step_rad=pi, sigmas=3.0)` | The Johnston and Lane phase pitch rule, `dx <= 0.332 r0`. Sec. 9.4 with Eq. (9.44). |
+| `blurred_extent(d_m, wavelength_m, dz_m, r0_m, c=2.0)` | The turbulence-blurred extents D1', D2'. Ch. 9, Eqs. (9.84), (9.85). |
+| `constraint1_pitch_max`, `constraint2_n_min`, `constraint3_pitch_range` | The three turbulent geometry constraints. Ch. 9, Eqs. (9.86) to (9.88). |
+| `max_partial_step`, `min_planes` | The turbulent step cap and the plane count. Ch. 9, Eqs. (9.89), (9.90). |
+| `WEAK_SIGMA2_CHI = 0.25` | The weak-fluctuation threshold on the log-amplitude variance. Ch. 9, text below Eq. (9.64). |
+| `properly_sampled_checklist(...)` | One `(rule, satisfied, bound, actual, citation)` tuple per step of Sec. 9.5. An advisory step returns `satisfied = None`. |
+
+### 10e. The example scripts
+
+Three scripts in `examples/schmidt/` put this layer against the production
+layer. Each one reads `olb` and changes nothing in it.
+
+- `propagator_kernels.py` â€” the book kernels against `Forvard`, `Fresnel` and
+  the co-moving `Lens -> LensFresnel -> Convert` recipe, in three tiers.
+- `sampling_and_edges.py` â€” a gallery of deliberate sampling failures, then the
+  rule checker on the real production grids.
+- `screens_and_turbulence.py` â€” the book screen generators against the
+  `aotools` generator and against Eq. (9.44), plus the factor-4 bridge between
+  the two per-screen variance conventions.
+
+See [examples/schmidt/README.md](../examples/schmidt/README.md) for the
+measured numbers and the wiring status.

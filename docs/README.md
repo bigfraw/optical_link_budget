@@ -25,8 +25,14 @@ All documentation uses ASD-STE100 Simplified Technical English. See
    a source DOI for each equation.
 7. [Examples](examples.md) — a guide to each runnable script in `examples/`. It
    also points to the Andrews foundation suite in `examples/andrews/`, to the
-   wave-optics suite in `examples/waveoptics/`, and to the cross-check scripts
-   in `validation/`.
+   wave-optics suite in `examples/waveoptics/`, to the Schmidt suite in
+   `examples/schmidt/`, and to the cross-check scripts in `validation/`.
 8. [Andrews cross-check](andrews-crosscheck.md) — the running comparison of the
    olb equations against Andrews and Phillips, 2nd ed. (2005), with a status per
    entry and the adjudicated conflicts. This is the internal physics record.
+9. [Schmidt cross-check](schmidt-crosscheck.md) — the same record for the
+   NUMERICAL method: the olb wave-optics code against Schmidt (2010). It holds
+   the chapter index, the glossary, the forward map, the gaps S-01 to S-28 and
+   the constants ledger.
+10. [Backlog](backlog.md) — the unimplemented and unwired work, in the
+    recommended order.

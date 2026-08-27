@@ -296,6 +296,39 @@ the status, see the suite README,
 
 ---
 
+## The Schmidt foundation suite ([examples/schmidt/](../examples/schmidt/))
+
+The `examples/schmidt/` directory holds three scripts for the Schmidt numerical
+foundation layer (`olb/waveoptics/schmidt/`). Each script puts the book method
+against the production wave-optics code, prints a table with a citation on every
+row, and saves its figures next to the script. No script changes an `olb`
+module.
+
+- `propagator_kernels.py` — the book kernels against the production
+  propagators, in three tiers. It bridges the piston phase and the quadrature
+  first. Headline: the same algorithm agrees to 1e-10; the one-step and
+  two-step Fresnel kernels against the production `Fresnel` agree to 6e-4 in
+  the interior for a soft Gaussian and 1.5e-2 for a hard truncation; and the
+  two-step kernel against the co-moving `Lens -> LensFresnel -> Convert` recipe
+  agrees to 1.7e-3 and 2.3e-2 at a magnification of 247.
+- `sampling_and_edges.py` — a gallery of deliberate sampling failures, each one
+  paired with the grid that obeys the rule, then the rule checker on the real
+  production grids. It also plots the two absorber shapes on one axes.
+- `screens_and_turbulence.py` — the screen generators against Eq. (9.44). The
+  book subharmonic generator reaches 0.88 to 0.93 of theory over
+  `r/r0 = 0.3` to 1.6, and the `aotools` generator of the production layer
+  reads 1 to 3 percent above it. The script also proves the factor-4 bridge
+  between the two per-screen variance conventions from the live code: 3.9994.
+
+Every equation cites its chapter, its equation number and its printed page from
+Schmidt (2010), DOI 10.1117/3.866274. The layer is validation only: no budget,
+no Term and no sizer reads it. For the per-script guide, the measured numbers
+and the wiring status, see the suite README,
+[examples/schmidt/README.md](../examples/schmidt/README.md). Run each script as
+a module, for example `python -m examples.schmidt.propagator_kernels`.
+
+---
+
 The four link families map to their example: uplink -> `uplink_sim.py`,
 downlink -> `downlink_terminal.py`, retro -> `retro_link.py`, terrestrial ->
 `terrestrial_link.py`.

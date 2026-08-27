@@ -211,15 +211,43 @@ The path forward for each is a second reference or a derivation.
   analytic Term). Pick the reference model; then wire the Term. The
   downlink `"montecarlo"` slot in olb/links/downlink.py:247 is reserved for
   exactly this.
-- **2-N1. `min_screens` and `_merge_layers` — TO REVISE.** The floor
-  (15/9/5) has no derivation and no DOI, and the merge fallback returns one
-  screen per Cn2 layer, so every weak space case gets 20 screens (the
-  DEFAULT_HS layer count, not physics). Three-part fix: (1) clamp to
-  EXACTLY `min_screens` contiguous Cn2-weighted groups; (2) warn or raise
-  only when the profile has fewer layers; (3) justify the integers from
-  Schmidt or a convergence sweep. Then RE-RUN the three turbulent examples
-  (their agreement numbers were measured at 20 screens).
+- **2-N1. `min_screens` and `_merge_layers` — TO REVISE. The Ch. 9 evidence
+  is IN.** The floor (15/9/5) has no derivation and no DOI, and the merge
+  fallback returns one screen per Cn2 layer, so every weak space case gets
+  20 screens (the DEFAULT_HS layer count, not physics). The Schmidt
+  cross-check settles the source question: the book gives NO screen-count
+  floor (Eq. (9.90) is an FFT sampling floor, and the 11 planes of
+  Sec. 9.5.2 carry no formula); the principled replacement is the layer
+  moment rule, Eq. (9.65), printed p. 164, which fixes the positions and
+  the strengths together and gives a real floor of 4; and the book cap
+  `rmax = 0.1` is on `sigma_chi^2`, so it is 0.4 on the olb `sigma_R^2`
+  (the factor-4 bridge measures 3.9994). The revision: place and weight the
+  screens to minimise `moment_error`, take the count from the larger of
+  `min_planes` and the `rmax` cap with a floor of 4, and report the
+  achieved moment error in `SamplingReport`. Then RE-RUN the three
+  turbulent examples (their agreement numbers were measured at 20 screens).
+  The checker functions are built in `olb/waveoptics/schmidt/turbulence.py`
+  (`profile_moments`, `layer_moments`, `moment_error`, `min_planes`,
+  `max_screen_strength`, `screen_strengths`). The evidence is the WP7 gate
+  verdict in docs/schmidt-crosscheck.md.
   olb/waveoptics/turbulence/sampling.py:83, :236.
+- **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
+  foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
+  tracker holds 28 numbered gaps between the book and the production
+  wave-optics code. Do NOT copy the rows here; read Table 2 of
+  docs/schmidt-crosscheck.md. The HIGH-priority rows are: S-13 (the
+  co-moving route has no book equation; compare it against the scaled flat
+  grid of Eq. (6.65) on the 600 km uplink — the WP5 example now measures
+  1.7e-3 soft and 2.3e-2 hard at m = 247), S-14 (the split step holds ONE
+  flat pitch; Eq. (8.18) gives each step its own, so the grid cannot grow
+  with a diverging beam), S-16 (constraints 1 and 2 of Ch. 7 are
+  implemented nowhere; `guard = 4.0` and `pixels_per_feature = 16` have no
+  source), S-21 (the three turbulent geometry constraints of Eqs. (9.86) to
+  (9.88) are never evaluated), and S-22 (the layer moment rule; the same
+  item as 2-N1). The MEDIUM rows S-15 (the absorber shape), S-17 (the
+  Fresnel minimum distance), S-20 (the phase pitch rule) and S-27 (the
+  aotools subharmonic screen) are recorded there too. Each one is an owner
+  decision, because each one moves a production number.
 - **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
   raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
   snapshots only — no fade rate, no fade duration. The design note lives in
@@ -278,8 +306,9 @@ The path forward for each is a second reference or a derivation.
   docs/physics.md:1152, docs/andrews-crosscheck.md:53). Fix the three.
 - **DD-2. README node NT5 still shows the diverged-feed check as planned**
   — it is measured and closed (README.md:211).
-- **DD-3. docs/api-waveoptics.md:524 lists `min_screens` with no caveat** —
-  only CLAUDE.md records the problem. Add the caveat (or fix 2-N1 first).
+- **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
+  caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
+  `QualityPreset` table.
 - **DD-4. Crosscheck Table 3 is partly stale** — the "not found in olb"
   spectra rows predate WP3's andrews/spectra.py.
 - **DD-5. Citation faults:** ao.py:151 credits "Andrews Ch. 3" for a Noll

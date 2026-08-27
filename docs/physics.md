@@ -1314,6 +1314,114 @@ anti-pattern.
 
 ---
 
+## 8. The Schmidt foundation layer
+
+Package: `olb/waveoptics/schmidt/`. Examples: `examples/schmidt/`.
+
+### What the code models
+
+The four modules of `olb/waveoptics/schmidt/` hold the NUMERICAL method of one
+book:
+
+- J. D. Schmidt, *Numerical Simulation of Optical Wave Propagation with Examples
+  in MATLAB*, SPIE Press Monograph PM199 (2010). DOI: 10.1117/3.866274.
+
+Section 5h holds the twin of this layer for the ANALYTIC physics. The two books
+divide the work. Andrews and Phillips owns the analytic value of a quantity.
+Schmidt owns the simulation rule: the transforms, the propagators, the sampling
+constraints, the absorbing boundary, and the phase screens. A conflict between
+the two is a real finding, and `docs/schmidt-crosscheck.md` records it.
+
+Each function names its chapter, its equation number and its printed page. The
+citation format is `Schmidt (2010), DOI 10.1117/3.866274, Ch. N, Eq. (nn),
+printed p. NNN`. The package holds physics only. It imports numpy and scipy
+only, it imports nothing from the rest of `olb`, and it returns no decibels.
+
+| Module | What it gives | Book chapters |
+| --- | --- | --- |
+| `fourier.py` | The scaled two-dimensional transform pair `ft2` and `ift2`, the frequency pitch `freq_pitch`, and the transform-domain structure function `structure_function` | Ch. 2, Eqs. (2.3), (2.6), (2.9), (2.32); Ch. 3, Eqs. (3.15) to (3.25) |
+| `fresnel.py` | The four propagation kernels `one_step_fresnel`, `two_step_fresnel`, `angular_spectrum` (baseline and scaled) and `partial_propagations`, plus the book absorber `super_gaussian_absorber` | Ch. 6, Eqs. (6.5), (6.15), (6.16), (6.18) to (6.25), (6.31), (6.32), (6.65); Ch. 8, Eqs. (8.1), (8.8), (8.14) to (8.18) |
+| `sampling.py` | The four numbered constraints, the local-frequency analysis they come from, the per-kernel bounds, the partial-propagation planner, and the `check_sampling` rule table | Ch. 7, Eqs. (7.7) to (7.60); Ch. 8, Eqs. (8.23), (8.24) |
+| `turbulence.py` | The three phase PSDs, the Fourier and subharmonic screen generators, the per-screen strength rule and its `rmax` cap, the layer moment rule, the turbulent sampling bounds, and the `properly_sampled_checklist` | Ch. 9, Eqs. (9.44), (9.49) to (9.52), (9.63) to (9.65), (9.70) to (9.75), (9.78) to (9.81), (9.84) to (9.90) |
+
+### The layer is VALIDATION only
+
+No budget, no Term, no sizer and no runner consumes this layer. The production
+wave-optics code stays the LightPipes port of Section 7, and it keeps its
+bodies. The Schmidt layer measures that code from the outside, and it gives the
+book number that a future revision can move to.
+
+The retrofit of work package 6 wrote the book citations INTO the production
+modules, docstrings and comments only. Two of those citations changed a claim:
+
+- `olb/waveoptics/grid.py` `forvard_max_z` cited "Ch. 6". The rule is
+  constraint 4, Ch. 7, Eq. (7.59), printed p. 127, at m = 1, and the same
+  expression is the step cap of Ch. 8, Eq. (8.24), printed p. 144. The constant
+  is DERIVED, not a guess.
+- `olb/waveoptics/lenses.py` hinted at Ch. 7 for the co-moving grid. The book
+  develops no such grid. See the refusals below.
+
+### The three example scripts
+
+Each script reads the production layer and the Schmidt layer, prints a labelled
+table, and saves a figure. No script changes an `olb` module.
+
+- `propagator_kernels.py` — the book kernels against the production
+  propagators, in three tiers. Tier (a), `angular_spectrum` at m = 1 against
+  `Forvard`, is one algorithm on one grid, and the two agree to about 1e-10.
+  Tier (b), the one-step and two-step Fresnel kernels against the production
+  `Fresnel`, crosses a quadrature: the interior agreement is 6e-4 for a soft
+  Gaussian and 1.5e-2 for a hard truncation. Tier (c), the two-step kernel
+  against the production `Lens -> LensFresnel -> Convert` recipe at a
+  magnification of 247, gives 1.7e-3 soft and 2.3e-2 hard.
+- `sampling_and_edges.py` — a gallery of deliberate sampling failures, each
+  paired with the grid that obeys the rule, and then the rule checker on the
+  real production grids. It also plots the two absorber shapes on one axes.
+- `screens_and_turbulence.py` — the screen generators against Eq. (9.44). The
+  book subharmonic generator reaches 0.88 to 0.93 of theory over
+  `r/r0 = 0.3` to 1.6, and the `aotools` generator of the production layer
+  reads 1 to 3 percent above it, so the two agree well inside the band. Both
+  fall away past it, and no subharmonic level removes that deficit. The script
+  also proves the factor-4 bridge from the live code: the production per-screen
+  number is the plane-wave Rytov variance and the book cap `rmax = 0.1` is on
+  the log-amplitude variance, and the measured ratio is 3.9994.
+
+### Documented refusals and absences
+
+The book gives less than a reader expects in four places. Each absence is
+recorded, not filled with a guess.
+
+- **No obscured (annular) aperture.** D1 and D2 are plain extents everywhere in
+  Chs. 7 to 9. This is the same gap as the Andrews layer, Section 5h.
+- **No co-moving (spherical) grid.** Ch. 6, text, printed p. 87, names the
+  Coles and Rubio angular-grid method and then does not develop it. The book
+  never leaves the flat grid; its own answer to the same problem is the scaling
+  parameter m of Ch. 6, Eq. (6.65), printed p. 100. So the production
+  `LensFresnel` and `Convert` route has NO book equation to check against.
+- **No temporal axis.** Sec. 9.5.4, printed p. 179, states the frozen-flow
+  method in prose and points to the Greenwood frequency. It gives no equation
+  and no code.
+- **No screen-count floor.** Ch. 9 gives an UPPER bound on one screen's share
+  (`rmax = 0.1`, Listing 9.5, printed p. 175) and a worked example with 11
+  planes and no criterion (Sec. 9.5.2, printed p. 177). Eq. (9.90), printed
+  p. 174, is a sampling floor of the FFT method, not of the atmosphere. So the
+  production `QualityPreset.min_screens` (15 / 9 / 5) cannot be sourced to
+  Schmidt, and neither can any other integer. The principled replacement is the
+  layer moment rule, Eq. (9.65), printed p. 164, which fixes the screen
+  positions and the strengths together and gives a real floor of 4. That
+  revision is open.
+
+### Source
+
+- J. D. Schmidt, *Numerical Simulation of Optical Wave Propagation with Examples
+  in MATLAB*, SPIE Press (2010). DOI: 10.1117/3.866274. Every equation in the
+  package cites its chapter, equation number and printed page.
+- The equation-by-equation forward map, the 28 gaps, the constants ledger and
+  the work-package notes are in
+  [schmidt-crosscheck.md](schmidt-crosscheck.md).
+
+---
+
 ## Source summary
 
 - Andrews and Phillips, Laser Beam Propagation through Random Media, 2nd ed.
@@ -1332,7 +1440,8 @@ anti-pattern.
   (6a).
 - FAST (`fast-aosim`): statistical SMF coupling (6b).
 - Schmidt, DOI 10.1117/3.866274: the split step, the Fourier phase screen, the
-  absorbing boundary, and the grid rules (7).
+  absorbing boundary, and the grid rules (7); the numerical foundation layer
+  `olb/waveoptics/schmidt/` (8).
 - Shapiro, DOI 10.1364/JOSA.61.000492: the uplink reciprocity overlap (7).
 - Martin and Flatte, DOI 10.1364/AO.27.002111: the pixel-per-coherence-length
   rule (7).

@@ -181,6 +181,23 @@ sigma2_I = 0.25 and the gamma-gamma Term at or above it. The gamma-gamma Term is
 valid at every fluctuation strength, but it models a POINT receiver, because the
 book gives no aperture-averaged downlink index in that regime.
 
+The Schmidt foundation layer EXISTS on the branch `schmidt`.
+`olb/waveoptics/schmidt/` holds four modules of pure book physics:
+`fourier.py` (Chs. 2 and 3), `fresnel.py` (Chs. 6 and 8), `sampling.py`
+(Chs. 7 and 8) and `turbulence.py` (Ch. 9). Every equation cites its chapter,
+equation number and printed page from Schmidt (2010), DOI 10.1117/3.866274.
+Andrews owns the ANALYTIC value of a quantity; Schmidt owns the SIMULATION
+rule. The layer is VALIDATION ONLY: no budget, no Term, no sizer and no runner
+reads it, the sub-package exports nothing, and the LightPipes production code
+keeps its bodies. Three example scripts in `examples/schmidt/` measure the
+production layer against the book. See `docs/physics.md` Section 8,
+`docs/api-waveoptics.md` Section 10, `examples/schmidt/README.md`, and the
+tracker `docs/schmidt-crosscheck.md` (the chapter index, the glossary, the
+42-row forward map, the 28 gaps S-01 to S-28, and the constants ledger). The
+production modules now carry the book equation numbers in their docstrings, and
+`olb/waveoptics/grid.py` `forvard_max_z` is CORRECTLY cited: it is constraint 4,
+Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
+
 Open items:
 
 - **The turbulent screen-count floor `min_screens` is UNJUSTIFIED, and the
@@ -196,14 +213,28 @@ Open items:
   returns one screen per Cn2 layer. So every weak space case gets 20 screens —
   the layer count of `DEFAULT_HS`, not physics. A finely sampled real profile
   would explode the count (a 200-layer profile gives 200 screens for a slab that
-  the Rytov cap says needs one). The revision has three parts: (1) make
-  `_merge_layers` clamp to EXACTLY `min_screens` contiguous Cn2-weighted groups,
-  decoupled from the layer count; (2) WARN (or raise) only when the profile has
-  fewer layers than `min_screens`, because the model cannot split a layer; (3)
-  JUSTIFY the `min_screens` integers from Schmidt (the owner has the book and
-  will feed the relevant chapters) or from a convergence sweep, because the fix
-  makes them load-bearing. The three turbulent examples measured their agreement
-  numbers at 20 screens, so re-run them after the change.
+  the Rytov cap says needs one). THE Ch. 9 EVIDENCE IS NOW IN, and it settles
+  two of the three parts. (a) Schmidt gives NO screen-count floor. Eq. (9.90),
+  printed p. 174, is a sampling floor of the FFT method; the "5 to 10" of
+  Sec. 9.2.5, printed p. 165, counts the unknowns of Eq. (9.75); and the 11
+  planes of Sec. 9.5.2, printed p. 177, come with no formula. So 15 / 9 / 5
+  cannot be cited to Schmidt, and neither can any other integer. (b) The
+  principled replacement is the layer MOMENT rule, Ch. 9, Eq. (9.65), printed
+  p. 164: the layered Cn2 must match the continuous profile for the moments
+  0 <= m <= 7. It fixes the positions and the strengths together, it decouples
+  the count from the profile sampling, and it gives a real floor of 4 (8
+  equations, 2 free numbers per screen). (c) The `rmax = 0.1` cap of Listing
+  9.5, printed p. 175, is on the LOG-AMPLITUDE variance `sigma_chi^2`, and
+  `sigma2_r_screen_max` is on the plane-wave Rytov variance, which is 4 times
+  it (measured 3.9994). So the book cap is 0.4 on the olb number, and the
+  presets are 8x / 4x / 1.6x stricter. THE REVISION ITSELF IS STILL OPEN (work
+  package 7): make `_merge_layers` place and weight the screens to minimise
+  `moment_error`, take the count from the larger of `min_planes` and the
+  `rmax` cap with a floor of 4, and report the achieved moment error in
+  `SamplingReport`. Do NOT keep 15 / 9 / 5 with a Schmidt citation. The three
+  turbulent examples measured their agreement numbers at 20 screens, so re-run
+  them after the change. The evidence is the WP7 gate verdict in
+  `docs/schmidt-crosscheck.md`.
 - **Gap 2, the pre-compensated uplink, is STILL open.**
   `andrews.paths.uplink_scintillation_index(tracked=True)` gives the floor of the
   residual scintillation (Ch. 12, Eqs. (57) to (60)), but NO budget reads it yet.
