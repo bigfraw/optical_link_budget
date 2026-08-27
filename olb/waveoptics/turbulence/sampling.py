@@ -34,8 +34,10 @@ Sources:
   z_max = N dx^2 / lambda is Ch. 7, Eq. (7.59), printed p. 127, and Ch. 9,
   Eq. (9.89), printed p. 174. NOTE: this sizer evaluates NONE of the three
   turbulent geometry constraints, Eqs. (9.86) to (9.88), printed pp. 173 and
-  174, and it matches no moment of the layer rule, Eq. (9.65), printed p. 164.
-  See docs/schmidt-crosscheck.md, gaps S-21 and S-22.
+  174. It does not SOLVE the layer moment rule, Eq. (9.65), printed p. 164,
+  but the Cn2-weighted centroid grouping matches all 8 moments of the default
+  profile to better than 1 percent; the self-check measures that. See
+  docs/schmidt-crosscheck.md, gaps S-21 and S-22.
 - Martin and Flatte, Intensity images and statistics from numerical simulation
   of wave propagation in 3-D random media, DOI 10.1364/AO.27.002111. The
   pixel-per-coherence-length rule of a split-step simulation.
@@ -107,18 +109,28 @@ class QualityPreset:
         min_screens:          the smallest screen count. A weak path passes
                               sigma2_r_screen_max with one screen, but one
                               screen gives phase only and no scintillation, so
-                              a floor is needed. TO REVISE: the integers
-                              15/9/5 have NO derivation and NO DOI, unlike every
-                              other preset field. Schmidt gives NO screen-count
-                              floor either: Eq. (9.90), printed p. 174, is a
-                              sampling floor only, and the 11 planes of
-                              Sec. 9.5.2, printed p. 177, come with no formula.
-                              The principled replacement is the layer moment
-                              rule, Eq. (9.65), printed p. 164, which fixes the
-                              screen positions and strengths together and gives
-                              a real floor of 4. See the WP7 gate verdict in
-                              docs/schmidt-crosscheck.md, and the _merge_layers
-                              fallback note. (CLAUDE.md open items.)
+                              a floor is necessary. _merge_layers clamps a weak
+                              path UP to exactly this count.
+                              THE SOURCE IS olb, NOT THE BOOK. Schmidt gives NO
+                              screen-count floor: Eq. (9.90), printed p. 174,
+                              is a sampling floor of the FFT method only, and
+                              the 11 planes of Sec. 9.5.2, printed p. 177, come
+                              with no formula. The integers 15 / 9 / 5 come from
+                              an olb CONVERGENCE SWEEP; see
+                              docs/schmidt-crosscheck.md, WP7. The sweep holds
+                              the grid fixed, it moves the screen count only,
+                              and it measures the mean collected power and the
+                              aperture scintillation index of 200 snapshots.
+                              The index of a 30 deg downlink slab is 19 percent
+                              low at 3 screens, 10 percent low at 5, and flat
+                              from 7 up; the mean power holds inside 0.11 dB
+                              everywhere. So 9 and 15 sit on the plateau, and 5
+                              is the stated rapid compromise.
+                              THE ABSOLUTE LOWER BOUND IS 4. A layering with n
+                              screens has 2n free numbers, and the layer moment
+                              rule of Schmidt, DOI 10.1117/3.866274, Ch. 9,
+                              Eq. (9.65), printed p. 164, gives 8 equations. No
+                              preset may go under 4.
         fresnel_weight_min:   the Rytov share above which a screen must obey
                               the Fresnel-scale pixel rule. A screen that
                               carries less than this share of the total Rytov
@@ -147,6 +159,10 @@ class QualityPreset:
     boundary_width_frac: float
 
 
+# The min_screens column (15 / 9 / 5) comes from an olb convergence sweep. See
+# docs/schmidt-crosscheck.md, WP7, and QualityPreset.min_screens. It is olb
+# evidence, not book physics. No preset may go under 4, the moment floor of
+# Schmidt, DOI 10.1117/3.866274, Ch. 9, Eq. (9.65), printed p. 164.
 PRESETS = {
     "reference": QualityPreset("reference", 4, 4, 4096, 0.05, 15, 0.005, 0.125),
     "standard": QualityPreset("standard", 3, 3, 2048, 0.10, 9, 0.02, 0.125),
@@ -266,6 +282,46 @@ def _composite_r0(r0_m):
                  ** (-3.0 / 5.0))
 
 
+def _equal_weight_groups(weights, n_groups):
+    """Cut the layers into EXACTLY n_groups contiguous groups of equal weight.
+
+    The function walks the cumulative weight and puts a cut where the
+    cumulative weight passes g / n of the total. It then moves a cut that would
+    make an empty group, so the result always holds n_groups non-empty groups.
+    A group count above the layer count is not possible, because the function
+    does not split a layer; the count then falls to the layer count.
+
+    The group count does NOT depend on how finely the profile samples the
+    atmosphere. That is the property that Schmidt, DOI 10.1117/3.866274,
+    Ch. 9, Eq. (9.65), printed p. 164, asks for: the layered profile must match
+    the moments of the CONTINUOUS profile, and those moments do not know the
+    sampling. This function matches moment 0 (the weight sum) only.
+
+    Args:
+        weights:  the Rytov contribution of each layer, in path order.
+        n_groups: the wanted group count.
+
+    Returns:
+        A list of lists of layer indices.
+    """
+    w = np.asarray(weights, dtype=float)
+    n = int(min(max(n_groups, 1), w.size))
+    c = np.cumsum(w)
+    cuts, prev = [], 0
+    for g in range(1, n):
+        # The first index that is NOT in group g - 1. The cut goes BEFORE the
+        # layer that passes the target share, so a layer that is heavier than
+        # one share keeps its own group. That keeps the strongest group at the
+        # strongest LAYER, which is the least that any grouping can give.
+        j = int(np.searchsorted(c, c[-1] * g / n))
+        # Keep the group non-empty, and keep enough layers for the rest.
+        j = max(prev + 1, min(j, w.size - (n - g)))
+        cuts.append(j)
+        prev = j
+    edges = [0] + cuts + [int(w.size)]
+    return [list(range(edges[i], edges[i + 1])) for i in range(n)]
+
+
 def _merge_layers(weights, cap, min_groups):
     """Group adjacent layers so that each group stays under the Rytov cap.
 
@@ -273,12 +329,17 @@ def _merge_layers(weights, cap, min_groups):
     gives no sub-layer structure. A profile whose single layer is stronger than
     the cap keeps that layer, and the caller warns.
 
+    THE COUNT HAS A FLOOR. A weak path passes the cap with one group, but one
+    screen gives phase only and no scintillation. So a merge that undershoots
+    min_groups is replaced by EXACTLY min_groups equal-weight groups. The
+    screen count is then a preset choice, not an artefact of the profile
+    sampling: a 20-layer profile and a 200-layer profile of the same atmosphere
+    both give min_groups screens.
+
     Args:
         weights:    the Rytov contribution of each layer, in path order.
         cap:        the largest Rytov contribution of one group.
-        min_groups: the smallest group count. A merge that gives fewer groups
-                    than this value is refused, and each layer keeps its own
-                    screen.
+        min_groups: the smallest group count. See QualityPreset.min_screens.
 
     Returns:
         A list of lists of layer indices.
@@ -293,22 +354,7 @@ def _merge_layers(weights, cap, min_groups):
     if current:
         groups.append(current)
     if len(groups) < min_groups:
-        # TO REVISE (CLAUDE.md open items). This fallback couples the screen
-        # count to the profile sampling: it keeps ONE screen per layer, so a
-        # weak space slab gets len(DEFAULT_HS) = 20 screens, and a finely
-        # sampled profile would give hundreds. It should instead clamp UP to
-        # EXACTLY min_groups contiguous Cn2-weighted groups, and the caller
-        # should WARN only when len(weights) < min_groups (the model cannot
-        # split one layer). Fix this together with the min_screens
-        # justification, then re-run the three turbulent examples.
-        # The book rule for a layering is Schmidt, DOI 10.1117/3.866274,
-        # Ch. 9, Eq. (9.65), printed p. 164: the layered Cn2 must match the
-        # continuous profile for the moments 0 <= m <= 7. That rule fixes the
-        # positions and the strengths together, it decouples the screen count
-        # from the profile sampling, and it gives a floor of 4 screens. This
-        # merge matches moment 0 only. See gap S-22 and the WP7 gate verdict
-        # in docs/schmidt-crosscheck.md.
-        return [[i] for i in range(len(weights))]
+        return _equal_weight_groups(weights, min_groups)
     return groups
 
 
@@ -410,6 +456,13 @@ def _plan_space(scenario, geometry, preset, lam, hs, cn2_profile, warns):
     s2 = np.array([float(w_ord[g].sum()) for g in groups])
     r0 = screen_r0(cn2_int, lam)
     r0_total = _composite_r0(r0)
+
+    if w_ord.size < p.min_screens:
+        warns.append(
+            f"turbulent_grid: the Cn2 profile has {w_ord.size} layers, and the "
+            f"{p.name} preset asks for at least {p.min_screens} screens. The "
+            f"planner does not split a layer, so the plan keeps "
+            f"{len(groups)} screens. Give a finer hs grid.")
 
     if w_ord.max() > p.sigma2_r_screen_max:
         warns.append(
@@ -695,20 +748,95 @@ if __name__ == '__main__':
     assert abs(rep4.pixels_per_r0 - plan4.r0_total_m / g4.pixel_m) < 1e-9
 
     # ---- 5. a weak screen near the receiver is exempt ----
-    # The lowest Cn2 layer of the space case sits 2 m from the ground receiver.
-    # Its Fresnel scale is 1.8 mm, so the Fresnel rule would ask for a 0.9 mm
-    # pixel on a 3 m grid. That is over 3000 pixels. The layer carries far less
+    # A 10 deg slant path gives 11 screens, and the last one sits about 80 m
+    # from the ground receiver. Its Fresnel scale is 11 mm, so the Fresnel rule
+    # would ask for a 5.6 mm pixel on an 8 m grid. That screen carries less
     # than fresnel_weight_min of the Rytov variance, so the plan ignores it.
-    z_to_rx2 = plan2.z_total_m - plan2.z_m
-    share2 = plan2.sigma2_r / plan2.sigma2_r.sum()
-    near_i = int(np.argmin(z_to_rx2))
-    dx_if_forced = float(np.sqrt(lam * z_to_rx2[near_i]) / 2)
-    n_if_forced = g2.size_m / dx_if_forced
-    assert share2[near_i] < PRESETS["standard"].fresnel_weight_min, share2[near_i]
-    assert n_if_forced > 4 * g2.n, (n_if_forced, g2.n)
-    assert g2.pixel_m > dx_if_forced, (g2.pixel_m, dx_if_forced)
+    orbit10 = CircularOrbit(altitude_m=600e3, elevation_deg=[10.0])
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        g5, plan5, rep5 = turbulent_grid(space, orbit10)
+    z_to_rx5 = plan5.z_total_m - plan5.z_m
+    share5 = plan5.sigma2_r / plan5.sigma2_r.sum()
+    near_i = int(np.argmin(z_to_rx5))
+    dx_if_forced = float(np.sqrt(lam * z_to_rx5[near_i]) / 2)
+    n_if_forced = g5.size_m / dx_if_forced
+    assert share5[near_i] < PRESETS["standard"].fresnel_weight_min, share5[near_i]
+    assert n_if_forced > g5.n, (n_if_forced, g5.n)
+    assert g5.pixel_m > dx_if_forced, (g5.pixel_m, dx_if_forced)
     # The screens that DO pass the threshold are still sampled.
-    assert rep2.fresnel_pixels_min >= 2.0, rep2.fresnel_pixels_min
+    assert rep5.fresnel_pixels_min >= 2.0, rep5.fresnel_pixels_min
+
+    # ---- 6. the screen-count floor is a preset choice, not a profile artefact
+    # A weak slab passes the Rytov cap with one group, so min_screens sets the
+    # count. The count must NOT follow the layer count of the profile.
+    zenith = CircularOrbit(altitude_m=600e3, elevation_deg=[90.0])
+
+    def plan_at(preset_name, heights):
+        """Give (plan, report) of the weak zenith slab on one height grid."""
+        prof = default_cn2_profile(space.channel.site, heights)
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            return turbulent_grid(space, zenith, preset=preset_name,
+                                  hs=heights, cn2_profile=prof)[1:]
+
+    hs_200 = np.geomspace(DEFAULT_HS[0], DEFAULT_HS[-1], 200)
+    hs_3 = np.geomspace(DEFAULT_HS[0], DEFAULT_HS[-1], 3)
+    floor_rows = []
+    for name in ("reference", "standard", "rapid"):
+        want = PRESETS[name].min_screens
+        pl20, rp20 = plan_at(name, DEFAULT_HS)
+        pl200, rp200 = plan_at(name, hs_200)
+        pl3, rp3 = plan_at(name, hs_3)
+        # The 20-layer and the 200-layer profiles give the SAME count.
+        assert pl20.z_m.size == want, (name, pl20.z_m.size, want)
+        assert pl200.z_m.size == want, (name, pl200.z_m.size, want)
+        assert not any("layers" in w for w in rp20.warnings), rp20.warnings
+        assert not any("layers" in w for w in rp200.warnings), rp200.warnings
+        # A profile that is thinner than the floor warns, and it keeps its
+        # layers, because the planner does not split a layer.
+        assert pl3.z_m.size == 3, (name, pl3.z_m.size)
+        assert any("does not split a layer" in w for w in rp3.warnings), \
+            rp3.warnings
+        # The count sums the SAME turbulence, whatever the grouping.
+        assert abs(pl200.sigma2_r.sum() / pl20.sigma2_r.sum() - 1) < 0.05
+        floor_rows.append((name, want, pl20.z_m.size, pl200.z_m.size,
+                           pl3.z_m.size, pl20.r0_total_m))
+
+    # A STRONG path still goes past the floor, through the Rytov cap.
+    prof_low = default_cn2_profile(space.channel.site, hs_200)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        _, plan6, _ = turbulent_grid(space, orbit10, preset="standard",
+                                     hs=hs_200, cn2_profile=prof_low)
+    assert plan6.z_m.size > PRESETS["standard"].min_screens, plan6.z_m.size
+    assert plan6.sigma2_r.max() <= PRESETS["standard"].sigma2_r_screen_max
+
+    # No preset goes under the moment floor of 4. See Schmidt,
+    # DOI 10.1117/3.866274, Ch. 9, Eq. (9.65), printed p. 164: 8 moment
+    # equations against 2n free numbers.
+    assert min(p.min_screens for p in PRESETS.values()) >= 4
+
+    # ---- 7. the moment error of the clamped grouping ----
+    # VALIDATION IMPORT ONLY. The production code above must not read the
+    # schmidt reference layer; this self-check may. See CLAUDE.md.
+    from ..schmidt.turbulence import moment_error
+    prof200 = default_cn2_profile(space.channel.site, hs_200)
+    order200 = np.argsort(-hs_200)
+    z_prof = (hs_200[-1] - hs_200[order200])          # zenith: sec = 1
+    cn2_prof200 = prof200[order200]
+    pl_clamp, _ = plan_at("standard", hs_200)
+    # The OLD bail-out kept one screen for each layer.
+    old_int = (prof200 * np.gradient(hs_200))[order200]
+    err_clamp = moment_error(cn2_prof200, z_prof, pl_clamp.cn2_int_m13,
+                             pl_clamp.z_m)
+    err_old = moment_error(cn2_prof200, z_prof, old_int, z_prof)
+    # The clamped grouping keeps every moment to better than 1 percent, with 9
+    # screens instead of 200. The Cn2-weighted centroid is the reason: it puts
+    # each screen at the first moment of its own group.
+    assert abs(err_clamp[0]) < 0.02, err_clamp
+    assert abs(err_clamp).max() < 0.01, err_clamp
+    assert abs(err_old).max() < 0.01, err_old
 
     # ---- the printed tables ----
     print("case 1, terrestrial, 2 km, Cn2 = 5e-15, standard preset:")
@@ -744,7 +872,11 @@ if __name__ == '__main__':
     print(f"  pixels per r0           {rep2.pixels_per_r0:11.2f}")
     print(f"  Fresnel pixels, min     {rep2.fresnel_pixels_min:11.2f}")
     print(f"  step / Forvard limit    {rep2.step_over_limit_max:11.3f}")
-    print(f"  nearest screen share    {share2[near_i]:11.5f} "
+    print("")
+    print("case 5, the Fresnel exemption, 10 deg elevation, standard preset:")
+    print(f"  screens                 {plan5.z_m.size:11d}")
+    print(f"  pixels per side         {g5.n:11d}")
+    print(f"  nearest screen share    {share5[near_i]:11.5f} "
           f"(exempt below {PRESETS['standard'].fresnel_weight_min})")
     print(f"  its forced pixel count  {n_if_forced:11.0f}")
     print("")
@@ -764,6 +896,26 @@ if __name__ == '__main__':
     for w in rep4.warnings:
         # A decimal point is a full stop too, so cut on the length.
         print(f"  warning: {w[16:88]}...")
+    print("")
+    print("case 6, the screen-count floor on the weak zenith slab:")
+    print(f"  {'preset':<12}{'min_screens':>13}{'20 layers':>11}"
+          f"{'200 layers':>12}{'3 layers':>10}{'r0 [cm]':>10}")
+    for name, want, n20, n200, n3, r0t in floor_rows:
+        print(f"  {name:<12}{want:>13}{n20:>11}{n200:>12}{n3:>10}"
+              f"{r0t * 1e2:>10.2f}")
+    print("  The count follows the PRESET, not the layer count. A 3-layer "
+          "profile warns.")
+    print(f"  A strong path (10 deg, standard) still gives "
+          f"{plan6.z_m.size} screens, past the floor.")
+    print("")
+    print("case 7, the moment error of the grouping, Schmidt Eq. (9.65):")
+    print(f"  {'m':>3}{'clamped, 9 screens':>21}{'one screen per layer':>23}")
+    for m, (ec, eo) in enumerate(zip(err_clamp, err_old)):
+        print(f"  {m:>3}{ec:>21.4f}{eo:>23.4f}")
+    print("  The book gives the equality and NO tolerance. The clamped "
+          "grouping keeps")
+    print("  EVERY moment to better than 1 percent with 9 screens, against "
+          "200 layers.")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")
