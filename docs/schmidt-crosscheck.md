@@ -401,7 +401,7 @@ that olb has no name for it yet.
 | mu(r) (158) | Coherence factor. The verification target of Sec. 9.5.5. No olb name. |
 | D(r), D_phi(r) (158) | Wave and phase structure functions. No olb name. |
 | H(f) (158) | Mean atmospheric MTF. No olb name. |
-| sqrt(lambda z) (172) | Fresnel length, the scintillation scale. No olb name. The olb pitch rule uses `pixels_per_r0` only. |
+| sqrt(lambda z) (172) | Fresnel length, the scintillation scale. olb has no NAME for it, but it HAS the rule: `olb/waveoptics/turbulence/sampling.py:454` caps the pitch at `sqrt(lambda z_i)/2`. olb cites Andrews Ch. 8 for it; the same rule is Schmidt Sec. 9.4, printed p. 172, from Johnston and Lane. So the olb pitch rule uses BOTH `pixels_per_r0` and the Fresnel scale. See Table 2, row S-26. |
 | rect (185) | Appendix A. No olb equivalent. |
 | tri (185) | Appendix A. No olb equivalent. |
 | sinc (185) | Appendix A. Used by the model point source. No olb equivalent. |
@@ -417,6 +417,46 @@ that olb has no name for it yet.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Power`, `Normal` | `olb/waveoptics/field.py:181` | Riemann-sum scaling, `sum(I) * dx^2` | (2.3), (2.32) | 15, 36 | 28, 48 | checked | The same rule that puts `dx^2` on `ft2`. The two agree. The book cites it for the transform; olb cites Goodman for the power. No change needed. |
 | `Forvard`, `Fresnel` | `olb/waveoptics/propagators.py:121` | UNSCALED `fft2`/`ifft2` | (2.6), (2.9) | 16, 17 | 29, 30 | checked | The LightPipes propagators use a bare `fft2` with a sign-alternation trick in place of `fftshift`. The forward and the inverse transform cancel inside one propagator, so the missing `dx^2` and `(N df)^2` cancel too. The result is correct, but the intermediate spectrum carries NO physical scaling. Do NOT mix `schmidt.fourier.ft2` with those intermediates. |
+| `forvard_max_z` | `olb/waveoptics/grid.py:209` | `z_max = N dx^2 / lambda` | (7.59) | 127 | 140 | checked | EXACT. The rule is constraint 4 of Ch. 7, inverted with Delta2 = Delta1. The docstring cites "Ch. 6", which is the wrong chapter. `schmidt/sampling.py` `angular_spectrum_max_z` reproduces it, and the self-check proves the two agree. See gap S-12. |
+| the flat EXTENT rule | `olb/waveoptics/grid.py:105` | `size = guard * 2 * r_max`, the grid side of a vacuum propagation | (7.18) | 120 | 133 | conflict | DIFFERENT RULE. The book sizes the grid from the illuminated area and the region of interest, `D_grid >= (D_illum + D2)/2`, and it ALLOWS the wrapped light outside D2. olb puts a fixed margin around the beam. See gap S-07. |
+| the RESOLUTION rule | `olb/waveoptics/grid.py:118`, `:166` | `dx <= feature/(P/2)`, the pixel pitch | Listing 7.1; Ch. 8 text | 124, 144 | 137, 157 | partial | The book gives no equation. It picks the spacing per example: "at least 50 grid pts across ap" (Listing 7.1), and at least 30 grid points across D1 and across D2 (Ch. 8 text). COMPATIBLE IN FORM, COARSER IN VALUE. See Table 3. |
+| `n_wanted` | `olb/waveoptics/grid.py:169` | `n = 2 ** ceil(log2(size/dx))`, the pixel count | Listing 7.1 line 11; Listing 7.2 line 13 | 124, 128 | 137, 141 | checked | EXACT. The book rounds N up to the next power of two for the FFT. |
+| the range warning | `olb/waveoptics/grid.py:179` | warns when `z > forvard_max_z` | (7.59) | 127 | 140 | checked | EXACT rule, wrong citation. The docstring says Ch. 6. See gap S-12. |
+| the turbulent extent rule | `olb/waveoptics/turbulence/sampling.py:370`, `:441` | `side = [guard*2*r_beam + 2*(lambda/r0)*z] / (1 - b)` | Ch. 9 (the scattering cone); (8.1) for the band | 134 | 147 | out of scope | Chapters 7 and 8 give no such rule, except the `(1 - b)` absorbing-band divisor of Sec. 8.1. Chapter 9 owns the rest of the row. See Table 3. |
+| the turbulent pixel rule | `olb/waveoptics/turbulence/sampling.py:382`, `:451` | `dx <= min(r0/P_r0, sqrt(lambda z_i)/2, feature/(P/2))` | — | — | — | gap | NO Ch. 7 CONTENT. The two scale rules come from Ch. 9 (r0) and from the Fresnel scale. The turbulent sizer never evaluates constraints 1 to 4. See gap S-06. |
+| the pixel-count clamp | `olb/waveoptics/turbulence/sampling.py:457` | `n = clamp(2**ceil(log2(side/dx)), 256, n_max)` | Listing 7.2 line 13 | 128 | 141 | partial | The power-of-two step is EXACT. The `[256, n_max]` clamp has no book source. See Table 3. |
+| `step_over_limit_max` | `olb/waveoptics/turbulence/sampling.py:469` | `max(gap)/forvard_max_z`, the worst split-step length against constraint 4 | (8.24) | 144 | 157 | partial | SAME IDEA, DIFFERENT ROUTE. The book SETS the plane count from Eq. (8.24). olb sets it from the Cn2 profile and only REPORTS the ratio. See gap S-10. |
+| `super_gaussian_boundary` | `olb/waveoptics/turbulence/splitstep.py:29` | the absorbing boundary | (8.1); Listing 8.1; Fig. 8.1 | 134, 142 | 147, 155 | conflict | FORM AGREES (a super-Gaussian of exponent above 2). The NUMBERS are a different parameterisation. See Table 3 and gap S-11. |
+| `Forvard` | `olb/waveoptics/propagators.py:57` | The angular-spectrum propagator, m = 1 | (6.31), (6.32) | 95 | 108 | checked | The transfer function in the docstring, `exp(i k z) exp(-i pi lam z f^2)`, is EXACTLY Eq. (6.32). olb KEEPS the piston factor `exp(i k z)`; `schmidt.fresnel.angular_spectrum` drops it, as Listing 6.5, printed p. 102, does. So the two differ by one constant phase. The irradiance is the same. |
+| `Forvard` | `olb/waveoptics/propagators.py:121` | The transform pair | (2.6), (2.9) | 16, 17 | 29, 30 | checked | Duplicate of the WP1 row. A bare `fft2`/`ifft2` with a sign-alternation trick in place of `fftshift`. The missing `dx^2` and `(N df)^2` cancel inside one propagator. |
+| `Forvard` grid rule | `olb/waveoptics/propagators.py:69` | "give the grid a side of about 8 times the largest beam radius" | (7.14), (7.20) | 119, 120 | 132, 133 | conflict | The olb rule is a rule of thumb with no source. Constraints 1 and 2 give the real bound, and both need D1, D2 and z. See gap S-16. |
+| `Fresnel` | `olb/waveoptics/propagators.py:136` | The CONVOLUTION form of the Fresnel integral | (6.6) | 88 | 101 | checked | olb convolves on a grid of twice the side and integrates the kernel over one pixel in closed form (C and S). The book does NOT do that: it multiplies by the analytic transfer function of Eq. (6.49), printed p. 99. The two solve the same Eq. (6.6). The pixel integral is a REFINEMENT of the book, not a departure from it. |
+| `Fresnel` minimum distance | `olb/waveoptics/propagators.py:149` | "z comparable with, or less than, the aperture" | (7.41), (7.42) | 123 | 136 | checked | The docstring cites Ch. 7 for the minimum distance. Eqs. (7.41) and (7.42) give the number: `z >= D1 dx1 R /(lam R - D1 dx1)`, and `z >= D1 dx1 / lam` for a flat source. olb states the rule in words only. See gap S-17. |
+| `Fresnel` doubled grid | `olb/waveoptics/propagators.py:139` | The zero-padded convolution | — | — | — | no book equation | The book has NO zero-padded convolution. It controls the wrap with the ABSORBING BOUNDARY of Ch. 8, Eq. (8.1), printed p. 134, and with the grid-size constraint of Eq. (7.20). Two different cures for one problem. |
+| `GForvard` | `olb/waveoptics/propagators.py:253` | The analytic ABCD Gaussian route | (6.70), (6.77), (6.81) | 103, 104 | 116, 117 | partial | The book gives the ray matrices and the generalized Huygens-Fresnel (ABCD) INTEGRAL. It does NOT give the closed-form q-parameter transform `q2 = (A q1 + B)/(C q1 + D)` that `_ABCD` uses. olb cites Siegman, ISBN 978-0935702118. Eq. (6.77) assumes azimuthal symmetry, which a pure Gaussian meets. |
+| `Lens` | `olb/waveoptics/lenses.py:70` | The thin lens as a quadratic phase | (6.76) | 104 | 117 | checked | Eq. (6.76) is the thin-lens ray matrix. The phase form is the operator `Q[-1/f, r]` of Eq. (6.7), printed p. 89. The book states the lens phase delay at Sec. 6.5, printed p. 104. |
+| `LensFresnel` | `olb/waveoptics/lenses.py:173` | The co-moving (spherical) grid | — | — | — | NO book equation | The book NAMES the Coles and Rubio angular-grid method (Ch. 6, text, printed p. 87) and then does NOT develop it. Schmidt's own answer to the same problem is the SCALING PARAMETER m of Eq. (6.65), printed p. 100, on a FLAT grid. The olb `Lens -> LensFresnel -> Convert` recipe has no Schmidt equation to check against. See gap S-13. |
+| `Convert` | `olb/waveoptics/lenses.py:233` | Return from spherical to a flat grid | — | — | — | NO book equation | Same as `LensFresnel`. The book never leaves the flat grid. |
+| `LensFresnel` magnification | `olb/waveoptics/lenses.py:187` | `fA = z/(m - 1)`, grid scale `(f - z)/f` | (6.24), (6.52) to (6.54) | 94, 99, 100 | 107, 112, 113 | partial | The olb `m` and the book `m` mean the SAME thing: the ratio of the two grid pitches. But olb gets it from a virtual lens and the book gets it from a free parameter in the exponent. The two routes are not the same algorithm. |
+| `split_step` | `olb/waveoptics/turbulence/splitstep.py:94` | The partial-propagation loop | (8.18) | 139 | 152 | conflict | olb calls `Forvard` (m = 1) on ONE flat grid for every step. Eq. (8.18) gives each step its OWN pitch, from the linear rule of Eq. (8.8), printed p. 136, and its own magnification m_i. So olb cannot grow the grid with the beam. See gap S-14. |
+| `super_gaussian_boundary` | `olb/waveoptics/turbulence/splitstep.py:29` | The absorbing boundary | (8.1) | 134 | 147 | conflict | The FORM matches Eq. (8.1), but the parameterisation and the shape do not match Listing 8.1. See Table 3 and gap S-15. |
+| `forvard_max_z` | `olb/waveoptics/grid.py:209` | `z_max = N dx^2 / lam` | (7.59), (8.24) | 127, 144 | 140, 157 | checked | This IS constraint 4 of Eq. (7.59), rearranged for m = 1: `N >= lam z/(dx1 dx2)` with `dx1 = dx2 = dx` gives `z <= N dx^2/lam`. It is also Eq. (8.24), the step cap, with `min(dx1, dxn) = dx`. The Table 3 row is now filled: the constant is DERIVED, not a guess. |
+| `phase_screen` PSD | `olb/waveoptics/turbulence/screens.py:81` | modified von Karman PHASE PSD, `0.023 r0^(-5/3) exp(-(f/fm)^2) / (f^2+f0^2)^(11/6)` | (9.51), (9.52) | 161 | 174 | checked | The expression is the book's, and `fm = 5.92/(2 pi l0)`, `f0 = 1/L0` are the book's too. olb defaults `l0 = 1e-6 m` and `L0 = 1e6 m`, not 0 and infinity, so the numbers are the Kolmogorov ones to 12 digits. The constant agrees: `0.49 (2 pi)^(-5/3) = 0.02290` against the printed 0.023 (0.42% apart). |
+| `phase_screen` FT draw | `olb/waveoptics/turbulence/screens.py:81` (aotools `ft_phase_screen`) | the Fourier-series screen | (9.78)–(9.80), Listing 9.2 | 167 | 180 | checked | The `ft_phase_screen` of the new module and the aotools one give the SAME mean structure function to 3 digits: the ratio to Eq. (9.44) is 0.636 / 0.540 / 0.422 / 0.347 / 0.286 at r/r0 = 1 / 2 / 4 / 6 / 8 (24 screens, N = 256, r0 = 10 px, direct-difference estimator). So the aotools FT screen IS Listing 9.2. |
+| `phase_screen(subharmonics=True)` | `olb/waveoptics/turbulence/screens.py:81` (aotools `ft_sh_phase_screen`) | the subharmonic low-frequency screen | (9.81), Listing 9.3 | 169, 170 | 182, 183 | conflict | The two do NOT agree. On the run above, the book form gives 0.863 / 0.826 / 0.783 / 0.760 / 0.741 of theory, and aotools gives 0.824 / 0.778 / 0.725 / 0.692 / 0.661. The book form is 5 to 12% closer to Eq. (9.44) at every separation. See Table 2, row S-27. |
+| `screen_r0` | `olb/waveoptics/turbulence/screens.py:56` | `r0_i = (0.423 k^2 Cn2_i dz_i)^(-3/5)` | (9.70) | 165 | 178 | checked | Exact match, the constant included. olb cites Fried and Andrews Ch. 12; the book credits Roggemann et al., DOI 10.1364/AO.34.004037. Add the Schmidt citation. |
+| `_composite_r0` | `olb/waveoptics/turbulence/sampling.py:198` | `r0 = (SUM r0_i^(-5/3))^(-3/5)` | (9.71) | 165 | 178 | checked | Exact match. It is the PLANE-wave composite. The book also gives the spherical one, Eq. (9.72), which olb has no name for. |
+| `_screen_rytov` | `olb/waveoptics/turbulence/sampling.py:175` | one screen's path weight | (9.63), (9.73) | 163, 165 | 176, 178 | checked | olb computes `2.25 k^(7/6) (INT Cn2 dz) (z - z_i)^(5/6)`, which is the plane-wave RYTOV variance `sigma_R^2`. The book's per-screen quantity is the LOG-AMPLITUDE variance `sigma_chi^2`, constant 0.563. The ratio is `2.25/0.563 = 3.997`. The self-check measures 3.9994. See Table 3. |
+| `sigma2_r_screen_max` | `olb/waveoptics/turbulence/sampling.py:107` | the per-screen cap | Listing 9.5, lines 37, 38 | 175 | 188 | checked | The book caps `sigma_chi^2` at `rmax = 0.1`. olb caps `sigma_R^2 = 4 sigma_chi^2` at 0.05 / 0.10 / 0.25. See Table 3 for the factor analysis. |
+| the extent rule, the scattering cone | `olb/waveoptics/turbulence/sampling.py:442` | `2 (lambda/r0) z` added to the grid side | (9.84), (9.85) | 173 | 186 | checked | The added term is `c lambda dz / r0` with `c = 2`, which is the book's low value. Listing 9.6, line 2, printed p. 177, uses `c = 2` too. The book states that `c = 2` holds 97% of the light and `c = 4` holds 99% (text below Eq. (9.85), printed p. 173). BUT olb adds the blur to the grid SIDE. The book adds it to D1' and D2' and then feeds constraints 1 to 3. Different route, same constant. |
+| the pixel rule, `pixels_per_r0` | `olb/waveoptics/turbulence/sampling.py:451` | `dx <= r0_total / pixels_per_r0` | Sec. 9.4 text | 172 | 185 | checked | The book gives the rule of Johnston and Lane, DOI 10.1364/AO.39.004761: pick the pitch at which the phase step between two adjacent samples stays below pi for more than 99.7% of the draws. With Eq. (9.44) that reads `3 sqrt(6.88 (dx/r0)^(5/3)) <= pi`, so `dx <= 0.332 r0`, that is **3.01 pixels per r0**. The olb `standard` preset value 3 lands on it. |
+| the pixel rule, the Fresnel scale | `olb/waveoptics/turbulence/sampling.py:454` | `dx <= sqrt(lambda z)/2` | Sec. 9.4 text | 172 | 185 | checked | olb ALREADY has the book's scintillation pitch rule, exactly. It cites Andrews Ch. 8 for it. The rule is Schmidt Sec. 9.4, printed p. 172, from Johnston and Lane. The tracker glossary row `sqrt(lambda z) (172)` said that olb has no such rule. That row was WRONG, and it is now corrected. See Table 2, row S-26. |
+| `_merge_layers` | `olb/waveoptics/turbulence/sampling.py:209` | where the screens go, and what each carries | (9.65) | 164 | 177 | gap | olb groups adjacent Cn2 layers under the Rytov cap, and it BAILS OUT to one screen per layer when the merge undershoots `min_screens`. It matches NO moment of Eq. (9.65). See Table 2, row S-22, and the WP7 gate verdict. |
+| `turbulent_grid` | `olb/waveoptics/turbulence/sampling.py:366` | the grid sizer | (9.86)–(9.88) | 173, 174 | 186, 187 | gap | olb applies NONE of the three turbulent geometry constraints. It sizes the side from a beam-plus-cone rule and the pixel from `r0` and the Fresnel scale, then it rounds N up to a power of two. See Table 2, row S-21. |
+| `super_gaussian_boundary` | `olb/waveoptics/turbulence/splitstep.py:29` | the absorbing boundary | (8.1); Listing 9.7, line 19 | 134, 179 | 147, 192 | checked | Eq. (8.1) gives the SHAPE `exp(-(r/sigma)^n)`, `n > 2`, and no numbers. Listing 9.7 gives the numbers, and they are not olb's. See Table 3. |
+| `split_step` max hop | `olb/waveoptics/turbulence/splitstep.py:170` | `max_step = N dx^2 / lambda` | (9.89) | 174 | 187 | checked | Exact match. It repeats Ch. 8, Eq. (8.24), printed p. 144. olb cites Ch. 6; the turbulent statement is Eq. (9.89). |
+| `split_step` loop | `olb/waveoptics/turbulence/splitstep.py:94` | the split-step chain | (9.1)–(9.3) | 150 | 163 | checked | olb hops to a screen, applies the screen, and hops on. The book applies the screen AT each partial-propagation plane, Eq. (9.3), printed p. 150. The two agree when the screens sit at the plane positions. The olb screens sit at slab CENTRES, so the two differ by half a slab. The book does not treat that case. |
+| `min_screens` | `olb/waveoptics/turbulence/sampling.py:107` | the screen-count floor | — | — | — | gap | Chapter 9 gives NO such floor. See Table 3 and the WP7 gate verdict. |
 
 # Table 2 — gaps and suggestions
 
@@ -426,6 +466,30 @@ that olb has no name for it yet.
 | S-02 | 3.2 | (3.11), (3.14) | The windowed auto-correlation, which gives the coherence factor mu(r) of Sec. 9.5.5. It is the OTHER verification of a turbulent run. | a later work package | medium |
 | S-03 | 2.5.2, 2.5.3 | (2.27), (2.31) | The p-fraction bandwidth of a Gaussian, with and without a quadratic phase. It gives a grid pitch from the beam alone. `GridSpec.for_scenario` uses a `pixels_per_feature` guess instead. | `olb/waveoptics/grid.py` | low |
 | S-04 | 3.4 | (3.26) | The derivative by transform. The book states it is not used again. olb has no wavefront sensor. Do NOT build it. | none | none |
+| S-05 | 6.3.2 | (6.24)–(6.29) | No TWO-STEP Fresnel propagator. `olb/waveoptics/propagators.py` has `Forvard`, `Fresnel` and `GForvard`, and `lenses.py` has the co-moving route. None of them frees the magnification with a second Fresnel integral. `schmidt/sampling.py` `two_step_planes` gives the two intermediate-plane geometries. A propagator that uses them is not built. | `olb/waveoptics/propagators.py` | — |
+| S-06 | 7.3.3 | — | No budget, sizer, or runner calls a sampling checker. `GridSpec.for_scenario` and `turbulent_grid` warn on their OWN rules only. Wire `check_sampling` into `GridSpec.for_scenario` and into `SamplingReport`. It never raises, so it cannot break an existing run. | `olb/waveoptics/grid.py`, `olb/waveoptics/turbulence/sampling.py` | — |
+| S-07 | 7.2, 7.3 | (7.14), (7.20) | Constraints 1 and 2 are implemented NOWHERE in olb. The observation-region extent D2 never enters a grid decision. olb uses the receive aperture as a FEATURE (a pixel rule), never as D2 (an extent rule). | `olb/waveoptics/grid.py` | — |
+| S-08 | 7.3.2 | (7.53) | Constraint 3 is not checked. The transmit-beam curvature R never reaches a grid rule. This is the same missing curvature thread as Gap 3 of the Andrews cross-check. | `olb/waveoptics/grid.py` | — |
+| S-09 | 7.3.1.2 | (7.41), (7.42) | The Fresnel-integral MINIMUM distance is not checked. `olb/waveoptics/propagators.py:136` `Fresnel` has no near-distance guard, so a short call aliases silently. `fresnel_min_distance` gives the bound. | `olb/waveoptics/propagators.py` | — |
+| S-10 | 8.4 | (8.23), (8.24) | No vacuum partial-propagation planner. A long vacuum link takes the co-moving lens route instead of a chain of angular-spectrum steps. `partial_max_step` and `partial_plane_count` give the count. The turbulent planner sets its count from Cn2, not from Eq. (8.24). | `olb/waveoptics/run.py` | — |
+| S-11 | 8.1 | Listing 8.1; Fig. 8.1 | The absorbing-boundary width carries no Schmidt number. `absorbing_boundary_sigma` gives the book value. See Table 3. | `olb/waveoptics/turbulence/splitstep.py` | — |
+| S-12 | 7.3.2 | (7.59) | `forvard_max_z` cites "Ch. 6". The rule is Ch. 7, Eq. (7.59), printed p. 127. A one-line docstring fix. | `olb/waveoptics/grid.py` | — |
+| S-13 | 6.4, 6.5 | (6.65) | The SCALED flat-grid propagator, as the alternative to the olb `Lens -> LensFresnel -> Convert` co-moving route. `schmidt.fresnel.angular_spectrum(..., dx2=)` now gives it. The two routes solve the same problem, and NO test compares them. Compare them on the 600 km uplink of `olb/waveoptics/run.py`. | an example in WP5 | high |
+| S-14 | 8.3 | (8.18), (8.8) | The PER-PLANE grid pitch in the turbulent split step. `olb/waveoptics/turbulence/splitstep.py` holds one flat pitch for the whole path, so a diverging uplink beam must fit the SOURCE grid at the RECEIVER. `schmidt.fresnel.partial_propagations` now shows the book's linear pitch rule. Wiring it into `splitstep.py` is an owner decision, because it moves every turbulent number. | `olb/waveoptics/turbulence/splitstep.py` | high |
+| S-15 | 8.1 | (8.1), Listing 8.1 | The absorbing boundary of olb is a DIFFERENT shape from the book's. olb: power 8, a taper band of 0.125 of the half-side, so the mask is exactly 1.0 out to 0.875 of the half-side and `exp(-1)` at the middle of an edge. Book: power 16, sigma = 0.47 N pixels, so the mask is 0.99999 at 0.2 N and 0.0678 at the middle of an edge. The book's boundary bites HARDER at the edge and it has no flat-then-taper break. Decide which one olb keeps. | `olb/waveoptics/turbulence/splitstep.py` | medium |
+| S-16 | 7.2, 7.3 | (7.14), (7.20) | Constraints 1 and 2 as CODE. `olb/waveoptics/grid.py` sizes the grid from a `guard` of 4 and a `pixels_per_feature` of 16, with no citation. The book gives two inequalities in D1, D2, z, dx1 and dx2. | `olb/waveoptics/schmidt/sampling.py` (built in WP3), then `olb/waveoptics/grid.py` | high |
+| S-17 | 7.3.1.2 | (7.41), (7.42) | The MINIMUM one-step distance as a number. `olb/waveoptics/propagators.py:149` states the rule in words: "z comparable with, or less than, the size of the aperture". The book gives `z >= D1 dx1 / lam` for a flat source. | `olb/waveoptics/schmidt/sampling.py` (built in WP3) | medium |
+| S-18 | 6.6 | (6.82), (6.89), (6.92) | The MODEL point source. A true delta has infinite bandwidth, so the book replaces it with a sinc that gives the wanted windowed target field. olb has no point source: `olb/waveoptics/sources.py` gives `GaussBeam`, `PlaneWave`, `CircAperture` and `CircScreen` only. A retro link or a beacon may need one. | `olb/waveoptics/schmidt/` (a later work package) | low |
+| S-19 | 6.5 | (6.77), (6.80), (6.81) | The general ABCD propagator for a NON-Gaussian field. `GForvard` handles a pure Gaussian only, and it raises on any other field. Eq. (6.81) gives the ABCD transfer function, which works on any field. | not needed yet | low |
+| S-20 | 9.4 | Sec. 9.4 text, printed p. 172 | The Johnston and Lane PHASE pitch rule, `dx <= 0.332 r0`. The olb `pixels_per_r0` is a bare preset integer with a Martin and Flatte citation and no derivation. The book's prose plus Eq. (9.44) give the number. Built as `phase_pitch_max`. | `olb/waveoptics/turbulence/sampling.py` | medium |
+| S-21 | 9.4, 9.5.2 | (9.86), (9.87), (9.88) | The three turbulent geometry constraints, and the blurred extents D1', D2' of Eqs. (9.84) and (9.85). olb checks none of them, so a bad pitch pair gives no warning. Built as `constraint1_pitch_max`, `constraint2_n_min`, `constraint3_pitch_range`, `blurred_extent`. | `olb/waveoptics/turbulence/sampling.py`, or a validation example | high |
+| S-22 | 9.2.5 | (9.65) | The layered-atmosphere MOMENT rule for `0 <= m <= 7`. It is the only screen-placement rule that Chapter 9 gives. `_merge_layers` satisfies no part of it. Built as `profile_moments`, `layer_moments`, `moment_error`. | `olb/waveoptics/turbulence/sampling.py` | high (the WP7 hinge) |
+| S-23 | 9.2.5, 9.5.1 | (9.75), Listing 9.5 | The constrained least-squares solve for the screen `r0` values from a target `r0_sw` and `sigma_chi,sw^2`. olb never solves for a screen strength; it takes the Cn2 layers as given. Built as `screen_strengths` and `max_screen_strength`. | `olb/waveoptics/turbulence/sampling.py` | medium |
+| S-24 | 9.5.5 | (9.32), (9.44) | The observation-plane coherence factor as the end-to-end verification of a turbulent run. It is row S-02 of this table seen from Chapter 9. `properly_sampled_checklist` names it as an advisory step; nothing measures it. | a later work package | medium |
+| S-25 | 9.4 | — | `QualityPreset.fresnel_weight_min` (`olb/waveoptics/turbulence/sampling.py:450`) exempts a weak screen from the Fresnel pitch rule. Chapter 9 states NO such exemption; Sec. 9.4 applies the rule to every step. The exemption is a real cost saver, so keep it, but mark it as an olb rule, not a book rule. | `olb/waveoptics/turbulence/sampling.py` | low |
+| S-26 | 9.4 | — | Documentation only. The tracker glossary row for `sqrt(lambda z)` said that olb has no such rule. `olb/waveoptics/turbulence/sampling.py:454` has it exactly. DONE: the glossary row is corrected. | `docs/schmidt-crosscheck.md` | low (done) |
+| S-27 | 9.3 | (9.81), Listing 9.3 | The aotools subharmonic screen reads 5 to 12% lower than the book's Listing 9.3 form across `r/r0 = 1` to 8. Both are below theory. Decide whether to keep aotools, to pass the book form from `schmidt.turbulence`, or to move to Johansson and Gavel, DOI 10.1117/12.177254, which the book calls the closest match (Ch. 9, text above Sec. 9.4, printed p. 172). | `olb/waveoptics/turbulence/screens.py` | medium |
+| S-28 | 9.5.1 | Listing 9.5, lines 15 to 18 | A BOOK ERROR to record. Sec. 9.5.1, printed p. 176, prints `r0_sw = 17.7 cm` for the 50 km example. Listing 9.5 with the same inputs gives **12.66 cm**, and Problem 2, printed p. 183, confirms the `(3/8)^(-3/5)` factor. The printed `sigma_chi,sw^2 = 0.436` DOES reproduce (0.4365). So the printed `r0_sw` is the odd number. Do not calibrate anything against 17.7 cm. | none (a note) | — |
 
 # Table 3 — constants ledger
 
@@ -433,20 +497,98 @@ Each row holds an olb constant that carries NO citation today. Fill the book
 columns as the cross-check proceeds. An empty book column means that we have
 not yet found a source, or that the book gives none.
 
-| olb constant | olb value | location | book quantity | book eq | printed p | pdf p | status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `QualityPreset.min_screens` | 15 / 9 / 5 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `QualityPreset.sigma2_r_screen_max` | 0.05 / 0.10 / 0.25 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `QualityPreset.boundary_width_frac` | 0.125 / 0.125 / 0.10 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `super_gaussian_boundary` `power` | 8 | `olb/waveoptics/turbulence/splitstep.py:29` | | | | | flagged |
-| `super_gaussian_boundary` `width_frac` | 0.125 | `olb/waveoptics/turbulence/splitstep.py:29` | | | | | flagged |
-| `QualityPreset.guard` | 4 / 3 / 2 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `QualityPreset.pixels_per_r0` | 4 / 3 / 2 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `QualityPreset.fresnel_weight_min` | 0.005 / 0.02 / 0.05 | `olb/waveoptics/turbulence/sampling.py:105` | | | | | flagged |
-| `GridSpec.for_scenario` `guard` | 4.0 | `olb/waveoptics/grid.py:98` | | | | | flagged |
-| `GridSpec.for_scenario` `pixels_per_feature` | 16 | `olb/waveoptics/grid.py:98` | | | | | flagged |
-| `N_MIN` | 256 | `olb/waveoptics/grid.py:36` | | | | | flagged |
-| `forvard_max_z` | z_max = N dx^2 / lambda | `olb/waveoptics/grid.py:209` | | | | | flagged |
+The `book value` column holds the number that the book prints, when it prints
+one. An empty book column means that we have not yet found a source, or that the
+book gives none.
+
+| olb constant | olb value | location | book quantity | book value | book eq | printed p | pdf p | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `QualityPreset.min_screens` | 15 / 9 / 5 | `olb/waveoptics/turbulence/sampling.py:105` | a screen-count FLOOR | **the book would not give** | — | — | — | checked, no source. See the WP7 gate verdict. |
+| `QualityPreset.sigma2_r_screen_max` | 0.05 / 0.10 / 0.25 | `olb/waveoptics/turbulence/sampling.py:105` | `rmax`, the per-screen cap | 0.1 on `sigma_chi^2`, so **0.4 on `sigma_R^2`** | Listing 9.5, lines 37, 38 | 175 | 188 | checked, olb is 1.6x to 8x stricter. See the factor note below. |
+| `QualityPreset.boundary_width_frac` | 0.125 / 0.125 / 0.10 | `olb/waveoptics/turbulence/sampling.py:105` | the boundary half-width | `0.47 N dx` (Listing 9.7); `0.45 L` (Fig. 8.1) | (8.1); Listing 9.7, line 19 | 134, 179 | 147, 192 | checked, the book gives no value in this parameterisation |
+| `super_gaussian_boundary` `power` | 8 | `olb/waveoptics/turbulence/splitstep.py:29` | the super-Gaussian exponent n of Eq. (8.1) | **16** | (8.1); Listing 8.1, line 12; Listing 9.7, line 19 | 134, 142, 179 | 147, 155, 192 | CONFLICT. The book RUNS `sg = exp(-nsq.^8/w^16)`, which is `exp(-(r/w)^16)`, so n = 16. Figure 8.1, printed p. 134, also plots n = 16. Eq. (8.1) itself only needs n > 2, so the olb value of 8 is ALLOWED by the equation but it is not the book's number. The book also records that Flatte and others used n = 8 (Ch. 8, text, printed p. 134), so 8 has a source in the literature, not in Schmidt's own runs. |
+| `super_gaussian_boundary` `width_frac` | 0.125 | `olb/waveoptics/turbulence/splitstep.py:29` | the half-width sigma of Eq. (8.1) | **0.47 N pixels** (Listing 8.1); **0.45 L** (Fig. 8.1) | (8.1); Listing 8.1, line 11 | 134, 142 | 147, 155 | CONFLICT of PARAMETERISATION. The book states one half-width sigma in PIXELS, measured from the centre. olb states a taper BAND width as a fraction of the half-side, with a hard flat region inside it. The two cannot be converted. Book at the middle of an edge: `exp(-(0.5/0.47)^16) = 0.0678`. olb at the middle of an edge: `exp(-1) = 0.368`. The book absorbs about 5 times harder there. |
+| `QualityPreset.guard` | 4 / 3 / 2 | `olb/waveoptics/turbulence/sampling.py:105` | the beam-radius margin | the book gives no such margin; it sizes from D1', D2' and constraint 2 | (9.84)–(9.87) | 173, 174 | 186, 187 | checked, different route |
+| `QualityPreset.pixels_per_r0` | 4 / 3 / 2 | `olb/waveoptics/turbulence/sampling.py:105` | the phase pitch rule | **3.01** pixels per r0 | Sec. 9.4 text with (9.44) | 172, 160 | 185, 173 | checked, `standard` = 3 matches |
+| `QualityPreset.fresnel_weight_min` | 0.005 / 0.02 / 0.05 | `olb/waveoptics/turbulence/sampling.py:105` | a weak-screen exemption | **the book would not give** | — | — | — | checked, no source. See gap S-25. |
+| `GridSpec.for_scenario` `guard` | 4.0 | `olb/waveoptics/grid.py:98` | the grid half-side margin, 4 beam radii | the book gives NO guard factor; Eq. (7.18) sizes the grid as `(D_illum + D2)/2` | (7.18) | 120 | 133 | UNCITED, and a DIFFERENT PHILOSOPHY. The book tolerates aliasing outside the region of interest; olb forbids it everywhere. The olb rule is stricter for a wide beam and it is silent about D2. See gap S-07. |
+| `GridSpec.for_scenario` `pixels_per_feature` | 16 | `olb/waveoptics/grid.py:98` | points across the smallest hard edge | **50** across D1 (Listing 7.1); **30** across D1 and D2 (Ch. 8 text) | Listing 7.1; Ch. 8 text | 124, 144 | 137, 157 | UNCITED, and COARSER than both worked examples by a factor of 2 to 3. The book treats the number as a per-problem choice, not a constant. |
+| `N_MIN` | 256 | `olb/waveoptics/grid.py:36` | a floor on the pixel count | the book has NO floor; its three worked examples land at **128**, **512** and **128** | Ch. 7 text; Ch. 8 text | 123, 128, 144 | 136, 141, 157 | UNCITED. All three book examples sit at or BELOW the olb floor, so the floor never binds on a book-sized problem. It is a convenience, not physics. |
+| `forvard_max_z` | z_max = N dx^2 / lambda | `olb/waveoptics/grid.py:209` | constraint 4 with m = 1; the step cap | `N >= lam z/(dx1 dx2)`; `Delta_z_max = min(dx1,dxn)^2 N/lam` | (7.59), (8.24) | 127, 144 | 140, 157 | cited, checked. RESOLVED by WP2 and WP3: the olb formula IS the book formula. The constant is DERIVED, not a guess. Only the docstring chapter is wrong. See gap S-12. |
+| `PIXELS_PER_FEATURE` | 8 | `olb/waveoptics/turbulence/sampling.py:56` | points across the smallest hard edge | **50** and **30**, as above | Listing 7.1; Ch. 8 text | 124, 144 | 137, 157 | UNCITED, coarser again by a factor of 4 to 6. |
+| the scattering-cone factor | 2 (hard-coded) | `olb/waveoptics/turbulence/sampling.py:442` | `c`, the blur sensitivity | **2 to 8; c = 2 holds 97%, c = 4 holds 99%**; Listing 9.6 uses 2 | (9.84), (9.85) | 173 | 186 | checked, olb sits at the book's low end |
+| `MAX_SCREENS` | 500 | `olb/waveoptics/turbulence/sampling.py:60` | a screen-count cap | **the book would not give** | — | — | — | checked, no source |
+
+## The Fig. 8.1 and Listing 8.1 half-width
+
+The Fig. 8.1 caption prints `sigma = 0.45 L` and `n = 16`, while Listing 8.1
+prints `w = 0.47*N`. L and N are the same length in pixel units, so the two
+numbers differ by 4%. `schmidt.fresnel.super_gaussian_absorber` takes 0.47 as
+the default, because that is the value the book RUNS.
+
+## The `rmax` versus `sigma2_r_screen_max` factor
+
+Listing 9.5, lines 37 and 38, printed p. 175, read
+
+    rmax = 0.1;
+    x2 = rmax/1.33*(k/Dz)^(5/6) ./ A(2,:);
+
+where `x` holds `r0_i^(-5/3)` and row 2 of `A` holds
+`alpha^(5/6) (1-alpha)^(5/6)`. Multiply both sides by `A(2,i)`:
+
+    1.33 k^(-5/6) z^(5/6) r0_i^(-5/3) alpha^(5/6) (1-alpha)^(5/6) <= 0.1
+
+The left side is one term of Eq. (9.74), printed p. 165, which is the
+SPHERICAL-WAVE LOG-AMPLITUDE variance `sigma_chi,sw^2` of Eq. (9.64), printed
+p. 163. So `rmax = 0.1` bounds `sigma_chi^2`, NOT the Rytov variance. The
+book's own text calls it "the overall Rytov number" (Sec. 9.5.1, printed
+p. 176), and that phrase is loose.
+
+The olb `_screen_rytov` (`sampling.py:175`) computes
+`2.25 k^(7/6) (INT Cn2 dz) (z - z_i)^(5/6)`. Substitute Eq. (9.70) into the
+book's plane-wave term, Eq. (9.73), and it gives
+`0.563 k^(7/6) (INT Cn2 dz) (z - z_i)^(5/6)`. The ratio is
+
+    2.25 / 0.563 = 3.997
+
+The self-check measures 3.9994. So **the olb per-screen number is
+`sigma_R^2 = 4 sigma_chi^2`, and the book's cap of 0.1 on `sigma_chi^2` is a
+cap of 0.4 on the olb number.**
+
+| preset | olb cap on `sigma_R^2` | the same as a cap on `sigma_chi^2` | against the book's 0.1 |
+| --- | --- | --- | --- |
+| `reference` | 0.05 | 0.0125 | 8x stricter |
+| `standard` | 0.10 | 0.025 | 4x stricter |
+| `rapid` | 0.25 | 0.0625 | 1.6x stricter |
+
+Two more differences, both small:
+
+- The book weights the screen for a SPHERICAL wave,
+  `alpha^(5/6) (1-alpha)^(5/6)`. olb weights it for a PLANE wave,
+  `(1-alpha)^(5/6)`. For a downlink slab the source is far away, so the
+  plane-wave weight is the right one, and it is the LARGER of the two. The olb
+  choice stays conservative.
+- The book applies the cap as an OPTIMISER bound while it solves for the
+  screen `r0` values. olb applies it as a merge rule on a fixed Cn2 profile.
+
+**Verdict on this constant: olb is conservative, and it is not wrong.** No
+change is forced. If a run is too slow, `rapid` at 0.25 is still 1.6x inside
+the book's guideline, and 0.4 is the book value.
+
+## The absorbing boundary constants
+
+Listing 9.7, line 19, printed p. 179, reads
+
+    sg = exp(-(x1/(0.47*N*d1)).^16) .* exp(-(y1/(0.47*N*d1)).^16);
+
+so the mask is SEPARABLE in x and y, the order is 16, and the `exp(-1)` point
+sits at `x = 0.47 L`, that is 0.94 of the half-side. The mask first falls below
+0.99 at 0.705 of the half-side, and it is 0.068 at the middle of an edge.
+
+The olb `super_gaussian_boundary` is RADIAL, of order 8, exactly 1.0 inside
+0.875 of the half-side, and `exp(-1)` at the edge. The two shapes are not the
+same family, so the numbers do not map one to one. Recorded, not changed.
+Eq. (8.1), printed p. 134, allows any order above 2 and gives no `sigma`.
 
 ---
 
@@ -497,12 +639,450 @@ not yet found a source, or that the book gives none.
 
 ## WP2 — Fresnel propagators (Ch. 6)
 
+**Built.** `olb/waveoptics/schmidt/fresnel.py`. The module gives five names. It
+imports numpy and `schmidt.fourier` only.
+
+- `one_step_fresnel(Uin, wavelength, dx1, z) -> (Uout, dx2)` — Ch. 6, Sec.
+  6.3.1. The transform form is Eq. (6.5), printed p. 88. The operator chain is
+  Eq. (6.15), printed p. 90. The FIXED observation pitch
+  `dx2 = lambda z /(N dx1)` is Eq. (6.16), printed p. 90.
+- `two_step_fresnel(Uin, wavelength, dx1, dx2, z) -> Uout` — Ch. 6, Sec. 6.3.2.
+  The operator chain is Eq. (6.18), printed p. 93. The pitch chain is
+  Eqs. (6.19) to (6.21), printed p. 94. The scaling parameter is Eq. (6.24) and
+  the intermediate plane is Eq. (6.25), both printed p. 94.
+- `angular_spectrum(Uin, wavelength, dx, z, dx2=None) -> Uout` — Ch. 6,
+  Sec. 6.4. With `dx2=None` it is the baseline form, Eqs. (6.31) and (6.32),
+  printed p. 95. With `dx2` it is the SCALED form, Eq. (6.65), printed p. 100.
+- `super_gaussian_absorber(n, sigma_frac=0.47, power=16)` — Ch. 8, Eq. (8.1),
+  printed p. 134, with the reference values of Listing 8.1, printed p. 142.
+- `partial_propagations(Uin, wavelength, dx1, dxn, z_planes, absorber=None)` —
+  Ch. 8, Sec. 8.3. The general chain is Eq. (8.18), printed p. 139. The linear
+  pitch rule is Eq. (8.8), printed p. 136. The cancellation of the middle
+  quadratic phases is Eqs. (8.14) to (8.16), printed p. 138.
+
+Every kernel docstring carries a VALIDITY paragraph. It names four things: the
+Fresnel and paraxial condition (Ch. 1, Eqs. (1.49), (1.50) and (1.57), printed
+pp. 8 and 10; Ch. 6, text, printed p. 87), what the kernel fixes about the
+output pitch, why the kernel aliases, and WHICH Chapter 7 constraint governs it
+by equation number. No constraint is implemented here. `sampling.py` (WP3) owns
+the tests.
+
+**Self-check numbers.**
+
+`python -m olb.waveoptics.schmidt.fresnel`. The common geometry is N = 1024,
+lambda = 1 um, dx1 = 80 um, z = 10 m, W0 = 3 mm. The one-step pitch of
+Eq. (6.16) is then 122.070 um, so m = 1.5259 and the three Chapter 6 kernels
+share one output grid.
+
+| check | measured | target |
+| --- | --- | --- |
+| `one_step_fresnel` against the Gaussian closed form | 4.857e-16 | 1e-12 |
+| `two_step_fresnel` against the Gaussian closed form | 4.090e-16 | 1e-12 |
+| `angular_spectrum`, scaled (m = 1.5259), against the closed form | 5.405e-16 | 1e-12 |
+| `angular_spectrum`, baseline (m = 1, z = 4 m), against the closed form | 4.623e-16 | 1e-12 |
+| one-step against two-step | 5.005e-16 | 1e-12 |
+| one-step against angular spectrum | 6.867e-16 | 1e-12 |
+| two-step against angular spectrum | 6.867e-16 | 1e-12 |
+| `partial_propagations`, 6 planes, against one angular-spectrum step | 9.800e-16 | 1e-12 |
+| `partial_propagations` against the closed form | 7.900e-16 | 1e-12 |
+| the absorber does not touch the beam | 2.822e-15 | 1e-9 |
+
+The absorber values: the centre is 1.000000 exactly; the smallest value inside a
+pixel radius of 0.2 N is 0.999999; the value at the middle of an edge is
+0.067796, which equals the book value `exp(-(0.5/0.47)^16) = 0.067796` to 1e-12;
+the mask never grows along a radius.
+
+Every error is at the floor of double precision. That is the correct answer, not
+a loose test: a Gaussian on a well-sampled grid has a spectrum far inside the
+band, so the discrete Fresnel transform has no aliasing left to make an error.
+
+The self-check also prints the step cap of Eq. (8.24) for the common geometry:
+`Delta_z_max = 6.554 m`, so `n >= 3` planes. The run used 6.
+
+**Decisions.**
+
+- **The piston phase `exp(i k z)` is DROPPED from every kernel.** The book's own
+  Listings 6.1, 6.3 and 6.5 (printed pp. 91, 96 and 102) drop it, and Listing
+  8.1 (printed p. 142) drops it too. The factor is constant across a plane, so
+  it changes no irradiance and no relative phase. To drop it in all four
+  kernels is what lets them agree with each other to 1e-16. NOTE: the olb
+  `Forvard` KEEPS `exp(i k z)`. Any future comparison must remove one or add the
+  other.
+- **The SCALED angular spectrum is BUILT, not skipped.** The task allowed the
+  baseline `m = 1` form only. Eq. (6.65) reduces to Eqs. (6.31) and (6.32) when
+  m = 1, so the general form with `dx2=None` as the default costs four lines
+  and gives both. The tracker calls Eq. (6.50) "the workhorse of Chs. 7 to 9",
+  and gap S-13 needs it to compare against the olb co-moving route.
+- **`partial_propagations` takes `(dx1, dxn, z_planes)`, not a per-plane pitch
+  list.** Eq. (8.8), printed p. 136, DERIVES the per-plane pitch from the two
+  end pitches and the fractional distance. A caller cannot choose an arbitrary
+  pitch per plane: Eq. (8.15), printed p. 138, needs the linear rule for the
+  middle quadratic phases to cancel. So a `dx_planes` argument would let a
+  caller break the algorithm. The signature follows Listing 8.1.
+- **`z_planes` holds the FULL list, and the first value is normally 0.** The
+  book's MATLAB argument starts at the second plane and line 14 of Listing 8.1
+  prepends a zero. The full list is clearer at a call site.
+- **The absorber goes on EVERY plane after the first, the observation plane
+  included.** Eq. (8.18), printed p. 139, has `A[r_i+1]` for i = 1 to n-1, and
+  Listing 8.1 line 38 applies `sg` inside the loop. `absorber=None` gives the
+  pure vacuum result, which is what the self-check compares.
+- **`two_step_fresnel` REFUSES m = 1.** Eq. (6.25), printed p. 94, then puts the
+  intermediate plane at infinity. Table 6.2, printed p. 95, records that case.
+  Use `angular_spectrum` for m = 1.
+- **`two_step_fresnel` takes the MINUS branch of Eq. (6.25).** Listing 6.3,
+  line 13, printed p. 96, uses `Dz1 = Dz/(1 - m)`. Eq. (6.30), printed p. 95,
+  proves that the plus branch gives the same magnitude of m. A step distance may
+  be negative, and the code does not refuse it.
+- **This module holds NO sampling test.** `sampling.py` (WP3) owns the four
+  constraints. The docstrings name the governing constraint by equation number
+  and stop there. A caller that breaks a constraint gets an aliased result and
+  no warning. The module docstring says so.
+- **The Tukey window of Eq. (8.2), printed p. 134, is NOT built.** Nothing needs
+  it.
+- **The point source of Sec. 6.6 is NOT built.** See gap S-18.
+- **The ABCD route of Sec. 6.5 is NOT built.** `GForvard` and `Lens` already
+  cover the olb need. See gap S-19.
+
+**The book would not give.**
+
+- **A numerical threshold for the Fresnel approximation.** Chapter 1 defines the
+  paraxial approximation as `cos alpha ~ 1` and `cos beta ~ 1` (Eqs. (1.49) and
+  (1.50), printed p. 8), and Chapter 6 states that the approximation "is a very
+  good one" for parallel planes (text, printed p. 87). Neither gives an
+  inequality in D, z and lambda. The docstrings say that the book gives none.
+- **A sampling constraint set for TWO-STEP propagation.** Section 7.3.1 analyses
+  ONE step (Sec. 7.3.1.1, printed p. 120). Chapter 7 never revisits Sec. 6.3.2.
+  The `two_step_fresnel` docstring tells the caller to apply the one-step rules
+  to each of the two steps, with the pairs `(dx1, dxa, z1)` and `(dxa, dx2,
+  z2)`. That is our reading, not a printed rule.
+- **A Gaussian-beam TEST CASE.** The book DOES give the closed form: Ch. 1,
+  Eqs. (1.53) to (1.56), printed p. 9. But it never uses it as a numerical
+  target. Through Chs. 6 to 8 it compares against Fresnel diffraction from a
+  SQUARE aperture (Ch. 1, Eq. (1.60), printed p. 11). The self-check uses the
+  Gaussian instead, because a Gaussian has no truncation error on a large grid,
+  so it isolates the kernel from the grid. Andrews and Phillips, 2nd ed. (2005),
+  DOI 10.1117/3.626196, Ch. 4, Eqs. (37) and (38), printed p. 93, print the same
+  solution.
+- **A tolerance for any comparison.** The book compares its figures by eye
+  ("the comparison is very close", printed p. 92). The self-check sets its own
+  targets.
+- **A rule that ties the absorber half-width to the region of interest.** The
+  values 0.47 N and 16 are the book's own numbers in Listing 8.1. Section 8.1
+  gives the reason for a super-Gaussian in words only: "we must be careful not
+  to alter light in the central region of the grid" (printed p. 134).
+- **Any equation for a spherical or co-moving grid.** Chapter 6 NAMES the Coles
+  and Rubio angular-grid method (text, printed p. 87) and then does not develop
+  it. The olb `LensFresnel` and `Convert` route has no Schmidt equation to check
+  against. Schmidt's own answer to the same problem is the scaling parameter m
+  on a flat grid. See gap S-13.
+
 ## WP3 — Sampling constraints (Chs. 7, 8)
 
+**Built.** `olb/waveoptics/schmidt/sampling.py`, plus a one-line placeholder
+`olb/waveoptics/schmidt/__init__.py` (the package directory did not exist).
+
+Small pure functions, numpy only, no olb import:
+
+- Ch. 7.1 and 7.2, the band limit and the geometry: `nyquist_max_angle`
+  (Eq. (7.7)), `geometric_max_angle` (Eqs. (7.8), (7.9), (7.12)),
+  `illuminated_diameter` (Eq. (7.16)).
+- The four numbered constraints: `constraint1_max_delta2` (Eq. (7.14)),
+  `constraint2_min_n` (Eq. (7.20)), `constraint3_delta2_window` (Eq. (7.53)),
+  `constraint4_min_n` (Eq. (7.59)), and `constraint3_is_slack` (Eq. (7.60)).
+- The local-frequency analysis that the constraints come from:
+  `local_spatial_frequency_source` (Eqs. (7.37), (7.39), (7.51)) and
+  `local_spatial_frequency_transfer` (Eqs. (7.55), (7.57)).
+- Per kernel: `one_step_delta2` (Eq. (7.21)), `one_step_min_n` (Eq. (7.25)),
+  `fresnel_min_distance` (Eqs. (7.41), (7.42)), `two_step_planes`
+  (Eqs. (6.24) to (6.29)), `angular_spectrum_max_z` (Eq. (7.59) inverted).
+- Ch. 8: `partial_grid_spacing` (Table 8.2), `partial_max_step` (Eq. (8.24)),
+  `partial_plane_count` (text below Eq. (8.24)), `absorbing_boundary_sigma`
+  (Listing 8.1 and Fig. 8.1).
+- `check_sampling` returns five `Rule` tuples
+  (name, satisfied, bound, actual, citation). It NEVER raises and it never
+  warns. The caller decides.
+
+The self-check reproduces the book's own worked numbers:
+
+| Book place | Quantity | Book | Module |
+|---|---|---|---|
+| Ch. 7, Eq. (7.43), printed p. 123 | N_min, one step | 66 | 65.79 |
+| Ch. 7, Eq. (7.43), printed p. 123 | N used | 128 | 128 |
+| Ch. 7, Eq. (7.43), printed p. 123 | delta2 | 97.7 um | 97.66 um |
+| Ch. 7, Eq. (7.42), printed p. 123 | z_min | 8 cm | 8.00 cm |
+| Ch. 7, Sec. 7.3.2, printed p. 127 | log2 N, constraint 4 | 8.55 | 8.55 |
+| Ch. 7, Sec. 7.3.2, printed p. 128 | log2 N, constraint 2 | 8.51 | 8.51 |
+| Ch. 7, Sec. 7.3.2, printed p. 128 | N used | 512 | 512 |
+| Ch. 8, Eq. (8.25), printed p. 144 | Delta_z max | 0.567 m | 0.569 m |
+| Ch. 8, text, printed p. 144 | planes n | 5 | 5 |
+| Ch. 6, Table 6.2, printed p. 95 | two-step planes, m = 2, 1, 1/2 | 1/3, 2/3, -1, 2 and 1/2, 1/2, inf and 2/3, 1/3, 2, -1 | identical |
+
+The self-check also proves that the DERIVATIONS close, not only the numbers: the
+Nyquist rule on Eq. (7.39) at the source edge gives back Eq. (7.42); the same
+rule on Eq. (7.51) gives back the constraint-3 upper bound; the same rule on
+Eq. (7.57) gives back constraint 4; Eq. (7.31) reproduces Eq. (7.25) exactly;
+and Eq. (7.18) on `illuminated_diameter` reproduces constraint 2 exactly.
+
+Run: `python -m olb.waveoptics.schmidt.sampling`.
+
+**Decisions.**
+
+- ONE checker, a list of five plain namedtuples. No severity levels, no
+  fixer, no auto-sizer. The module measures; the caller acts.
+- `check_sampling` returns ALL five rows for every call, and each row carries
+  its citation. It does not take a `method` argument, because the citation
+  already tells the caller which kernel a row governs (rows 1 and 2 are
+  geometry and hold for all three kernels; rows 3 and 4 are the
+  angular-spectrum kernel; row 5 is the two Fresnel-integral kernels).
+- The per-kernel assumption sets live in the docstrings of `one_step_delta2`,
+  `two_step_planes` and `angular_spectrum_max_z`, one kernel per docstring.
+  Each names the Fresnel-approximation validity, what the kernel fixes or
+  frees about the grid spacing, when it aliases, and which constraint governs
+  it.
+- `local_spatial_frequency_source` takes ONE optional `m`. `m=None` gives the
+  Fresnel-integral phase curvature 1/z + 1/R (Eq. (7.39)); a value of `m`
+  gives the angular-spectrum curvature (1 - m)/z + 1/R (Eq. (7.51)). Two
+  equations, one function, because only the curvature differs.
+- No MATLAB listing is ported. Every function is written from the printed
+  equations.
+- The module does NOT change any existing sizer. To wire it is gap S-06, an
+  owner decision, because a wired check moves no numbers but it will print
+  warnings on grids that run today.
+
+**The book would not give.**
+
+- NO guard factor and NO margin philosophy that matches `grid.py`. The book
+  lets the wrapped light come half way around the grid, up to the edge of D2
+  (Eq. (7.18), printed p. 120). It never asks for empty space around the beam.
+  So `guard=4.0` cannot be justified from Ch. 7; it can only be replaced by
+  constraint 2.
+- NO fixed pixels-per-feature number and NO N floor. The book picks 50 points
+  across the aperture in one example and 30 in another, and it calls the whole
+  analysis "a guideline ... not unbreakable rules" (Ch. 7, Sec. 7.3.3, printed
+  p. 129).
+- NO obscured or annular aperture rule. D1 and D2 are plain extents.
+- NO turbulence in Ch. 7 or Ch. 8. The screen rules are Ch. 9, so the
+  `min_screens` and `pixels_per_r0` question stays open after this work package.
+- TWO arithmetic slips in the book's own worked numbers, both reproduced above
+  and both harmless:
+  1. Eq. (8.25), printed p. 144, prints `(66.7 um)^2 * 128 / 1 um = 0.567 m`.
+     The arithmetic gives 0.569 m. The plane count (5) is the same either way.
+  2. The Ch. 8 example, printed p. 144, reads "at least N = 2^7 = 128 grid
+     points are required" off the Fig. 8.5 contour plot. Constraint 2 with
+     delta1 = 66.7 um and delta_n = 133 um gives N >= 142.8, which is 2^7.16.
+     (The book prints D1 = 2 mm and the 30-point choice. It does not print D2;
+     D2 = 4 mm follows from delta_n = 133 um times 30 points.)
+     The book then uses N = 128 for Eq. (8.25). So the printed example
+     VIOLATES its own constraint 2 by 11 percent.
+- NO two-sided form of Eq. (7.41). The printed bound is one-sided. A
+  converging source with `lambda R < D1 delta1` has no valid distance at all;
+  the module returns `math.inf` there, which is an olb decision, not a book
+  statement.
+
 ## WP4 — Turbulence and screens (Ch. 9)
+
+**Built.** `olb/waveoptics/schmidt/turbulence.py`, twenty names, each with its
+chapter, equation number and printed page:
+
+- **The spectra (Secs. 9.2.3, 9.3).** `phase_psd` (the one shared expression),
+  `kolmogorov_phase_psd` (9.49), (9.52), `von_karman_phase_psd` (9.50),
+  `modified_von_karman_phase_psd` (9.51), `kolmogorov_structure_function`
+  (9.44).
+- **The screens (Sec. 9.3).** `ft_phase_screen` (9.78) to (9.80) with Listing
+  9.2, `subharmonic_screen` (9.81) with Listing 9.3, `ft_sh_phase_screen` (the
+  sum).
+- **The per-screen bound (Sec. 9.2.5, Listing 9.5).** `screen_rytov_share`
+  (9.73), (9.74), `max_screen_strength` (Listing 9.5, lines 37 to 39),
+  `screen_strengths` (9.75), `composite_r0` (9.71), (9.72), `screen_r0` (9.70),
+  and the constants `RMAX = 0.1` and `WEAK_SIGMA2_CHI = 0.25`.
+- **The layer rule (Sec. 9.2.5).** `profile_moments`, `layer_moments`,
+  `moment_error`, all Eq. (9.65).
+- **The sampling bounds (Sec. 9.4).** `fresnel_pitch_max`, `phase_pitch_max`,
+  `blurred_extent` (9.84), (9.85), `constraint1_pitch_max` (9.86),
+  `constraint2_n_min` (9.87), `constraint3_pitch_range` (9.88),
+  `max_partial_step` (9.89), `min_planes` (9.90).
+- **The procedure (Sec. 9.5).** `properly_sampled_checklist`, which returns one
+  `(rule, satisfied, bound, actual, citation)` tuple per step. Its arguments are
+  plain numbers, and their names match `GridSpec` (`n`, `pixel_m`, `size_m`) and
+  `ScreenPlan` (`z_m`, `r0_m`, `r0_total_m`, `z_total_m`) one to one. It imports
+  no olb module outside `schmidt`.
+
+**Measured.** Self-check numbers, from
+`python -m olb.waveoptics.schmidt.turbulence` (7.5 s):
+
+- The modified von Karman PSD reduces to Kolmogorov for `L0 = inf`, `l0 = 0`
+  to a relative error of 0.0. The Kolmogorov branch equals
+  `0.023 r0^(-5/3) f^(-11/3)` to 4e-16. The angular constant converts:
+  `0.49 (2 pi)^(-5/3) = 0.02290`, 0.42% from the printed 0.023.
+- The mean structure function of 24 screens, `N = 512`, `r0 = 10` px, through
+  `schmidt.fourier.structure_function` with a 1.2 m pupil, against Eq. (9.44):
+
+  | r/r0 | subharmonic ratio | FT-only ratio |
+  | --- | --- | --- |
+  | 0.3 | 0.908 | 0.822 |
+  | 0.5 | 0.898 | 0.797 |
+  | 0.8 | 0.885 | 0.765 |
+  | 1.2 | 0.870 | 0.733 |
+  | 1.6 | 0.857 | 0.706 |
+  | 3.2 | 0.815 | 0.625 |
+  | 8.0 | 0.763 | 0.505 |
+
+  The stated band is `r/r0 = 0.3` to 1.6, and the tolerance there is 0.85 to
+  1.02. That is the band and the tolerance of the self-check of
+  `olb/waveoptics/turbulence/screens.py`. The subharmonic screen lands inside
+  it; the FT-only screen is below 0.85 everywhere and it falls to 0.505 at
+  `r/r0 = 8`. The subharmonics do NOT close the gap at a large separation.
+- Moment matching of a uniform 50 km slab, Eq. (9.65), `m = 0` to 7:
+  4 screens at the 4-point Gauss-Legendre nodes match every moment to 1.2e-8
+  (the trapezium error of the reference profile). 11 uniformly spaced screens
+  of equal strength, which is the layering of the book's own worked example,
+  miss `m = 2` by 5.0% and `m = 7` by 31.5%.
+- The Sec. 9.5.1 example: `sigma_chi,sw^2 = 0.4365` against the printed 0.436.
+  `r0_sw = 12.66 cm` against the printed 17.7 cm; see Table 2, row S-28. The
+  11-screen `screen_strengths` solve returns `r0_sw` to 1.2e-5 and
+  `sigma_chi,sw^2` exactly, and its largest screen share is 0.0745 against the
+  cap of 0.1.
+- The factor between the book's per-screen quantity and the olb one: 3.9994.
+- The Sec. 9.5.2 example: constraint 2 asks for `N >= 355.2`, and the book
+  picks 512 because "the required number of grid points is more than 2^8"
+  (printed p. 177). `min_planes` returns 2, and the book says two. Both match.
+- The Johnston and Lane phase pitch rule gives 3.01 pixels per r0.
+
+**Decisions.**
+
+- ONE expression carries all three spectra. `kolmogorov_phase_psd`,
+  `von_karman_phase_psd` and `modified_von_karman_phase_psd` are one-line
+  wrappers over `phase_psd`. The book itself derives the three the same way
+  (Eqs. (9.49) to (9.51), printed p. 161).
+- `phase_psd` returns infinity at `f = 0` when `L0` is infinite, because the
+  divergence is real physics. The two screen generators zero that sample, as
+  Listing 9.2, line 16, and Listing 9.3, line 26, do.
+- The subharmonic part is its OWN function, `subharmonic_screen`, and
+  `ft_sh_phase_screen` sums the two. That is the structure of Listings 9.2 and
+  9.3. A caller can measure the two parts apart, which the self-check does.
+- `screen_strengths` calls `scipy.optimize.lsq_linear`, which solves the same
+  bounded linear least-squares problem as the book's `fmincon`. The MATLAB
+  listing is not ported.
+- The moment rule is a CHECKER (`moment_error`), not a solver. Chapter 9 gives
+  no solver for Eq. (9.65); it states the equality and then, at Sec. 9.5.5,
+  printed p. 182, tells the reader to "adjust the values of z_i and dz_i
+  attempting to match turbulence moments". WP7 owns the adjustment.
+- `properly_sampled_checklist` exempts a screen of zero path weight from the
+  scintillation pitch rule, because such a screen adds no scintillation. For a
+  spherical wave those are the screens at `alpha = 0` and `alpha = 1`. The
+  book states no exemption; it follows from Eq. (9.74).
+- Steps 9.5.3, 9.5.4 and 9.5.5 come back as ADVISORY rows, with
+  `satisfied = None`. They are procedures, not inequalities.
+- Constraint 3 is not exempted. Ch. 7, Eq. (7.60), printed p. 129, exempts it
+  when `1 + dz/R < D2/D1`. That belongs to WP3.
+
+**The book would not give.**
+
+- **A minimum screen count.** See the WP7 gate verdict below.
+- **A tolerance for the structure function.** The book compares Fig. 9.3 and
+  Fig. 9.9 by eye and calls the match "close". The self-check sets its own
+  band, and it borrows the band and the tolerance from
+  `olb/waveoptics/turbulence/screens.py` so that the two files agree.
+- **An equation for the phase pitch rule.** Sec. 9.4, printed p. 172, states
+  it in prose only: "phase differences less than pi in adjacent grid points
+  occur more than 99.7% of the time". The algebra that turns that into
+  `dx <= 0.332 r0` is ours. The 99.7% is a 3-sigma reading of a Gaussian
+  phase difference, and the variance is Eq. (9.44).
+- **An equation number for the scintillation pitch rule.** Sec. 9.4, printed
+  p. 172, gives `sqrt(lambda z)/2` in prose, with no equation number.
+- **A solver for Eq. (9.65).** See above.
+- **A rule for a screen at a slab CENTRE.** The book puts one screen at each
+  partial-propagation plane. olb puts a screen at the Cn2-weighted centre of a
+  merged slab. Chapter 9 does not treat that placement.
+- **A temporal axis.** Sec. 9.5.4, printed p. 179, states the frozen-flow
+  method in prose and points to the Greenwood frequency. No equation, no code.
 
 ## WP5 — Examples
 
 ## WP6 — Retrofit and documentation
 
 ## WP7 — The `min_screens` revision
+
+### WP7 GATE VERDICT — what Chapter 9 does and does not justify
+
+This verdict comes from WP4. It decides the `min_screens` revision.
+
+The question for WP7 is: does Schmidt justify `QualityPreset.min_screens`
+(15 / 9 / 5), and does Eq. (9.65) give a principled replacement for the
+`_merge_layers` bail-out?
+
+**1. Chapter 9 justifies NO screen-count floor. This is now settled.** Three
+pieces of text bear on it, and none of them is a derivation:
+
+- Eq. (9.90), printed p. 174, `n_min = ceil(dz / dz_max) + 1`, is a SAMPLING
+  floor only. It comes from Constraint 4, which is a rule of the FFT method,
+  not of the atmosphere. On the book's own 50 km example it returns 2.
+- Sec. 9.2.5, printed p. 165, says "Using a typical number of phase screens,
+  like 5-10, there are 10-20 unknown parameters". The "5-10" counts the
+  UNKNOWNS of the underdetermined system of Eq. (9.75). It is not a floor, and
+  the book gives no reason for it.
+- Sec. 9.5.2, printed p. 177, says "the minimum number of planes is two, so we
+  could use just one propagation. However, we use ten propagations (11 planes)
+  to represent the atmosphere properly." The book gives NO formula, no
+  criterion, and no convergence study for the 11.
+
+So the 15 / 9 / 5 integers cannot be sourced to Schmidt, and neither can any
+other integer. **The `min_screens` field stays uncited after WP4.** Two routes
+remain open, and WP7 must pick one:
+
+- (a) Delete the floor and let Eq. (9.65) set the count. See point 2.
+- (b) Keep a floor and justify it with a CONVERGENCE SWEEP inside olb: hold the
+  path fixed, sweep the screen count, and find where the measured scintillation
+  index and the coherence factor stop to move. That is the olb evidence, not
+  the book's, and the docstring must say so.
+
+**2. Eq. (9.65) IS a principled replacement for `_merge_layers`, and it is a
+STRONGER rule than the one olb uses now.** The equation is
+
+    INTEGRAL Cn2(z) z^m dz = SUM_i Cn2_i z_i^m dz_i,   0 <= m <= 7
+
+It fixes both the screen POSITIONS and the screen STRENGTHS at once, and it is
+the only screen-placement rule in the chapter. Three consequences for WP7:
+
+- **It gives a real lower bound on the screen count: 4.** A layering with `n`
+  screens has `2n` free numbers, and Eq. (9.65) is 8 equations. So `n = 4` is
+  the smallest set that CAN satisfy it. The self-check shows that 4 screens at
+  the 4-point Gauss-Legendre nodes match all 8 moments of a uniform slab
+  EXACTLY (error 1.2e-8). This is a moment-matching bound, NOT a
+  scintillation-fidelity bound: 4 screens match `r0`, `theta_0` and
+  `sigma_chi^2`, and they say nothing about the irradiance PDF. It is
+  nevertheless the first number in this whole area that follows from the book.
+- **It decouples the screen count from the profile sampling, which is exactly
+  the bug that `_merge_layers` has.** The moments of the CONTINUOUS profile do
+  not depend on how finely `hs` samples it. So a 20-layer `DEFAULT_HS` and a
+  200-layer real profile give the same target moments, and thus the same
+  screen count. That removes the "200 layers gives 200 screens" failure that
+  `CLAUDE.md` records.
+- **It condemns the layering that olb produces today, and the book's own worked
+  example too.** 11 uniformly spaced equal screens on a uniform slab miss
+  moment 2 by 5% and moment 7 by 31%. `_merge_layers` groups by Rytov weight,
+  which is a `(1-alpha)^(5/6)` weighting, so it matches moment 0 (the Cn2
+  integral) and nothing else.
+
+**3. What Chapter 9 still does not settle for WP7.** Eq. (9.65) constrains the
+layering, but it does not pick ONE layering:
+
+- The chapter gives no solver, and no tolerance on the moment error.
+- It gives no guidance on what happens when the moment-matched positions
+  violate the per-screen `rmax` cap of Listing 9.5. The two rules can conflict
+  on a strong path, and the book's own Listing 9.5 avoids this: it FIXES the
+  positions first and then solves only for the strengths under the cap. That
+  is a defensible route for olb too, and it needs no moment machinery: pick the
+  positions from the sampling rules, then solve Eq. (9.75).
+- A generalized Gauss quadrature with the weight `Cn2(z)` would satisfy
+  Eq. (9.65) exactly with 4 nodes for ANY profile. That is the clean
+  generalisation of the self-check case. The book does not name it, and it is
+  NOT built here. Flag it as the leading candidate for WP7, not as a decision.
+
+**Practical recommendation for WP7, on the evidence above.** Replace the
+`_merge_layers` bail-out with a rule that (i) picks a screen count from the
+larger of `min_planes` (Eq. (9.90)) and the per-screen `rmax` cap, with a hard
+floor of 4 from the moment count; (ii) places and weights the screens to
+minimise `moment_error`; and (iii) reports the achieved moment error in
+`SamplingReport`, because Chapter 9 gives the equality and no tolerance. Do
+NOT keep 15 / 9 / 5 with a Schmidt citation. The book does not support it.
