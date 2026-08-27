@@ -254,8 +254,10 @@ The vacuum scripts:
   artefact of a grid that is too small, against the analytic ABCD route
   (`GForvard`).
 
-The turbulent scripts. Each one runs for about four to five minutes on a desktop,
-each one prints the SAMPLING REPORT of its grid and the per-trial wall times, and
+The turbulent scripts. The two space scripts run in about one minute on a
+desktop, and the terrestrial one in about three (work package 7 cut the space
+screen count from 20 to 5). Each one prints the SAMPLING REPORT of its grid and
+the per-trial wall times, and
 each one carries the fixed seed `SEED = 20260826`, so a second run repeats the
 first one exactly. Each one saves the figure and opens NO window, because a
 blocking window would hold the terminal for minutes.
@@ -269,22 +271,28 @@ blocking window would hold the terminal for minutes.
   and the 30 mm bucket index agree with the Dios on-axis form and the Andrews
   weak aperture-averaging factor; the 100 mm bucket does NOT, because it holds 78
   percent of the beam and the split step conserves power; and the fidelity-0
-  fibre-coupling Term reads about 2.5 dB MORE loss than the field.
+  fibre-coupling Term reads about 2.3 dB MORE loss than the field (4.61 dB
+  against 2.32 dB). The horizontal planner takes no `Cn2` layer list, so work
+  package 7 did not move this script: it keeps its 9 screens.
 - `turbulent_downlink.py` — a 600 km downlink into a 500 mm obscured fibre
-  receiver, at 30, 60 and 90 degrees, 70 snapshots each, `rapid` preset.
-  Headline: the aperture scintillation index agrees with the fidelity-0
-  plane-wave integral at every elevation, and the fibre coupling does not agree
-  with the fidelity-1 FAST Term. The field reads 0.7 dB less loss at 30 degrees
-  and 2.9 dB less at the zenith. The script prints the static mode-match floor of
+  receiver, at 30, 60 and 90 degrees, 70 snapshots each, `rapid` preset, 5
+  screens. Headline: the aperture scintillation index agrees with the fidelity-0
+  plane-wave integral at every elevation (the ratios are 1.01, 1.19 and 1.28,
+  against a 17 percent Monte Carlo error), and the fibre coupling does not agree
+  with the fidelity-1 FAST Term. The field reads 2.7 dB less loss at 30 degrees
+  and 3.9 dB less at the zenith; on the turbulence part alone, 1.8 to 3.0 dB
+  less. The script prints the static mode-match floor of
   each model, so the turbulence part can be read alone, and it names the
   candidate causes without picking one.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink at the zenith and at 30
-  degrees, 100 snapshots each, `rapid` preset. The satellite is outside the grid,
+  degrees, 200 snapshots each, `rapid` preset, 5 screens. The satellite is
+  outside the grid,
   so the uplink flux comes from the reciprocity overlap of the propagated
   downlink field with the ground transmit mode (Shapiro,
   DOI 10.1364/JOSA.61.000492). Headline: that loss goes against the Dios
   coupled-flux Monte Carlo of `olb.turbulence.uplink_flux`, and the MEANS agree
-  inside 1 dB at both elevations. The 30-degree row is a REPORT, not a test,
+  to 0.19 dB at the zenith and 1.05 dB at 30 degrees. The 30-degree row is a
+  REPORT, not a test,
   because the coupled-flux model already says `weak_fluctuation_valid = False`
   there. The TAILS are reported, not tested: a field Monte Carlo reaches deeper
   than a parametric lognormal. Both terminals carry zero pointing jitter.

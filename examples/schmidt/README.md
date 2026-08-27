@@ -101,8 +101,10 @@ none raises on a broken rule.
   constraints with the turbulence-blurred extents of Eqs. (9.84) and (9.85),
   plus the two pitch rules of Sec. 9.4.
 - `schmidt.turbulence.moment_error`, `profile_moments` and `layer_moments` —
-  the layer moment rule of Eq. (9.65). It is the principled replacement for the
-  `_merge_layers` bail-out, and it gives a screen-count floor of 4.
+  the layer moment rule of Eq. (9.65). It gives a screen-count floor of 4, and
+  the `sampling.py` self-check calls it to measure the production grouping.
+  Work package 7 replaced the `_merge_layers` bail-out with an equal-weight
+  clamp; the planner still does not SOLVE Eq. (9.65).
 - `schmidt.turbulence.screen_strengths` and `max_screen_strength` — the
   constrained solve for the screen strengths under the `rmax` cap.
 - `schmidt.sampling.fresnel_min_distance` — the minimum distance that the

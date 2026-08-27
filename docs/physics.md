@@ -1204,7 +1204,7 @@ DOI 10.1364/JOSA.56.001372; Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12,
 Eq. (23)), and the screens add as `r0 = (SUM r0_i^(-5/3))^(-3/5)`. The screen
 spectrum is the modified von Karman form of Schmidt Ch. 9.
 
-Four sampling rules size the grid and the screen count. `sampling.py` states each
+Five sampling rules size the grid and the screen count. `sampling.py` states each
 one with its source, it WARNS when the grid misses one, and the `SamplingReport`
 gives the ACHIEVED number:
 
@@ -1226,7 +1226,24 @@ gives the ACHIEVED number:
    Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20), and Ch. 12,
    Eqs. (36) and (38); Schmidt, DOI 10.1117/3.866274, Ch. 9.
 
-A fifth, weaker limit gives `PIXELS_PER_FEATURE = 8` pixels across the smallest
+5. **The screen-count floor.** A weak path passes rule 4 with one screen, but
+   one screen gives phase only and no scintillation. So `_merge_layers` clamps
+   the count UP to exactly `min_screens` contiguous `Cn2`-weighted groups. The
+   count follows the PRESET, not the layer count of the `Cn2` profile: a
+   20-layer profile and a 200-layer profile of the same atmosphere give the
+   same screens. A profile that has fewer layers than `min_screens` warns and
+   keeps its layers, because the planner does not split a layer. THE FLOOR IS
+   olb EVIDENCE, NOT BOOK PHYSICS. Schmidt gives no screen-count floor. An olb
+   convergence sweep sets 15 / 9 / 5: it holds the grid fixed and it moves the
+   count only, and the aperture scintillation index of a 30 degree downlink
+   slab is 19 percent low at 3 screens, 10 percent low at 5, and flat from 7
+   up, while the mean collected power holds inside 0.11 dB everywhere. The
+   absolute lower bound is 4, the moment count of Schmidt,
+   DOI 10.1117/3.866274, Ch. 9, Eq. (9.65), printed p. 164. The grouping does
+   not SOLVE that equation, but the `Cn2`-weighted centroid matches all 8
+   moments of the default profile to better than 1 percent.
+
+A sixth, weaker limit gives `PIXELS_PER_FEATURE = 8` pixels across the smallest
 hard edge.
 
 ### The reciprocity route (uplink)
@@ -1406,10 +1423,12 @@ recorded, not filled with a guess.
   planes and no criterion (Sec. 9.5.2, printed p. 177). Eq. (9.90), printed
   p. 174, is a sampling floor of the FFT method, not of the atmosphere. So the
   production `QualityPreset.min_screens` (15 / 9 / 5) cannot be sourced to
-  Schmidt, and neither can any other integer. The principled replacement is the
-  layer moment rule, Eq. (9.65), printed p. 164, which fixes the screen
-  positions and the strengths together and gives a real floor of 4. That
-  revision is open.
+  Schmidt, and neither can any other integer. olb states the floor as olb
+  evidence instead: an internal convergence sweep sets it, and the absolute
+  lower bound of 4 comes from the layer moment rule, Eq. (9.65), printed
+  p. 164, which gives 8 equations against 2 free numbers for each screen. See
+  the sampling rule 5 above, and WP7 in
+  [schmidt-crosscheck.md](schmidt-crosscheck.md).
 
 ### Source
 

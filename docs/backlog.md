@@ -18,8 +18,8 @@ are from 2026-08-26 and can drift.
 
 1. **Gap 2 — the pre-compensated uplink models NO scintillation.** The one
    item both sweeps call MAJOR. See 0-W1.
-2. **The turbulent screen-count floor `min_screens` — TO REVISE.** The known
-   three-part fix. See 2-N1.
+2. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
+   resolved it. See 2-N1.
 3. **Gap 3 — thread the beam curvature f0 into the Fried call site.** Small,
    already prepared at the physics layer. See 0-W2.
 4. **The stale docs that contradict the code.** Cheap, and they mislead every
@@ -211,26 +211,24 @@ The path forward for each is a second reference or a derivation.
   analytic Term). Pick the reference model; then wire the Term. The
   downlink `"montecarlo"` slot in olb/links/downlink.py:247 is reserved for
   exactly this.
-- **2-N1. `min_screens` and `_merge_layers` — TO REVISE. The Ch. 9 evidence
-  is IN.** The floor (15/9/5) has no derivation and no DOI, and the merge
-  fallback returns one screen per Cn2 layer, so every weak space case gets
-  20 screens (the DEFAULT_HS layer count, not physics). The Schmidt
-  cross-check settles the source question: the book gives NO screen-count
-  floor (Eq. (9.90) is an FFT sampling floor, and the 11 planes of
-  Sec. 9.5.2 carry no formula); the principled replacement is the layer
-  moment rule, Eq. (9.65), printed p. 164, which fixes the positions and
-  the strengths together and gives a real floor of 4; and the book cap
-  `rmax = 0.1` is on `sigma_chi^2`, so it is 0.4 on the olb `sigma_R^2`
-  (the factor-4 bridge measures 3.9994). The revision: place and weight the
-  screens to minimise `moment_error`, take the count from the larger of
-  `min_planes` and the `rmax` cap with a floor of 4, and report the
-  achieved moment error in `SamplingReport`. Then RE-RUN the three
-  turbulent examples (their agreement numbers were measured at 20 screens).
-  The checker functions are built in `olb/waveoptics/schmidt/turbulence.py`
-  (`profile_moments`, `layer_moments`, `moment_error`, `min_planes`,
-  `max_screen_strength`, `screen_strengths`). The evidence is the WP7 gate
-  verdict in docs/schmidt-crosscheck.md.
-  olb/waveoptics/turbulence/sampling.py:83, :236.
+- **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
+  `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
+  contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.
+  The old bail-out, which returned one screen per Cn2 layer, is gone, so a
+  200-layer profile no longer gives 200 screens. A profile that has fewer
+  layers than `min_screens` warns and keeps its layers, because the planner
+  does not split a layer. The Rytov cap still raises the count above the
+  floor on a strong path. The integers 15 / 9 / 5 are CONFIRMED by an olb
+  convergence sweep, and the docstring says that the source is olb and not
+  Schmidt, which gives no floor. The absolute lower bound is 4, the moment
+  count of Eq. (9.65), printed p. 164. The three turbulent examples were
+  re-run at the new screen counts. The sweep table and the re-run numbers
+  are in the WP7 note of docs/schmidt-crosscheck.md.
+  DEFERRED, and still open: the planner does not SOLVE Eq. (9.65), and
+  `SamplingReport` does not carry the moment error. The module self-check
+  measures it instead, against `olb/waveoptics/schmidt/turbulence.py`, and
+  the Cn2-weighted centroid grouping holds every moment inside 1 percent.
+  olb/waveoptics/turbulence/sampling.py:271, :311.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production

@@ -451,12 +451,12 @@ that olb has no name for it yet.
 | the extent rule, the scattering cone | `olb/waveoptics/turbulence/sampling.py:442` | `2 (lambda/r0) z` added to the grid side | (9.84), (9.85) | 173 | 186 | checked | The added term is `c lambda dz / r0` with `c = 2`, which is the book's low value. Listing 9.6, line 2, printed p. 177, uses `c = 2` too. The book states that `c = 2` holds 97% of the light and `c = 4` holds 99% (text below Eq. (9.85), printed p. 173). BUT olb adds the blur to the grid SIDE. The book adds it to D1' and D2' and then feeds constraints 1 to 3. Different route, same constant. |
 | the pixel rule, `pixels_per_r0` | `olb/waveoptics/turbulence/sampling.py:451` | `dx <= r0_total / pixels_per_r0` | Sec. 9.4 text | 172 | 185 | checked | The book gives the rule of Johnston and Lane, DOI 10.1364/AO.39.004761: pick the pitch at which the phase step between two adjacent samples stays below pi for more than 99.7% of the draws. With Eq. (9.44) that reads `3 sqrt(6.88 (dx/r0)^(5/3)) <= pi`, so `dx <= 0.332 r0`, that is **3.01 pixels per r0**. The olb `standard` preset value 3 lands on it. |
 | the pixel rule, the Fresnel scale | `olb/waveoptics/turbulence/sampling.py:454` | `dx <= sqrt(lambda z)/2` | Sec. 9.4 text | 172 | 185 | checked | olb ALREADY has the book's scintillation pitch rule, exactly. It cites Andrews Ch. 8 for it. The rule is Schmidt Sec. 9.4, printed p. 172, from Johnston and Lane. The tracker glossary row `sqrt(lambda z) (172)` said that olb has no such rule. That row was WRONG, and it is now corrected. See Table 2, row S-26. |
-| `_merge_layers` | `olb/waveoptics/turbulence/sampling.py:209` | where the screens go, and what each carries | (9.65) | 164 | 177 | gap | olb groups adjacent Cn2 layers under the Rytov cap, and it BAILS OUT to one screen per layer when the merge undershoots `min_screens`. It matches NO moment of Eq. (9.65). See Table 2, row S-22, and the WP7 gate verdict. |
+| `_merge_layers` | `olb/waveoptics/turbulence/sampling.py:311` | where the screens go, and what each carries | (9.65) | 164 | 177 | partial | olb groups adjacent Cn2 layers under the Rytov cap, and WP7 replaced the bail-out: a weak path now clamps to EXACTLY `min_screens` equal-weight groups. It does not SOLVE Eq. (9.65), but the Cn2-weighted centroid holds all 8 moments of the default profile inside 1 percent; the module self-check measures that. See Table 2, row S-22, and the WP7 note. |
 | `turbulent_grid` | `olb/waveoptics/turbulence/sampling.py:366` | the grid sizer | (9.86)–(9.88) | 173, 174 | 186, 187 | gap | olb applies NONE of the three turbulent geometry constraints. It sizes the side from a beam-plus-cone rule and the pixel from `r0` and the Fresnel scale, then it rounds N up to a power of two. See Table 2, row S-21. |
 | `super_gaussian_boundary` | `olb/waveoptics/turbulence/splitstep.py:29` | the absorbing boundary | (8.1); Listing 9.7, line 19 | 134, 179 | 147, 192 | checked | Eq. (8.1) gives the SHAPE `exp(-(r/sigma)^n)`, `n > 2`, and no numbers. Listing 9.7 gives the numbers, and they are not olb's. See Table 3. |
 | `split_step` max hop | `olb/waveoptics/turbulence/splitstep.py:170` | `max_step = N dx^2 / lambda` | (9.89) | 174 | 187 | checked | Exact match. It repeats Ch. 8, Eq. (8.24), printed p. 144. olb cites Ch. 6; the turbulent statement is Eq. (9.89). |
 | `split_step` loop | `olb/waveoptics/turbulence/splitstep.py:94` | the split-step chain | (9.1)–(9.3) | 150 | 163 | checked | olb hops to a screen, applies the screen, and hops on. The book applies the screen AT each partial-propagation plane, Eq. (9.3), printed p. 150. The two agree when the screens sit at the plane positions. The olb screens sit at slab CENTRES, so the two differ by half a slab. The book does not treat that case. |
-| `min_screens` | `olb/waveoptics/turbulence/sampling.py:107` | the screen-count floor | — | — | — | gap | Chapter 9 gives NO such floor. See Table 3 and the WP7 gate verdict. |
+| `min_screens` | `olb/waveoptics/turbulence/sampling.py:110` | the screen-count floor | — | — | — | olb rule | Chapter 9 gives NO such floor. WP7 kept 15 / 9 / 5 and it re-sourced them to an olb convergence sweep, with the moment floor of 4 as the absolute lower bound. See Table 3 and the WP7 note. |
 
 # Table 2 — gaps and suggestions
 
@@ -483,7 +483,7 @@ that olb has no name for it yet.
 | S-19 | 6.5 | (6.77), (6.80), (6.81) | The general ABCD propagator for a NON-Gaussian field. `GForvard` handles a pure Gaussian only, and it raises on any other field. Eq. (6.81) gives the ABCD transfer function, which works on any field. | not needed yet | low |
 | S-20 | 9.4 | Sec. 9.4 text, printed p. 172 | The Johnston and Lane PHASE pitch rule, `dx <= 0.332 r0`. The olb `pixels_per_r0` is a bare preset integer with a Martin and Flatte citation and no derivation. The book's prose plus Eq. (9.44) give the number. Built as `phase_pitch_max`. | `olb/waveoptics/turbulence/sampling.py` | medium |
 | S-21 | 9.4, 9.5.2 | (9.86), (9.87), (9.88) | The three turbulent geometry constraints, and the blurred extents D1', D2' of Eqs. (9.84) and (9.85). olb checks none of them, so a bad pitch pair gives no warning. Built as `constraint1_pitch_max`, `constraint2_n_min`, `constraint3_pitch_range`, `blurred_extent`. | `olb/waveoptics/turbulence/sampling.py`, or a validation example | high |
-| S-22 | 9.2.5 | (9.65) | The layered-atmosphere MOMENT rule for `0 <= m <= 7`. It is the only screen-placement rule that Chapter 9 gives. `_merge_layers` satisfies no part of it. Built as `profile_moments`, `layer_moments`, `moment_error`. | `olb/waveoptics/turbulence/sampling.py` | high (the WP7 hinge) |
+| S-22 | 9.2.5 | (9.65) | The layered-atmosphere MOMENT rule for `0 <= m <= 7`. It is the only screen-placement rule that Chapter 9 gives. Built as `profile_moments`, `layer_moments`, `moment_error`. WP7 MEASURED it against the production grouping: the error stays inside 1 percent for every moment. The planner still does not SOLVE the rule, and `SamplingReport` does not carry the error. | `olb/waveoptics/turbulence/sampling.py` | low (WP7 measured it) |
 | S-23 | 9.2.5, 9.5.1 | (9.75), Listing 9.5 | The constrained least-squares solve for the screen `r0` values from a target `r0_sw` and `sigma_chi,sw^2`. olb never solves for a screen strength; it takes the Cn2 layers as given. Built as `screen_strengths` and `max_screen_strength`. | `olb/waveoptics/turbulence/sampling.py` | medium |
 | S-24 | 9.5.5 | (9.32), (9.44) | The observation-plane coherence factor as the end-to-end verification of a turbulent run. It is row S-02 of this table seen from Chapter 9. `properly_sampled_checklist` names it as an advisory step; nothing measures it. | a later work package | medium |
 | S-25 | 9.4 | — | `QualityPreset.fresnel_weight_min` (`olb/waveoptics/turbulence/sampling.py:450`) exempts a weak screen from the Fresnel pitch rule. Chapter 9 states NO such exemption; Sec. 9.4 applies the rule to every step. The exemption is a real cost saver, so keep it, but mark it as an olb rule, not a book rule. | `olb/waveoptics/turbulence/sampling.py` | low |
@@ -503,7 +503,7 @@ book gives none.
 
 | olb constant | olb value | location | book quantity | book value | book eq | printed p | pdf p | status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `QualityPreset.min_screens` | 15 / 9 / 5 | `olb/waveoptics/turbulence/sampling.py:105` | a screen-count FLOOR | **the book would not give** | — | — | — | checked, no source. See the WP7 gate verdict. |
+| `QualityPreset.min_screens` | 15 / 9 / 5 | `olb/waveoptics/turbulence/sampling.py:110` | a screen-count FLOOR | **the book would not give** | — | — | — | checked, no book source. WP7 sourced it to an olb convergence sweep, and it kept the values. See the WP7 note. |
 | `QualityPreset.sigma2_r_screen_max` | 0.05 / 0.10 / 0.25 | `olb/waveoptics/turbulence/sampling.py:105` | `rmax`, the per-screen cap | 0.1 on `sigma_chi^2`, so **0.4 on `sigma_R^2`** | Listing 9.5, lines 37, 38 | 175 | 188 | checked, olb is 1.6x to 8x stricter. See the factor note below. |
 | `QualityPreset.boundary_width_frac` | 0.125 / 0.125 / 0.10 | `olb/waveoptics/turbulence/sampling.py:105` | the boundary half-width | `0.47 N dx` (Listing 9.7); `0.45 L` (Fig. 8.1) | (8.1); Listing 9.7, line 19 | 134, 179 | 147, 192 | checked, the book gives no value in this parameterisation |
 | `super_gaussian_boundary` `power` | 8 | `olb/waveoptics/turbulence/splitstep.py:29` | the super-Gaussian exponent n of Eq. (8.1) | **16** | (8.1); Listing 8.1, line 12; Listing 9.7, line 19 | 134, 142, 179 | 147, 155, 192 | CONFLICT. The book RUNS `sg = exp(-nsq.^8/w^16)`, which is `exp(-(r/w)^16)`, so n = 16. Figure 8.1, printed p. 134, also plots n = 16. Eq. (8.1) itself only needs n > 2, so the olb value of 8 is ALLOWED by the equation but it is not the book's number. The book also records that Flatte and others used n = 8 (Ch. 8, text, printed p. 134), so 8 has a source in the literature, not in Schmidt's own runs. |
@@ -1133,3 +1133,139 @@ floor of 4 from the moment count; (ii) places and weights the screens to
 minimise `moment_error`; and (iii) reports the achieved moment error in
 `SamplingReport`, because Chapter 9 gives the equality and no tolerance. Do
 NOT keep 15 / 9 / 5 with a Schmidt citation. The book does not support it.
+
+### WP7 — Built / Decisions / Measured
+
+**Built.** `olb/waveoptics/turbulence/sampling.py`:
+
+- `_equal_weight_groups(weights, n_groups)` — a new helper. It cuts the `Cn2`
+  layers into EXACTLY `n_groups` contiguous groups of equal Rytov weight. The
+  cut goes BEFORE the layer that passes the target share, so a layer that is
+  heavier than one share keeps its own group; the strongest group is then the
+  strongest LAYER, which is the least that any grouping can give.
+- `_merge_layers` — the bail-out is gone. A natural merge that undershoots
+  `min_screens` now calls `_equal_weight_groups`. Each screen keeps its
+  `Cn2`-weighted centroid, and the Rytov cap still RAISES the count above the
+  floor on a strong path.
+- `_plan_space` — a new warning when the profile has fewer layers than
+  `min_screens`. The planner does not split a layer, so the plan keeps the
+  layer count and it says so.
+- The self-check gains case 6 (the floor is a preset choice, not a profile
+  artefact) and case 7 (the moment error of the grouping, through a
+  validation-only import of `olb.waveoptics.schmidt.turbulence`). Case 5 moved
+  to a 10 degree path, because the merged bottom group of a high-elevation plan
+  is no longer exempt from the Fresnel pixel rule.
+
+**Decisions.**
+
+1. **The floor stays, and it keeps 15 / 9 / 5.** The gate verdict left two
+   routes. WP7 took route (b), the convergence sweep. The docstring, the
+   `PRESETS` comment, `docs/api-waveoptics.md` and `docs/physics.md` all name
+   the source as an olb convergence sweep, NOT Schmidt.
+2. **The absolute lower bound is 4.** It is the moment count of Eq. (9.65),
+   printed p. 164: 8 equations against 2 free numbers for each screen. The
+   self-check asserts that no preset goes under it.
+3. **The planner does NOT solve Eq. (9.65).** The equal-weight grouping plus
+   the `Cn2`-weighted centroid is the lazy route, and the measurement below
+   shows that it is enough for the default profile. A generalized Gauss
+   quadrature with the weight `Cn2(z)` stays the clean generalisation, and it
+   stays unbuilt.
+4. **`SamplingReport` does not carry the moment error.** The gate verdict asked
+   for it. WP7 measures it in the self-check instead, because no caller reads
+   it. Add the field when a caller needs it.
+
+**Measured 1: the convergence sweep.** The sweep holds the GRID fixed (the grid
+of the largest count), it moves the screen count only, and it runs 200 snapshots
+for each count with one fixed seed. The metrics are the mean collected power in
+dB and the aperture scintillation index `sigma2_P` of the collected power. The
+Monte Carlo error of a variance from 200 snapshots is about 10 percent, so read
+the `sigma2` columns to that accuracy. The space rows use a 60-layer `Cn2`
+profile, so that 26 screens is reachable; the count is now independent of the
+layer count, so the finer profile is free.
+
+Case A, the 600 km downlink slab at 90 degrees, `rapid` preset, grid 256 px:
+
+| screens | mean power, dB | delta, dB | `sigma2_P` | delta, % |
+|---|---|---|---|---|
+| 3 | 0.018 | 0.028 | 0.00149 | +3.9 |
+| 5 | 0.001 | 0.011 | 0.00142 | -1.5 |
+| 7 | 0.018 | 0.027 | 0.00145 | +0.7 |
+| 9 | 0.021 | 0.031 | 0.00128 | -11.1 |
+| 12 | 0.018 | 0.028 | 0.00131 | -8.9 |
+| 15 | -0.008 | 0.002 | 0.00137 | -4.4 |
+| 20 | -0.009 | 0.001 | 0.00143 | -0.5 |
+| 26 | -0.010 | 0.000 | 0.00144 | 0.0 |
+
+Case B, the same slab at 30 degrees, `rapid` preset, grid 256 px. THIS IS THE
+BINDING CASE:
+
+| screens | mean power, dB | delta, dB | `sigma2_P` | delta, % |
+|---|---|---|---|---|
+| 3 | 0.022 | 0.109 | 0.00846 | -19.0 |
+| 5 | 0.021 | 0.108 | 0.00944 | -9.7 |
+| 7 | -0.020 | 0.067 | 0.01069 | +2.3 |
+| 9 | -0.011 | 0.076 | 0.01022 | -2.2 |
+| 12 | -0.011 | 0.076 | 0.01049 | +0.4 |
+| 15 | -0.083 | 0.004 | 0.01047 | +0.2 |
+| 20 | -0.087 | 0.000 | 0.01037 | -0.8 |
+| 26 | -0.087 | 0.000 | 0.01045 | 0.0 |
+
+Case C, a 2 km horizontal path at `Cn2 = 3e-15` into a 30 mm sampling bucket,
+`standard` preset, grid 256 px. The Rytov cap sets 4 as the smallest count that
+the planner builds here:
+
+| screens | mean power, dB | delta, dB | `sigma2_P` | delta, % |
+|---|---|---|---|---|
+| 4 | 8.431 | -0.042 | 0.07850 | -4.6 |
+| 5 | 8.463 | -0.009 | 0.07992 | -2.9 |
+| 7 | 8.461 | -0.011 | 0.08168 | -0.7 |
+| 9 | 8.465 | -0.007 | 0.08411 | +2.2 |
+| 12 | 8.447 | -0.026 | 0.08585 | +4.3 |
+| 15 | 8.442 | -0.031 | 0.08663 | +5.3 |
+| 20 | 8.461 | -0.012 | 0.08509 | +3.4 |
+| 26 | 8.473 | 0.000 | 0.08230 | 0.0 |
+
+**The verdict.** The tolerance is 0.1 dB on the mean power and 5 percent on the
+index. The mean power meets it at every count in every case. The index meets it
+at every count of case A and case C, because those two paths are weak and
+homogeneous. Case B, the SLANT path, is the one that binds: the index is 19
+percent low at 3 screens, 10 percent low at 5, and flat from 7 up. So 7 is the
+smallest converged count, and the preset ladder follows it with one step of
+conservatism:
+
+- `reference` 15 — two steps above the converged count. CONFIRMED.
+- `standard` 9 — one step above the converged count. CONFIRMED.
+- `rapid` 5 — one step BELOW it, and the stated compromise: the slant index runs
+  about 10 percent low, and the mean power holds inside 0.11 dB. It stays above
+  the moment floor of 4. CONFIRMED as a deliberate trade.
+
+**Measured 2: the moment error of the grouping.** The `sampling.py` self-check
+compares the production grouping with `schmidt.turbulence.moment_error` on the
+default site profile at the zenith, 200 layers, `standard` preset, 9 screens.
+Every moment `0 <= m <= 7` holds inside 0.15 percent, against 0.04 percent for
+one screen for each layer. So the `Cn2`-weighted centroid grouping satisfies
+Eq. (9.65) in practice without solving it. CAVEAT: this metric is not sensitive
+to the near-ground layers, because they all sit at almost the same distance from
+the source.
+
+**Measured 3: the three turbulent examples, re-run.** The screen counts and the
+agreement numbers moved, and the doc statements were updated with them.
+
+| Script | Preset | Screens, before | Screens, after | Agreement, before | Agreement, after |
+|---|---|---|---|---|---|
+| `turbulent_terrestrial.py` | `standard` | 9 | 9 | fidelity-0 SMF Term about 2.5 dB above the field | 2.3 dB (4.61 dB against 2.32 dB). The horizontal planner takes no layer list, so WP7 did not move it. |
+| `turbulent_downlink.py` | `rapid` | 20 | 5 | index ratios 1.10 to 1.27; FAST 0.7 to 2.9 dB above the field | index ratios 1.01, 1.19, 1.28; FAST 2.7 to 3.9 dB above the field, and 1.8 to 3.0 dB on the turbulence part alone |
+| `turbulent_uplink_reciprocity.py` | `rapid` | 20 | 5 | means 0.18 dB (90 deg), 0.54 dB (30 deg) | 0.19 dB (90 deg), 1.05 dB (30 deg) |
+
+The two space scripts now run in about one minute each, against several minutes
+before. No sampling warning appears in any of the three runs.
+
+**One effect to watch.** The downlink fibre-coupling loss moved by about 1.2 dB
+at 30 degrees when the plan went from 20 screens to 5. The sweep shows that a
+properly grouped plan does NOT move that number with the count (the `smf` column
+of case B scatters about 1.1 dB with no trend, at 12.6 to 13.8 dB). So the shift comes from the LAYERING,
+not from the count: the old one-screen-per-layer plan put screens 2 m and 3 m
+from the pupil, and the new bottom group sits at the `Cn2`-weighted centroid of
+the ground layers, about 150 m away. Which layering is right for a near-pupil
+`Cn2` spike is an open question. It is a candidate for the Gauss-quadrature
+route of decision 3.

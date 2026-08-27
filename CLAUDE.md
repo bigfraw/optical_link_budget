@@ -200,41 +200,28 @@ Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
 
 Open items:
 
-- **The turbulent screen-count floor `min_screens` is UNJUSTIFIED, and the
-  merge fallback couples the count to the profile sampling. TO REVISE.** In
-  `olb/waveoptics/turbulence/sampling.py` a `QualityPreset` carries two screen
-  rules. `sigma2_r_screen_max` (0.05 / 0.10 / 0.25) is the Rytov thin-screen
-  UPPER bound; it cites Schmidt Ch. 9 and it sets the count on strong paths.
-  `min_screens` (15 / 9 / 5) is a LOWER floor for weak paths, where the Rytov
-  cap passes with one screen but one screen gives phase only, no scintillation.
-  BUT `min_screens` has NO derivation and NO DOI (the one field in the preset
-  table without one), and it was never exercised: `_merge_layers` does not clamp
-  UP to `min_screens` when the natural merge undershoots it; it BAILS OUT and
-  returns one screen per Cn2 layer. So every weak space case gets 20 screens —
-  the layer count of `DEFAULT_HS`, not physics. A finely sampled real profile
-  would explode the count (a 200-layer profile gives 200 screens for a slab that
-  the Rytov cap says needs one). THE Ch. 9 EVIDENCE IS NOW IN, and it settles
-  two of the three parts. (a) Schmidt gives NO screen-count floor. Eq. (9.90),
-  printed p. 174, is a sampling floor of the FFT method; the "5 to 10" of
-  Sec. 9.2.5, printed p. 165, counts the unknowns of Eq. (9.75); and the 11
-  planes of Sec. 9.5.2, printed p. 177, come with no formula. So 15 / 9 / 5
-  cannot be cited to Schmidt, and neither can any other integer. (b) The
-  principled replacement is the layer MOMENT rule, Ch. 9, Eq. (9.65), printed
-  p. 164: the layered Cn2 must match the continuous profile for the moments
-  0 <= m <= 7. It fixes the positions and the strengths together, it decouples
-  the count from the profile sampling, and it gives a real floor of 4 (8
-  equations, 2 free numbers per screen). (c) The `rmax = 0.1` cap of Listing
-  9.5, printed p. 175, is on the LOG-AMPLITUDE variance `sigma_chi^2`, and
-  `sigma2_r_screen_max` is on the plane-wave Rytov variance, which is 4 times
-  it (measured 3.9994). So the book cap is 0.4 on the olb number, and the
-  presets are 8x / 4x / 1.6x stricter. THE REVISION ITSELF IS STILL OPEN (work
-  package 7): make `_merge_layers` place and weight the screens to minimise
-  `moment_error`, take the count from the larger of `min_planes` and the
-  `rmax` cap with a floor of 4, and report the achieved moment error in
-  `SamplingReport`. Do NOT keep 15 / 9 / 5 with a Schmidt citation. The three
-  turbulent examples measured their agreement numbers at 20 screens, so re-run
-  them after the change. The evidence is the WP7 gate verdict in
-  `docs/schmidt-crosscheck.md`.
+- **The turbulent screen-count floor `min_screens` is RESOLVED (work package
+  7).** In `olb/waveoptics/turbulence/sampling.py`, `_merge_layers` now clamps a
+  weak path UP to EXACTLY `min_screens` contiguous Cn2-weighted groups, through
+  the new `_equal_weight_groups`. The old bail-out, which returned one screen
+  per Cn2 layer, is gone. So the screen count follows the PRESET and not the
+  layer count: a 20-layer `DEFAULT_HS` profile and a 200-layer profile of the
+  same atmosphere both give `min_screens` screens on a weak slab. The Rytov cap
+  `sigma2_r_screen_max` still RAISES the count above the floor on a strong path,
+  unchanged. A profile that has fewer layers than `min_screens` warns, because
+  the planner does not split a layer, and it keeps its layers. The integers
+  15 / 9 / 5 are CONFIRMED, and their source is an olb convergence sweep, not
+  Schmidt: the book gives no screen-count floor. The sweep holds the grid fixed
+  and it moves the count only; the aperture scintillation index of a 30 deg
+  downlink slab is 19 percent low at 3 screens, 10 percent low at 5, and flat
+  from 7 up, and the mean collected power holds inside 0.11 dB everywhere. So 9
+  and 15 sit on the plateau, and 5 is the stated rapid compromise. No preset may
+  go under 4, the moment floor of Ch. 9, Eq. (9.65), printed p. 164 (8 equations
+  against 2 free numbers per screen). The grouping does not SOLVE Eq. (9.65),
+  but the Cn2-weighted centroid matches all 8 moments of the default profile to
+  better than 1 percent; the module self-check measures that against the
+  `olb.waveoptics.schmidt` reference layer. See WP7 in
+  `docs/schmidt-crosscheck.md` for the full sweep table.
 - **Gap 2, the pre-compensated uplink, is STILL open.**
   `andrews.paths.uplink_scintillation_index(tracked=True)` gives the floor of the
   residual scintillation (Ch. 12, Eqs. (57) to (60)), but NO budget reads it yet.
@@ -281,12 +268,15 @@ Open items:
   `aotools` for the screens (LGPL-3.0, the optional `screens` extra; olb imports
   it, olb does not copy it). A space scenario ALWAYS propagates the downlink slab
   and an uplink reads it through the Shapiro reciprocity overlap. Three
-  comparison examples run it: the uplink reciprocity mean agrees with the
-  coupled-flux MC to 0.18 dB at the zenith and 0.54 dB at 30 deg; the downlink
+  comparison examples run it, and work package 7 re-measured them at the new
+  screen counts (the two space scripts went from 20 screens to 5; the
+  terrestrial one keeps its 9): the uplink reciprocity mean agrees with the
+  coupled-flux MC to 0.19 dB at the zenith and 1.05 dB at 30 deg; the downlink
   aperture scintillation agrees with the analytic index at 30/60/90 deg (ratios
-  1.10 to 1.27); and the fibre-coupling comparisons read LESS loss than the
-  analytic and FAST models (the terrestrial SMF Term is about 2.5 dB higher than
-  the field, and FAST is 0.7 to 3 dB higher across elevation). STILL: no budget
+  1.01 to 1.28, against a 17 percent MC error); and the fibre-coupling
+  comparisons read LESS loss than the analytic and FAST models (the terrestrial
+  SMF Term is about 2.3 dB higher than the field, and FAST is 2.7 to 3.9 dB
+  higher across elevation). STILL: no budget
   consumes it, no Term exists, and the wiring is an owner decision. Deliberately
   deferred: the results record is minimal scalars (a results-processing design
   chat is planned — do NOT extend `TurbWaveResult` piece by piece), the temporal
