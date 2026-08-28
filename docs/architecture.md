@@ -26,8 +26,8 @@ turbulence/   <-   models/  and  links/
 ```
 
 The dependency is one-way. The `turbulence/` package is pure physics. It
-imports only numpy, scipy, and [`_deps.py`](../olb/_deps.py). It does NOT
-import a scenario, a terminal, a Term, the models, or the links. See
+imports only numpy, scipy, and the olb leaf modules `units` and `beam`. It does
+NOT import a scenario, a terminal, a Term, the models, or the links. See
 [`olb/turbulence/__init__.py`](../olb/turbulence/__init__.py).
 
 This rule keeps the physics reusable and testable. A turbulence function takes
@@ -270,19 +270,25 @@ get the coupling fade, raise the fidelity: `fidelity=1` (statistical) or
 quantile-less vacuum-optics Term) is NOT mean_only, so it does not lock the
 budget.
 
-## 6. The single seam to `my_analysis_modules`
+## 6. Self-contained: the vendored physics (formerly `my_analysis_modules`)
 
-[`_deps.py`](../olb/_deps.py) is the ONLY module that imports the shared physics
-kernels from the sibling `my_analysis_modules` repo. Every other olb module
-imports its borrowed physics from here. The module sets the path once. Set the
-`MY_ANALYSIS_MODULES` environment variable, or place that repo at
-`D:\repos\my_analysis_modules`.
+olb no longer depends on `my_analysis_modules`. It once borrowed shared physics
+kernels from that sibling repo through a single seam, `olb/_deps.py`. Those
+kernels are now VENDORED into olb, each in its natural home:
 
-`_deps.py` re-exports the exact symbols that olb borrows: the Gaussian-beam
-helpers (`gaussz`, `zR`), the dB conversions, the satellite geometry, and the
-coupled-flux kernels. If any of these move, this one import breaks. That is a
-deliberate single point of failure. The `fast` package (FAST fibre coupling) is
-an optional dependency that the coupling model imports lazily.
+- the dB and beam unit conversions -> [`olb/units.py`](../olb/units.py);
+- the Gaussian-beam `gaussz`/`zR` -> [`olb/beam.py`](../olb/beam.py);
+- the `Satellite`/`SatellitePass` geometry -> [`olb/geometry.py`](../olb/geometry.py);
+- the Hufnagel-Valley Cn2 (`get_c2n`) and the Bufton wind (`v_wind`) ->
+  [`olb/turbulence/profiles.py`](../olb/turbulence/profiles.py);
+- the Dios coupled-flux kernels ->
+  [`olb/turbulence/coupled_flux.py`](../olb/turbulence/coupled_flux.py).
+
+`_deps.py` is deleted. Each vendored copy is verbatim and keeps its source
+citation; the coupled-flux vendoring was cross-validated bit-for-bit against the
+original. The `fast` package (FAST fibre coupling / HV57 Cn2) and `aotools` (the
+fidelity-2 phase screens) stay optional third-party dependencies that the
+relevant modules import lazily.
 
 ## Data-flow diagram
 

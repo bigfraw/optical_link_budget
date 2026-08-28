@@ -32,8 +32,10 @@ are from 2026-08-26 and can drift.
    Closed 2026-08-27. See 0-W2.
 5. **The stale docs that contradict the code.** Cheap, and they mislead every
    later session. See the documentation-debt group.
-6. **The kernel repo commit.** One `git add` in `my_analysis_modules`, plus
-   the KR-24 constants. See the external group.
+6. **DONE — olb is self-contained.** The `my_analysis_modules` kernels are
+   vendored into olb and `_deps.py` is deleted (2026-08-28). See X-1. The
+   kernel-repo commit and the KR-24 constants remain a concern for that repo
+   only, not for olb.
 7. **The owner decisions.** `downlink_budget` default (0-W5), and the
    FAST-versus-field reference model — whether wave optics ever becomes a
    DEFAULT. The turbulent fidelity-2 Term is now WIRED as opt-in (2-W1, done
@@ -446,9 +448,12 @@ The path forward for each is a second reference or a derivation.
 
 ## External dependencies
 
-- **X-1. The kernel repo holds uncommitted fixes.** `coupled_flux.py` in
-  D:\repos\my_analysis_modules is untracked; the Dios-verified fixes sit in
-  the working tree only. Commit them.
+- **X-1. RESOLVED for olb (2026-08-28): the coupled-flux kernels are vendored.**
+  olb copied them into `olb/turbulence/coupled_flux.py`, cross-validated
+  bit-for-bit against the `my_analysis_modules` working tree (which held the
+  Dios-verified fixes). olb no longer depends on `my_analysis_modules`. The
+  kernel-repo owner may still want to commit its own working tree, but that is
+  no longer an olb blocker.
 - **X-2. KR-24: the kernel keeps three wrong constants**
   (general_atmospherics.py:23 uses 0.54 / 1.22 / 0.509; the book uses
   0.49 / 1.11 / 0.51). The olb half is fixed; the kernel half is open.

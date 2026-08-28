@@ -31,11 +31,11 @@ the beam-broadening loss. For a 600 km uplink the loss is approximately 10 dB.
 The code corrects this."
 
 Not STE:
-"_deps is the single seam that kills the per-file sys.path hack."
+"coupled_flux.py vendors the Dios kernels so we kill the external dep."
 
 STE:
-"_deps.py is the only module that sets the path to my_analysis_modules. No other
-module sets this path."
+"olb/turbulence/coupled_flux.py holds the Dios coupled-flux kernels. olb copied
+them from my_analysis_modules. olb no longer imports that repository."
 
 ## For agents
 

@@ -483,7 +483,7 @@ so the result is additive with the geometric Term.
 #### Source
 
 Dios et al., Applied Optics 43 (2004) 3866, for the coupled-flux and wander-offset
-mechanism. The shared kernels come from `olb._deps`.
+mechanism. The kernels are vendored in `olb.turbulence.coupled_flux`.
 
 ### 5d. Dios on-axis and off-axis beam scintillation
 

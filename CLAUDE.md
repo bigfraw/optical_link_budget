@@ -50,9 +50,11 @@ README fidelity ladder.
   stays. A SpaceScenario also holds an optional uplink `precompensation` source
   (`DownlinkBeacon`, `LaserGuideStar` (a placeholder), or None); the uplink
   budget reads it to select the turbulence physics.
-- `olb/turbulence/` — pure physics. It imports only numpy, scipy, and `_deps`.
-  It does not import a scenario or Term. Files: `profiles.py` (Cn2 profiles,
-  `default_cn2_profile`, `DEFAULT_HS`), `plane_wave_scintillation.py`
+- `olb/turbulence/` — pure physics. It imports only numpy, scipy, and the olb
+  leaf modules (`units`, `beam`). It does not import a scenario or Term. Files:
+  `profiles.py` (Cn2 profiles, the Hufnagel-Valley `get_c2n`, the Bufton wind
+  `v_wind`, `default_cn2_profile`, `DEFAULT_HS`), `coupled_flux.py` (the vendored
+  Dios coupled-flux kernels for the uplink MC), `plane_wave_scintillation.py`
   (plane-wave scintillation indices, aperture-averaging integral; the
   space-to-ground downlink model), `beam_wave_scintillation.py` (Dios
   Gaussian-beam scintillation, on and off axis; the uplink model),
@@ -170,10 +172,15 @@ README fidelity ladder.
   samples, not means.
 - `olb/assumptions.py` — each Term declares its beam type, turbulence regime,
   and spectrum. `Budget.check()` flags a scenario that breaks an assumption.
-- `olb/_deps.py` — the ONLY module that imports the shared physics kernels from
-  `my_analysis_modules`. Set the `MY_ANALYSIS_MODULES` environment variable, or
-  place that repo at `D:\repos\my_analysis_modules`. The `fast` package is
-  optional (HV57 Cn2); without it, use `default_cn2_profile`.
+- olb is SELF-CONTAINED: it no longer depends on `my_analysis_modules`. The
+  physics kernels once borrowed through `olb/_deps.py` are now VENDORED into olb:
+  the unit conversions in `olb/units.py`, the Gaussian-beam `gaussz`/`zR` in
+  `olb/beam.py`, the `Satellite`/`SatellitePass` geometry in `olb/geometry.py`,
+  the Hufnagel-Valley Cn2 and Bufton wind in `olb/turbulence/profiles.py`, and
+  the Dios coupled-flux kernels in `olb/turbulence/coupled_flux.py`. `_deps.py`
+  is deleted. The `fast` package (FAST fibre coupling / HV57 Cn2) stays an
+  optional external dependency, imported lazily; without it, use
+  `default_cn2_profile`.
 
 ## Conventions
 
@@ -326,8 +333,10 @@ Open items:
   co-moving (spherical) screen, and the folded/retro double pass (correlated
   screens). `examples/waveoptics/` demonstrates the layer with seven scripts
   (three vacuum, three turbulent, and the budget-wiring demo).
-- **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
-  `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
-  fixes sit in its working tree only. The owner must commit them.
+- **The coupled-flux kernels are VENDORED (2026-08-28).** olb copied them into
+  `olb/turbulence/coupled_flux.py`, cross-validated bit-for-bit against the
+  `my_analysis_modules` working tree (which held the Dios-verified fixes). So
+  olb now carries the fixed version regardless of whether the kernel repo ever
+  commits them, and olb no longer depends on `my_analysis_modules` at all.
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.

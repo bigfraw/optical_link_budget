@@ -13,12 +13,9 @@ Install the package from the repository root:
 pip install -e .
 ```
 
-`olb` reuses proven physics kernels from a sibling repository,
-`my_analysis_modules`. The module `olb/_deps.py` is the only module that imports
-them. Give `olb` the location of that repository in one of two ways:
-
-- Set the environment variable `MY_ANALYSIS_MODULES` to its path.
-- Or place it at the default path `D:\repos\my_analysis_modules`.
+`olb` is self-contained and needs no sibling repository. The physics kernels it
+once borrowed from `my_analysis_modules` are now vendored into olb (see the
+README "Dependency" section).
 
 `fast-aosim` is an optional extra (`pip install fast-aosim`). It adds two things:
 

@@ -13,10 +13,9 @@ imports, so start it as a module:
 
 ## Prerequisites
 
-The core scripts need only `olb` and its shared kernels from
-`my_analysis_modules`. Set the `MY_ANALYSIS_MODULES` environment variable, or
-place that repository at `D:\repos\my_analysis_modules`. Two scripts use the
-FAST fidelity-1 single-mode-fibre coupling. That path needs `fast-aosim`.
+The core scripts need only `olb`, which is self-contained (no sibling
+repository). Two scripts use the FAST fidelity-1 single-mode-fibre coupling.
+That path needs `fast-aosim`.
 Install it with `pip install fast-aosim`. Loss is positive dB. Gain is negative
 dB.
 

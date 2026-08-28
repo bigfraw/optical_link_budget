@@ -32,12 +32,14 @@ split-step propagation itself. See `examples/waveoptics/budget_wiring.py`.
 
 ## Dependency
 
-This package reuses proven physics kernels from a sibling repository,
-`my_analysis_modules`. `olb/_deps.py` is the only module that imports them.
+This package is self-contained. It once reused physics kernels from a sibling
+repository, `my_analysis_modules`, through `olb/_deps.py`; those kernels are now
+vendored into olb (the unit conversions in `olb.units`, the Gaussian-beam
+helpers in `olb.beam`, the satellite geometry in `olb.geometry`, the
+Hufnagel-Valley Cn2 and Bufton wind in `olb.turbulence.profiles`, and the Dios
+coupled-flux kernels in `olb.turbulence.coupled_flux`). No sibling repository is
+needed. Two optional third-party packages remain:
 
-- Set the environment variable `MY_ANALYSIS_MODULES` to the location of
-  `my_analysis_modules`, or place it at `D:\repos\my_analysis_modules` (the
-  default path).
 - `fast-aosim` is optional (`pip install fast-aosim`). It supplies the
   Hufnagel-Valley HV57 Cn2 profile, and the fidelity-1 single-mode-fibre modal
   coupling (`downlink_budget(fidelity=1)`), the only statistical SMF coupling
