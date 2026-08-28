@@ -23,7 +23,43 @@ import the scenario, the results, or the assumptions.
 
 import numpy as np
 
-from ._deps import gaussz, zR, w0_to_div
+from .units import w0_to_div
+
+
+def zR(w0, lamda=1550e-9):
+    '''
+    Rayleigh range of a Gaussian beam [m].
+
+    Parameters:
+        w0 : float
+            The waist radius at the focus (z = 0) [m].
+        lamda : float
+            The wavelength [m].
+
+    Returns:
+        float
+            The Rayleigh range [m].
+    '''
+    return np.pi * w0 ** 2 / lamda
+
+
+def gaussz(w0, z, lamda=1550e-9):
+    '''
+    Gaussian beam radius at a distance z from the focus [m].
+
+    Parameters:
+        w0 : float
+            The waist radius at the focus (z = 0) [m].
+        z : float
+            The distance from the focus [m].
+        lamda : float
+            The wavelength [m].
+
+    Returns:
+        float
+            The beam radius at z [m].
+    '''
+    return w0 * np.sqrt(1 + (z / zR(w0, lamda)) ** 2)
 
 
 def virtual_waist(w0, divergence_rad=None, wavelength=1550e-9):

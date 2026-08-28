@@ -742,7 +742,7 @@ if __name__ == '__main__':
     # A diverged beam is wider and more spherical-wave-like, so it both dilutes
     # the broadening loss and scintillates less. Neither link raises a
     # divergence-specific violation, because the model no longer approximates it.
-    from .._deps import w0_to_div
+    from ..units import w0_to_div
     tx0 = scenario.tx_terminal
     theta_min = w0_to_div(tx0.transmitter.waist_m, tx0.wavelength_m)
     div_scn = _uplink(0.1, divergence=5 * theta_min)

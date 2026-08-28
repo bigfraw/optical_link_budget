@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
     # A diverged beam spreads more, so it costs more geometric loss than a
     # collimated beam of the same w0.
-    from .._deps import w0_to_div
+    from ..units import w0_to_div
     theta_min = w0_to_div(0.02, 1550e-9)
     assert np.all(geometric_loss_db(r, 0.02, 0.08, divergence_rad=5 * theta_min)
                   > geometric_loss_db(r, 0.02, 0.08))         # divergence adds loss

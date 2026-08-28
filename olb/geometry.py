@@ -23,7 +23,74 @@ pass). Select the backend that gives the quantities that your code needs.
 
 import numpy as np
 
-from ._deps import Satellite, SatellitePass
+# Physical constants for the circular-orbit geometry.
+_GRAV_CONST = 6.674e-11    # gravitational constant [m^3 kg^-1 s^-2]
+_EARTH_MASS = 5.972e24     # mass of the Earth [kg]
+_EARTH_RADIUS = 6371e3     # mean radius of the Earth [m]
+_C = 2.998e8               # speed of light [m/s]
+
+
+class Satellite:
+    '''A satellite in a circular orbit at a given altitude.'''
+
+    def __init__(self, altitude):
+        '''
+        Parameters:
+            altitude : float
+                The orbital altitude above the Earth surface [m].
+        '''
+        self.altitude = altitude
+        self.orbital_speed = np.sqrt(
+            _GRAV_CONST * _EARTH_MASS / (_EARTH_RADIUS + self.altitude))
+
+    def angular_speed(self):
+        '''Return the angular speed about the Earth centre [deg/s].'''
+        return np.rad2deg(self.orbital_speed / (_EARTH_RADIUS + self.altitude))
+
+
+class SatellitePass:
+    '''A pass of a Satellite over a ground station at a given elevation.'''
+
+    def __init__(self, satellite, elevation):
+        '''
+        Parameters:
+            satellite : Satellite
+                The satellite that the ground station tracks.
+            elevation : float
+                The elevation angle above the horizon [deg].
+        '''
+        self.elevation = elevation
+        self.satellite = satellite
+
+    def tangential_velocity(self):
+        '''
+        Return the satellite velocity across the line of sight [m/s].
+
+        This is the orbital-speed component transverse to the line of sight, as
+        the ground station sees it.
+        '''
+        return self.satellite.orbital_speed * np.sin(np.radians(self.elevation))
+
+    def slant_range(self):
+        '''Return the slant range from the ground station to the satellite [m].'''
+        Re = _EARTH_RADIUS
+        h = self.satellite.altitude
+        el = np.radians(self.elevation)
+        return -Re * np.sin(el) + np.sqrt(
+            Re ** 2 * np.sin(el) ** 2 + h ** 2 + 2 * Re * h)
+
+    def point_ahead_angle(self):
+        '''
+        Return the point-ahead angle [rad].
+
+        This is the angular lead that accounts for the finite speed of light
+        over the round trip.
+        '''
+        return 2 * self.tangential_velocity() / _C
+
+    def apparent_slew_rate(self):
+        '''Return the apparent angular slew rate of the line of sight [deg/s].'''
+        return np.rad2deg(self.tangential_velocity() / self.satellite.altitude)
 
 
 class CircularOrbit:

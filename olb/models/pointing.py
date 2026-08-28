@@ -144,7 +144,7 @@ if __name__ == '__main__':
     assert np.all(m_big > m_small)
 
     # A wider (diverged) beam gives LESS pointing loss than a collimated one.
-    from .._deps import w0_to_div
+    from ..units import w0_to_div
     theta_min = w0_to_div(0.035, 1550e-9)
     m_diverged = pointing_loss_mean_db(r, 0.035, 10e-6, divergence_rad=5 * theta_min)
     m_collimated = pointing_loss_mean_db(r, 0.035, 10e-6)

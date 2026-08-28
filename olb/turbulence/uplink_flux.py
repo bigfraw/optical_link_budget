@@ -38,7 +38,8 @@ import warnings
 
 import numpy as np
 
-from .._deps import (coupled_flux_montecarlo, gaussz, zR,
+from ..beam import gaussz, zR
+from .._deps import (coupled_flux_montecarlo,
                      spherical_wave_coherence_diameter, short_term_beam_waist,
                      long_term_beam_waist, beam_wander_variance,
                      coupled_flux_sample, on_axis_irradiance)
@@ -267,7 +268,7 @@ if __name__ == '__main__':
     # free-space width and a wider short-term waist, and it dilutes the mean
     # turbulence loss (the flux is spread over a larger beam that turbulence
     # broadens less, in relative terms).
-    from .._deps import w0_to_div
+    from ..units import w0_to_div
     theta_min = w0_to_div(w0, lam)
     np.random.seed(0)
     r_coll = _flux_result(w0, 90.0, range_m, lam, hs, weak_cn2, 1.7e-14, 4000, 1)

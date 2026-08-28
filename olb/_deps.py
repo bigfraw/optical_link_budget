@@ -32,14 +32,9 @@ if str(_MAM) not in sys.path:
     sys.path.insert(0, str(_MAM))
 
 # Re-export the exact symbols olb borrows. If any of these move, this is the
-# only import that breaks -- a deliberate single point of failure.
-from fields import gaussz, zR                                    # noqa: E402
-from conversions import (                                        # noqa: E402
-    todB, fromdB, todBm, fromdBm, w0_to_div, div_to_w0,
-    arcsec_to_rad, rad_to_arcsec,
-)
-from satellite import Satellite, SatellitePass                   # noqa: E402
-
+# only import that breaks -- a deliberate single point of failure. (The unit
+# conversions, the Gaussian-beam gaussz/zR, and the Satellite geometry, once
+# borrowed here, now live in olb.units, olb.beam, and olb.geometry.)
 # coupled_flux prints text at import. It is in a shared repo that we do not own.
 # This code stops the print here. It does not edit that module. (The Hufnagel-
 # Valley Cn2 model and the Bufton wind model, once borrowed here from
@@ -56,10 +51,6 @@ with contextlib.redirect_stdout(io.StringIO()):
     )
 
 __all__ = [
-    "gaussz", "zR",
-    "todB", "fromdB", "todBm", "fromdBm", "w0_to_div", "div_to_w0",
-    "arcsec_to_rad", "rad_to_arcsec",
-    "Satellite", "SatellitePass",
     "coupled_flux_montecarlo",
     "spherical_wave_coherence_diameter", "short_term_beam_waist",
     "long_term_beam_waist", "beam_wander_variance",
