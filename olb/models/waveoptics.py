@@ -20,6 +20,10 @@ the loss (see olb.waveoptics.turbulence.run.TurbTrial):
   - smf_eta         the single-mode-fibre coupling efficiency (a terrestrial or a
                     downlink fibre receiver). It is the ABSOLUTE efficiency, so it
                     already holds the static mode-match floor.
+  - mmf_eta         the multimode-fibre (light-bucket) coupling efficiency (a
+                    downlink or a terrestrial light-bucket receiver). It is the
+                    ABSOLUTE core-capture efficiency, so it already holds the
+                    static encircled-energy floor.
   - collected_power the power in the receive aperture. The SPACE case normalises
                     it to the vacuum baseline, so it is the pure turbulence
                     penalty (vacuum limit 1.0). Do NOT use the terrestrial
@@ -57,6 +61,7 @@ from ..turbulence.plane_wave_scintillation import WEAK_FLUCTUATION_LIMIT
 # Each quantity fixes the default Term name and category.
 _QUANTITY_SPEC = {
     "smf_eta": ("receive coupling (SMF)", "coupling"),
+    "mmf_eta": ("receive coupling (MMF)", "coupling"),
     "collected_power": ("scintillation", "turbulence"),
     "eta_turb": ("turbulence (wave optics, reciprocity)", "turbulence"),
 }
@@ -328,6 +333,40 @@ def waveoptics_smf_coupling_term(result, **kwargs):
     return waveoptics_turbulence_term(result, quantity="smf_eta", **kwargs)
 
 
+def waveoptics_mmf_coupling_term(result, **kwargs):
+    '''
+    Build the fidelity-2 turbulent MMF-coupling Term (category "coupling").
+
+    This is the light-bucket coupling face of the wave-optics record: the
+    per-trial multimode-fibre efficiency, reduced to the three Term faces. The
+    per-trial mmf_eta is the ABSOLUTE core-capture efficiency, so it already holds
+    the static encircled-energy floor (the same way smf_eta holds the static
+    mode-match floor). The turbulent tilt walks the focused spot off the fixed
+    on-axis core on its own, so the fade is real. The receive MECHANICAL jitter is
+    NOT here; it is a separate analytic Term in the budget.
+
+    It is the fidelity-2 companion of the fidelity-1 FAST MMF Term, which does not
+    exist: the light bucket has no analytic or FAST model. So this Term is the
+    only statistical MMF coupling model in olb. It is a thin wrapper on
+    waveoptics_turbulence_term with quantity="mmf_eta", named so a caller finds
+    the coupling Term without knowing the quantity flag; the coupling package
+    re-exports it. See that function for the keyword arguments.
+
+    Parameters:
+        result : TurbWaveResult
+            The record from run_waveoptics. The receive terminal must be an MMF,
+            or the mmf_eta scalar is None for every trial and this raises.
+        **kwargs :
+            Passed to waveoptics_turbulence_term (beam_type, name, spectrum,
+            sigma2_I, L0_m, note, meta_extra). `quantity` is fixed to "mmf_eta".
+
+    Returns:
+        Term
+            A three-face coupling Term (mean_only=False).
+    '''
+    return waveoptics_turbulence_term(result, quantity="mmf_eta", **kwargs)
+
+
 def _none_message(quantity):
     '''The helpful error when the chosen scalar is None for the record.'''
     if quantity == "eta_turb":
@@ -339,6 +378,10 @@ def _none_message(quantity):
         return ("quantity='smf_eta' is None: the receive terminal has no SMF "
                 "detector, so the run computed no fibre coupling. Give the rx "
                 "terminal detector=SMF(...), or use 'collected_power'.")
+    if quantity == "mmf_eta":
+        return ("quantity='mmf_eta' is None: the receive terminal has no MMF "
+                "detector, so the run computed no light-bucket coupling. Give the "
+                "rx terminal detector=MMF(...), or use another quantity.")
     return (f"quantity={quantity!r} is None for the record. The direction does "
             "not set it.")
 
@@ -583,6 +626,29 @@ if __name__ == '__main__':
         raise AssertionError("neither quantity nor loss_db must raise")
     except ValueError as e:
         assert "quantity" in str(e)
+
+    # The MMF coupling face: fresh synthetic trials WITH mmf_eta set (the trials
+    # above leave it None by default). The reduction is the same empirical loss.
+    mmf_etas = np.linspace(0.2, 0.6, 150)
+    mmf_trials = [TurbTrial(collected_power=float(e), smf_eta=None,
+                            eta_turb=None, seed_key=(0, i), wall_time_s=0.0,
+                            mmf_eta=float(e))
+                  for i, e in enumerate(mmf_etas)]
+    mmf_rec = TurbWaveResult(trials=mmf_trials, grid=None, plan=None,
+                             report=None, preset="rapid", seed_entropy=99)
+    mmf_term = waveoptics_mmf_coupling_term(mmf_rec, sigma2_I=0.1)
+    assert mmf_term.name == "receive coupling (MMF)"
+    assert mmf_term.category == "coupling"
+    assert not mmf_term.mean_only and mmf_term.stochastic
+    assert mmf_term.quantile is not None
+    assert mmf_term.mean_db == float((-10.0 * np.log10(mmf_etas)).mean())
+    # The None-scalar guard: mmf_eta is None on every trial of `rec`, so the MMF
+    # term raises with a helpful message.
+    try:
+        waveoptics_mmf_coupling_term(rec)
+        raise AssertionError("mmf_eta=None must raise")
+    except ValueError as e:
+        assert "no MMF" in str(e), str(e)
     print("Part A (reducer + guards): passed")
 
     # --- Part B: one real terrestrial run (skips if aotools is absent) --------

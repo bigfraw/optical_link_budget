@@ -233,7 +233,7 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds seven scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds nine scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
 script. The first three have NO turbulence. The next three add the turbulent
@@ -327,6 +327,27 @@ The budget-wiring script:
     fidelity-2 vacuum-optics loss, the turbulence mean, the 90% fade, and the
     budget total.
   - Run: `python -m examples.waveoptics.budget_wiring`
+
+The multimode-fibre snapshot scripts. Each one draws the focused spot on a
+multimode-fibre (light-bucket) core, turbulent against no turbulence. Each one
+runs ONE snapshot of each field (a picture, not a statistics run), and each one
+builds the fidelity-2 `waveoptics_mmf_coupling_term`. The two links sit in
+OPPOSITE corners of the turbulence. Both use the shared helper
+`olb.waveoptics.mmf.focal_intensity`.
+
+- `mmf_core_psf.py` — a 600 km downlink into a ground light-bucket receiver. The
+  big aperture gives a large `D/r0`, so the turbulence broadens the focused spot
+  and the spot spills past the core (a real loss). The still-atmosphere spot fits
+  inside the core. The figure goes to
+  `examples/waveoptics/figures/mmf_core_psf.png`.
+  - Run: `python -m examples.waveoptics.mmf_core_psf`
+- `mmf_core_psf_terrestrial.py` — the terrestrial sibling: a 5 km horizontal link
+  at `Cn2 = 5e-15`, into a small 25 mm receiver. The aperture is smaller than one
+  coherence cell (`D/r0` about 0.55), so the focused spot stays compact and the
+  big core holds it. The turbulence loss lives in the scintillation and the
+  wander, not in the spot that spills the core. The figure goes to
+  `examples/waveoptics/figures/mmf_core_psf_terrestrial.png`.
+  - Run: `python -m examples.waveoptics.mmf_core_psf_terrestrial`
 
 The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
 wave-optics layer only when the caller sets `fidelity=2` and gives it a bundle.

@@ -40,8 +40,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...beam import virtual_waist
-from ...terminal import SMF
+from ...terminal import SMF, MMF
 from ..field import Begin, Power
+from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard
 from ..run import _clip, _launch_aperture, _normalised_gauss
 from ..smf import coupling_efficiency
@@ -70,6 +71,11 @@ class TurbTrial:
         seed_key:        the pair (seed_entropy, trial_index).
         wall_time_s:     the time of the trial, in s. It holds the screen
                          generation and the propagation.
+        mmf_eta:         the multimode-fibre (light-bucket) coupling efficiency.
+                         It is the encircled energy of the focused spot inside
+                         the core, and the turbulent tilt walks the spot off the
+                         on-axis core on its own. It is None when the receive
+                         terminal has no MMF detector.
     """
 
     collected_power: float
@@ -77,6 +83,7 @@ class TurbTrial:
     eta_turb: float
     seed_key: tuple
     wall_time_s: float
+    mmf_eta: float = None
 
 
 @dataclass(frozen=True)
@@ -329,6 +336,28 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         collected_power = float(Power(collected) / p_reference)
         smf_eta = (float(coupling_efficiency(collected, rx.aperture_m))
                    if isinstance(rx.detector, SMF) else None)
+        mmf_eta = None
+        if isinstance(rx.detector, MMF):
+            # Resolve the focal length the way the terrestrial MMF Term does. An
+            # explicit focal_length_m wins; else optimal_focus matches the spot
+            # to the core through the a=1.12 spot-to-core parameter. Source:
+            # Shaklan and Roddier, Appl. Opt. 27 (1988) 2334,
+            # DOI 10.1364/AO.27.002334. See olb.models.coupling.terrestrial
+            # _mmf_focal_length.
+            det = rx.detector
+            if det.focal_length_m is not None:
+                f_mmf = det.focal_length_m
+            elif det.optimal_focus:
+                f_mmf = (np.pi * (rx.aperture_m / 2.0) * det.core_radius_m
+                         / (lam * 1.12))
+            else:
+                raise ValueError(
+                    "the MMF detector needs a focal length to focus the field. "
+                    "Set MMF.focal_length_m, or set MMF.optimal_focus=True to "
+                    "match the spot to the core.")
+            mmf_eta = float(mmf_coupling_efficiency(
+                collected, rx.aperture_m, det.core_radius_m, f_mmf,
+                numerical_aperture=det.numerical_aperture))
         eta_turb = None
         if is_space and scenario.direction == "uplink":
             # The reciprocity overlap. See Shapiro,
@@ -338,7 +367,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             eta_turb = o / o_vac
         return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
                          eta_turb=eta_turb, seed_key=(seed_entropy, k),
-                         wall_time_s=time.perf_counter() - t0)
+                         wall_time_s=time.perf_counter() - t0,
+                         mmf_eta=mmf_eta)
 
     if threader is None:
         trials = [run_one(k) for k in range(n_trials)]

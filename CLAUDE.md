@@ -84,14 +84,16 @@ README fidelity ladder.
   the two share the FAST loader, the Cn2 layering, and the AO mapping) and
   `waveoptics.py` (fidelity 2: `run_fidelity2`/`run_waveoptics` (the runners),
   `Fidelity2Bundle`, `waveoptics_vacuum_term` (the deterministic geometric loss),
-  `waveoptics_turbulence_term` (the fade), and `waveoptics_smf_coupling_term` (the
-  turbulent fibre-coupling face)). The `coupling/` package holds the
+  `waveoptics_turbulence_term` (the fade), `waveoptics_smf_coupling_term` (the
+  turbulent single-mode fibre-coupling face), and `waveoptics_mmf_coupling_term`
+  (the turbulent multimode light-bucket coupling face)). The `coupling/` package holds the
   category-native coupling Terms (`_common.py` holds the shared SMF physics;
   `downlink.py` holds `downlink_coupling_term`; `terrestrial.py` holds
   `terrestrial_smf_coupling_term`, `terrestrial_smf_walkoff_term`, and
   `terrestrial_mmf_coupling_term`), and it RE-EXPORTS the coupling-category Terms
   that a fidelity module owns (`smf_fast_term` from `fast.py`,
-  `waveoptics_smf_coupling_term` from `waveoptics.py`), so a coupling Term is
+  `waveoptics_smf_coupling_term` and `waveoptics_mmf_coupling_term` from
+  `waveoptics.py`), so a coupling Term is
   discoverable in the coupling namespace whatever its fidelity. `from
   olb.models.coupling import <name>` still works for every coupling Term.
 - `olb/links/` — per-link Terms and budget assembly. Every budget takes one
@@ -137,9 +139,11 @@ README fidelity ladder.
   GForvard; the three take a FLAT grid only, and each one raises on a spherical
   field), and `lenses.py` (Lens, LensForvard, LensFresnel, Convert; the thin lens
   and the spherical (co-moving) coordinate route, which moves the grid with the
-  beam so a long space link stays sampled on a small pixel count). Three
+  beam so a long space link stays sampled on a small pixel count). Four
   olb-native modules sit on that core: `smf.py` (the fibre mode
-  and the overlap coupling efficiency), `grid.py` (`GridSpec.for_scenario`, the
+  and the overlap coupling efficiency), `mmf.py` (the multimode light-bucket
+  coupling: `focal_intensity` and `mmf_coupling_efficiency`), `grid.py`
+  (`GridSpec.for_scenario`, the
   automatic grid sizer with a manual override, `beam_magnification`, and
   `forvard_max_z`), and `run.py`
   (`propagate_scenario` -> `WaveResult`, one end-to-end propagation). The sizer

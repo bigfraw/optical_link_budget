@@ -25,7 +25,9 @@ fidelity-named module (which spans several Term categories, so it sits at the
 olb.models level, not here) is RE-EXPORTED into this package, so every coupling
 Term is discoverable here whatever its fidelity: smf_fast_term (fidelity 1, the
 FAST modal overlap) comes from olb.models.fast, and waveoptics_smf_coupling_term
-(fidelity 2, the split-step fibre coupling) comes from olb.models.waveoptics.
+(fidelity 2, the split-step fibre coupling) and waveoptics_mmf_coupling_term
+(fidelity 2, the split-step light-bucket coupling) come from
+olb.models.waveoptics.
 
 Sources:
   Noll residual variance: R. J. Noll, JOSA 66(3), 207 (1976). See
@@ -46,7 +48,8 @@ from .terrestrial import (terrestrial_smf_coupling_term,
 # re-exports them, so every coupling Term stays discoverable here whatever its
 # fidelity.
 from ..fast import smf_fast_term
-from ..waveoptics import waveoptics_smf_coupling_term
+from ..waveoptics import (waveoptics_smf_coupling_term,
+                         waveoptics_mmf_coupling_term)
 
 __all__ = [
     "downlink_coupling_term",
@@ -55,5 +58,6 @@ __all__ = [
     "terrestrial_mmf_coupling_term",
     "smf_fast_term",
     "waveoptics_smf_coupling_term",
+    "waveoptics_mmf_coupling_term",
     "smf_eta_max_from_a",
 ]

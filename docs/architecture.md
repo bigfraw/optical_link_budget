@@ -67,6 +67,7 @@ keeps the LightPipes names and call order:
 - `propagators.py` — `Forvard`, `Fresnel`, `GForvard`. The three work on a flat grid only. Each one raises `ValueError` on a spherical field.
 - `lenses.py` — `Lens`, `LensForvard`, `LensFresnel`, `Convert`. The thin lens, and the spherical (co-moving) coordinate route. `LensFresnel` moves the grid with the beam, so a beam that grows by a factor of 100 stays sampled on a small pixel count. `Convert` comes back to a flat grid.
 - `smf.py` — the single-mode-fibre pupil mode and the overlap coupling efficiency.
+- `mmf.py` — the multimode-fibre light-bucket coupling. `focal_intensity` focuses the pupil field to the focal plane, and `mmf_coupling_efficiency` sums the encircled energy inside the hard core disk.
 - `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, `beam_magnification`, and `forvard_max_z`.
 - `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
 
@@ -80,7 +81,7 @@ The last one is the route for a long space link. See Schmidt,
 DOI 10.1117/3.866274, Ch. 7.
 
 The dependency stays one-way. The core (`field.py`, `sources.py`,
-`propagators.py`, `lenses.py`, `smf.py`) imports numpy and scipy only, and it
+`propagators.py`, `lenses.py`, `smf.py`, `mmf.py`) imports numpy and scipy only, and it
 imports nothing from the rest of olb. Only `grid.py` and `run.py` read a
 scenario.
 

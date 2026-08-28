@@ -53,7 +53,7 @@ from ...results import Term
 from ...assumptions import (Assumptions, BEAM_PLANE_WAVE, BEAM_GAUSSIAN,
                             REGIME_WEAK, REGIME_NA, SPECTRUM_KOLMOGOROV,
                             SPECTRUM_NA)
-from ...terminal import Aperture, SMF
+from ...terminal import Aperture, SMF, MMF
 from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ...turbulence.ao import (plane_wave_fried_parameter_profile,
                              apply_compensation)
@@ -228,6 +228,17 @@ def downlink_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "downlink_coupling_term needs a scenario.rx_terminal with a detector. "
             "Set scenario.rx_terminal = Terminal(..., detector=Aperture() or SMF())."
         )
+    # The MMF (light-bucket) receive coupling has NO analytic (fidelity 0) and NO
+    # FAST (fidelity 1) model in olb. The encircled energy of the focal spot on a
+    # fixed core needs the field, so only the fidelity-2 wave optics gives it.
+    # This branch fires before the turbulence switch, so both paths raise.
+    if isinstance(terminal.detector, MMF):
+        raise NotImplementedError(
+            "downlink MMF (light-bucket) receive coupling has no analytic "
+            "(fidelity 0) or FAST (fidelity 1) model. Use fidelity 2 wave optics: "
+            "olb.models.waveoptics.waveoptics_mmf_coupling_term, fed by a "
+            "turbulent run with an MMF receive detector."
+        )
     # Turbulence off: no scintillation, no residual wavefront, no FAST engine. An
     # Aperture bucket has no static coupling loss (0 dB); an SMF keeps its static
     # mode-match floor. Resolve this before the Cn2 profile, so no turbulence
@@ -389,6 +400,17 @@ if __name__ == '__main__':
     assert smf_off.meta["model"] == "static" and not smf_off.mean_only
     assert not smf_off.stochastic and smf_off.quantile is None
     assert np.isclose(smf_off.mean_db, -10.0 * np.log10(0.8145))
+
+    # An MMF (light-bucket) detector has no analytic/FAST model, so it raises.
+    from ...terminal import MMF
+    scn_mmf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam,
+                                 detector=MMF(core_radius_m=25e-6,
+                                              optimal_focus=True)))
+    try:
+        downlink_coupling_term(scn_mmf, geom, hs=hs)
+        raise AssertionError("an MMF detector must raise NotImplementedError")
+    except NotImplementedError as e:
+        assert "wave optics" in str(e), str(e)
 
     print(f"aperture coupling mean = {float(t_ap.mean_db):.4f} dB "
           f"(= scintillation {float(t_scint.mean_db):.4f} dB)")

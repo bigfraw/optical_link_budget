@@ -240,6 +240,33 @@ turbulence physics for the whole link. It replaces the old per-component knobs
   `Fidelity2Bundle` from `olb.models.waveoptics.run_fidelity2`); the budget never
   runs the simulation itself.
 
+#### The fidelity-2 coupling faces
+
+When a receiver has a fibre or a light-bucket detector, the fidelity-2
+turbulence penalty is a coupling-category face of the wave-optics record. Two
+factories in `olb.models.waveoptics` build it from a turbulent run:
+
+- `waveoptics_smf_coupling_term(result, **kwargs)` reduces the per-trial
+  single-mode-fibre efficiency `smf_eta`.
+- `waveoptics_mmf_coupling_term(result, **kwargs)` reduces the per-trial
+  multimode-fibre (light-bucket) efficiency `mmf_eta`.
+
+Each factory reduces the per-trial efficiency to the three Term faces (an
+empirical mean, an empirical quantile, and a resampling sampler), category
+`coupling`. Each per-trial efficiency is the ABSOLUTE coupling efficiency, so
+the loss `-10*log10(eta)` already holds the static floor: `smf_eta` holds the
+static mode-match floor, and `mmf_eta` holds the static encircled-energy floor.
+No extra floor is added. Both Terms carry a real fade (the turbulent tilt walks
+the focused spot off the fixed on-axis core). The receive mechanical jitter is
+not in these Terms; it is a separate analytic Term in the budget.
+
+`waveoptics_smf_coupling_term` is the fidelity-2 companion of the fidelity-1
+FAST `smf_fast_term`. `waveoptics_mmf_coupling_term` is the fidelity-2 companion
+of a fidelity-1 FAST MMF Term that does NOT exist: the light bucket has no
+analytic and no FAST model, so this Term is the only statistical MMF coupling
+model in olb. Both are re-exported from `olb.models.coupling`, so a coupling
+Term is discoverable there whatever its fidelity.
+
 Not every fidelity fits every link. Each budget section below gives the exact
 mapping and the cases that raise.
 
@@ -373,6 +400,16 @@ The `fidelity` maps to the receive-side turbulence model:
   replace the geometric and the scintillation or coupling Terms. Only the
   analytic extinction and pointing Terms stay. It needs the precomputed `wave`
   bundle.
+
+An `MMF` (light-bucket) receive detector is a special case. At fidelity 0 and
+fidelity 1 the downlink receive-coupling raises `NotImplementedError`: olb has no
+analytic and no FAST MMF coupling model, because the encircled energy of the
+focal spot on a fixed core needs the field. The fidelity-2
+`waveoptics_mmf_coupling_term` gives the MMF coupling from a split-step run, but
+`downlink_budget(fidelity=2)` does NOT yet route an `MMF` receiver: the
+fidelity-2 downlink path branches on an `SMF` versus an aperture receiver only.
+So you build the MMF Term directly from a turbulent run for now. This wiring is
+owner-gated.
 
 Other rules:
 

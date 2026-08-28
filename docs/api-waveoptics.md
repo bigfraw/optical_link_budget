@@ -179,6 +179,45 @@ radius agrees with the analytic ABCD value to 0.4 percent
 The function takes ONE field and gives ONE float. Loop in the caller for a set of
 realisations.
 
+### 4a. The multimode-fibre coupling (`olb/waveoptics/mmf.py`)
+
+A multimode fibre is a LIGHT BUCKET, not a mode overlap. The core is a hard disk
+in the fibre plane. The fibre collects the power of the focused spot that lands
+inside that disk. So the coupled fraction is the ENCIRCLED ENERGY of the focal
+spot inside the core.
+
+- `mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
+  numerical_aperture=None, mask=None)` — the power fraction that couples into a
+  multimode fibre, a float between 0 and 1. It is `eta = P_core / P_total`.
+  `P_total` is the total collected pupil power. `P_core` is the focal power
+  inside the on-axis core disk of the radius `core_radius_m`, after the
+  numerical-aperture gate. It focuses the pupil field with a Fraunhofer FFT
+  (Goodman, ISBN 978-0974707723). The core is FIXED on the axis, so the
+  turbulent tilt walks the focused spot off the core on its own; the fade is
+  intrinsic. The receive MECHANICAL jitter is NOT in this efficiency (it is a
+  separate analytic Term), so this eta is a turbulence-only quantity.
+  `aperture_m` is the pupil DIAMETER, kept for the signature; the field is
+  already clipped to the aperture, so the value is not used in the integral. An
+  optional `mask` multiplies the field first. A field with no power raises
+  `ValueError`. The function WARNS when the core spans fewer than about 3 focal
+  pixels.
+- `focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None)` —
+  the shared helper that both `mmf_coupling_efficiency` and the example scripts
+  use. It returns the tuple `(If, dx_focal)`. `If` is the focal-plane intensity,
+  `|fftshift(fft2(ifftshift(Eg), norm='ortho'))|^2`, and `norm='ortho'` keeps
+  Parseval exact. `dx_focal = field.lam * focal_length_m / field.siz` is the
+  focal pixel size, in m. It applies the mask and the numerical-aperture pupil
+  gate before the focus.
+
+The numerical-aperture gate is a PUPIL amplitude mask. A ray from the pupil
+radius `rho` focuses at the angle `rho/focal_length_m`, so the fibre guides only
+the rays with `rho <= focal_length_m * numerical_aperture` (Snyder and Love,
+DOI 10.1007/978-1-4613-2813-1). `None` applies no gate.
+
+A SMALL receive aperture in a beam-sized grid gives a SHORT focal length and a
+small focal field of view (about `lambda*f/dx_pupil`), so a plot window must stay
+inside it; the focal integral is then also grid-limited.
+
 ---
 
 ## 5. The grid (`olb/waveoptics/grid.py`)
@@ -661,6 +700,7 @@ A frozen dataclass. One atmosphere snapshot.
 | `collected_power` | float | The power inside the receive aperture, as a fraction of the input power. The terrestrial case divides by the launched power AFTER the transmit clip, so it holds the geometric spread too. The space case divides by the VACUUM baseline on the same grid, so it holds the turbulence penalty only, and its vacuum limit is 1.0. |
 | `smf_eta` | float or None | The single-mode-fibre coupling efficiency, from `olb.waveoptics.smf.coupling_efficiency`. `None` when the receive terminal has no `SMF` detector. |
 | `eta_turb` | float or None | The uplink reciprocity overlap ratio, against the free-space baseline. `None` for a downlink and for a terrestrial case. |
+| `mmf_eta` | float or None | The multimode-fibre (light-bucket) coupling efficiency, from `olb.waveoptics.mmf`. It is the encircled energy of the focused spot inside the on-axis core; the turbulent tilt walks the spot off the core. `None` when the receive terminal has no `MMF` detector. |
 | `seed_key` | tuple | The pair `(seed_entropy, trial_index)`. |
 | `wall_time_s` | float | The time of the trial, in s. It holds the screen generation and the propagation. |
 
