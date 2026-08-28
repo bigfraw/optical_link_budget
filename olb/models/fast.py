@@ -43,12 +43,12 @@ import logging
 
 import numpy as np
 
-from ...results import Term
-from ...assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
+from ..results import Term
+from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                             SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
-from ...terminal import TipTilt, AO
-from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from ...turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
+from ..terminal import TipTilt, AO
+from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
+from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
                                                    WEAK_FLUCTUATION_LIMIT)
 
 
@@ -565,9 +565,9 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
 if __name__ == '__main__':
     import warnings
 
-    from ...scenario import SpaceScenario, Channel, Site
-    from ...geometry import CircularOrbit
-    from ...terminal import Terminal, Transmitter, SMF, TipTilt, AO
+    from ..scenario import SpaceScenario, Channel, Site
+    from ..geometry import CircularOrbit
+    from ..terminal import Terminal, Transmitter, SMF, TipTilt, AO
 
     try:
         _load_fast()
@@ -612,7 +612,7 @@ if __name__ == '__main__':
     # Spectrum label follows the RESOLVED scales, not a fixed constant. The
     # default (L0=inf, l0=1e-6) is the Kolmogorov limit; a finite L0 flips the
     # label to von Karman and names the scale.
-    from ...assumptions import SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN
+    from ..assumptions import SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN
     assert term.assumptions.spectrum == SPECTRUM_KOLMOGOROV
     assert np.isinf(term.meta["L0_m"]) and term.meta["l0_m"] == 1e-6
     with warnings.catch_warnings():
@@ -657,7 +657,7 @@ if __name__ == '__main__':
           f"AO(6) {t_ao6.mean_db:.2f} dB | AO(20) {t_ao20.mean_db:.2f} dB")
 
     # --- pre-compensated uplink (uplink_fast_term) ---------------------------
-    from ...scenario import DownlinkBeacon
+    from ..scenario import DownlinkBeacon
 
     def _uplink(comp, aperture_m=1.5):
         return SpaceScenario(

@@ -74,18 +74,24 @@ README fidelity ladder.
   is named for the physics it computes. Some use a link-specific simplification,
   and the name says so: `geometric.py`, `extinction.py` (`slant_extinction_term`
   for the slant airmass path AND `terrestrial_extinction_term` for the
-  horizontal Beer-Lambert path), `pointing.py`, `waveoptics.py` (the fidelity-2
-  Term factories, spanning every category: `run_fidelity2`/`run_waveoptics` (the
-  runners), `Fidelity2Bundle`, `waveoptics_vacuum_term` (the deterministic
-  geometric loss), and `waveoptics_turbulence_term` (the fade). It sits at the
-  `models/` level, not inside `coupling/`, because it is named for the fidelity
-  and spans geometric + turbulence + coupling, not one physics), and the
-  `coupling/` package (`_common.py` holds the shared SMF physics; `downlink.py`
-  holds `downlink_coupling_term`; `terrestrial.py` holds
+  horizontal Beer-Lambert path), `pointing.py`, and the two FIDELITY-named
+  modules that sit at the `models/` level (not inside a category package) because
+  each spans several Term categories and is named for its fidelity, not one
+  physics: `fast.py` (fidelity 1: `smf_fast_term`, the FAST downlink fibre
+  coupling, AND `uplink_fast_term`, the pre-compensated uplink turbulence Term;
+  the two share the FAST loader, the Cn2 layering, and the AO mapping) and
+  `waveoptics.py` (fidelity 2: `run_fidelity2`/`run_waveoptics` (the runners),
+  `Fidelity2Bundle`, `waveoptics_vacuum_term` (the deterministic geometric loss),
+  `waveoptics_turbulence_term` (the fade), and `waveoptics_smf_coupling_term` (the
+  turbulent fibre-coupling face)). The `coupling/` package holds the
+  category-native coupling Terms (`_common.py` holds the shared SMF physics;
+  `downlink.py` holds `downlink_coupling_term`; `terrestrial.py` holds
   `terrestrial_smf_coupling_term`, `terrestrial_smf_walkoff_term`, and
-  `terrestrial_mmf_coupling_term`; `fast.py` holds the FAST fibre coupling AND
-  `uplink_fast_term`, the fidelity-1 pre-compensated uplink Term. `from
-  olb.models.coupling import <name>` still works).
+  `terrestrial_mmf_coupling_term`), and it RE-EXPORTS the coupling-category Terms
+  that a fidelity module owns (`smf_fast_term` from `fast.py`,
+  `waveoptics_smf_coupling_term` from `waveoptics.py`), so a coupling Term is
+  discoverable in the coupling namespace whatever its fidelity. `from
+  olb.models.coupling import <name>` still works for every coupling Term.
 - `olb/links/` — per-link Terms and budget assembly. Every budget takes one
   whole-path `fidelity=0|1|2` argument (the fidelity ladder; see `## Purpose`).
   `uplink.py` (`uplink_turbulence_term`, `uplink_point_ahead_term`,
@@ -258,7 +264,7 @@ Open items:
   the extended-Marechal flag past sigma2 = 1 rad^2, T. S. Ross,
   DOI 10.1364/AO.48.001812). The model of record is the fidelity-1 FAST Monte
   Carlo with the point-ahead DTHETA, and its uplink entry point EXISTS
-  (2026-08-27): `uplink_fast_term` in `olb/models/coupling/fast.py`, consumed
+  (2026-08-27): `uplink_fast_term` in `olb/models/fast.py`, consumed
   by `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario).
   The remaining FAST limits are backlog 1-2.
 - **Gap 3 is WIRED (2026-08-27).** The terrestrial fibre-coupling call site in

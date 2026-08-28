@@ -313,7 +313,7 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
         "only. Adaptive optics does not remove the amplitude scintillation, "
         "and no trustworthy analytic model exists for the scintillation of a "
         "pre-compensated beam. The model of record is the fidelity-1 FAST "
-        "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
+        "Monte Carlo with the point-ahead offset (olb.models.fast, "
         "uplink_fast_term). Call uplink_budget with fidelity=1 "
         "to get it. Do not read a fade for a pre-compensated uplink from this "
         "budget."
@@ -433,7 +433,7 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
         "only. Adaptive optics does not remove the amplitude scintillation, "
         "and no trustworthy analytic model exists for the scintillation of a "
         "pre-compensated beam. The model of record is the fidelity-1 FAST "
-        "Monte Carlo with the point-ahead offset (olb.models.coupling.fast, "
+        "Monte Carlo with the point-ahead offset (olb.models.fast, "
         "uplink_fast_term). Call uplink_budget with fidelity=1 "
         "to get it. Do not read a fade for a pre-compensated uplink from this "
         "budget."
@@ -640,7 +640,7 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             # Fidelity 1, pre-compensated: ONE FAST Monte-Carlo Term (residual
             # phase + point-ahead + log-amplitude, by reciprocity). Import here to
             # keep the `fast-aosim` dependency optional.
-            from ..models.coupling.fast import uplink_fast_term
+            from ..models.fast import uplink_fast_term
             terms.append(uplink_fast_term(scenario, geometry,
                                           cn2_profile=cn2_profile,
                                           n_samples=n_samples))

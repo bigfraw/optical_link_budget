@@ -634,7 +634,7 @@ def uplink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     earlier docstring called it the floor of the residual scintillation; that
     claim was wrong. Decision: no analytic Term models the pre-compensated
     scintillation. The model of record is the fidelity-1 FAST Monte Carlo
-    with the point-ahead offset (olb/models/coupling/fast.py, DTHETA;
+    with the point-ahead offset (olb/models/fast.py, DTHETA;
     backlog item 1-2). The tracked form stays valid for what it names: a
     tilt-tracked, otherwise uncorrected beam.
 

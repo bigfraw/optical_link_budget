@@ -62,7 +62,7 @@ are from 2026-08-26 and can drift.
   for the geometric-only path (turbulence=False). The model of record is the
   fidelity-1 FAST Monte Carlo with the point-ahead offset, and that wiring is
   DONE (2026-08-27, same day): `uplink_fast_term` in
-  olb/models/coupling/fast.py computes DTHETA from `geometry.point_ahead_rad`
+  olb/models/fast.py computes DTHETA from `geometry.point_ahead_rad`
   and returns the pure turbulence penalty with a real fade;
   `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario)
   consumes it, and `fidelity=0` keeps the analytic phase-only pair as the
@@ -227,7 +227,7 @@ The path forward for each is a second reference or a derivation.
   reference-model gap of 2-W1 stays open).
 - **1-2. FAST limits NT1–NT4 — CARRIES GAP 2 (see 0-W1); the uplink entry
   point is DONE (2026-08-27).** `uplink_fast_term` in
-  olb/models/coupling/fast.py is the pre-compensated uplink model of record:
+  olb/models/fast.py is the pre-compensated uplink model of record:
   it computes `DTHETA` from `geometry.point_ahead_rad` (NT1 closed for the
   uplink), sets the numeric launch waist, and returns the pure turbulence
   penalty by reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492; Farley,
@@ -401,7 +401,7 @@ The path forward for each is a second reference or a derivation.
 
 - **I-1. Scalar-elevation limits.** The gamma-gamma Term
   (olb/links/downlink.py:185) and the FAST Term
-  (olb/models/coupling/fast.py:132) refuse an elevation array. Vectorise or
+  (olb/models/fast.py:132) refuse an elevation array. Vectorise or
   loop internally.
 - **I-2. Duplicate physics copies (Gap 10).** The Rytov standard deviation,
   the plane-wave coherence radius, and the Fried parameter each exist in

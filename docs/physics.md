@@ -764,7 +764,7 @@ of magnitude for a small aperture (Stone Fig. 1).
   scintillation and no fade. That is a recorded decision (2026-08-27, backlog
   0-W1): no trustworthy analytic form exists for the scintillation of a
   pre-compensated beam. The model of record is the fidelity-1 FAST route:
-  `uplink_fast_term` (olb/models/coupling/fast.py) overlaps the ground-pupil
+  `uplink_fast_term` (olb/models/fast.py) overlaps the ground-pupil
   field with the adaptive-optics residual phase (the point-ahead decorrelation
   included) and a log-normal log-amplitude, and reads the uplink flux by
   reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492; Farley and others,
@@ -1003,7 +1003,7 @@ standalone scintillation Term.
 
 ### 6b. FAST statistical coupling (fidelity 1)
 
-File: `olb/models/coupling/fast.py`
+File: `olb/models/fast.py`
 
 #### What the code models
 

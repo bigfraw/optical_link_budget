@@ -24,7 +24,13 @@ from .downlink import downlink_coupling_term
 from .terrestrial import (terrestrial_smf_coupling_term,
                           terrestrial_smf_walkoff_term,
                           terrestrial_mmf_coupling_term)
-from .fast import smf_fast_term
+# smf_fast_term and waveoptics_smf_coupling_term are coupling Terms, but their
+# implementations live in the fidelity-named modules (olb.models.fast,
+# olb.models.waveoptics) beside their non-coupling siblings. The coupling package
+# re-exports them, so every coupling Term stays discoverable here whatever its
+# fidelity.
+from ..fast import smf_fast_term
+from ..waveoptics import waveoptics_smf_coupling_term
 
 __all__ = [
     "downlink_coupling_term",
@@ -32,5 +38,6 @@ __all__ = [
     "terrestrial_smf_walkoff_term",
     "terrestrial_mmf_coupling_term",
     "smf_fast_term",
+    "waveoptics_smf_coupling_term",
     "smf_eta_max_from_a",
 ]

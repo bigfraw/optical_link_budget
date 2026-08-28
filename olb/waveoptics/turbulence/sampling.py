@@ -442,7 +442,7 @@ def _plan_space(scenario, geometry, preset, lam, hs, cn2_profile, warns):
     sec = float(sec_zeta(elevation))
 
     # The integrated Cn2 of each layer, on the slant path. This is the
-    # _cn2_layers pattern of olb.models.coupling.fast, times the airmass.
+    # _cn2_layers pattern of olb.models.fast, times the airmass.
     # See Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14).
     layer_cn2 = cn2_profile * np.gradient(hs) * sec
 

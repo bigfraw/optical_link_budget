@@ -20,7 +20,7 @@ Two detector front ends:
   fibre mode. Two fidelities:
     smf_fidelity="fast" (the default, and the ONLY statistical model): the true
         LP01 modal overlap from FAST. It gives the mean, the quantile, and the
-        fade. See olb.models.coupling.fast.
+        fade. See olb.models.fast.
     smf_fidelity="mean": a cheap analytic MEAN-ONLY estimate, for when only the
         expected coupling loss is wanted (no fade). The coupling efficiency eta
         falls with the residual phase variance sigma^2_res that the Compensation
@@ -88,7 +88,7 @@ def _smf_mean_term(scenario, geometry, *, hs, cn2_profile, turbulence=True):
     from the compensation stack. Convert it to the coupling efficiency eta, then
     to the mean coupling loss -10*log10(eta). The Term is DETERMINISTIC: it has no
     sampler and no quantile, so it carries no fade. For the fade (and the true
-    modal overlap) use smf_fidelity="fast" (olb.models.coupling.fast).
+    modal overlap) use smf_fidelity="fast" (olb.models.fast).
 
     With turbulence=False the residual wavefront error drops to zero, so the Term
     is the static mode-match loss only (_smf_static_term).
@@ -184,7 +184,7 @@ def downlink_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
 
     - "fast" (the default): the fidelity-1 true LP01 modal overlap from FAST. It
       gives the mean, the quantile, and the fade. Needs fast-aosim. See
-      olb.models.coupling.fast.
+      olb.models.fast.
     - "mean": a cheap analytic MEAN-ONLY estimate (extended-Marechal / Dikmelik-
       Davidson from the residual wavefront). The Term is DETERMINISTIC and models
       no fade. Use it when only the expected coupling loss is wanted. See
@@ -266,7 +266,7 @@ def downlink_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
         if smf_fidelity == "fast":
             # Fidelity-1: the true LP01 modal overlap from FAST. Lazy import keeps
             # the fast-aosim dependency optional.
-            from .fast import smf_fast_term
+            from ..fast import smf_fast_term
             return smf_fast_term(scenario, geometry, hs=hs, cn2_profile=cn2_profile,
                                  n_samples=n_samples, fast_params=fast_params)
         if smf_fidelity == "mean":

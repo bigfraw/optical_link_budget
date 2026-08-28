@@ -337,7 +337,7 @@ The budget-building Terms:
   uncorrected phase variance. The Term is mean-only. It models the phase only,
   not the scintillation, and it carries the same Marechal-limit flag.
 - `uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
-  n_samples=1000, fast_params=None)` (in `olb.models.coupling.fast`) builds the
+  n_samples=1000, fast_params=None)` (in `olb.models.fast`) builds the
   fidelity-1 pre-compensated turbulence Term. FAST overlaps the ground-pupil
   field with the adaptive-optics residual phase (point-ahead decorrelation
   included) and a log-normal log-amplitude; by reciprocity that overlap is the

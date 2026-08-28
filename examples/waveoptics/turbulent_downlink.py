@@ -10,7 +10,7 @@ carries:
   fidelity-0 analytic plane-wave integral that `downlink_scintillation_term`
   calls (`olb.turbulence.plane_wave_scintillation`);
 - the single-mode-fibre coupling loss, against the fidelity-1 FAST Term
-  (`olb.models.coupling.fast.smf_fast_term`).
+  (`olb.models.fast.smf_fast_term`).
 
 THE SLAB, NOT THE ORBIT. The satellite sits outside the atmosphere, so the
 gridded path is the 20 km atmosphere slab only, and a unit PLANE WAVE enters at
@@ -60,7 +60,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from olb import SMF, CircularOrbit, Terminal, Transmitter
-from olb.models.coupling.fast import _load_fast, smf_fast_term
+from olb.models.fast import _load_fast, smf_fast_term
 from olb.scenario import Channel, SpaceScenario
 from olb.turbulence.plane_wave_scintillation import \
     aperture_averaged_scintillation_index

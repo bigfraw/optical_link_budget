@@ -11,7 +11,7 @@ every trial. It gives back the minimal scalar record TurbWaveResult.
 `waveoptics_turbulence_term` turns that record into a Term. It NEVER runs a
 simulation: it reads the per-trial scalars of a record that a caller already
 computed. So the expensive propagation runs once, not once for each budget build.
-The reduction mirrors the fidelity-1 FAST factory (olb.models.coupling.fast): the
+The reduction mirrors the fidelity-1 FAST factory (olb.models.fast): the
 per-trial loss makes an empirical mean, an empirical quantile, and a resampling
 sampler.
 
@@ -302,6 +302,32 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
     )
 
 
+def waveoptics_smf_coupling_term(result, **kwargs):
+    '''
+    Build the fidelity-2 turbulent SMF-coupling Term (category "coupling").
+
+    This is the coupling-category face of the wave-optics record: the per-trial
+    single-mode-fibre efficiency, reduced to the three Term faces. It is the
+    fidelity-2 companion of the fidelity-1 smf_fast_term. It is a thin wrapper on
+    waveoptics_turbulence_term with quantity="smf_eta", named so a caller finds
+    the coupling Term without knowing the quantity flag; the coupling package
+    re-exports it. See that function for the keyword arguments.
+
+    Parameters:
+        result : TurbWaveResult
+            The record from run_waveoptics. The receive terminal must be an SMF,
+            or the smf_eta scalar is None for every trial and this raises.
+        **kwargs :
+            Passed to waveoptics_turbulence_term (beam_type, name, spectrum,
+            sigma2_I, L0_m, note, meta_extra). `quantity` is fixed to "smf_eta".
+
+    Returns:
+        Term
+            A three-face coupling Term (mean_only=False).
+    '''
+    return waveoptics_turbulence_term(result, quantity="smf_eta", **kwargs)
+
+
 def _none_message(quantity):
     '''The helpful error when the chosen scalar is None for the record.'''
     if quantity == "eta_turb":
@@ -485,6 +511,9 @@ if __name__ == '__main__':
     assert term.name == "receive coupling (SMF)" and term.category == "coupling"
     assert term.meta["model"] == "waveoptics" and term.meta["n_trials"] == 200
     assert not term.mean_only and term.stochastic and term.quantile is not None
+    # The coupling wrapper is exactly quantity="smf_eta".
+    wrap = waveoptics_smf_coupling_term(rec, sigma2_I=0.1)
+    assert wrap.category == "coupling" and wrap.mean_db == term.mean_db
     # The reduction is EXACTLY the empirical loss statistics.
     loss = -10.0 * np.log10(etas)
     assert term.mean_db == float(loss.mean())
