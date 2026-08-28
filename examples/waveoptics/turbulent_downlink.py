@@ -44,7 +44,7 @@ runs of one model:
 - The two static mode-match floors therefore differ, and the script prints both
   so that the reader can compare the TURBULENCE part alone.
 
-The figure goes to `examples/waveoptics/turbulent_downlink.png`.
+The figure goes to `examples/waveoptics/figures/turbulent_downlink.png`.
 
 The layer builds NO Term and it changes NO budget. See the README.
 
@@ -91,8 +91,8 @@ QUIET_CN2 = 1e-24
 # for each core. See olb.waveoptics.Threader.
 THREADER = Threader()
 
-PNG = "examples/waveoptics/turbulent_downlink.png"
-FIELD_PNG = "examples/waveoptics/turbulent_downlink_field.png"
+PNG = "examples/waveoptics/figures/turbulent_downlink.png"
+FIELD_PNG = "examples/waveoptics/figures/turbulent_downlink_field.png"
 
 
 def build_scenario():

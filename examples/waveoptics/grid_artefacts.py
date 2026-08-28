@@ -20,7 +20,7 @@ The script runs one well-behaved Gaussian link three times:
 The fourth panel gives the analytic ABCD result (GForvard) on the small grid.
 That route has no FFT and no grid artefact, so it is the reference.
 
-The figure goes to `examples/waveoptics/grid_artefacts.png`.
+The figure goes to `examples/waveoptics/figures/grid_artefacts.png`.
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
@@ -42,7 +42,7 @@ WAIST_M = 5e-3              # the waist radius at the launch plane
 RANGE_M = 200.0
 N = 512
 
-PNG = "examples/waveoptics/grid_artefacts.png"
+PNG = "examples/waveoptics/figures/grid_artefacts.png"
 
 
 def analytic_radius(w0, z, lam):

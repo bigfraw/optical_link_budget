@@ -61,7 +61,7 @@ do NOT, and the reason is physics, not a defect:
 The script prints PASS or CHECK against a loose band. An example is a
 demonstration, not a test: only the weak-fluctuation precondition is asserted.
 
-The figure goes to `examples/waveoptics/turbulent_terrestrial.png`.
+The figure goes to `examples/waveoptics/figures/turbulent_terrestrial.png`.
 
 The layer builds NO Term and it changes NO budget. See the README.
 
@@ -114,8 +114,8 @@ WEAK_BAND = (0.05, 0.35)
 # for each core. See olb.waveoptics.Threader.
 THREADER = Threader()
 
-PNG = "examples/waveoptics/turbulent_terrestrial.png"
-FIELD_PNG = "examples/waveoptics/turbulent_terrestrial_field.png"
+PNG = "examples/waveoptics/figures/turbulent_terrestrial.png"
+FIELD_PNG = "examples/waveoptics/figures/turbulent_terrestrial_field.png"
 
 # The Cn2 path grid of the analytic terms. A horizontal path is a constant-Cn2
 # grid from the transmitter to the receiver, exactly as

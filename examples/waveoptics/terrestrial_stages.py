@@ -18,7 +18,7 @@ The script does three things:
      corner-cube aperture, a Fresnel propagation back over the same range, and
      a clip at the original launch aperture.
 
-The figure goes to `examples/waveoptics/terrestrial_stages.png`.
+The figure goes to `examples/waveoptics/figures/terrestrial_stages.png`.
 
 The layer builds NO Term and it changes NO budget. See the README.
 
@@ -48,7 +48,7 @@ CORNER_CUBE_M = 63.5e-3     # a 2.5 inch hollow corner cube
 # equal to the self-check.
 GRID = GridSpec(size_m=1.0, n=1024)
 
-PNG = "examples/waveoptics/terrestrial_stages.png"
+PNG = "examples/waveoptics/figures /terrestrial_stages.png"
 
 
 def build_scenario():

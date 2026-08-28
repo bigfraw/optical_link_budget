@@ -20,7 +20,7 @@ and the fidelity-0 analytic total agree to about 0.01 dB. The SPLIT between
 the two losses does NOT agree, because the two fidelities cut the loss in two
 different places. The script prints both, and it says why.
 
-The figure goes to `examples/waveoptics/space_farfield.png`.
+The figure goes to `examples/waveoptics/figures/space_farfield.png`.
 
 The layer builds NO Term and it changes NO budget. See the README.
 
@@ -45,7 +45,7 @@ TX_OBSCURATION = 0.3        # the linear central-obscuration ratio
 RX_APERTURE_M = 0.50        # the satellite receive telescope
 ALTITUDE_M = 600e3
 
-PNG = "examples/waveoptics/space_farfield.png"
+PNG = "examples/waveoptics/figures/space_farfield.png"
 
 
 def build_scenario():

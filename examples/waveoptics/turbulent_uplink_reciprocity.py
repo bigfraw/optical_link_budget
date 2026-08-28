@@ -37,7 +37,7 @@ WHAT TO EXPECT.
   and the correlation between the wander and the scintillation. A field Monte
   Carlo goes deeper in the tail than a parametric lognormal does.
 
-The figure goes to `examples/waveoptics/turbulent_uplink_reciprocity.png`.
+The figure goes to `examples/waveoptics/figures/turbulent_uplink_reciprocity.png`.
 
 The layer builds NO Term and it changes NO budget. See the README.
 
@@ -77,8 +77,8 @@ FLUX_SAMPLES = 3000         # coupled-flux Monte Carlo draws
 # for each core. See olb.waveoptics.Threader.
 THREADER = Threader()
 
-PNG = "examples/waveoptics/turbulent_uplink_reciprocity.png"
-FIELD_PNG = "examples/waveoptics/turbulent_uplink_reciprocity_field.png"
+PNG = "examples/waveoptics/figures/turbulent_uplink_reciprocity.png"
+FIELD_PNG = "examples/waveoptics/figures/turbulent_uplink_reciprocity_field.png"
 
 
 def build_scenario():
