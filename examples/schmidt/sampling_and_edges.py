@@ -52,8 +52,8 @@ about 5 times harder there. The production mask is flat to 1.0 over the inner
 This script changes NO olb module. It reads the production layer only.
 
 Figures:
-    examples/schmidt/sampling_artefacts.png    the six failure panels
-    examples/schmidt/sampling_absorbers.png    the two absorber profiles
+    examples/schmidt/figures/sampling_artefacts.png    the six failure panels
+    examples/schmidt/figures/sampling_absorbers.png    the two absorber profiles
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
@@ -135,8 +135,8 @@ SPACE_WAIST_M = 0.05
 
 PRESET = "standard"
 
-ARTEFACTS_PNG = "examples/schmidt/sampling_artefacts.png"
-ABSORBERS_PNG = "examples/schmidt/sampling_absorbers.png"
+ARTEFACTS_PNG = "examples/schmidt/figures/sampling_artefacts.png"
+ABSORBERS_PNG = "examples/schmidt/figures/sampling_absorbers.png"
 
 
 # ---------------------------------------------------------------------------

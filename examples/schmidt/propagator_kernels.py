@@ -58,8 +58,8 @@ diffracts into the ring structure of a Fresnel-number 3 pattern. The hard case
 is the one that separates the quadratures, because its spectrum does not decay.
 
 Figures:
-    examples/schmidt/propagator_kernels_cuts.png      the intensity cross-cuts
-    examples/schmidt/propagator_kernels_diffs.png     the log difference maps
+    examples/schmidt/figures/propagator_kernels_cuts.png      the intensity cross-cuts
+    examples/schmidt/figures/propagator_kernels_diffs.png     the log difference maps
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
@@ -135,8 +135,8 @@ BOOK_KEYS = ("one-step Fresnel", "angular spectrum")
 # uses it, so the bridge must use it too.
 TWO_PI_LEGACY = 2.0 * 3.141592654
 
-CUTS_PNG = "examples/schmidt/propagator_kernels_cuts.png"
-DIFFS_PNG = "examples/schmidt/propagator_kernels_diffs.png"
+CUTS_PNG = "examples/schmidt/figures/propagator_kernels_cuts.png"
+DIFFS_PNG = "examples/schmidt/figures/propagator_kernels_diffs.png"
 
 
 def axis_m(n, dx):

@@ -55,9 +55,9 @@ self-check.
 This script changes NO olb module. It reads the production layer only.
 
 Figures:
-    examples/schmidt/screens_examples.png    the three screens, one colour scale
-    examples/schmidt/screens_structure.png   the ensemble structure function
-    examples/schmidt/screens_strength.png    the per-screen strength bars
+    examples/schmidt/figures/screens_examples.png    the three screens, one colour scale
+    examples/schmidt/figures/screens_structure.png   the ensemble structure function
+    examples/schmidt/figures/screens_strength.png    the per-screen strength bars
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
@@ -133,9 +133,9 @@ SPACE_SAT_APERTURE_M = 0.30
 SPACE_WAIST_M = 0.05
 PRESET = "standard"
 
-EXAMPLES_PNG = "examples/schmidt/screens_examples.png"
-STRUCTURE_PNG = "examples/schmidt/screens_structure.png"
-STRENGTH_PNG = "examples/schmidt/screens_strength.png"
+EXAMPLES_PNG = "examples/schmidt/figures/screens_examples.png"
+STRUCTURE_PNG = "examples/schmidt/figures/screens_structure.png"
+STRENGTH_PNG = "examples/schmidt/figures/screens_strength.png"
 
 
 def make_screens(index):
