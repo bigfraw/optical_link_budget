@@ -4,8 +4,8 @@ Pure turbulence physics for optical link budgets.
 This package holds the turbulence physics kernels. Some kernels use a
 link-specific simplification: the plane-wave form for the space-to-ground
 downlink, and the beam-wave form for the uplink. It imports only numpy, scipy,
-and olb._deps. It does not import the results, the scenario, the assumptions, the
-models, or the links.
+and the leaf modules olb.units and olb.beam. It does not import the results, the
+scenario, the assumptions, the models, or the links.
 '''
 
 from .profiles import DEFAULT_HS, default_cn2_profile, get_c2n, v_wind

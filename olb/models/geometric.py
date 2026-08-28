@@ -10,7 +10,7 @@ power enclosed between the obscuration radius and the aperture radius:
 
 where a_rx is the receiver aperture radius, b_obs = obscuration_ratio*a_rx is
 the obscuration radius, and w(z) is the 1/e^2 Gaussian beam radius at range z
-(borrowed from _deps.gaussz). Loss is deterministic and reported as positive dB.
+(from olb.beam.gaussz). Loss is deterministic and reported as positive dB.
 '''
 
 import numpy as np

@@ -634,9 +634,10 @@ if __name__ == '__main__':
     # Andrews against the shared Dios kernel. This module CHANGES NOTHING in the
     # kernel or in the olb Dios path. It only measures. See Conflicts C-01 and
     # C-03 in docs/andrews-crosscheck.md.
-    from ..._deps import (beam_wander_variance as kernel_wander,
-                          short_term_beam_waist, long_term_beam_waist,
-                          spherical_wave_coherence_diameter, gaussz)
+    from ..coupled_flux import (beam_wander_variance as kernel_wander,
+                                short_term_beam_waist, long_term_beam_waist,
+                                spherical_wave_coherence_diameter)
+    from ...beam import gaussz
 
     print('')
     print('C-01/C-03 adjudication (Andrews wander.py against coupled_flux.py)')

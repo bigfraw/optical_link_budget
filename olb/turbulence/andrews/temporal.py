@@ -549,8 +549,8 @@ def greenwood_frequency(hs, cn2_profile, wavelength, elevation_deg=90.0,
             Elevation angle above the horizon [deg]. 90 is the zenith.
         wind_profile : numpy.ndarray, optional
             Transverse wind speed V(h) on the hs grid [m/s]. None takes the
-            Bufton wind of `olb._deps.v_wind`, which Ch. 12, Eq. (3), printed
-            p. 481, prints with the same three constants.
+            Bufton wind of `olb.turbulence.profiles.v_wind`, which Ch. 12,
+            Eq. (3), printed p. 481, prints with the same three constants.
 
     Returns:
         float

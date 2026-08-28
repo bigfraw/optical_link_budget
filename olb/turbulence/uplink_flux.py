@@ -39,9 +39,10 @@ import warnings
 import numpy as np
 
 from ..beam import gaussz, zR
-from .._deps import (spherical_wave_coherence_diameter, short_term_beam_waist,
-                     long_term_beam_waist, beam_wander_variance,
-                     coupled_flux_sample, on_axis_irradiance)
+from .coupled_flux import (spherical_wave_coherence_diameter,
+                           short_term_beam_waist, long_term_beam_waist,
+                           beam_wander_variance, coupled_flux_sample,
+                           on_axis_irradiance)
 from ..beam import free_space_radius, launch_curvature
 from .profiles import DEFAULT_HS
 

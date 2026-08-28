@@ -36,8 +36,8 @@ Run from the repo root:
 
 import numpy as np
 
-from olb._deps import beam_wander_variance as kernel_wander
-from olb._deps import long_term_beam_waist as kernel_long_term
+from olb.turbulence.coupled_flux import beam_wander_variance as kernel_wander
+from olb.turbulence.coupled_flux import long_term_beam_waist as kernel_long_term
 from olb.beam import free_space_radius
 from olb.turbulence.andrews import (WANDER_CONSTANT, beam_params,
                                     beam_wander_variance,

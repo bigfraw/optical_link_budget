@@ -7,8 +7,8 @@ focuses the beam onto a fibre tip. A tip-tilt of angle theta moves the focal
 spot by f*theta, with f the focal length. So the received tip-tilt drives the
 fibre-coupling loss. The Term factories live in olb.models.coupling.
 
-The module is pure physics. It imports only numpy and olb._deps. It does not
-import the scenario, the terminal, or the results.
+The module is pure physics. It imports only numpy and olb.turbulence.coupled_flux.
+It does not import the scenario, the terminal, or the results.
 
 Two contributions:
 
@@ -34,7 +34,7 @@ Two contributions:
 
 import numpy as np
 
-from .._deps import beam_wander_variance
+from .coupled_flux import beam_wander_variance
 from .andrews.structure import (
     angle_of_arrival_variance as _andrews_angle_of_arrival_variance,
 )

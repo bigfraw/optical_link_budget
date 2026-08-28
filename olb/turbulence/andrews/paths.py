@@ -18,8 +18,8 @@ Source of every equation: Andrews and Phillips, Laser Beam Propagation through
 Random Media, 2nd ed. (SPIE Press, 2005), DOI 10.1117/3.626196.
 
 This module holds physics only. It returns no decibels. It imports numpy, its
-sibling andrews modules, and olb._deps. It imports no scenario, no terminal, no
-Term and no link.
+sibling andrews modules, and olb.turbulence.profiles. It imports no scenario, no
+terminal, no Term and no link.
 
 PLANE OF REFERENCE. The book uses one normalised path variable for both link
 directions, Ch. 12, Eq. (14), printed p. 490:
@@ -959,7 +959,7 @@ if __name__ == '__main__':
     from .. import anisoplanatism, beam_wave_scintillation
     from .. import plane_wave_scintillation as pws
     from ..profiles import get_c2n as _source_c2n
-    from ..._deps import spherical_wave_coherence_diameter
+    from ..coupled_flux import spherical_wave_coherence_diameter
 
     # 1. hufnagel_valley is the profiles source, with no change at all.
     err_hv = float(np.max(np.abs(hufnagel_valley(hs, 21.0, 1.7e-14)

@@ -17,7 +17,7 @@ theta cannot be below the aperture diffraction limit lambda/(pi*w0). theta equal
 to that limit is the collimated case, which returns (w0, 0). None also means
 collimated.
 
-This module is pure physics. It imports only numpy and olb._deps. It does not
+This module is pure physics. It imports only numpy and olb.units. It does not
 import the scenario, the results, or the assumptions.
 '''
 
