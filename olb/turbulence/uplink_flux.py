@@ -2,7 +2,7 @@
 Coupled-flux Monte Carlo wrapper for a LEO uplink (beam wander + scintillation).
 
 This module reimplements the short uplink loop of the Dios et al. coupled-flux
-Monte Carlo (the shared ``coupled_flux_montecarlo``) for one elevation, and
+Monte Carlo for one elevation, from the lower-level coupled-flux kernels, and
 rescales the flux to the free-space baseline. The reimplementation lets a
 deliberate transmit divergence enter the beam-broadening baseline only (through
 the ``w_free`` override on the waists), without a divergence argument on the
@@ -39,8 +39,7 @@ import warnings
 import numpy as np
 
 from ..beam import gaussz, zR
-from .._deps import (coupled_flux_montecarlo,
-                     spherical_wave_coherence_diameter, short_term_beam_waist,
+from .._deps import (spherical_wave_coherence_diameter, short_term_beam_waist,
                      long_term_beam_waist, beam_wander_variance,
                      coupled_flux_sample, on_axis_irradiance)
 from ..beam import free_space_radius, launch_curvature
@@ -118,9 +117,9 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     Run the coupled-flux MC for one elevation and rescale to the free-space
     baseline (see module docstring).
 
-    This reimplements the short uplink loop of the shared
-    ``coupled_flux_montecarlo``, so that deliberate transmit divergence enters
-    the beam-broadening baseline only. The short- and long-term waists use the
+    This reimplements the short uplink loop of the Dios coupled-flux Monte
+    Carlo, so that deliberate transmit divergence enters the beam-broadening
+    baseline only. The short- and long-term waists use the
     DIVERGED free-space width ``w_free_div`` (through the ``w_free`` override),
     and the rescale baseline is ``w_free_div`` too -- the same reference the
     diverged geometric term uses. The turbulence term then carries the pure

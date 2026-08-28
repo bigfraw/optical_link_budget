@@ -25,7 +25,6 @@ from .gaussian_fried import (gaussian_fried_parameter,
 from .beam_wave_scintillation import (on_axis_scintillation_index,
                                  radial_scintillation_index,
                                  gaussian_scintillation_index)
-from .uplink_flux import coupled_flux_montecarlo
 
 __all__ = [
     "DEFAULT_HS", "default_cn2_profile", "get_c2n", "v_wind",
@@ -45,5 +44,4 @@ __all__ = [
     "on_axis_scintillation_index",
     "radial_scintillation_index",
     "gaussian_scintillation_index",
-    "coupled_flux_montecarlo",
 ]

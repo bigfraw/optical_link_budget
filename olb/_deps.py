@@ -42,16 +42,16 @@ if str(_MAM) not in sys.path:
 # imports general_atmospherics.)
 with contextlib.redirect_stdout(io.StringIO()):
     from coupled_flux import (                                   # noqa: E402
-        coupled_flux_montecarlo,
         # Lower-level kernels: olb.turbulence.uplink_flux composes these into a
         # short uplink MC loop with a diverged free-space beam width (w_free).
+        # It reimplements the Dios loop from these, so the whole-loop driver
+        # coupled_flux_montecarlo is not borrowed.
         spherical_wave_coherence_diameter, short_term_beam_waist,
         long_term_beam_waist, beam_wander_variance,
         coupled_flux_sample, on_axis_irradiance,
     )
 
 __all__ = [
-    "coupled_flux_montecarlo",
     "spherical_wave_coherence_diameter", "short_term_beam_waist",
     "long_term_beam_waist", "beam_wander_variance",
     "coupled_flux_sample", "on_axis_irradiance",

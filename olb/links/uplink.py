@@ -148,9 +148,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         )
 
     def sampler(n, rng):
-        # rng bridge: coupled_flux_montecarlo draws from numpy's GLOBAL RNG
-        # (np.random), not a passed Generator, so seed the global RNG from the
-        # budget's seeded `rng` to keep the draw reproducible.
+        # rng bridge: the coupled-flux kernels (coupled_flux_sample) draw from
+        # numpy's GLOBAL RNG (np.random), not a passed Generator, so seed the
+        # global RNG from the budget's seeded `rng` to keep the draw reproducible.
         np.random.seed(int(rng.integers(0, 2 ** 32 - 1)))
         cols = [-10 * np.log10(
                     _flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
