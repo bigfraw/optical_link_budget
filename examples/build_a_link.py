@@ -108,7 +108,7 @@ def main():
 
     # Downlink: the satellite transmits, the large ground telescope receives
     # with AO + fibre.
-    down = downlink_budget(downlink, geom, smf_fidelity="fast")
+    down = downlink_budget(downlink, geom, fidelity=1)
 
     rng = np.random.default_rng(0)
     for name, budget in (("UPLINK  (ground beam director -> satellite)", up),

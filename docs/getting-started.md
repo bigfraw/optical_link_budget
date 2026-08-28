@@ -23,12 +23,13 @@ them. Give `olb` the location of that repository in one of two ways:
 `fast-aosim` is an optional extra (`pip install fast-aosim`). It adds two things:
 
 - The Hufnagel-Valley HV57 Cn2 profile (turbulence strength against height).
-- The fidelity-1 single-mode-fibre coupling `smf_fidelity="fast"`. This is the
-  only statistical SMF model. It gives a mean, a quantile, and a fade.
+- The fidelity-1 single-mode-fibre coupling. Set `downlink_budget(fidelity=1)`.
+  This is the only statistical SMF model. It gives a mean, a quantile, and a
+  fade.
 
 Without `fast-aosim`, pass an explicit `cn2_profile`, or use the built-in
-`default_cn2_profile`. For fibre coupling, use `smf_fidelity="mean"`. The mean
-model gives the mean coupling loss only. It gives no fade.
+`default_cn2_profile`. For fibre coupling, use `fidelity=0`. The analytic model
+gives the mean coupling loss only. It gives no fade.
 
 `aotools` is a second optional extra (`pip install aotools`, or
 `pip install -e .[screens]`). It draws the random phase screens of the fidelity-2
@@ -65,6 +66,20 @@ The geometry is separate from the scenario. Use `CircularOrbit(altitude_m,
 elevation_deg)` for a space link, or `HorizontalPath(path_length_m)` for a
 terrestrial link. A budget function takes a scenario and a geometry, and returns
 a `Budget`.
+
+Each budget is built at one of three levels of rigour. Select the level with a
+single whole-path `fidelity` argument on the budget (`fidelity=0|1|2`):
+
+- Fidelity 0 is analytic. A Term gives a closed-form loss. It carries no fade.
+- Fidelity 1 is statistical. A Term gives samples, so the budget gives a real
+  Monte Carlo fade (the FAST modal coupling, the coupled-flux uplink).
+- Fidelity 2 is wave optics. It appears as two Terms: a deterministic
+  vacuum-optics Term (the full no-turbulence loss) and a stochastic turbulence
+  Term (the fade). It needs a precomputed `wave` bundle from
+  `olb.models.coupling.run_fidelity2`. The budget never runs the split-step
+  simulation itself.
+
+Fidelity 1 does not exist for a terrestrial link.
 
 ## 3. A minimal uplink example
 
@@ -137,8 +152,8 @@ selects the receive-side model:
 - An `Aperture` (bucket) detector gives the plane-wave scintillation fade.
 - An `SMF` (single-mode fibre) detector gives the fibre-coupling loss and fade.
   Add a `compensation` stack (`TipTilt`, `AO`) to clean the wavefront and buy
-  back the coupling. Select the fidelity with `smf_fidelity="fast"` (the
-  statistical default) or `smf_fidelity="mean"` (mean-only, no fade).
+  back the coupling. Select the fidelity with `fidelity=1` (the statistical
+  default) or `fidelity=0` (mean-only, no fade).
 
 See [../examples/downlink_terminal.py](../examples/downlink_terminal.py).
 

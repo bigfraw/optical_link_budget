@@ -123,7 +123,13 @@ reads it to run the three-call lens recipe of `olb/waveoptics/lenses.py`
 (`Lens`, `LensFresnel`, `Convert`). See Schmidt, DOI 10.1117/3.866274, Ch. 7.
 `GridSpec.for_scenario` warns only when NEITHER route resolves the apertures.
 
-## Status: built and self-checked, but NOT wired
+## The budget-wiring demo
+
+| script | what it shows |
+| --- | --- |
+| `budget_wiring.py` | The wave-optics layer wired into the three budgets at `fidelity=2` (2026-08-28). One `run_fidelity2(scenario, geometry, ...)` call for each link gives a `Fidelity2Bundle` (a turbulent Monte Carlo plus one vacuum field solve). Then `terrestrial_budget/uplink_budget/downlink_budget(fidelity=2, wave=bundle)`. Each fidelity-2 budget shows TWO Terms: a deterministic vacuum-optics Term (the full no-turbulence loss launch to detector) and a stochastic turbulence Term. The terrestrial case UNLOCKS the mean-only fade lock. The RAPID preset and 200 snapshots run in about 75 s. Each default budget (fidelity 0/1) is unchanged. |
+
+## Status: wave optics is WIRED at `fidelity=2` (both the turbulent and vacuum layers)
 
 The `olb/waveoptics/` package is complete and each module holds a self-check
 (`python -m olb.waveoptics.run`, `python -m olb.waveoptics.grid`,
@@ -139,12 +145,17 @@ UNtruncated Gaussian in the receive aperture. The fidelity-2 numbers are plain
 power bookkeeping at each plane. The product of the fidelity-0 pair is the
 collected power fraction, so the totals compare, but the split does not.
 
-**NO budget consumes it.** The layer builds no Term, and it changes no budget
-number. A fidelity-2 Term is an owner-gated later step, for two reasons:
+**BOTH layers are now wired at `fidelity=2`** (2026-08-28,
+`olb/models/coupling/waveoptics.py` plus the four budgets; see `budget_wiring.py`
+above). A fidelity-2 budget shows the DETERMINISTIC vacuum-optics Term (from the
+vacuum core `propagate_scenario`) and the STOCHASTIC turbulence Term (from the
+split step); only the analytic extinction and pointing Terms stay. The caller
+precomputes both with `run_fidelity2`; the budget never runs the sim. Every
+default budget (fidelity 0/1) is unchanged. STILL owner-gated:
 
-- the vacuum part is the no-turbulence validator that flags the near-field and
-  far-field limits of the analytic Terms;
-- a fidelity-2 Term would move the totals of an existing budget, so the owner
-  must decide the default. The three turbulent scripts show HOW MUCH it would
-  move them: the scintillation stays put, and the fibre coupling moves by 1 to
-  3 dB.
+- whether wave optics ever becomes the DEFAULT. The turbulent scripts show HOW
+  MUCH that would move the totals: the scintillation stays put, and the fibre
+  coupling moves by 1 to 3 dB (the field reads the smaller loss). Until the
+  owner resolves that reference-model gap, `fidelity=2` is opt-in — you A/B the
+  field against the fidelity-0/1 incumbents without perturbing a published total.
+- an AUTOMATIC fidelity selector is the next owner-requested step.

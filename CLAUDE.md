@@ -8,6 +8,19 @@ The package builds optical (laser) ground-to-space link budgets with
 atmospheric propagation, fade statistics, and Monte Carlo. It models uplink,
 downlink, and retroreflected links to a LEO satellite.
 
+The organising idea is a **fidelity ladder**, chosen with one `fidelity=0|1|2`
+argument per budget. **Fidelity 0** is analytic (closed-form, the most
+assumptions). **Fidelity 1** is statistical (a distribution or Monte Carlo — FAST
+coupling, coupled-flux uplink — a real fade, some assumptions). **Fidelity 2** is
+wave optics (a split-step field solve, assumption-free, the most expensive); it
+appears as TWO Terms, a deterministic vacuum-optics Term (the full no-turbulence
+loss launch to detector) and a stochastic turbulence Term, with only the analytic
+extinction and pointing Terms alongside. Fidelity 1 does not exist for a
+terrestrial link (FAST is far-field; a near-field Gaussian beam needs fidelity 2).
+Fidelity 2 needs a precomputed `wave` bundle from
+`olb.models.coupling.run_fidelity2`; the budget never runs the sim itself. See the
+README fidelity ladder.
+
 ## Architecture (one-way dependency: turbulence <- models and links)
 
 - `olb/terminal.py` — pure data. ALL terminal hardware lives here. A `Terminal`
@@ -68,18 +81,21 @@ downlink, and retroreflected links to a LEO satellite.
   holds the FAST fibre coupling AND `uplink_fast_term`, the fidelity-1
   pre-compensated uplink Term. `from olb.models.coupling import <name>` still
   works).
-- `olb/links/` — per-link Terms and budget assembly: `uplink.py`
-  (`uplink_turbulence_term`, `uplink_point_ahead_term`, `uplink_fitting_term`,
-  `uplink_budget`; the budget dispatches on the scenario `precompensation`
-  source, so a DownlinkBeacon + AO replaces the coupled-flux Term with the AO
-  error budget. `precomp_fidelity` selects it: "fast" (the default, the model
-  of record) is ONE FAST Monte-Carlo Term (`uplink_fast_term`) with the
-  point-ahead decorrelation and a real fade; "mean" is the analytic pair =
-  fitting error (Noll) + point-ahead anisoplanatism (Stone), PHASE-ONLY and
-  MEAN-ONLY: no scintillation and no fade. That "mean" limit is a DECISION
-  (2026-08-27): no trustworthy analytic form exists for the scintillation of a
-  pre-compensated beam. The analytic Terms carry loud flags
-  (`NO SCINTILLATION, NO FADE`, plus the extended-Marechal limit flag). See
+- `olb/links/` — per-link Terms and budget assembly. Every budget takes one
+  whole-path `fidelity=0|1|2` argument (the fidelity ladder; see `## Purpose`).
+  `uplink.py` (`uplink_turbulence_term`, `uplink_point_ahead_term`,
+  `uplink_fitting_term`, `uplink_budget`; the budget dispatches on the scenario
+  `precompensation` source crossed with `fidelity`. A DownlinkBeacon + AO
+  pre-compensates: `fidelity=1` (the default, the model of record) is ONE FAST
+  Monte-Carlo Term (`uplink_fast_term`) with the point-ahead decorrelation and a
+  real fade; `fidelity=0` is the analytic pair = fitting error (Noll) +
+  point-ahead anisoplanatism (Stone), PHASE-ONLY and MEAN-ONLY: no scintillation
+  and no fade; `fidelity=2` raises (reciprocity has no AO/point-ahead). An
+  UNCORRECTED uplink: `fidelity=1` (default) = coupled flux; `fidelity=0` raises
+  (no analytic mean-only); `fidelity=2` = the two wave-optics Terms. That
+  mean-only limit is a DECISION (2026-08-27): no trustworthy analytic form exists
+  for the scintillation of a pre-compensated beam. The analytic Terms carry loud
+  flags (`NO SCINTILLATION, NO FADE`, plus the extended-Marechal limit flag). See
   backlog 0-W1 and 1-2), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
@@ -238,8 +254,8 @@ Open items:
   DOI 10.1364/AO.48.001812). The model of record is the fidelity-1 FAST Monte
   Carlo with the point-ahead DTHETA, and its uplink entry point EXISTS
   (2026-08-27): `uplink_fast_term` in `olb/models/coupling/fast.py`, consumed
-  by `uplink_budget(precomp_fidelity="fast")` (the default). The remaining
-  FAST limits are backlog 1-2.
+  by `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario).
+  The remaining FAST limits are backlog 1-2.
 - **Gap 3 is WIRED (2026-08-27).** The terrestrial fibre-coupling call site in
   `olb/models/coupling/terrestrial.py` now reads the launch curvature f0 from
   the transmitter divergence through `olb.beam.launch_curvature` and passes it
@@ -262,43 +278,43 @@ Open items:
   reads them); the inner/outer-scale branches (no Term passes `l0`/`L0`);
   the Andrews Ch. 6 wander route in `andrews/wander.py` (the uplink budget
   keeps the Dios/Belmonte kernel route, per Conflict C-01); the K
-  distribution; the fidelity-2 `olb/waveoptics/` layer, the vacuum core AND the
-  turbulent `olb/waveoptics/turbulence/` split step (see below).
-- **The fidelity-2 wave-optics layer is BUILT and SELF-CHECKED, but NO budget
-  consumes it.** `olb/waveoptics/` propagates a real complex field, and it agrees
-  with the fidelity-0 analytic Terms in the far field with a light truncation, to
-  0.02 dB. It is the no-turbulence validator that answers the near-field flag in
-  `olb/models/gaussian_efficiency.py`: a hard-truncated beam inside the Rayleigh
-  range breaks the far-field truncation efficiency. The layer now covers the
-  SPACE link too, through the co-moving grid of `lenses.py`: a 600 km uplink with
-  a hard truncation and a central obscuration runs on a 2048-pixel grid, and its
-  total agrees with the fidelity-0 total to 0.011 dB. Compare the TOTAL only. The
-  per-Term numbers do NOT compare, because `tx_efficiency_loss_db` is an on-axis
-  far-field gain ratio and `tx_truncation_db` is a power ratio. There is no
-  fidelity-2 Term,
-  because such a Term moves the totals of an existing budget. That wiring is an
-  owner decision. The TURBULENT split-step part of fidelity 2 is now BUILT and
-  SELF-CHECKED too, at `olb/waveoptics/turbulence/`. It is SNAPSHOT-only (one
-  atmosphere per seed; `temporal.py` is a NotImplementedError stub). It imports
-  `aotools` for the screens (LGPL-3.0, the optional `screens` extra; olb imports
-  it, olb does not copy it). A space scenario ALWAYS propagates the downlink slab
-  and an uplink reads it through the Shapiro reciprocity overlap. Three
-  comparison examples run it, and work package 7 re-measured them at the new
-  screen counts (the two space scripts went from 20 screens to 5; the
-  terrestrial one keeps its 9): the uplink reciprocity mean agrees with the
-  coupled-flux MC to 0.19 dB at the zenith and 1.05 dB at 30 deg; the downlink
-  aperture scintillation agrees with the analytic index at 30/60/90 deg (ratios
-  1.01 to 1.28, against a 17 percent MC error); and the fibre-coupling
-  comparisons read LESS loss than the analytic and FAST models (the terrestrial
-  SMF Term is about 2.3 dB higher than the field, and FAST is 2.7 to 3.9 dB
-  higher across elevation). STILL: no budget
-  consumes it, no Term exists, and the wiring is an owner decision. Deliberately
-  deferred: the results record is minimal scalars (a results-processing design
-  chat is planned — do NOT extend `TurbWaveResult` piece by piece), the temporal
-  frozen-flow axis, a co-moving (spherical) screen, and the folded/retro double
-  pass (the two passes share screens, so they are correlated).
-  `examples/waveoptics/` demonstrates the layer with six scripts, three vacuum
-  and three turbulent.
+  distribution.
+- **The fidelity-2 wave-optics layer is WIRED into the budgets as
+  `fidelity=2` (2026-08-28, branch `fidelity2-budget-wiring`).** A fidelity-2
+  budget shows TWO Terms, both from `olb/waveoptics/`: a DETERMINISTIC
+  vacuum-optics Term (`waveoptics_vacuum_term`, the full no-turbulence loss
+  launch to detector from `propagate_scenario` — truncation + geometric spread +
+  aperture capture + vacuum fibre coupling) and a STOCHASTIC turbulence Term
+  (`waveoptics_turbulence_term`, from the split-step Monte Carlo). Only the
+  analytic extinction (absorption) and pointing (mechanical jitter) Terms stay;
+  the analytic geometric, launch-truncation, scintillation, and coupling Terms
+  DROP. The caller precomputes both records ONCE with
+  `olb.models.coupling.run_fidelity2` -> `Fidelity2Bundle`, and passes `wave=`;
+  the budget never runs the sim. TERRESTRIAL is simulated end to end on one flat
+  grid (the vacuum run shares that grid, so the turbulence penalty = turbulent /
+  vacuum is exact); SPACE cannot be (the turbulent runner does only the ~20 km
+  slab with a plane-wave input), so the vacuum run uses its own co-moving grid
+  over the full slant range and the two Terms add (the slab outputs are
+  vacuum-limit-1.0 penalties). The vacuum-optics Term matches the analytic
+  geometric closely (uplink 33.67 vs 33.63 dB). All default budgets are UNCHANGED
+  (terrestrial fidelity=0, downlink/uplink fidelity=1). Fidelity 1 is
+  UNAVAILABLE for terrestrial (raises, backlog 1-1); fidelity 0 is unavailable
+  for an uncorrected uplink (raises); fidelity 2 is unavailable for a
+  pre-compensated uplink and for retro (raises — the folded double pass shares
+  screens). The turbulence Term carries a SNAPSHOT-ONLY flag (fade depth, not
+  rate/duration) and an under-sampled-tail quantile warning
+  (`olb.results.EmpiricalSampler`). `examples/waveoptics/budget_wiring.py`
+  demonstrates all three. STILL owner-gated: whether wave optics ever becomes a
+  DEFAULT (the 2-W1 fibre-coupling reference gap stays open — the field reads 1
+  to 3 dB LESS coupling loss than FAST/analytic). OWNER FOLLOW-UP (2026-08-28):
+  an AUTOMATIC fidelity selector, the way `model="auto"` picks a distribution.
+  The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
+  stub). It imports `aotools` for the screens (LGPL-3.0, the optional `screens`
+  extra). Deliberately deferred: the results record is minimal scalars (do NOT
+  extend `TurbWaveResult` piece by piece), the temporal frozen-flow axis, a
+  co-moving (spherical) screen, and the folded/retro double pass (correlated
+  screens). `examples/waveoptics/` demonstrates the layer with seven scripts
+  (three vacuum, three turbulent, and the budget-wiring demo).
 - **The kernel repo has uncommitted fixes.** `coupled_flux.py` in
   `D:\repos\my_analysis_modules` is untracked there; the Dios-verified
   fixes sit in its working tree only. The owner must commit them.

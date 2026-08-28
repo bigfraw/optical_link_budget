@@ -78,7 +78,7 @@ link both ways.
 
 - API: two `SpaceScenario` objects (one uplink, one downlink) over one shared
   `Channel`; four `Terminal` objects; `uplink_budget` and `downlink_budget`;
-  `downlink_budget(..., smf_fidelity="fast")`.
+  `downlink_budget(..., fidelity=1)`.
 - An aperture is a `Terminal` parameter, so a bistatic station needs a separate
   transmit and receive `Terminal`. Each direction wires in its own pair.
 - Output: an itemised table and a Monte Carlo fade for the uplink and the
@@ -91,7 +91,7 @@ The retroreflected link. One ground station transmits the up-leg and receives
 the return. The satellite is a passive retroreflector. The budget carries both
 legs.
 
-- API: `retro_space_budget(scenario, geom, n_samples=..., smf_fidelity="fast")`;
+- API: `retro_space_budget(scenario, geom, n_samples=..., fidelity=1)`;
   a `SpaceScenario` with `direction="retro"`; one bistatic ground `Terminal`
   whose `Transmitter` carries its own `aperture_m` (the beam director) separate
   from the receive telescope.
@@ -110,7 +110,11 @@ fidelities on a no-AO downlink over an elevation sweep.
 
 - API: `downlink_coupling_term(scenario, geom, smf_fidelity=...)` called directly, not
   through a budget; `smf_fidelity="mean"` (the cheap analytic mean, no fade)
-  versus `smf_fidelity="fast"` (the FAST fidelity-1 statistical model).
+  versus `smf_fidelity="fast"` (the FAST fidelity-1 statistical model). The
+  coupling Term keeps its `smf_fidelity` parameter: `smf_fidelity="mean"` is the
+  fidelity-0 model and `smf_fidelity="fast"` is the fidelity-1 model of the Term.
+  At the budget level these are now selected with the whole-path `fidelity=0` and
+  `fidelity=1`.
 - The FAST reference gives the mean, the quantile, and the deep-fade tail. The
   cheap mean-only model has no fade, so the 99% margin can never come from it.
 - Output: a table per elevation with the mean-only loss, the FAST mean, the FAST
@@ -230,11 +234,12 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds six scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds seven scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
-script. The first three have NO turbulence. The last three add the turbulent
-split step of `olb/waveoptics/turbulence/`.
+script. The first three have NO turbulence. The next three add the turbulent
+split step of `olb/waveoptics/turbulence/`. The seventh wires the layer into the
+three link budgets.
 
 The vacuum scripts:
 
@@ -297,7 +302,36 @@ blocking window would hold the terminal for minutes.
   there. The TAILS are reported, not tested: a field Monte Carlo reaches deeper
   than a parametric lognormal. Both terminals carry zero pointing jitter.
 
-No budget consumes the layer. Run each script as a module, for example
+The budget-wiring script:
+
+- `budget_wiring.py` — the whole-path fidelity-2 wiring of the three link
+  budgets. Fidelity is a whole-path choice. At `fidelity=2` the entire path is a
+  field simulation, and the budget shows TWO wave-optics Terms: a DETERMINISTIC
+  vacuum-optics Term (the full no-turbulence loss from launch to detector: launch
+  truncation, geometric spread, aperture capture, and vacuum fibre coupling) and
+  a STOCHASTIC turbulence Term (the fade). Together they replace the analytic
+  geometric, launch-truncation, scintillation, and coupling Terms. Only the
+  analytic extinction (molecular absorption) and pointing (mechanical jitter)
+  Terms stay. The budget never runs the split step. The caller runs both
+  propagations one time with `run_fidelity2(scenario, geometry, ...)`, which
+  gives a `Fidelity2Bundle`, then passes the bundle to the budget. The script
+  wires all three links: terrestrial single-mode fibre, an uncorrected uplink,
+  and a downlink aperture. For the terrestrial link, `fidelity=2` unlocks the
+  fade margin that the fidelity-0 mean-only coupling Term refuses.
+  - API: `run_fidelity2(scenario, geometry, n_trials=..., seed=..., preset=...,
+    threader=...)`, then `terrestrial_budget(..., fidelity=2, wave=bundle)`,
+    `uplink_budget(..., fidelity=2, wave=bundle)`, and
+    `downlink_budget(..., fidelity=2, wave=bundle)`.
+  - It uses the RAPID preset and 200 snapshots. It runs in about 75 seconds on a
+    desktop. It carries the fixed seed `SEED = 20260828`.
+  - Output: per link, the fidelity-0/1 default for reference, then the
+    fidelity-2 vacuum-optics loss, the turbulence mean, the 90% fade, and the
+    budget total.
+  - Run: `python -m examples.waveoptics.budget_wiring`
+
+The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
+wave-optics layer only when the caller sets `fidelity=2` and gives it a bundle.
+Run each script as a module, for example
 `python -m examples.waveoptics.terrestrial_stages`. For the per-script guide and
 the status, see the suite README,
 [examples/waveoptics/README.md](../examples/waveoptics/README.md).

@@ -218,35 +218,102 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     )
 
 
-def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=True):
+def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     '''
-    Assemble the terrestrial budget: geometric, extinction, pointing, turbulence.
+    The two fidelity-2 wave-optics Terms of a terrestrial link.
 
-    The deterministic Terms (geometric spreading, horizontal extinction, pointing
-    jitter) are exact and serve every link the same way. The turbulence effect depends on the
-    receiver front end, and it mirrors the downlink rule:
+    A terrestrial link is fully simulated end to end on ONE flat grid, so the
+    FULL launch-to-detector loss splits cleanly into:
+      - a DETERMINISTIC vacuum-optics Term (the no-turbulence loss: launch
+        truncation + geometric spread + aperture capture + vacuum fibre coupling);
+      - a STOCHASTIC turbulence Term (the fade).
+    Their sum reconstructs the direct launch-to-detector turbulent loss exactly
+    (the vacuum baselines cancel; see olb.models.coupling.waveoptics). Together
+    they replace the analytic geometric, launch-truncation, scintillation, and
+    coupling Terms. `wave` is a Fidelity2Bundle from
+    olb.models.coupling.run_fidelity2.
 
-      - An Aperture (bucket) detector, or no detector, gets the horizontal
-        Gaussian-beam scintillation Term (terrestrial_scintillation_term). It is
-        a real analytic fade. This is the natural default for a realistic
-        aperture budget, so scintillation defaults to True.
-      - An SMF detector gets the fidelity-0 mean-only fibre-coupling Term instead
-        (olb.models.coupling.terrestrial_smf_coupling_term). The coupling loss IS
-        the turbulence effect for the fibre, so the scintillation Term is NOT
-        also added (no double-count). The mean-only coupling Term locks the budget
-        to fidelity 0, so the budget then refuses a fade margin. When the SMF sets
-        the coupling optics (focal_length_m and mode_field_radius_m), the budget
-        also adds the receive tip-tilt walk-off fade Term
-        (terrestrial_smf_walkoff_term).
-      - An MMF detector gets the multimode-fibre coupling Term instead
-        (olb.models.coupling.terrestrial_mmf_coupling_term): the geometric
-        spot-in-core loss
-        plus the tip-tilt walk-off fade. It replaces the scintillation Term (no
-        double-count). The MMF Term has a real fade, so the budget keeps its fade.
+    An SMF receiver gets the composite fibre penalty (aperture capture x fibre
+    coupling); an Aperture or MMF receiver gets the aperture-power penalty (the
+    MMF core coupling is not modelled separately at fidelity 2).
+    '''
+    from ..models.coupling import (waveoptics_vacuum_term,
+                                   waveoptics_turbulence_term)
+    from ..waveoptics.field import Power
+    from ..terminal import SMF
+    tx = scenario.tx_terminal
+    rx = scenario.rx_terminal
+    is_smf = isinstance(rx.detector, SMF)
 
-    Set scintillation=False to drop the scintillation Term and keep only the
-    deterministic Terms (for example to sweep an array path length, where the
-    scalar-only scintillation Term does not broadcast; loop per distance instead).
+    vac = waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf)
+
+    trials = wave.turbulent.trials
+    coll = np.array([t.collected_power for t in trials], dtype=float)
+    # The vacuum aperture fraction on the SAME grid: collected / after-tx-clip,
+    # matching the terrestrial collected_power normalisation.
+    vac_coll = float(Power(wave.vacuum.stages[3][1])
+                     / Power(wave.vacuum.stages[1][1]))
+    if is_smf:
+        eta = np.array([t.smf_eta for t in trials], dtype=float)
+        vac_smf_eta = 10.0 ** (-wave.vacuum.smf_coupling_db / 10.0)
+        loss_db = (-10.0 * np.log10(coll / vac_coll)
+                   - 10.0 * np.log10(eta / vac_smf_eta))
+        note = ("terrestrial turbulence penalty (wave optics): aperture-power and "
+                "fibre-coupling loss relative to the vacuum baseline.")
+    else:
+        loss_db = -10.0 * np.log10(coll / vac_coll)
+        note = ("terrestrial turbulence penalty (wave optics): aperture-power "
+                "loss relative to the vacuum baseline.")
+
+    L = float(scenario.channel.path_length_m)
+    hs = np.linspace(0.0, L, _SCINT_GRID_N)
+    cn2_profile = np.full_like(hs, float(scenario.channel.cn2))
+    sigma2_I = float(on_axis_scintillation_index(
+        hs, cn2_profile, tx.transmitter.waist_m, rx.wavelength_m,
+        elevation_deg=90.0, path_length_m=None))
+    pen = waveoptics_turbulence_term(
+        wave.turbulent, loss_db=loss_db, beam_type=BEAM_GAUSSIAN,
+        sigma2_I=sigma2_I, note=note)
+    return [vac, pen]
+
+
+def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
+                       turbulence=True, wave=None):
+    '''
+    Assemble the terrestrial budget at a chosen fidelity.
+
+    `fidelity` is a WHOLE-PATH choice (see the README fidelity ladder):
+
+      - fidelity=0 (the default, analytic). The deterministic Terms (geometric
+        spreading, horizontal extinction, pointing jitter) are exact. The
+        receive-side turbulence effect depends on the front end:
+          * an Aperture (bucket) or no detector gets the horizontal Gaussian-beam
+            scintillation Term (terrestrial_scintillation_term, a real analytic
+            fade);
+          * an SMF detector gets the mean-only fibre-coupling Term
+            (terrestrial_smf_coupling_term) plus the tip-tilt walk-off fade when
+            the coupling optics are set. The mean-only Term locks the budget to
+            fidelity 0 (it then refuses a fade margin);
+          * an MMF detector gets the multimode spot-in-core coupling plus the
+            walk-off fade (a real fade).
+        The coupling / scintillation Term REPLACES the standalone scintillation
+        for a fibre receiver (no double-count).
+      - fidelity=1 is UNAVAILABLE for a terrestrial link and raises. FAST is a
+        far-field plane-wave-source model; a near-field finite Gaussian beam
+        needs the split-step model of fidelity 2 (see backlog 1-1).
+      - fidelity=2 (wave optics). The whole path is a field simulation. It gives
+        TWO Terms: a deterministic vacuum-optics Term (launch truncation +
+        geometric spread + aperture capture + vacuum fibre coupling) and a
+        stochastic turbulence Term (the fade). Together they REPLACE the
+        geometric, launch-truncation, scintillation, and coupling Terms. Only the
+        analytic extinction (molecular absorption, never in the field sim) and
+        pointing (mechanical jitter) Terms stay. It needs a precomputed `wave`
+        bundle (olb.models.coupling.run_fidelity2); the budget never runs the
+        split-step propagation itself.
+
+    Set scintillation=False to drop the scintillation Term at fidelity 0 and keep
+    only the deterministic Terms (for example to sweep an array path length, where
+    the scalar-only scintillation Term does not broadcast; loop per distance).
 
     Parameters:
         scenario : TerrestrialScenario
@@ -254,24 +321,59 @@ def terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=Tru
             TerrestrialChannel carries path_length_m, attenuation_db_per_km, cn2.
         geometry : HorizontalPath
             The horizontal path (reads slant_range_m = path length).
+        fidelity : int
+            0 (analytic, the default), 1 (unavailable, raises), or 2 (wave optics,
+            needs `wave`).
         scintillation : bool
-            Add the horizontal Gaussian-beam scintillation Term for an aperture /
-            no-detector receiver when True (the default). An SMF detector always
-            replaces it with the coupling Term.
+            Add the fidelity-0 scintillation Term for an aperture / no-detector
+            receiver when True (the default).
         turbulence : bool
-            Master turbulence switch. When False, drop EVERY turbulence quantity:
-            no scintillation Term, and the fibre-coupling Terms keep only their
-            static parts. An SMF coupling Term becomes the static mode-match loss,
-            an MMF Term keeps its spot-overfill loss, and the walk-off Term keeps
-            only the receive mechanical jitter (the beam-wander tilt drops). The
-            deterministic Terms (geometric, extinction, launch truncation) and the
-            transmit pointing jitter stay. So a coupling budget with angular jitter
-            still runs, only without turbulence.
+            Master turbulence switch for fidelity 0. When False, drop EVERY
+            turbulence quantity: no scintillation Term, and the fibre-coupling
+            Terms keep only their static parts. The deterministic Terms
+            (geometric, extinction, launch truncation) and the transmit pointing
+            jitter stay.
+        wave : Fidelity2Bundle, optional
+            The precomputed wave-optics records for fidelity=2. Run it with
+            olb.models.coupling.run_fidelity2.
 
     Returns:
         Budget
             The budget with the scenario set.
+
+    Raises:
+        ValueError
+            If fidelity is not 0/1/2, if fidelity=1 (unavailable for terrestrial),
+            or if fidelity=2 without a `wave` bundle.
     '''
+    if fidelity not in (0, 1, 2):
+        raise ValueError(f"fidelity must be 0, 1, or 2, got {fidelity!r}.")
+    if fidelity == 1:
+        raise ValueError(
+            "fidelity=1 is unavailable for a terrestrial link. FAST is a "
+            "far-field plane-wave-source model; a near-field finite Gaussian "
+            "beam needs the split-step model of fidelity 2. Use fidelity=0 "
+            "(analytic) or fidelity=2 (wave optics)."
+        )
+    if fidelity == 2:
+        if wave is None:
+            raise ValueError(
+                "fidelity=2 needs a precomputed `wave` bundle. Run "
+                "olb.models.coupling.run_fidelity2(scenario, geometry, ...) and "
+                "pass it as wave. The budget does not run the split-step "
+                "propagation implicitly."
+            )
+        # The two wave-optics Terms replace geometric, launch truncation,
+        # scintillation, and coupling. Only extinction (absorption) and pointing
+        # (mechanical jitter) stay analytic.
+        terms = [
+            terrestrial_extinction_term(scenario, geometry),
+            pointing_loss_term(scenario, geometry),
+        ]
+        terms += _terrestrial_fidelity2_terms(scenario, geometry, wave)
+        return Budget(terms, scenario=scenario)
+
+    # fidelity 0: the analytic budget.
     terms = [
         geometric_loss_term(scenario, geometry),
         terrestrial_extinction_term(scenario, geometry),
@@ -493,6 +595,73 @@ if __name__ == '__main__':
         smf_opt_budget = terrestrial_budget(scn_opt, HorizontalPath(3e3))
     assert "SMF tip-tilt walk-off" in [t.name for t in smf_opt_budget.terms]
     assert not smf_opt_budget.provides_fade   # mean-only coupling term still locks it
+
+    # --- fidelity=2 whole-path wave optics -----------------------------------
+    def _smf_scn():
+        return TerrestrialScenario(
+            near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                          transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+            far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
+                         detector=SMF(sensitivity_dbm=-40)),
+            channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
+                                       cn2=1e-14))
+
+    wo_scn = _smf_scn()
+    # Guards need NO run: bad fidelity, fidelity=1 (unavailable), fidelity=2 with
+    # no bundle.
+    for bad in (3, -1, "mean"):
+        try:
+            terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=bad)
+        except ValueError as e:
+            assert "fidelity must be 0, 1, or 2" in str(e)
+        else:
+            raise AssertionError(f"fidelity={bad!r} must raise")
+    try:
+        terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=1)
+    except ValueError as e:
+        assert "unavailable for a terrestrial link" in str(e)
+    else:
+        raise AssertionError("fidelity=1 must raise for terrestrial")
+    try:
+        terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=2)
+    except ValueError as e:
+        assert "needs a precomputed `wave` bundle" in str(e)
+    else:
+        raise AssertionError("fidelity=2 without a bundle must raise")
+    # The default is UNCHANGED: fidelity=0 SMF stays mean-only (fade locked).
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        assert not terrestrial_budget(wo_scn, HorizontalPath(3e3)).provides_fade
+
+    # The real fidelity-2 build needs one run_fidelity2 (skip if aotools absent).
+    from ..models.coupling import run_fidelity2
+    try:
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            bundle = run_fidelity2(wo_scn, HorizontalPath(3e3), preset="rapid",
+                                   n_trials=16, seed=3)
+            f2 = terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=2,
+                                    wave=bundle)
+    except ImportError:
+        print("aotools not installed; skipping the terrestrial fidelity-2 run.")
+        f2 = None
+    if f2 is not None:
+        names = [t.name for t in f2.terms]
+        cats = [t.category for t in f2.terms]
+        # Two wave-optics Terms; no analytic geometric/scintillation/coupling.
+        vac = next(t for t in f2.terms if t.meta.get("model") == "waveoptics-vacuum")
+        turb = next(t for t in f2.terms if t.meta.get("model") == "waveoptics")
+        assert not vac.stochastic and turb.stochastic and not turb.mean_only
+        assert "geometric spreading" not in names and "scintillation" not in names
+        assert "receive coupling (SMF)" not in names
+        assert "SMF tip-tilt walk-off" not in names
+        # Extinction and pointing stay analytic.
+        assert "atmospheric" in cats and "pointing" in cats
+        # The fidelity-0 lock is gone: a real fade margin.
+        assert f2.provides_fade and np.isfinite(f2.fade_margin_db(0.9))
+        print(f"terrestrial fidelity 2 (3 km, rapid, 16 trials): vacuum "
+              f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB, "
+              f"total {f2.total_loss_db():.2f} dB")
 
     # --- MMF (multimode-fibre light bucket) ---------------------------------
     def _mmf(core_radius=25e-6, focal=None, jitter=5e-6, far_aperture=0.2,

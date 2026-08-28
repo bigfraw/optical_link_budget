@@ -212,61 +212,95 @@ a fixed set of Terms.
 
 | Function | Module | Link | Keyword defaults |
 |---|---|---|---|
-| `uplink_budget` | `olb/links/uplink.py` | Ground-to-space uplink | `turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None` |
-| `downlink_budget` | `olb/links/downlink.py` | Space-to-ground downlink | `tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, smf_fidelity="fast", fast_params=None` |
-| `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, smf_fidelity="fast", fast_params=None` |
-| `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `scintillation=True, turbulence=True` |
+| `uplink_budget` | `olb/links/uplink.py` | Ground-to-space uplink | `fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, wave=None` |
+| `downlink_budget` | `olb/links/downlink.py` | Space-to-ground downlink | `fidelity=1, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, fast_params=None, scint_model="lognormal", wave=None` |
+| `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None` |
+| `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `fidelity=0, scintillation=True, turbulence=True, wave=None` |
 
 `tau_zenith=None` selects `extinction.DEFAULT_TAU_ZENITH`, which is `0.05`
 (the near-IR clear-sky zenith optical depth). All keyword arguments after the
 first two are keyword-only.
 
-### `uplink_budget(scenario, geometry, *, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, precomp_fidelity="fast")`
+### The `fidelity` ladder
 
-Assemble the uplink budget. The Terms are the geometric loss, the atmospheric
-loss, and, when `turbulence` is `True`, the turbulence physics. The
-turbulence Term depends on the pre-compensation source on the scenario
-(`SpaceScenario.precompensation`, see `api-terminal-scenario.md`).
+Every budget takes ONE whole-path `fidelity` argument. It sets the model of the
+turbulence physics for the whole link. It replaces the old per-component knobs
+(`smf_fidelity`, `precomp_fidelity`, the `scint_model="montecarlo"` value, and
+`wave_result`).
 
-- No source (`None`): the uplink is uncorrected. The turbulence Term is the
-  coupled-flux Monte Carlo (`uplink_turbulence_term`, beam wander plus
-  scintillation). It is a Monte-Carlo-only Term (`quantile=None`), so the budget
-  must use `monte_carlo()`. This Term also carries the tracking jitter.
-- `DownlinkBeacon` with an `AO` stage: the uplink is pre-compensated. The
-  coupled-flux Term is REPLACED, and `precomp_fidelity` selects the
-  replacement:
-  - `"fast"` (the default, fidelity 1, the model of record): ONE Monte-Carlo
-    Term from `uplink_fast_term` (category `turbulence`). FAST computes the
-    residual phase of the adaptive optics with the point-ahead decorrelation
-    (`DTHETA` from `geometry.point_ahead_rad`), plus the uncorrected
-    log-amplitude, and gives the flux at the satellite by reciprocity
-    (Shapiro, DOI 10.1364/JOSA.61.000492; Farley, DOI 10.1364/OE.458659).
-    The Term carries the scintillation AND a real fade, so
-    `fade_margin_db()` works. It is the pure turbulence penalty: the
-    standalone pointing Term still fires and carries the mechanical jitter.
-    Needs `fast-aosim`; without it the ImportError names the fallback.
-  - `"mean"` (fidelity 0, no dependency): two adding analytic wavefront
-    Terms: the AO fitting error (`uplink_fitting_term`, category `fitting`)
-    and the point-ahead anisoplanatism (`uplink_point_ahead_term`, category
-    `anisoplanatism`). Both are mean-only, so the budget then locks to
-    fidelity 0.
+- `fidelity=0` — analytic. Closed-form Terms. An SMF receiver gets the mean-only
+  fibre-coupling Term.
+- `fidelity=1` — statistical. FAST modal-overlap coupling and the coupled-flux
+  Monte Carlo uplink. It carries a real fade.
+- `fidelity=2` — wave optics. The turbulence physics is a field simulation. It
+  appears as TWO Terms: a deterministic vacuum-optics Term (the full
+  no-turbulence loss from launch to detector, from `propagate_scenario`) and a
+  stochastic turbulence Term. Only the analytic extinction and pointing Terms
+  stay at fidelity 2. Fidelity 2 needs a precomputed `wave` bundle (a
+  `Fidelity2Bundle` from `olb.models.coupling.run_fidelity2`); the budget never
+  runs the simulation itself.
 
-  > **`"mean"` LIMITATION — no scintillation, no fade.** The two analytic
+Not every fidelity fits every link. Each budget section below gives the exact
+mapping and the cases that raise.
+
+### `uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, wave=None)`
+
+Assemble the uplink budget at a chosen `fidelity`. The Terms are the geometric
+loss, the atmospheric loss, and, when `turbulence` is `True`, the turbulence
+physics. The turbulence route depends on BOTH the `fidelity` and the
+pre-compensation source on the scenario (`SpaceScenario.precompensation`, see
+`api-terminal-scenario.md`).
+
+UNCORRECTED (no source, or a tip-tilt-only `DownlinkBeacon`):
+
+- `fidelity=0`: raises `ValueError`. There is no analytic mean-only model for an
+  uncorrected uplink (beam wander plus scintillation has no closed form).
+- `fidelity=1` (the default): the coupled-flux Monte Carlo Term
+  (`uplink_turbulence_term`, beam wander plus scintillation). It is a
+  Monte-Carlo-only Term (`quantile=None`), so the budget must use
+  `monte_carlo()`. This Term also carries the tracking jitter, so there is no
+  standalone pointing Term.
+- `fidelity=2`: two wave-optics Terms. A deterministic vacuum-optics Term (launch
+  truncation plus geometric spread plus satellite-aperture capture) and a
+  stochastic turbulence Term from the reciprocity overlap `eta_turb` (Shapiro,
+  DOI 10.1364/JOSA.61.000492). They replace the geometric, launch-truncation, and
+  coupled-flux Terms. The reciprocity overlap holds no jitter, so the standalone
+  pointing Term stays. It needs the precomputed `wave` bundle.
+
+PRE-COMPENSATED (`DownlinkBeacon` with an `AO` stage):
+
+- `fidelity=0`: the AO error budget. Two adding analytic wavefront Terms: the AO
+  fitting error (`uplink_fitting_term`, category `fitting`) and the point-ahead
+  anisoplanatism (`uplink_point_ahead_term`, category `anisoplanatism`). Both are
+  mean-only, so the budget then locks to fidelity 0.
+
+  > **Fidelity-0 LIMITATION — no scintillation, no fade.** The two analytic
   > pre-compensation Terms model the PHASE only, and both are mean-only. The
-  > replaced coupled-flux Term carried the scintillation, so the `"mean"`
-  > budget has no scintillation and no fade of any kind. This is a recorded
-  > DECISION (2026-08-27, backlog 0-W1): no trustworthy analytic form exists
-  > for the scintillation of a pre-compensated beam. The fidelity-1 FAST
-  > Term above is the model of record. Both analytic Terms flag this, and
-  > they also flag a residual past the extended-Marechal limit
+  > replaced coupled-flux Term carried the scintillation, so the fidelity-0
+  > pre-compensated budget has no scintillation and no fade of any kind. This is
+  > a recorded DECISION (2026-08-27, backlog 0-W1): no trustworthy analytic form
+  > exists for the scintillation of a pre-compensated beam. The fidelity-1 FAST
+  > Term below is the model of record. Both analytic Terms flag this, and they
+  > also flag a residual past the extended-Marechal limit
   > (sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), so
-  > `Budget.check()` warns. The budget still returns: the geometric,
-  > extinction, and pointing Terms stay exact, and `turbulence=False` gives
-  > the geometric-only budget.
-- `DownlinkBeacon` with only a tip-tilt stage: no order above the tilt is
-  corrected, so the uplink stays uncorrected (coupled flux).
-- `LaserGuideStar`: not modelled yet. `uplink_budget` raises
-  `NotImplementedError`.
+  > `Budget.check()` warns. The budget still returns: the geometric, extinction,
+  > and pointing Terms stay exact, and `turbulence=False` gives the
+  > geometric-only budget.
+
+- `fidelity=1` (the default, the model of record): ONE Monte-Carlo Term from
+  `uplink_fast_term` (category `turbulence`). FAST computes the residual phase of
+  the adaptive optics with the point-ahead decorrelation (`DTHETA` from
+  `geometry.point_ahead_rad`), plus the uncorrected log-amplitude, and gives the
+  flux at the satellite by reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492;
+  Farley, DOI 10.1364/OE.458659). The Term carries the scintillation AND a real
+  fade, so `fade_margin_db()` works. It is the pure turbulence penalty: the
+  standalone pointing Term still fires and carries the mechanical jitter. Needs
+  `fast-aosim`; without it the `ImportError` names the fallback.
+- `fidelity=2`: raises `ValueError`. The reciprocity screens carry no
+  adaptive-optics correction or point-ahead decorrelation, so wave optics does
+  not model a pre-compensated uplink. Use `fidelity=1` (FAST).
+
+`LaserGuideStar`: not modelled yet. `uplink_budget` raises `NotImplementedError`.
 
 Other rules:
 
@@ -316,41 +350,62 @@ The budget-building Terms:
 Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
 `validation/uplink_divergence.py`.
 
-### `downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, smf_fidelity="fast", fast_params=None)`
+### `downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, fast_params=None, scint_model="lognormal", wave=None)`
 
-Assemble the downlink budget. The Terms are the geometric loss, the atmospheric
-loss, the pointing loss, and one turbulence effect. The downlink keeps its
-standalone pointing Term, unlike the uplink.
+Assemble the downlink budget at a chosen `fidelity`. The Terms are the geometric
+loss, the atmospheric loss, the pointing loss, and one turbulence effect. The
+downlink keeps its standalone pointing Term, unlike the uplink.
 
-- `scintillation` — add the lognormal downlink scintillation Term when `True`.
-  Every downlink Term has a closed-form quantile, so the downlink budget
-  supports the analytic fade.
-- `turbulence` — the master turbulence switch. When `False`, drop every
-  turbulence quantity. The budget keeps the deterministic Terms (geometric,
-  atmospheric, pointing) and any static coupling loss, but it drops the
-  scintillation and the turbulence part of the receive-coupling Term.
+The `fidelity` maps to the receive-side turbulence model:
+
+- `fidelity=0`: an `SMF` detector gets the mean-only analytic fibre-coupling Term
+  (`downlink_coupling_term(smf_fidelity="mean")`). An `Aperture` or no detector
+  gets the analytic scintillation Term (`scint_model`).
+- `fidelity=1` (the default): an `SMF` detector gets the FAST modal-overlap Term
+  (`downlink_coupling_term(smf_fidelity="fast")`); it needs the `fast-aosim`
+  package. An `Aperture` or no detector uses the SAME analytic scintillation Term
+  as fidelity 0. Fidelity 0 and 1 COINCIDE for an aperture: the closed-form
+  lognormal or gamma-gamma is the model of record and already carries a fade.
+  Only the SMF coupling model changes between the two tiers.
+- `fidelity=2`: two wave-optics Terms. A deterministic vacuum-optics Term
+  (geometric spread plus aperture capture plus vacuum fibre coupling over the
+  full slant range) and a stochastic turbulence Term (the slab penalty). They
+  replace the geometric and the scintillation or coupling Terms. Only the
+  analytic extinction and pointing Terms stay. It needs the precomputed `wave`
+  bundle.
+
+Other rules:
+
+- `scintillation` — add the analytic scintillation Term for an aperture or
+  no-detector receiver at fidelity 0/1 when `True`. Every fidelity-0/1 downlink
+  Term has a closed-form quantile, so the downlink budget supports the analytic
+  fade.
+- `turbulence` — the master turbulence switch for fidelity 0/1. When `False`,
+  drop every turbulence quantity. The budget keeps the deterministic Terms
+  (geometric, atmospheric, pointing) and any static coupling loss, but it drops
+  the scintillation and the turbulence part of the receive-coupling Term.
 - The receive terminal is opt-in. When the receive terminal has a detector, the
   receive-coupling Term owns the receive-side turbulence physics. It replaces
   the standalone scintillation Term. An `Aperture` detector reproduces the plain
   scintillation, so the total is unchanged. An `SMF` detector adds the
   fibre-coupling loss and the coupling fade.
-- `smf_fidelity` — the SMF coupling model. `"fast"` (the default) is the
-  fidelity-1 true modal overlap; it needs the `fast-aosim` package. `"mean"` is
-  the analytic mean-only model with no fade. A mean-only coupling Term locks the
-  budget to fidelity 0.
 - `n_samples` — the FAST Monte Carlo draws for the SMF fidelity-1 coupling. It
-  is ignored for an `Aperture` detector and for `smf_fidelity="mean"`.
+  is ignored for an `Aperture` detector and at fidelity 0.
+- `scint_model` — the analytic scintillation MODEL for an APERTURE receiver:
+  `"lognormal"` (the default), `"gamma_gamma"`, or `"auto"`. It is NOT a fidelity
+  axis. It applies at fidelity 0/1 only, and it selects the analytic aperture
+  physics (see `downlink_scintillation_term` below).
 
-`downlink_budget` builds its scintillation Term with `model="lognormal"` and
-`aperture_average=True`. That is the safe default for a normal elevation. For a
-low elevation, build the Term with `model="auto"` and add it to your own
+`downlink_budget` builds its scintillation Term with `scint_model="lognormal"`
+and `aperture_average=True`. That is the safe default for a normal elevation. For
+a low elevation, build the Term with `model="auto"` and add it to your own
 `Budget`, because the gamma-gamma Term drops the aperture averaging and so it
 changes the total by several dB.
 
 `downlink_scintillation_term(scenario, geometry, *, model="lognormal",
-aperture_average=True, hs=None, cn2_profile=None)` builds the scintillation Term
-on its own. The `model` argument selects the physics through an auto-select
-dispatch:
+aperture_average=True, hs=None, cn2_profile=None)` builds the analytic
+scintillation Term on its own (fidelity 0/1, aperture). The `model` argument
+selects the physics through an auto-select dispatch:
 
 - `"lognormal"` — the analytic weak-fluctuation plane-wave Term.
 - `"gamma_gamma"` — the analytic gamma-gamma Term. It holds at every fluctuation
@@ -359,18 +414,18 @@ dispatch:
   no aperture-averaged downlink index in that regime, and its `Assumptions`
   record flags that. It takes a scalar elevation only; an elevation array raises
   `NotImplementedError`.
-- `"montecarlo"` — a reserved slot for the phase-screen model. It raises
-  `NotImplementedError`.
 - `"auto"` — the selector layer. It reads the point `sigma2_I` and returns the
   lognormal Term below `WEAK_FLUCTUATION_LIMIT = 0.25`, or the gamma-gamma Term
   at or above it. For an elevation array that breaks the limit it keeps the
   lognormal Term and warns.
 
-An unknown `model` name raises `ValueError`.
+An unknown `model` name raises `ValueError`. The wave-optics downlink is NOT a
+`model` name: it is the whole-path `fidelity=2` route of `downlink_budget` (two
+Terms). The old `model="montecarlo"` value is gone.
 
 Examples: `examples/downlink_terminal.py`, `examples/build_a_link.py`.
 
-### `retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, smf_fidelity="fast", fast_params=None)`
+### `retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None)`
 
 Assemble the retroreflected ground-to-space budget as a retransmission. The
 retroreflector re-transmits the beam. The budget is an up-leg transmission
@@ -383,13 +438,21 @@ or coupling Term), and the fixed retro-reflection Term. The up-leg Term names
 carry an `"uplink "` prefix. The down-leg Term names carry a `"downlink "`
 prefix.
 
+- `fidelity` — the DOWN-leg receive-coupling model: `1` (the default, FAST modal
+  overlap) or `0` (analytic mean-only). The UP-leg turbulence stays the
+  coupled-flux Monte Carlo at either value, because there is no analytic
+  mean-only uncorrected uplink model. So the up-leg is fidelity 1 regardless.
+  `fidelity=2` (wave optics) is NOT supported and raises `ValueError`: the folded
+  double pass shares its screens (the two legs are correlated), which needs its
+  own design. A `fidelity` other than 0, 1, or 2 also raises.
 - `turbulence` — add the up-leg coupled-flux turbulence Term when `True`. The
   up-leg jitter folds into the turbulence Term, exactly as the uplink does. A
   standalone up-leg pointing Term is added only when `turbulence` is `False`.
 - `retro_loss_db` — the fixed loss of the retroreflection in dB. The default is
   `0.0`.
-- `smf_fidelity` and `fast_params` — the return-leg receive coupling follows the
-  downlink rule. An `SMF` ground detector adds the fibre-coupling loss.
+- `fast_params` — extra FAST parameters for the fidelity-1 down-leg coupling. The
+  return-leg receive coupling follows the downlink rule. An `SMF` ground detector
+  adds the fibre-coupling loss.
 
 This is the space model only. It assumes a long slant range, a fully diverged
 return, and independent turbulence on the two legs. Do not use it for a short
@@ -401,12 +464,30 @@ terrestrial retro link.
 
 Example: `examples/retro_link.py`.
 
-### `terrestrial_budget(scenario, geometry, *, scintillation=True, turbulence=True)`
+### `terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True, turbulence=True, wave=None)`
 
-Assemble the terrestrial (horizontal-path) budget. The Terms are the geometric
-spreading, the horizontal Beer-Lambert extinction, the pointing jitter, an
-opt-in launch truncation, and one receive-side turbulence effect. The
-receive-side effect follows the far-terminal detector:
+Assemble the terrestrial (horizontal-path) budget at a chosen `fidelity`.
+
+The `fidelity` maps to the turbulence model:
+
+- `fidelity=0` (the default, analytic). The deterministic Terms (geometric
+  spreading, horizontal extinction, pointing jitter) are exact. The receive-side
+  turbulence effect is the mean SMF coupling and walk-off, the MMF coupling, or
+  the scintillation Term (see the detector rule below).
+- `fidelity=1`: raises `ValueError`. It is unavailable for a terrestrial link.
+  FAST is a far-field plane-wave-source model; a near-field finite Gaussian beam
+  needs the split-step model of fidelity 2 (backlog 1-1).
+- `fidelity=2`: two wave-optics Terms. A deterministic vacuum-optics Term (launch
+  truncation plus geometric spread plus aperture capture plus vacuum fibre
+  coupling) and a stochastic turbulence Term (the fade). They replace the
+  geometric, launch-truncation, scintillation, and coupling Terms. Only the
+  analytic extinction and pointing Terms stay. It needs the precomputed `wave`
+  bundle. A `fidelity` other than 0, 1, or 2 raises `ValueError`.
+
+At fidelity 0 the Terms are the geometric spreading, the horizontal
+Beer-Lambert extinction, the pointing jitter, an opt-in launch truncation, and
+one receive-side turbulence effect. The receive-side effect follows the
+far-terminal detector:
 
 - No detector, or an `Aperture` (bucket) detector: the horizontal Gaussian-beam
   scintillation Term (`terrestrial_scintillation_term`). It is a real analytic

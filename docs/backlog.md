@@ -19,9 +19,9 @@ are from 2026-08-26 and can drift.
 1. **Gap 2 is DECIDED and WIRED (2026-08-27): the pre-compensated uplink
    fade comes from FAST.** No trustworthy closed form exists; the model of
    record is the fidelity-1 FAST route, and the wiring is DONE:
-   `uplink_fast_term` plus `uplink_budget(precomp_fidelity="fast")` (the
-   default). See 0-W1 for the decision record and 1-2 for the remaining
-   FAST limits.
+   `uplink_fast_term` plus `uplink_budget(fidelity=1)` (the default for a
+   pre-compensated scenario). See 0-W1 for the decision record and 1-2 for the
+   remaining FAST limits.
 2. **HIGH (owner-flagged, 2026-08-27) — stop the reliance on the
    `DEFAULT_HS` 20-layer array.** HV5/7 is a continuous profile; the planner
    and the physics must take a callable, not a hand-discretised grid. See
@@ -34,9 +34,11 @@ are from 2026-08-26 and can drift.
    later session. See the documentation-debt group.
 6. **The kernel repo commit.** One `git add` in `my_analysis_modules`, plus
    the KR-24 constants. See the external group.
-7. **The owner decisions.** `downlink_budget` default, the fidelity-2 Term,
-   the FAST-versus-field reference model. Decide once; then wire. See 0-W5,
-   2-W1.
+7. **The owner decisions.** `downlink_budget` default (0-W5), and the
+   FAST-versus-field reference model — whether wave optics ever becomes a
+   DEFAULT. The turbulent fidelity-2 Term is now WIRED as opt-in (2-W1, done
+   2026-08-28); the reference-model choice stays open. Next owner-requested
+   step: an automatic fidelity selector. See 0-W5, 2-W1.
 
 ---
 
@@ -62,8 +64,8 @@ are from 2026-08-26 and can drift.
   DONE (2026-08-27, same day): `uplink_fast_term` in
   olb/models/coupling/fast.py computes DTHETA from `geometry.point_ahead_rad`
   and returns the pure turbulence penalty with a real fade;
-  `uplink_budget(precomp_fidelity="fast")` (the default) consumes it, and
-  `precomp_fidelity="mean"` keeps the analytic phase-only pair as the
+  `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario)
+  consumes it, and `fidelity=0` keeps the analytic phase-only pair as the
   no-dependency fallback. The FAST 0.1.7 Monte Carlo is direction-agnostic
   (the commented `PROP_DIR="up"` branches touch only the analytic budget olb
   does not read), so the reciprocity mapping needs no static-floor
@@ -213,11 +215,16 @@ The path forward for each is a second reference or a derivation.
 
 ## Fidelity 1 — statistical / Monte Carlo
 
-- **1-1. The terrestrial statistical coupling fade does not exist.** The
-  SMF Term is mean-only, so it LOCKS the budget out of a fade margin
-  (olb/models/coupling/terrestrial.py:302, olb/results.py:299). FAST is
-  far-field only; a near-field Gaussian beam needs the split-step model —
-  so the real fix is the fidelity-2 wiring (2-W1).
+- **1-1. The terrestrial statistical coupling fade — RESOLVED at fidelity 2
+  (2026-08-28).** The default (fidelity 0) SMF Term is still mean-only and LOCKS
+  the budget out of a fade margin (olb/models/coupling/terrestrial.py). But
+  `terrestrial_budget(fidelity=2, wave=...)` replaces it with the two wave-optics
+  Terms (vacuum-optics + turbulence), which carry a real fade, so the budget then
+  gives a fade margin. See 2-W1. (FAST is far-field only; the near-field Gaussian
+  beam needs the split-step model, which is what fidelity 2 uses. Fidelity 1 is
+  UNAVAILABLE for a terrestrial link and raises.) STILL default fidelity 0 by
+  owner decision (the field reads less coupling loss than the incumbent; the
+  reference-model gap of 2-W1 stays open).
 - **1-2. FAST limits NT1–NT4 — CARRIES GAP 2 (see 0-W1); the uplink entry
   point is DONE (2026-08-27).** `uplink_fast_term` in
   olb/models/coupling/fast.py is the pre-compensated uplink model of record:
@@ -225,7 +232,8 @@ The path forward for each is a second reference or a derivation.
   uplink), sets the numeric launch waist, and returns the pure turbulence
   penalty by reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492; Farley,
   DOI 10.1364/OE.458659) with the weak-regime amplitude gate.
-  `uplink_budget(precomp_fidelity="fast")` (the default) consumes it. Still
+  `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario)
+  consumes it. Still
   open from the first cut: the DOWNLINK Term keeps `DTHETA=[0,0]`, which is
   correct for a receive-side AO that senses the same downlink beam; scalar
   elevation only (both Terms); no obscuration in the coupled flux or the
@@ -267,14 +275,25 @@ The path forward for each is a second reference or a derivation.
 
 ## Fidelity 2 — wave optics
 
-- **2-W1. No fidelity-2 Term reaches a budget (OWNER DECISION).** The layer
-  is built and self-checked (vacuum: 0.011 dB agreement; turbulent uplink
-  reciprocity: 0.18–0.54 dB against the coupled-flux MC). The blocker: the
-  FAST model and the field disagree on the fibre coupling (the field reads
-  0.7–2.9 dB LESS loss than FAST, and 2.5 dB less than the terrestrial
-  analytic Term). Pick the reference model; then wire the Term. The
-  downlink `"montecarlo"` slot in olb/links/downlink.py:247 is reserved for
-  exactly this.
+- **2-W1. Fidelity-2 is WIRED whole-path via `fidelity=0|1|2` (2026-08-28,
+  branch `fidelity2-budget-wiring`). BOTH the turbulent split step AND the
+  vacuum core are now consumed.** A fidelity-2 budget shows TWO Terms: a
+  DETERMINISTIC `waveoptics_vacuum_term` (the full no-turbulence loss from
+  `propagate_scenario`) and a STOCHASTIC `waveoptics_turbulence_term` (the fade);
+  only the analytic extinction and pointing Terms stay. The caller precomputes
+  both records once with `run_fidelity2` -> `Fidelity2Bundle` and passes `wave=`;
+  the budget never runs the sim. The old per-component knobs
+  (`smf_fidelity="waveoptics"`, `scint_model="montecarlo"`, budget-level
+  `smf_fidelity`/`precomp_fidelity`) are REMOVED at the budget level and folded
+  into `fidelity`. It closes 1-1 (terrestrial fade lock), and addresses 0-P11 /
+  Gap-3 and 0-N4 (the field solve sidesteps the analytic `eta_max` and the
+  near-field truncation flag). All in olb/models/coupling/waveoptics.py; see
+  `examples/waveoptics/budget_wiring.py`. STILL OPEN and OWNER-GATED: whether
+  wave optics ever becomes a DEFAULT. That is the reference-model gap — the field
+  reads LESS fibre coupling loss than the incumbents (0.7–2.9 dB less than FAST,
+  ~2.5 dB less than the terrestrial analytic Term). FOLLOW-UP
+  (owner-requested 2026-08-28): an AUTOMATIC fidelity selector, the way
+  `model="auto"` picks a distribution.
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.

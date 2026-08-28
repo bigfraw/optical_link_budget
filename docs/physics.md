@@ -759,18 +759,17 @@ of magnitude for a small aperture (Stone Fig. 1).
 - The piston is always removed as optically harmless. The tilt is removed for a
   beam that a separate tracking loop points.
 - This is a phase quantity. It carries no amplitude scintillation. The uplink
-  pre-compensation budget that uses this Term (`uplink_budget` with a
-  `DownlinkBeacon` source and `precomp_fidelity="mean"`) is therefore
-  phase-only and mean-only: no scintillation and no fade. That is a recorded
-  decision (2026-08-27, backlog 0-W1): no trustworthy analytic form exists for
-  the scintillation of a pre-compensated beam. The model of record is the
-  fidelity-1 FAST route, wired the same day: `uplink_fast_term`
-  (olb/models/coupling/fast.py) overlaps the ground-pupil field with the
-  adaptive-optics residual phase (the point-ahead decorrelation included) and
-  a log-normal log-amplitude, and reads the uplink flux by reciprocity
-  (Shapiro, DOI 10.1364/JOSA.61.000492; Farley and others,
-  DOI 10.1364/OE.458659). `uplink_budget(precomp_fidelity="fast")` (the
-  default) consumes it. See `api-budget.md`.
+  pre-compensation budget that uses this Term (`uplink_budget(fidelity=0)` with a
+  `DownlinkBeacon` source) is therefore phase-only and mean-only: no
+  scintillation and no fade. That is a recorded decision (2026-08-27, backlog
+  0-W1): no trustworthy analytic form exists for the scintillation of a
+  pre-compensated beam. The model of record is the fidelity-1 FAST route:
+  `uplink_fast_term` (olb/models/coupling/fast.py) overlaps the ground-pupil
+  field with the adaptive-optics residual phase (the point-ahead decorrelation
+  included) and a log-normal log-amplitude, and reads the uplink flux by
+  reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492; Farley and others,
+  DOI 10.1364/OE.458659). `uplink_budget(fidelity=1)` (the default for a
+  pre-compensated scenario) consumes it. See `api-budget.md`.
 
 #### Source
 
@@ -973,7 +972,8 @@ standalone scintillation Term.
 
 - Mean-only. The Term carries no fade (no sampler, no quantile). A fade margin read
   from it is wrong. This is the fidelity-0 lock: the Term flags itself, so the
-  budget reports no fade margin. Use `smf_fidelity="fast"` for the fade.
+  budget reports no fade margin. Use `downlink_budget(fidelity=1)` (FAST) or
+  `fidelity=2` (wave optics) for the fade.
 - The Dikmelik-Davidson coupling assumes a uniform circular aperture with no
   central obscuration. The code flags an obscured receive aperture.
 - The static factor `eta_max(a) = 2*[(1 - exp(-a^2))/a]^2` (Section 6c) assumes a

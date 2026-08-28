@@ -45,9 +45,9 @@ from .uplink import uplink_turbulence_term, TX_TRUNCATION_MIN_DB
 from .downlink import downlink_scintillation_term
 
 
-def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
-                       n_samples=3000, cn2_profile=None, retro_loss_db=0.0,
-                       smf_fidelity="fast", fast_params=None):
+def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
+                       tau_zenith=None, n_samples=3000, cn2_profile=None,
+                       retro_loss_db=0.0, fast_params=None):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 
@@ -78,11 +78,34 @@ def retro_space_budget(scenario, geometry, *, turbulence=True, tau_zenith=None,
             Explicit zenith Cn2 profile. Defaults to default_cn2_profile.
         retro_loss_db : float
             Fixed loss of the retroreflection [dB].
+        fidelity : int
+            The down-leg receive-coupling fidelity: 1 (the default, FAST modal
+            overlap) or 0 (analytic mean-only). The UP-leg turbulence stays the
+            coupled-flux Monte Carlo at either value (there is no analytic
+            mean-only uncorrected uplink model, so the up-leg is fidelity 1
+            regardless). fidelity=2 (wave optics) is NOT supported: the folded
+            double pass shares its screens (the two legs are correlated), which
+            needs its own design (see CLAUDE.md, the deferred folded double pass).
+        fast_params : dict, optional
+            Extra FAST parameters for the fidelity-1 down-leg coupling.
 
     Returns:
         Budget
             The budget with the original scenario set.
+
+    Raises:
+        ValueError
+            If fidelity is not 0 or 1 (fidelity=2 is deferred for retro).
     '''
+    if fidelity == 2:
+        raise ValueError(
+            "fidelity=2 (wave optics) is not supported for a retro link. The "
+            "folded double pass shares its screens, so the two legs are "
+            "correlated; that needs its own design. Use fidelity=0 or 1."
+        )
+    if fidelity not in (0, 1):
+        raise ValueError(f"fidelity must be 0 or 1 for retro, got {fidelity!r}.")
+    smf_fidelity = "fast" if fidelity == 1 else "mean"
     retro_aperture_m = scenario.space.aperture_m
     wavelength = scenario.space.wavelength_m
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith

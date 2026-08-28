@@ -72,6 +72,74 @@ class Term:
         return None
 
 
+class EmpiricalSampler:
+    '''The two stochastic faces of a Term, built from a finite set of loss samples.
+
+    A Monte-Carlo Term (FAST, wave optics) holds a set of per-realisation loss
+    samples (dB, positive = loss) and needs the same two faces from them: a
+    sampler that draws any number of values, and an empirical quantile. This
+    class gives both, and it OWNS the tail adequacy, so no caller re-derives it:
+
+        sampler = EmpiricalSampler(loss_db)
+        Term(..., mean_db=sampler.mean_db, sampler=sampler, quantile=sampler.quantile)
+
+    - the object is callable, so it is the Term sampler: it bootstrap-resamples
+      the loss samples (draw with replacement);
+    - `quantile(p)` is the empirical loss at availability p;
+    - a p-availability quantile reads only n*(1-p) samples in the tail. Below
+      `TAIL_MIN` samples there the quantile is not a design number, so
+      `undersampled(p)` reports it and `quantile(p)` warns. This is a PROPERTY of
+      the sampler, not of any caller: `term.sampler.undersampled(p)` answers it.
+    '''
+
+    # The fewest samples that must sit deeper than the availability for the
+    # quantile to be a trustworthy design number. An olb convention, not a book
+    # value: below about ten tail samples the empirical quantile is noise.
+    TAIL_MIN = 10.0
+
+    def __init__(self, loss_db):
+        self.loss_db = np.asarray(loss_db, dtype=float).ravel()
+        if self.loss_db.size == 0:
+            raise ValueError("EmpiricalSampler needs at least one loss sample.")
+
+    @property
+    def n(self) -> int:
+        '''The number of loss samples.'''
+        return int(self.loss_db.size)
+
+    @property
+    def mean_db(self) -> float:
+        '''The empirical mean loss (the Term mean face).'''
+        return float(self.loss_db.mean())
+
+    def tail_count(self, p) -> float:
+        '''The number of samples deeper than availability p, n*(1-p).'''
+        return self.n * (1.0 - float(p))
+
+    def undersampled(self, p) -> bool:
+        '''True when too few samples sit in the p tail to trust the quantile.'''
+        return self.tail_count(p) < self.TAIL_MIN
+
+    def trustworthy_n(self, p) -> int:
+        '''The sample count that puts about TAIL_MIN samples in the p tail.'''
+        return int(round(self.TAIL_MIN / (1.0 - float(p))))
+
+    def quantile(self, p) -> float:
+        '''The empirical loss at availability p (the Term quantile face).'''
+        if self.undersampled(p):
+            warnings.warn(
+                f"the {float(p):g} quantile reads only about "
+                f"{self.tail_count(p):.1f} of {self.n} samples in the tail, so it "
+                f"is UNDER-SAMPLED and not a design number. Raise the sample count "
+                f"(about {self.trustworthy_n(p)} for a trustworthy quantile)."
+            )
+        return float(np.quantile(self.loss_db, p))
+
+    def __call__(self, n, rng) -> np.ndarray:
+        '''Bootstrap resample: n draws from the loss samples, with replacement.'''
+        return rng.choice(self.loss_db, size=n, replace=True)
+
+
 class Budget:
     '''A collection of Terms that form one link budget.'''
 

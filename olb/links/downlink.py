@@ -237,18 +237,64 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     )
 
 
-def _montecarlo_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
+def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     '''
-    Reserved slot: the Monte Carlo downlink scintillation Term.
+    The two fidelity-2 wave-optics Terms of a downlink.
 
-    The Monte Carlo model uses phase-screen field propagation. It lives in the
-    heavier Monte Carlo area of the code. This slot is not implemented yet.
+    A space link cannot be simulated end to end (the sim propagates only the
+    ~20 km atmosphere slab with a plane-wave input; the full slant path is
+    absent), so the loss splits into:
+      - a DETERMINISTIC vacuum-optics Term (the full no-turbulence loss over the
+        slant range, from the co-moving-grid vacuum run: geometric spread +
+        aperture capture + vacuum fibre coupling);
+      - a STOCHASTIC turbulence Term (the slab turbulence penalty, vacuum-limit
+        1.0), which multiplies the vacuum loss.
+    Together they replace the analytic geometric and scintillation/coupling Terms.
+    `wave` is a Fidelity2Bundle from olb.models.coupling.run_fidelity2.
+
+    An SMF receiver gets the composite fibre penalty (aperture-power penalty x
+    fibre coupling, with the static co-moving coupling cancelled against the
+    vacuum Term); an Aperture / no-detector receiver gets the aperture-power
+    penalty alone.
     '''
-    raise NotImplementedError(
-        "the montecarlo model is a reserved slot. It will hold the phase-screen "
-        "field-propagation downlink scintillation Term, in the heavier Monte "
-        "Carlo area. Use model='lognormal' for now."
-    )
+    from ..models.coupling import (waveoptics_vacuum_term,
+                                   waveoptics_turbulence_term)
+    from ..terminal import SMF
+    rx = scenario.rx_terminal
+    is_smf = isinstance(rx.detector, SMF)
+    elev = np.asarray(geometry.elevation_deg, dtype=float)
+    if elev.ndim != 0:
+        raise ValueError(
+            "the fidelity-2 downlink takes a scalar elevation (one range per "
+            "record). Loop over the elevations and build one bundle each."
+        )
+    sigma2_I = float(plane_wave_scintillation_index(
+        float(elev), rx.wavelength_m, hs, cn2_profile))
+
+    vac = waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf,
+                                 beam_type=BEAM_PLANE_WAVE)
+    trials = wave.turbulent.trials
+    if is_smf:
+        coll = np.array([t.collected_power for t in trials], dtype=float)
+        eta = np.array([t.smf_eta for t in trials], dtype=float)
+        # The vacuum Term charges +smf_coupling_db; this -smf_coupling_db cancels
+        # it, so the static coupling is counted once (the turbulent slab smf_eta
+        # is the fibre coupling). collected_power is the aperture-power penalty
+        # (vacuum-limit 1.0).
+        loss_db = (-10.0 * np.log10(coll) - 10.0 * np.log10(eta)
+                   - wave.vacuum.smf_coupling_db)
+        pen = waveoptics_turbulence_term(
+            wave.turbulent, loss_db=loss_db, beam_type=BEAM_PLANE_WAVE,
+            sigma2_I=sigma2_I,
+            note="downlink turbulence penalty (wave optics): aperture-power and "
+                 "fibre-coupling loss relative to the vacuum baseline.")
+    else:
+        pen = waveoptics_turbulence_term(
+            wave.turbulent, quantity="collected_power", beam_type=BEAM_PLANE_WAVE,
+            sigma2_I=sigma2_I,
+            note="downlink scintillation (wave optics): aperture-power penalty, "
+                 "vacuum-normalised.")
+    return [vac, pen]
 
 
 def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
@@ -299,7 +345,6 @@ def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
 _MODELS = {
     "lognormal": _lognormal_term,
     "gamma_gamma": _gamma_gamma_term,
-    "montecarlo": _montecarlo_term,
     "auto": _auto_select,
 }
 
@@ -307,11 +352,13 @@ _MODELS = {
 def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
                                 aperture_average=True, hs=None, cn2_profile=None):
     '''
-    Build the downlink scintillation Term.
+    Build the analytic downlink scintillation Term (fidelity 0/1, aperture).
 
     Dispatch to the requested model. The "lognormal" model is the analytic
     weak-fluctuation model. The "gamma_gamma" model is the analytic
-    moderate-to-strong model. The "auto" model is the selector layer.
+    moderate-to-strong model. The "auto" model is the selector layer. The
+    fidelity-2 wave-optics downlink is NOT a scintillation-model choice: it is the
+    whole-path `fidelity=2` route of downlink_budget (two Terms).
 
     Parameters:
         scenario : SpaceScenario
@@ -321,7 +368,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
             Reads elevation_deg. A scalar elevation gives a scalar Term. An
             elevation array gives a Term that broadcasts over that shape.
         model : str
-            One of "lognormal", "gamma_gamma", "montecarlo", "auto".
+            One of "lognormal", "gamma_gamma", "auto".
         aperture_average : bool
             Apply the plane-wave aperture-averaging factor when true.
         hs : numpy.ndarray, optional
@@ -338,8 +385,7 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
         ValueError
             If model is not a known name.
         NotImplementedError
-            If model is the reserved slot "montecarlo", or if model is
-            "gamma_gamma" with an elevation array.
+            If model is "gamma_gamma" with an elevation array.
     '''
     if model not in _MODELS:
         raise ValueError(
@@ -352,69 +398,108 @@ def downlink_scintillation_term(scenario, geometry, *, model="lognormal",
                           hs=hs, cn2_profile=cn2_profile)
 
 
-def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
-                    turbulence=True, n_samples=2000, smf_fidelity="fast",
-                    fast_params=None):
+def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
+                    scintillation=True, turbulence=True, n_samples=2000,
+                    fast_params=None, scint_model="lognormal", wave=None):
     '''
-    Assemble the downlink budget: geometric, atmospheric, pointing, scintillation.
+    Assemble the downlink budget at a chosen fidelity.
 
-    The coupled-flux Term models a ground-launched uplink beam. It does not
-    apply to the downlink. The downlink scintillation Term now exists. It gives
-    the analytic lognormal plane-wave fade. Every downlink Term has a closed-form
-    quantile, so the downlink budget supports analytic fade. The budget also
-    supports Monte Carlo.
+    `fidelity` is a WHOLE-PATH choice (see the README fidelity ladder):
+
+      - fidelity=0 (analytic). An SMF detector gets the mean-only analytic
+        fibre-coupling Term (downlink_coupling_term(smf_fidelity="mean")). An
+        Aperture / no detector gets the analytic scintillation Term
+        (`scint_model`).
+      - fidelity=1 (the default, statistical). An SMF detector gets the FAST
+        modal-overlap Term (downlink_coupling_term(smf_fidelity="fast"), needs
+        fast-aosim). An Aperture / no detector uses the SAME analytic
+        scintillation Term as fidelity 0 (the closed-form lognormal / gamma-gamma
+        is the model of record and already carries a fade — tiers 0 and 1
+        coincide for an aperture; only the SMF coupling model changes).
+      - fidelity=2 (wave optics). The whole path is a field simulation, TWO Terms:
+        a deterministic vacuum-optics Term (geometric spread + aperture capture +
+        vacuum fibre coupling over the full slant range) and a stochastic
+        turbulence Term (the slab penalty). They REPLACE the geometric and the
+        scintillation / coupling Terms. Only the analytic extinction and pointing
+        Terms stay. It needs a precomputed `wave` bundle
+        (olb.models.coupling.run_fidelity2); the budget never runs the sim.
+
+    The geometric, extinction, and pointing Terms are the deterministic backbone
+    at fidelity 0/1. The downlink keeps a standalone pointing Term because it has
+    no coupled-flux beam-wave machinery to fold jitter into (unlike the uplink).
 
     Parameters:
         scenario : SpaceScenario
             The link case.
         geometry : CircularOrbit or TLEPass
             The link geometry.
+        fidelity : int
+            0 (analytic), 1 (statistical, the default), or 2 (wave optics, needs
+            `wave`).
         tau_zenith : float, optional
             Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         scintillation : bool
-            Add the lognormal downlink scintillation Term when true.
+            Add the analytic scintillation Term for an aperture / no-detector
+            receiver at fidelity 0/1 when true.
         turbulence : bool
-            Master turbulence switch. When False, drop EVERY turbulence quantity:
-            no scintillation Term, and the receive-coupling Term keeps only its
-            static parts (0 dB for an Aperture bucket, the static mode-match loss
-            for an SMF, no FAST run). The deterministic Terms (geometric,
-            atmospheric) and the mechanical pointing jitter stay. So a coupling
-            budget with angular jitter still runs, only without turbulence.
+            Master turbulence switch for fidelity 0/1. When False, drop every
+            turbulence quantity and keep the static parts.
         n_samples : int
-            FAST Monte Carlo draws (NITER) for the SMF fidelity-1 coupling.
-            Ignored for an Aperture detector and for smf_fidelity="mean".
-        smf_fidelity : str
-            SMF coupling model: "fast" (default, fidelity-1 true modal overlap,
-            needs fast-aosim) or "mean" (analytic mean-only, no fade). See
-            olb.models.coupling.
+            FAST Monte Carlo draws (NITER) for the fidelity-1 SMF coupling.
         fast_params : dict, optional
-            Extra FAST parameters when smf_fidelity="fast".
+            Extra FAST parameters for the fidelity-1 SMF coupling.
+        scint_model : str
+            The analytic scintillation MODEL for an APERTURE receiver:
+            "lognormal" (the default), "gamma_gamma", or "auto". It is not a
+            fidelity axis; it applies at fidelity 0/1 only.
+        wave : Fidelity2Bundle, optional
+            The precomputed wave-optics records for fidelity=2. Run it with
+            olb.models.coupling.run_fidelity2.
 
     A receive terminal is opt-in. When scenario.rx_terminal has a detector, the
-    receive-coupling Term owns the receive-side turbulence physics. It REPLACES
-    the standalone scintillation Term. The geometric spreading Term stays (it
-    carries the free-space spread and the aperture power-in-bucket capture). An
-    Aperture detector reproduces the plain scintillation, so the total is
-    unchanged. An SMF detector adds the fibre-coupling loss and the coupling
-    fade. When rx_terminal is None the budget is unchanged.
+    receive-coupling Term owns the receive-side turbulence physics and REPLACES
+    the standalone scintillation Term. When rx_terminal is None the budget keeps
+    the scintillation Term.
 
     Returns:
         Budget
             The budget with the scenario set.
+
+    Raises:
+        ValueError
+            If fidelity is not 0/1/2, or if fidelity=2 without a `wave` bundle.
     '''
+    if fidelity not in (0, 1, 2):
+        raise ValueError(f"fidelity must be 0, 1, or 2, got {fidelity!r}.")
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
+
+    if fidelity == 2:
+        if wave is None:
+            raise ValueError(
+                "fidelity=2 needs a precomputed `wave` bundle. Run "
+                "olb.models.coupling.run_fidelity2(scenario, geometry, ...) and "
+                "pass it as wave. The budget does not run the split-step "
+                "propagation implicitly."
+            )
+        # The two wave-optics Terms replace geometric and scintillation/coupling.
+        # Only extinction (absorption) and pointing (mechanical jitter) stay.
+        hs = DEFAULT_HS
+        cn2_profile = default_cn2_profile(scenario.channel.site, hs)
+        terms = [
+            slant_extinction_term(scenario, geometry, tau_zenith=tau),
+            pointing_loss_term(scenario, geometry),
+        ]
+        terms += _downlink_fidelity2_terms(scenario, geometry, wave, hs,
+                                           cn2_profile)
+        return Budget(terms, scenario=scenario)
+
+    # fidelity 0/1: the analytic backbone plus the receive-side turbulence Term.
+    smf_fidelity = "fast" if fidelity == 1 else "mean"
     terms = [
         geometric_loss_term(scenario, geometry),
         slant_extinction_term(scenario, geometry, tau_zenith=tau),
         pointing_loss_term(scenario, geometry),
     ]
-    # NOTE: the downlink keeps its standalone pointing Term (above) because it has
-    # no coupled-flux/Dios beam-wave machinery -- unlike the uplink, which folds
-    # jitter into the wander displacement. Nothing physical stops the downlink
-    # from using that machinery: the Dios derivations are NOT uplink/far-field
-    # specific, they are just generalised that way. If a Dios beam-wave downlink
-    # term is added, fold the jitter into r=beta there too and drop this pointing
-    # Term (as uplink_budget does). See memory dios-scintillation-convergence.
     terminal = getattr(scenario, "rx_terminal", None)
     if terminal is not None and terminal.detector is not None:
         # Import here to break the downlink <-> coupling import cycle.
@@ -425,7 +510,7 @@ def downlink_budget(scenario, geometry, *, tau_zenith=None, scintillation=True,
                                       turbulence=turbulence))
     elif scintillation and turbulence:
         terms.append(downlink_scintillation_term(scenario, geometry,
-                                                 model="lognormal",
+                                                 model=scint_model,
                                                  aperture_average=True))
     return Budget(terms, scenario=scenario)
 
@@ -474,14 +559,60 @@ if __name__ == '__main__':
     assert sampled.shape == (200_000,)
     assert abs(sampled.mean() - term.mean_db) < 0.02, (sampled.mean(), term.mean_db)
 
-    # The Monte Carlo slot is still reserved.
+    # Fidelity 2 is now a WHOLE-PATH budget route, not a scintillation model.
+    # "montecarlo" is gone from downlink_scintillation_term.
     try:
         downlink_scintillation_term(scenario, geom, model="montecarlo",
                                     cn2_profile=cn2)
-    except NotImplementedError:
-        pass
+    except ValueError as e:
+        assert "unknown model" in str(e)
     else:
-        raise AssertionError("model='montecarlo' must raise NotImplementedError")
+        raise AssertionError("model='montecarlo' must raise unknown model")
+
+    # Guards (no run): bad fidelity, and fidelity=2 with no bundle.
+    for bad in (3, "fast"):
+        try:
+            downlink_budget(scenario, geom, fidelity=bad)
+        except ValueError as e:
+            assert "fidelity must be 0, 1, or 2" in str(e)
+        else:
+            raise AssertionError(f"fidelity={bad!r} must raise")
+    try:
+        downlink_budget(scenario, geom, fidelity=2)
+    except ValueError as e:
+        assert "needs a precomputed `wave` bundle" in str(e)
+    else:
+        raise AssertionError("fidelity=2 without a bundle must raise")
+    # The default aperture budget is UNCHANGED: fidelity=1 aperture = lognormal.
+    def_scint = next(t for t in downlink_budget(scenario, geom).terms
+                     if t.category == "turbulence")
+    assert def_scint.meta["model"] == "lognormal"
+
+    # A real fidelity-2 aperture downlink (skip if aotools absent). It gives the
+    # vacuum-optics + turbulence Terms, and a real fade.
+    from ..models.coupling import run_fidelity2
+    try:
+        import warnings as _w2
+        with _w2.catch_warnings():
+            _w2.simplefilter("ignore")
+            f2_bundle = run_fidelity2(scenario, CircularOrbit(600e3, 30.0),
+                                      preset="rapid", n_trials=16, seed=5,
+                                      hs=hs, cn2_profile=cn2)
+            f2 = downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
+                                 wave=f2_bundle)
+    except ImportError:
+        print("aotools not installed; skipping the downlink fidelity-2 run.")
+        f2 = None
+    if f2 is not None:
+        vac = next(t for t in f2.terms if t.meta.get("model") == "waveoptics-vacuum")
+        turb = next(t for t in f2.terms if t.meta.get("model") == "waveoptics")
+        assert not vac.stochastic and turb.stochastic
+        assert "geometric spreading" not in [t.name for t in f2.terms]
+        with _w2.catch_warnings():
+            _w2.simplefilter("ignore")
+            assert f2.provides_fade and np.isfinite(f2.fade_margin_db(0.9))
+        print(f"downlink fidelity 2 (600 km, 30 deg, rapid, 16 trials): vacuum "
+              f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.3f} dB")
 
     # --- gamma-gamma Term ---------------------------------------------------
     # A 15 deg elevation is a strong case: the point index passes the house

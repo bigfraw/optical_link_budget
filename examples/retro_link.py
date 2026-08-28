@@ -66,13 +66,13 @@ def main():
     # the beam-director aperture, so the launch truncation reads 0.15 m, not the
     # 0.7 m receive telescope. Retro forces one ground object, so this is the
     # only way to give the station different transmit and receive apertures.
-    # The return couples into a single-mode fibre. The budget below runs with
-    # smf_fidelity="fast", so the coupling is the FAST fidelity-1 true LP01 modal
+    # The return couples into a single-mode fibre. The budget below runs at
+    # fidelity=1, so the down-leg coupling is the FAST fidelity-1 true LP01 modal
     # overlap (needs fast-aosim). A compensation stack maps to the FAST correction:
     # TipTilt -> tip-tilt mode, AO(n_modes) -> modal AO with ZMAX=n_modes, and an
     # empty stack -> no correction. For the bucket-detector return, swap the
     # detector for Aperture(sensitivity_dbm=-50); for the analytic mean-only
-    # coupling loss (no fade), set smf_fidelity="mean".
+    # coupling loss (no fade), set fidelity=0.
     ground = Terminal(
         aperture_m=0.7,                  # receive telescope
         obscuration_ratio=0.3,           # 30% central obscuration (receive)
@@ -108,7 +108,7 @@ def main():
         # The budget carries both legs: the up-leg (ground -> retro) and the
         # down-leg (retro -> ground), because the retro re-transmits the power it
         # catches.
-        retro_b = retro_space_budget(retro, geom, n_samples=4000, smf_fidelity="fast")
+        retro_b = retro_space_budget(retro, geom, n_samples=4000, fidelity=1)
         # print(retro_b.to_frame())
 
         rng = np.random.default_rng(0)

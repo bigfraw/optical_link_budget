@@ -248,7 +248,12 @@ budget that MIXES turbulence spectra, because the terms model the same
 atmosphere and must assume one spectrum. `Budget.assumptions_frame()` prints the
 regime table, one row per Term.
 
-### The fidelity-0 fade lock
+### The fidelity ladder and the fidelity-0 fade lock
+
+Every budget takes one whole-path `fidelity=0|1|2` argument (see the README
+fidelity ladder). Fidelity 0 is analytic, fidelity 1 is statistical (a real
+fade), and fidelity 2 is wave optics (two Terms: a deterministic vacuum-optics
+Term and a stochastic turbulence Term, from a precomputed `wave` bundle).
 
 A Term can set `mean_only=True`. This marks a fidelity-0 model. Such a Term
 gives the expected loss of a quantity that really fluctuates (for example a
@@ -260,7 +265,10 @@ A mean-only Term locks the whole budget out of fade results.
 `fade_margin_db()` then raises a `ValueError`. `monte_carlo()` reports the mean,
 but it suppresses the fade and the margin and warns. This stops a misleading
 tail, where the budget would add the other terms' fades to a coupling mean. To
-get the coupling fade, use a statistical (fidelity-1) coupling model.
+get the coupling fade, raise the fidelity: `fidelity=1` (statistical) or
+`fidelity=2` (wave optics). Note a deterministic Term (a sampler-less,
+quantile-less vacuum-optics Term) is NOT mean_only, so it does not lock the
+budget.
 
 ## 6. The single seam to `my_analysis_modules`
 

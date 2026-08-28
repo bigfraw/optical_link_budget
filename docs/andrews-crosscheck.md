@@ -1334,7 +1334,8 @@ decorrelated correction reshapes the beam, so the form is OPTIMISTIC for a
 pre-compensated uplink and is not a bound in either direction. No analytic
 Term will model the pre-compensated scintillation. The model of record is the
 fidelity-1 FAST Monte Carlo with the point-ahead offset, wired 2026-08-27 as
-`uplink_fast_term` (`uplink_budget(precomp_fidelity="fast")`, the default).
+`uplink_fast_term` (`uplink_budget(fidelity=1)`, the default for a
+pre-compensated scenario).
 
 ### Refused, and named so that nobody looks for it
 

@@ -25,6 +25,8 @@ from .terrestrial import (terrestrial_smf_coupling_term,
                           terrestrial_smf_walkoff_term,
                           terrestrial_mmf_coupling_term)
 from .fast import smf_fast_term
+from .waveoptics import (run_waveoptics, run_fidelity2, waveoptics_turbulence_term,
+                        waveoptics_vacuum_term, Fidelity2Bundle)
 
 __all__ = [
     "downlink_coupling_term",
@@ -32,5 +34,10 @@ __all__ = [
     "terrestrial_smf_walkoff_term",
     "terrestrial_mmf_coupling_term",
     "smf_fast_term",
+    "run_waveoptics",
+    "run_fidelity2",
+    "waveoptics_turbulence_term",
+    "waveoptics_vacuum_term",
+    "Fidelity2Bundle",
     "smf_eta_max_from_a",
 ]
