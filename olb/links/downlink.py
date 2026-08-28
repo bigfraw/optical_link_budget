@@ -250,7 +250,7 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
       - a STOCHASTIC turbulence Term (the slab turbulence penalty, vacuum-limit
         1.0), which multiplies the vacuum loss.
     Together they replace the analytic geometric and scintillation/coupling Terms.
-    `wave` is a Fidelity2Bundle from olb.models.coupling.run_fidelity2.
+    `wave` is a Fidelity2Bundle from olb.models.waveoptics.run_fidelity2.
 
     An SMF receiver gets the composite fibre penalty (aperture-power penalty x
     fibre coupling, with the static co-moving coupling cancelled against the
@@ -422,7 +422,7 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
         turbulence Term (the slab penalty). They REPLACE the geometric and the
         scintillation / coupling Terms. Only the analytic extinction and pointing
         Terms stay. It needs a precomputed `wave` bundle
-        (olb.models.coupling.run_fidelity2); the budget never runs the sim.
+        (olb.models.waveoptics.run_fidelity2); the budget never runs the sim.
 
     The geometric, extinction, and pointing Terms are the deterministic backbone
     at fidelity 0/1. The downlink keeps a standalone pointing Term because it has
@@ -454,7 +454,7 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
             fidelity axis; it applies at fidelity 0/1 only.
         wave : Fidelity2Bundle, optional
             The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.coupling.run_fidelity2.
+            olb.models.waveoptics.run_fidelity2.
 
     A receive terminal is opt-in. When scenario.rx_terminal has a detector, the
     receive-coupling Term owns the receive-side turbulence physics and REPLACES
@@ -477,7 +477,7 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "
-                "olb.models.coupling.run_fidelity2(scenario, geometry, ...) and "
+                "olb.models.waveoptics.run_fidelity2(scenario, geometry, ...) and "
                 "pass it as wave. The budget does not run the split-step "
                 "propagation implicitly."
             )

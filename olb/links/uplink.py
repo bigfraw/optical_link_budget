@@ -470,7 +470,7 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     Together they replace the analytic geometric, launch-truncation, and
     coupled-flux Terms. The tracking jitter stays in the standalone pointing Term
     (the reciprocity overlap holds no jitter). `wave` is a Fidelity2Bundle from
-    olb.models.coupling.run_fidelity2.
+    olb.models.waveoptics.run_fidelity2.
 
     The reciprocity route reads the SAME screens up and down, so it does NOT model
     an adaptive-optics correction or the point-ahead decorrelation. So it fits the
@@ -560,7 +560,7 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             Explicit zenith Cn2 profile. Defaults to default_cn2_profile.
         wave : Fidelity2Bundle, optional
             The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.coupling.run_fidelity2.
+            olb.models.waveoptics.run_fidelity2.
 
     Returns:
         Budget
@@ -603,7 +603,7 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "
-                "olb.models.coupling.run_fidelity2(scenario, geometry, ...) and "
+                "olb.models.waveoptics.run_fidelity2(scenario, geometry, ...) and "
                 "pass it as wave. The budget does not run the split-step "
                 "propagation implicitly."
             )

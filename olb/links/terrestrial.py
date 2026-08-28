@@ -231,7 +231,7 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     (the vacuum baselines cancel; see olb.models.waveoptics). Together
     they replace the analytic geometric, launch-truncation, scintillation, and
     coupling Terms. `wave` is a Fidelity2Bundle from
-    olb.models.coupling.run_fidelity2.
+    olb.models.waveoptics.run_fidelity2.
 
     An SMF receiver gets the composite fibre penalty (aperture capture x fibre
     coupling); an Aperture or MMF receiver gets the aperture-power penalty (the
@@ -308,7 +308,7 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
         geometric, launch-truncation, scintillation, and coupling Terms. Only the
         analytic extinction (molecular absorption, never in the field sim) and
         pointing (mechanical jitter) Terms stay. It needs a precomputed `wave`
-        bundle (olb.models.coupling.run_fidelity2); the budget never runs the
+        bundle (olb.models.waveoptics.run_fidelity2); the budget never runs the
         split-step propagation itself.
 
     Set scintillation=False to drop the scintillation Term at fidelity 0 and keep
@@ -335,7 +335,7 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             jitter stay.
         wave : Fidelity2Bundle, optional
             The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.coupling.run_fidelity2.
+            olb.models.waveoptics.run_fidelity2.
 
     Returns:
         Budget
@@ -359,7 +359,7 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "
-                "olb.models.coupling.run_fidelity2(scenario, geometry, ...) and "
+                "olb.models.waveoptics.run_fidelity2(scenario, geometry, ...) and "
                 "pass it as wave. The budget does not run the split-step "
                 "propagation implicitly."
             )

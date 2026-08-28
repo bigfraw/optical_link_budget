@@ -23,7 +23,7 @@ This example touches three links, one selector each:
   - DOWNLINK aperture: downlink_budget(fidelity=2, wave=...).
 
 THE ONE RULE. The budget NEVER runs the split-step layer itself. A caller runs
-BOTH propagations ONE time with olb.models.coupling.run_fidelity2 (the turbulent
+BOTH propagations ONE time with olb.models.waveoptics.run_fidelity2 (the turbulent
 Monte Carlo and the vacuum field solve), then gives the bundle to the budget.
 
 Every run here uses the RAPID preset and a small trial count, so it finishes in a
