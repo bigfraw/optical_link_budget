@@ -1,0 +1,5 @@
+metric,var_meas,var_theory,ratio,se
+z_tilt_angle_var_rad2,9.65085953e-12,1.05390197e-11,0.915726,1.24592061e-12
+g_tilt_angle_var_rad2,8.32586474e-12,9.20774102e-12,0.904224,1.07486452e-12
+noll_a2_var_rad2,nan,1.08113429e+01,nan,nan
+andrews_aoa_var_rad2,nan,9.50277868e-12,1.032042,nan

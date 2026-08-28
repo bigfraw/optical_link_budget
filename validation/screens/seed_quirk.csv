@@ -1,0 +1,7 @@
+quantity,value,standard_error
+samples,80,
+correlation_lf_hf,0.086773,0.158114
+var_hf_rad2,7.180353e-12,
+var_lf_rad2,7.867945e-12,
+var_correlated_rad2,1.552696e-11,2.377892e-12
+var_decorrelated_rad2,1.503911e-11,2.377892e-12
