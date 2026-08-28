@@ -148,9 +148,9 @@ BAND_TOL = 0.05
 
 # ---- the outputs ----
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIGURE_PNG = os.path.join(HERE, 'stationarity.png')
-WINDOWS_CSV = os.path.join(HERE, 'stationarity_windows.csv')
-ROWLAG_CSV = os.path.join(HERE, 'rowlag_covariance.csv')
+FIGURE_PNG = os.path.join(HERE, 'figures/stationarity.png')
+WINDOWS_CSV = os.path.join(HERE, 'data/stationarity_windows.csv')
+ROWLAG_CSV = os.path.join(HERE, 'data/rowlag_covariance.csv')
 DPI = 150
 
 

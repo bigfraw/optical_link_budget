@@ -213,11 +213,11 @@ ANDREWS_CN2 = R0_M ** (-5.0 / 3.0) / (0.423 * K_RAD_M ** 2) / ANDREWS_Z_M
 ANDREWS_L0_INNER_M = 1e-6
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COV_PNG = os.path.join(HERE, 'infinite_covariance.png')
-DPHI_PNG = os.path.join(HERE, 'infinite_dphi.png')
-COV_CSV = os.path.join(HERE, 'infinite_covariance.csv')
-DPHI_CSV = os.path.join(HERE, 'infinite_dphi.csv')
-TILT_CSV = os.path.join(HERE, 'infinite_tilt.csv')
+COV_PNG = os.path.join(HERE, 'figures/infinite_covariance.png')
+DPHI_PNG = os.path.join(HERE, 'figures/infinite_dphi.png')
+COV_CSV = os.path.join(HERE, 'data/infinite_covariance.csv')
+DPHI_CSV = os.path.join(HERE, 'data/infinite_dphi.csv')
+TILT_CSV = os.path.join(HERE, 'data/infinite_tilt.csv')
 
 
 # ---------------------------------------------------------------------------

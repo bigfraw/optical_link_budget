@@ -154,12 +154,12 @@ VK_K8_TILT_BAND = (0.85, 1.15)
 VK_K8_DPHI_BAND = (0.90, 1.05)
 
 OUT_DIR = 'validation/screens'
-TILT_CSV = f'{OUT_DIR}/oversize_tilt.csv'
-DPHI_CSV = f'{OUT_DIR}/oversize_dphi.csv'
-S27_CSV = f'{OUT_DIR}/s27_settlement.csv'
-QUIRK_CSV = f'{OUT_DIR}/seed_quirk.csv'
-TILT_PNG = f'{OUT_DIR}/oversize_tilt.png'
-DPHI_PNG = f'{OUT_DIR}/oversize_dphi.png'
+TILT_CSV = f'{OUT_DIR}/data/oversize_tilt.csv'
+DPHI_CSV = f'{OUT_DIR}/data/oversize_dphi.csv'
+S27_CSV = f'{OUT_DIR}/data/s27_settlement.csv'
+QUIRK_CSV = f'{OUT_DIR}/data/seed_quirk.csv'
+TILT_PNG = f'{OUT_DIR}/figures/oversize_tilt.png'
+DPHI_PNG = f'{OUT_DIR}/figures/oversize_dphi.png'
 
 # The two spectra. `L0_m` goes to the screen generators, and `psd` goes to the
 # analytic filters of `helpers`.
