@@ -228,7 +228,7 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
         truncation + geometric spread + aperture capture + vacuum fibre coupling);
       - a STOCHASTIC turbulence Term (the fade).
     Their sum reconstructs the direct launch-to-detector turbulent loss exactly
-    (the vacuum baselines cancel; see olb.models.coupling.waveoptics). Together
+    (the vacuum baselines cancel; see olb.models.waveoptics). Together
     they replace the analytic geometric, launch-truncation, scintillation, and
     coupling Terms. `wave` is a Fidelity2Bundle from
     olb.models.coupling.run_fidelity2.
@@ -237,8 +237,8 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     coupling); an Aperture or MMF receiver gets the aperture-power penalty (the
     MMF core coupling is not modelled separately at fidelity 2).
     '''
-    from ..models.coupling import (waveoptics_vacuum_term,
-                                   waveoptics_turbulence_term)
+    from ..models.waveoptics import (waveoptics_vacuum_term,
+                                     waveoptics_turbulence_term)
     from ..waveoptics.field import Power
     from ..terminal import SMF
     tx = scenario.tx_terminal
@@ -634,7 +634,7 @@ if __name__ == '__main__':
         assert not terrestrial_budget(wo_scn, HorizontalPath(3e3)).provides_fade
 
     # The real fidelity-2 build needs one run_fidelity2 (skip if aotools absent).
-    from ..models.coupling import run_fidelity2
+    from ..models.waveoptics import run_fidelity2
     try:
         with _warnings.catch_warnings():
             _warnings.simplefilter("ignore")

@@ -237,7 +237,7 @@ turbulence physics for the whole link. It replaces the old per-component knobs
   no-turbulence loss from launch to detector, from `propagate_scenario`) and a
   stochastic turbulence Term. Only the analytic extinction and pointing Terms
   stay at fidelity 2. Fidelity 2 needs a precomputed `wave` bundle (a
-  `Fidelity2Bundle` from `olb.models.coupling.run_fidelity2`); the budget never
+  `Fidelity2Bundle` from `olb.models.waveoptics.run_fidelity2`); the budget never
   runs the simulation itself.
 
 Not every fidelity fits every link. Each budget section below gives the exact

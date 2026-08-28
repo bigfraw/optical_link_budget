@@ -146,7 +146,7 @@ power bookkeeping at each plane. The product of the fidelity-0 pair is the
 collected power fraction, so the totals compare, but the split does not.
 
 **BOTH layers are now wired at `fidelity=2`** (2026-08-28,
-`olb/models/coupling/waveoptics.py` plus the four budgets; see `budget_wiring.py`
+`olb/models/waveoptics.py` plus the four budgets; see `budget_wiring.py`
 above). A fidelity-2 budget shows the DETERMINISTIC vacuum-optics Term (from the
 vacuum core `propagate_scenario`) and the STOCHASTIC turbulence Term (from the
 split step); only the analytic extinction and pointing Terms stay. The caller

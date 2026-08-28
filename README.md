@@ -27,7 +27,7 @@ on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
 Set `fidelity=0`, `1`, or `2` on each budget. **Fidelity 1 does not exist for a
 terrestrial link** (FAST is a far-field plane-wave-source model; a near-field
 finite Gaussian beam needs fidelity 2). Fidelity 2 needs a precomputed `wave`
-bundle from `olb.models.coupling.run_fidelity2` — the budget never runs the
+bundle from `olb.models.waveoptics.run_fidelity2` — the budget never runs the
 split-step propagation itself. See `examples/waveoptics/budget_wiring.py`.
 
 ## Dependency
@@ -204,7 +204,7 @@ number comes from the Shapiro reciprocity overlap. A fidelity-2 budget shows two
 Terms: a deterministic vacuum-optics Term (the full no-turbulence loss, which also
 validates the near-field and far-field limits of the analytic Terms) and a
 stochastic turbulence Term. The caller precomputes both with
-`olb.models.coupling.run_fidelity2`. The temporal mode and the rich results record
+`olb.models.waveoptics.run_fidelity2`. The temporal mode and the rich results record
 stay planned.
 
 A **temporal** side-step runs across the fidelity tiers, not along them (planned,

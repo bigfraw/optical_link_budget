@@ -476,8 +476,8 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     an adaptive-optics correction or the point-ahead decorrelation. So it fits the
     uncorrected uplink only, not a pre-compensated one.
     '''
-    from ..models.coupling import (waveoptics_vacuum_term,
-                                   waveoptics_turbulence_term)
+    from ..models.waveoptics import (waveoptics_vacuum_term,
+                                     waveoptics_turbulence_term)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
     if elev.ndim != 0:
         raise ValueError(
@@ -1004,7 +1004,7 @@ if __name__ == '__main__':
 
     # A real fidelity-2 uncorrected uplink (skip if aotools absent): vacuum +
     # reciprocity Terms, the standalone pointing Term kept, a real fade.
-    from ..models.coupling import run_fidelity2
+    from ..models.waveoptics import run_fidelity2
     try:
         wo_bundle = run_fidelity2(
             budget_scn, budget_geom, preset="rapid", n_trials=16, seed=9,

@@ -18,7 +18,7 @@ loss launch to detector) and a stochastic turbulence Term, with only the analyti
 extinction and pointing Terms alongside. Fidelity 1 does not exist for a
 terrestrial link (FAST is far-field; a near-field Gaussian beam needs fidelity 2).
 Fidelity 2 needs a precomputed `wave` bundle from
-`olb.models.coupling.run_fidelity2`; the budget never runs the sim itself. See the
+`olb.models.waveoptics.run_fidelity2`; the budget never runs the sim itself. See the
 README fidelity ladder.
 
 ## Architecture (one-way dependency: turbulence <- models and links)
@@ -74,13 +74,18 @@ README fidelity ladder.
   is named for the physics it computes. Some use a link-specific simplification,
   and the name says so: `geometric.py`, `extinction.py` (`slant_extinction_term`
   for the slant airmass path AND `terrestrial_extinction_term` for the
-  horizontal Beer-Lambert path), `pointing.py`, and the `coupling/` package
-  (`_common.py` holds the shared SMF physics; `downlink.py` holds
-  `downlink_coupling_term`; `terrestrial.py` holds `terrestrial_smf_coupling_term`,
-  `terrestrial_smf_walkoff_term`, and `terrestrial_mmf_coupling_term`; `fast.py`
-  holds the FAST fibre coupling AND `uplink_fast_term`, the fidelity-1
-  pre-compensated uplink Term. `from olb.models.coupling import <name>` still
-  works).
+  horizontal Beer-Lambert path), `pointing.py`, `waveoptics.py` (the fidelity-2
+  Term factories, spanning every category: `run_fidelity2`/`run_waveoptics` (the
+  runners), `Fidelity2Bundle`, `waveoptics_vacuum_term` (the deterministic
+  geometric loss), and `waveoptics_turbulence_term` (the fade). It sits at the
+  `models/` level, not inside `coupling/`, because it is named for the fidelity
+  and spans geometric + turbulence + coupling, not one physics), and the
+  `coupling/` package (`_common.py` holds the shared SMF physics; `downlink.py`
+  holds `downlink_coupling_term`; `terrestrial.py` holds
+  `terrestrial_smf_coupling_term`, `terrestrial_smf_walkoff_term`, and
+  `terrestrial_mmf_coupling_term`; `fast.py` holds the FAST fibre coupling AND
+  `uplink_fast_term`, the fidelity-1 pre-compensated uplink Term. `from
+  olb.models.coupling import <name>` still works).
 - `olb/links/` — per-link Terms and budget assembly. Every budget takes one
   whole-path `fidelity=0|1|2` argument (the fidelity ladder; see `## Purpose`).
   `uplink.py` (`uplink_turbulence_term`, `uplink_point_ahead_term`,
@@ -289,7 +294,7 @@ Open items:
   analytic extinction (absorption) and pointing (mechanical jitter) Terms stay;
   the analytic geometric, launch-truncation, scintillation, and coupling Terms
   DROP. The caller precomputes both records ONCE with
-  `olb.models.coupling.run_fidelity2` -> `Fidelity2Bundle`, and passes `wave=`;
+  `olb.models.waveoptics.run_fidelity2` -> `Fidelity2Bundle`, and passes `wave=`;
   the budget never runs the sim. TERRESTRIAL is simulated end to end on one flat
   grid (the vacuum run shares that grid, so the turbulence penalty = turbulent /
   vacuum is exact); SPACE cannot be (the turbulent runner does only the ~20 km

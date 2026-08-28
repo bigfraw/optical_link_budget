@@ -257,8 +257,8 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     vacuum Term); an Aperture / no-detector receiver gets the aperture-power
     penalty alone.
     '''
-    from ..models.coupling import (waveoptics_vacuum_term,
-                                   waveoptics_turbulence_term)
+    from ..models.waveoptics import (waveoptics_vacuum_term,
+                                     waveoptics_turbulence_term)
     from ..terminal import SMF
     rx = scenario.rx_terminal
     is_smf = isinstance(rx.detector, SMF)
@@ -590,7 +590,7 @@ if __name__ == '__main__':
 
     # A real fidelity-2 aperture downlink (skip if aotools absent). It gives the
     # vacuum-optics + turbulence Terms, and a real fade.
-    from ..models.coupling import run_fidelity2
+    from ..models.waveoptics import run_fidelity2
     try:
         import warnings as _w2
         with _w2.catch_warnings():

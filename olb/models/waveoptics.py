@@ -48,11 +48,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ...results import Term, EmpiricalSampler
-from ...assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
+from ..results import Term, EmpiricalSampler
+from ..assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
                             REGIME_WEAK, REGIME_STRONG, REGIME_NA,
                             SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN, SPECTRUM_NA)
-from ...turbulence.plane_wave_scintillation import WEAK_FLUCTUATION_LIMIT
+from ..turbulence.plane_wave_scintillation import WEAK_FLUCTUATION_LIMIT
 
 # Each quantity fixes the default Term name and category.
 _QUANTITY_SPEC = {
@@ -123,7 +123,7 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
         TurbWaveResult
             The minimal scalar record (olb.waveoptics.turbulence.run).
     '''
-    from ...waveoptics.turbulence import (propagate_turbulent_scenario,
+    from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
     if grid is None or plan is None:
         grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
@@ -326,7 +326,7 @@ def _full_vacuum_loss_db(result):
     grid-tail loss (the scaled and Fresnel routes lose a few percent of the power
     at the receive plane). See olb.waveoptics.run.
     '''
-    from ...waveoptics.field import Power
+    from ..waveoptics.field import Power
     p_launch = Power(result.stages[0][1])       # "launch"
     p_collected = Power(result.stages[3][1])    # "after rx clip"
     return -10.0 * np.log10(float(p_collected) / float(p_launch))
@@ -449,9 +449,9 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         Fidelity2Bundle
             The vacuum WaveResult and the turbulent TurbWaveResult.
     '''
-    from ...waveoptics.turbulence import (propagate_turbulent_scenario,
+    from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
-    from ...waveoptics.run import propagate_scenario
+    from ..waveoptics.run import propagate_scenario
     grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
                                    cn2_profile=cn2_profile, L0_m=L0_m)
     turbulent = propagate_turbulent_scenario(
@@ -469,7 +469,7 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
 
 
 if __name__ == '__main__':
-    from ...waveoptics.turbulence.run import TurbTrial, TurbWaveResult
+    from ..waveoptics.turbulence.run import TurbTrial, TurbWaveResult
 
     # --- Part A: the reducer, with synthetic trials (no simulation) -----------
     # A hand-made record proves the reduction bit-for-bit and the guards, fast
@@ -557,9 +557,9 @@ if __name__ == '__main__':
     print("Part A (reducer + guards): passed")
 
     # --- Part B: one real terrestrial run (skips if aotools is absent) --------
-    from ...scenario import TerrestrialScenario, TerrestrialChannel
-    from ...geometry import HorizontalPath
-    from ...terminal import Terminal, Transmitter, SMF
+    from ..scenario import TerrestrialScenario, TerrestrialChannel
+    from ..geometry import HorizontalPath
+    from ..terminal import Terminal, Transmitter, SMF
 
     scn = TerrestrialScenario(
         near=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
@@ -592,7 +592,7 @@ if __name__ == '__main__':
     tr = bundle.turbulent.trials
     coll = np.array([t.collected_power for t in tr])
     eta = np.array([t.smf_eta for t in tr])
-    from ...waveoptics.field import Power
+    from ..waveoptics.field import Power
     vac_coll = float(Power(bundle.vacuum.stages[3][1])
                      / Power(bundle.vacuum.stages[1][1]))   # collected / after tx clip
     vac_smf_eta = 10.0 ** (-bundle.vacuum.smf_coupling_db / 10.0)

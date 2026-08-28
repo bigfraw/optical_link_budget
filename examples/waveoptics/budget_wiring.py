@@ -43,7 +43,7 @@ import numpy as np
 
 from olb import SMF, Terminal, Transmitter
 from olb.geometry import CircularOrbit, HorizontalPath
-from olb.models.coupling import run_fidelity2
+from olb.models.waveoptics import run_fidelity2
 from olb.scenario import (Channel, SpaceScenario, TerrestrialChannel,
                           TerrestrialScenario)
 from olb.links.terrestrial import terrestrial_budget
