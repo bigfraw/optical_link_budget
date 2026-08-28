@@ -404,12 +404,14 @@ The `fidelity` maps to the receive-side turbulence model:
 An `MMF` (light-bucket) receive detector is a special case. At fidelity 0 and
 fidelity 1 the downlink receive-coupling raises `NotImplementedError`: olb has no
 analytic and no FAST MMF coupling model, because the encircled energy of the
-focal spot on a fixed core needs the field. The fidelity-2
-`waveoptics_mmf_coupling_term` gives the MMF coupling from a split-step run, but
-`downlink_budget(fidelity=2)` does NOT yet route an `MMF` receiver: the
-fidelity-2 downlink path branches on an `SMF` versus an aperture receiver only.
-So you build the MMF Term directly from a turbulent run for now. This wiring is
-owner-gated.
+focal spot on a fixed core needs the field. At fidelity 2 the downlink budget
+routes an `MMF` receiver. It builds THREE Terms: the deterministic vacuum-optics
+Term (geometry and truncation only, NO coupling), the aperture-power
+scintillation Term (`collected_power`), and the MMF coupling Term
+(`waveoptics_mmf_coupling_term`, the absolute core-capture from `mmf_eta`). The
+MMF coupling holds the static encircled-energy floor, so NO vacuum coupling
+baseline is subtracted (this is the difference from the SMF composite, which
+does subtract one).
 
 Other rules:
 

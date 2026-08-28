@@ -239,7 +239,7 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
 
 def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     '''
-    The two fidelity-2 wave-optics Terms of a downlink.
+    The fidelity-2 wave-optics Terms of a downlink.
 
     A space link cannot be simulated end to end (the sim propagates only the
     ~20 km atmosphere slab with a plane-wave input; the full slant path is
@@ -247,21 +247,27 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
       - a DETERMINISTIC vacuum-optics Term (the full no-turbulence loss over the
         slant range, from the co-moving-grid vacuum run: geometric spread +
         aperture capture + vacuum fibre coupling);
-      - a STOCHASTIC turbulence Term (the slab turbulence penalty, vacuum-limit
-        1.0), which multiplies the vacuum loss.
+      - one or two STOCHASTIC Terms (the slab turbulence penalty, vacuum-limit
+        1.0), which multiply the vacuum loss.
     Together they replace the analytic geometric and scintillation/coupling Terms.
     `wave` is a Fidelity2Bundle from olb.models.waveoptics.run_fidelity2.
 
     An SMF receiver gets the composite fibre penalty (aperture-power penalty x
     fibre coupling, with the static co-moving coupling cancelled against the
-    vacuum Term); an Aperture / no-detector receiver gets the aperture-power
-    penalty alone.
+    vacuum Term). An MMF (light-bucket) receiver gets TWO stochastic Terms: the
+    aperture-power penalty, and one MMF coupling Term. The MMF coupling reads the
+    ABSOLUTE core-capture (mmf_eta), so it holds the static encircled-energy
+    floor, and NO vacuum baseline is subtracted (the vacuum Term carries no
+    coupling for an MMF receiver). An Aperture / no-detector receiver gets the
+    aperture-power penalty alone.
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
-                                     waveoptics_turbulence_term)
-    from ..terminal import SMF
+                                     waveoptics_turbulence_term,
+                                     waveoptics_mmf_coupling_term)
+    from ..terminal import SMF, MMF
     rx = scenario.rx_terminal
     is_smf = isinstance(rx.detector, SMF)
+    is_mmf = isinstance(rx.detector, MMF)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
     if elev.ndim != 0:
         raise ValueError(
@@ -288,12 +294,29 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
             sigma2_I=sigma2_I,
             note="downlink turbulence penalty (wave optics): aperture-power and "
                  "fibre-coupling loss relative to the vacuum baseline.")
-    else:
+        return [vac, pen]
+    if is_mmf:
+        # The light bucket: the aperture-power penalty (the bucket scintillation)
+        # plus ONE MMF coupling evaluation on the turbulent field. mmf_eta is the
+        # ABSOLUTE core-capture, so it holds the static encircled-energy floor. No
+        # vacuum coupling baseline is subtracted (unlike the SMF composite): the
+        # vacuum Term carries no coupling here (include_smf is False for an MMF rx).
         pen = waveoptics_turbulence_term(
             wave.turbulent, quantity="collected_power", beam_type=BEAM_PLANE_WAVE,
             sigma2_I=sigma2_I,
-            note="downlink scintillation (wave optics): aperture-power penalty, "
-                 "vacuum-normalised.")
+            note="downlink scintillation (wave optics): light-bucket aperture-power "
+                 "penalty, vacuum-normalised.")
+        cpl = waveoptics_mmf_coupling_term(
+            wave.turbulent, beam_type=BEAM_PLANE_WAVE, sigma2_I=sigma2_I,
+            note="downlink MMF coupling (wave optics): core-capture of the "
+                 "turbulent focused spot, absolute (holds the static floor).")
+        return [vac, pen, cpl]
+    # An Aperture / no-detector receiver: the aperture-power penalty alone.
+    pen = waveoptics_turbulence_term(
+        wave.turbulent, quantity="collected_power", beam_type=BEAM_PLANE_WAVE,
+        sigma2_I=sigma2_I,
+        note="downlink scintillation (wave optics): aperture-power penalty, "
+             "vacuum-normalised.")
     return [vac, pen]
 
 
@@ -416,13 +439,16 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
         scintillation Term as fidelity 0 (the closed-form lognormal / gamma-gamma
         is the model of record and already carries a fade — tiers 0 and 1
         coincide for an aperture; only the SMF coupling model changes).
-      - fidelity=2 (wave optics). The whole path is a field simulation, TWO Terms:
+      - fidelity=2 (wave optics). The whole path is a field simulation. It gives
         a deterministic vacuum-optics Term (geometric spread + aperture capture +
         vacuum fibre coupling over the full slant range) and a stochastic
-        turbulence Term (the slab penalty). They REPLACE the geometric and the
-        scintillation / coupling Terms. Only the analytic extinction and pointing
-        Terms stay. It needs a precomputed `wave` bundle
-        (olb.models.waveoptics.run_fidelity2); the budget never runs the sim.
+        turbulence Term (the slab penalty). An SMF or Aperture receiver gives TWO
+        Terms; an MMF (light-bucket) receiver gives THREE (the vacuum Term carries
+        no coupling, and the aperture-power penalty and the absolute MMF coupling
+        are two Terms). They REPLACE the geometric and the scintillation /
+        coupling Terms. Only the analytic extinction and pointing Terms stay. It
+        needs a precomputed `wave` bundle (olb.models.waveoptics.run_fidelity2);
+        the budget never runs the sim.
 
     The geometric, extinction, and pointing Terms are the deterministic backbone
     at fidelity 0/1. The downlink keeps a standalone pointing Term because it has
@@ -613,6 +639,41 @@ if __name__ == '__main__':
             assert f2.provides_fade and np.isfinite(f2.fade_margin_db(0.9))
         print(f"downlink fidelity 2 (600 km, 30 deg, rapid, 16 trials): vacuum "
               f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.3f} dB")
+
+    # A fidelity-2 MMF (light-bucket) downlink gives THREE Terms: the vacuum
+    # optics (geometry only, no coupling), the aperture-power scintillation, and
+    # the MMF coupling. The MMF coupling reads the ABSOLUTE mmf_eta, so it holds
+    # the static floor and no vacuum baseline is subtracted.
+    from ..terminal import MMF
+    scn_mmf = _dl(Terminal(aperture_m=0.5, wavelength_m=lam,
+                           detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                                        numerical_aperture=0.2,
+                                        sensitivity_dbm=-110)),
+                  power=30)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mmf_bundle = run_fidelity2(
+                scn_mmf, CircularOrbit(600e3, 30.0), preset="rapid", n_trials=16,
+                seed=5, hs=hs,
+                cn2_profile=default_cn2_profile(scn_mmf.channel.site, hs))
+            f2_mmf = downlink_budget(scn_mmf, CircularOrbit(600e3, 30.0),
+                                     fidelity=2, wave=mmf_bundle)
+    except ImportError:
+        f2_mmf = None
+    if f2_mmf is not None:
+        cpl_m = next(t for t in f2_mmf.terms if t.name == "receive coupling (MMF)")
+        vac_m = next(t for t in f2_mmf.terms
+                     if t.meta.get("model") == "waveoptics-vacuum")
+        # The vacuum Term carries NO coupling for an MMF receiver (no baseline).
+        assert vac_m.meta["include_smf"] is False
+        assert vac_m.meta["smf_coupling_db"] is None
+        assert cpl_m.category == "coupling" and cpl_m.stochastic and not cpl_m.mean_only
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            assert f2_mmf.provides_fade and np.isfinite(f2_mmf.fade_margin_db(0.9))
+        print(f"downlink fidelity 2 MMF (600 km, 30 deg): vacuum "
+              f"{vac_m.mean_db:.2f} dB + MMF coupling {cpl_m.mean_db:.2f} dB")
 
     # --- gamma-gamma Term ---------------------------------------------------
     # A 15 deg elevation is a strong case: the point index passes the house
