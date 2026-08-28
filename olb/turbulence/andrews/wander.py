@@ -609,7 +609,7 @@ if __name__ == '__main__':
           f'(book 1.81), convergent {rms_conv * 100:.3f} cm (book 1.90)')
 
     # ---------------- slant path ----------------
-    from ..._deps import get_c2n
+    from ..profiles import get_c2n
 
     hs_grid = np.logspace(0.0, np.log10(20e3), 20)
     cn2_hv = get_c2n(hs_grid, 21.0, 1.7e-14)

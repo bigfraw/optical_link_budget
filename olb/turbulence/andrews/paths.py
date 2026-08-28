@@ -53,7 +53,7 @@ forms on a single homogeneous path.
 
 import numpy as np
 
-from ..._deps import get_c2n, v_wind
+from ..profiles import get_c2n, v_wind
 from .beam import wavenumber
 from .scintillation import (WEAK_REGIME_LIMIT, large_scale_log_variance,
                             small_scale_log_variance)
@@ -164,7 +164,7 @@ def hufnagel_valley(h, wind_rms=21.0, cn2_ground=1.7e-14):
     H-V5/7 model that the book uses through the whole chapter (Ch. 12, text
     below Eq. (3), printed p. 481).
 
-    This function DELEGATES to the shared kernel `get_c2n`, which reader R7
+    This function DELEGATES to olb.turbulence.profiles.get_c2n, which reader R7
     verified is Eq. (1) exactly. It exists so that a caller of this package
     reads the profile from a cited place. It adds no physics.
     '''
@@ -192,8 +192,8 @@ def bufton_wind(h, slew_deg_s=0.0, ground_wind_m_s=10.0):
     Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 12,
     Eq. (3), printed p. 481.
 
-    This function DELEGATES to the shared kernel `v_wind`, which reader R7
-    verified is Eq. (3) exactly. The kernel takes the slew rate in deg/s and
+    This function DELEGATES to olb.turbulence.profiles.v_wind, which reader R7
+    verified is Eq. (3) exactly. That function takes the slew rate in deg/s and
     converts it. It adds no physics.
     '''
     return v_wind(np.asarray(h, dtype=float), slew_deg_s, ground_wind_m_s)
@@ -958,14 +958,14 @@ if __name__ == '__main__':
     # ================= part 2: REDUCTION checks =================
     from .. import anisoplanatism, beam_wave_scintillation
     from .. import plane_wave_scintillation as pws
-    from ..._deps import get_c2n as _kernel_c2n
+    from ..profiles import get_c2n as _source_c2n
     from ..._deps import spherical_wave_coherence_diameter
 
-    # 1. hufnagel_valley is the kernel, with no change at all.
+    # 1. hufnagel_valley is the profiles source, with no change at all.
     err_hv = float(np.max(np.abs(hufnagel_valley(hs, 21.0, 1.7e-14)
-                                 - _kernel_c2n(hs, 21.0, 1.7e-14))))
+                                 - _source_c2n(hs, 21.0, 1.7e-14))))
     assert err_hv == 0.0, err_hv
-    print(f'REDUCTION hufnagel_valley vs _deps.get_c2n : max |diff| = '
+    print(f'REDUCTION hufnagel_valley vs profiles.get_c2n : max |diff| = '
           f'{err_hv:.1e}  (target exact)')
 
     # 2. The weak point downlink index is the old plane-wave slant integral.

@@ -333,9 +333,10 @@ log-spaced from 1 m to 20 km.
 
     Cn2(h) = get_c2n(hs, site.wind_rms_m_s, site.cn2_ground)
 
-`get_c2n` is the shared kernel from `olb._deps`. It reads the site RMS wind and
-the ground-level Cn2. Use this profile when the optional `fast` package is not
-available. The `fast` HV57 path fails without that package.
+`get_c2n` is the Hufnagel-Valley model, defined in `olb.turbulence.profiles`. It
+reads the site RMS wind and the ground-level Cn2. Use this profile when the
+optional `fast` package is not available. The `fast` HV57 path fails without
+that package.
 
 #### Inputs and outputs
 
@@ -344,8 +345,9 @@ available. The `fast` HV57 path fails without that package.
 
 #### Source
 
-The profile builder is the shared `get_c2n` kernel (source cited in
-`olb/turbulence/profiles.py` and `olb/_deps.py`).
+The profile builder is `get_c2n` (the Hufnagel-Valley model, Andrews and
+Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (1); the formula and its citation
+are in `olb/turbulence/profiles.py`).
 
 ### 5b. Scintillation index and aperture averaging (downlink plane wave)
 

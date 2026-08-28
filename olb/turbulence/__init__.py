@@ -8,7 +8,7 @@ and olb._deps. It does not import the results, the scenario, the assumptions, th
 models, or the links.
 '''
 
-from .profiles import DEFAULT_HS, default_cn2_profile, get_c2n
+from .profiles import DEFAULT_HS, default_cn2_profile, get_c2n, v_wind
 from .plane_wave_scintillation import (plane_wave_scintillation_index,
                             aperture_averaging_factor,
                             aperture_averaged_scintillation_index,
@@ -28,7 +28,7 @@ from .beam_wave_scintillation import (on_axis_scintillation_index,
 from .uplink_flux import coupled_flux_montecarlo
 
 __all__ = [
-    "DEFAULT_HS", "default_cn2_profile", "get_c2n",
+    "DEFAULT_HS", "default_cn2_profile", "get_c2n", "v_wind",
     "plane_wave_scintillation_index",
     "aperture_averaging_factor",
     "aperture_averaged_scintillation_index",

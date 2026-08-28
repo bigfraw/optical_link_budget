@@ -40,10 +40,11 @@ from conversions import (                                        # noqa: E402
 )
 from satellite import Satellite, SatellitePass                   # noqa: E402
 
-# coupled_flux and general_atmospherics print text at import
-# (general_atmospherics does `print(sys.path[0])`). They are in a shared repo
-# that we do not own. This code stops the print here. It does not edit those
-# modules.
+# coupled_flux prints text at import. It is in a shared repo that we do not own.
+# This code stops the print here. It does not edit that module. (The Hufnagel-
+# Valley Cn2 model and the Bufton wind model, once borrowed here from
+# general_atmospherics, now live in olb.turbulence.profiles, so olb no longer
+# imports general_atmospherics.)
 with contextlib.redirect_stdout(io.StringIO()):
     from coupled_flux import (                                   # noqa: E402
         coupled_flux_montecarlo,
@@ -53,7 +54,6 @@ with contextlib.redirect_stdout(io.StringIO()):
         long_term_beam_waist, beam_wander_variance,
         coupled_flux_sample, on_axis_irradiance,
     )
-    from general_atmospherics import get_c2n, v_wind            # noqa: E402
 
 __all__ = [
     "gaussz", "zR",
@@ -64,5 +64,4 @@ __all__ = [
     "spherical_wave_coherence_diameter", "short_term_beam_waist",
     "long_term_beam_waist", "beam_wander_variance",
     "coupled_flux_sample", "on_axis_irradiance",
-    "get_c2n", "v_wind",
 ]

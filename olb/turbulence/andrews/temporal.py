@@ -59,7 +59,7 @@ import numpy as np
 from scipy.integrate import quad
 from scipy.special import gamma as _gamma_fn, hyp1f1, kve
 
-from ..._deps import v_wind
+from ..profiles import v_wind
 from .aperture import d_param
 from .beam import wavenumber
 from .scintillation import rytov_variance
