@@ -1,0 +1,36 @@
+{
+ "environment": {
+  "numpy": "1.26.4",
+  "cores": 32
+ },
+ "cases": {
+  "terrestrial 2km rapid": {
+   "cold_100_s": 9.880817299941555,
+   "cold_trials_computed": 100,
+   "warm_hit_s": 0.020857000024989247,
+   "warm_trials_computed": 0,
+   "grow_100_to_150_s": 4.856448899954557,
+   "grow_trials_computed": 50,
+   "fresh_50_s": 4.949726900085807,
+   "fresh_50_trials_computed": 50,
+   "one_trial_wall_s": 0.09750969999004155,
+   "hit_speedup_over_cold": 473.7410599848071,
+   "stored_file_bytes_for_150": 12522,
+   "block_size": 50
+  },
+  "space downlink 30deg rapid": {
+   "cold_100_s": 9.224618699983694,
+   "cold_trials_computed": 100,
+   "warm_hit_s": 0.02403750002849847,
+   "warm_trials_computed": 0,
+   "grow_100_to_150_s": 4.617919399985112,
+   "grow_trials_computed": 50,
+   "fresh_50_s": 4.600254400051199,
+   "fresh_50_trials_computed": 50,
+   "one_trial_wall_s": 0.09174580010585487,
+   "hit_speedup_over_cold": 383.7594878438746,
+   "stored_file_bytes_for_150": 10189,
+   "block_size": 50
+  }
+ }
+}

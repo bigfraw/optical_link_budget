@@ -456,3 +456,100 @@ Include a module self-check. DO NOT extend TurbTrial. DO NOT change any
 budget default. Any wiring into the budgets stays owner-gated; say so in
 the docstring.
 ```
+
+## 8. Findings and the execution design
+
+Status: DONE, 2026-08-29 (P4). This section reads the results of P0, P1, and
+P3, decides what the layer caches, and records the campaign execution design.
+The disk cache is built: `olb/waveoptics/turbulence/cache.py`. It is opt-in and
+off by default; no budget calls it.
+
+### 8.1 Two defaults changed (commit e8c7f77) — campaign-relevant facts
+
+- **The default screen generator is now "olb".** `propagate_turbulent_scenario`
+  and `propagate_turbulent_field` build screens with the cached `ScreenFactory`
+  (P1), not aotools. "aotools" is the opt-in reference path. The two draw
+  DIFFERENT atmospheres for the same seed, so the generator name is part of
+  every cache key.
+- **`Threader` defaults to `min(16, cores)` workers.** The scaling study (P3)
+  saturates near 8 to 16 workers; more workers only add contention.
+
+### 8.2 The four cache levels
+
+| Level | What | Where | Measured cost / saving | Ruling |
+|---|---|---|---|---|
+| 1 | sqrt-PSD filter + subharmonic basis | in-process, `ScreenFactory` | build once per grid (n=2048: 0.19 s); then 7.5x per screen, 12x per stack vs aotools | BUILT (P1). Confirmed: `__init__` caches `_filt`, `_sub_filt`, `_E`; `make` scales by r0^(-5/6). |
+| 2 | vacuum baseline per call | in-process | one trial per call (~0.35 s space standard propagation); a repeated request hits the session memo and skips the whole call | BUILT as a whole-result memo. See note. |
+| 3 | whole `TurbWaveResult` runs | disk (JSON scalars) | 100-trial run 9.2 s; disk hit 21 ms (~400x); grow 100->150 computes only the new 50 (4.6 s, = a fresh 50, not a fresh 150); 150-trial file ~10 KB | BUILT. `cache.py`. |
+| 4 | full screen stacks | disk | 9 screens x 200 trials x 2048^2 float64 ~= 57 GB for one case | RULED OUT. The screens regenerate in ~0.17 s per stack (P1); disk for tens of GB buys nothing. |
+
+**Level 2, honestly.** The space vacuum baseline is recomputed INSIDE
+`propagate_turbulent_scenario` (`olb/waveoptics/turbulence/run.py`). A
+load-or-run wrapper cannot inject a precomputed baseline without editing that
+runner, which is out of scope. So the wrapper does not cache the baseline
+alone. Instead it (a) skips the whole call, baseline included, on a disk hit;
+(b) returns from an in-process memo (`_SESSION_MEMO`) on a repeated request in
+one session; and (c) sizes the grid and the plan ONCE and shares them across
+the block runs, so only the cheap baseline split-step repeats per block, not
+the grid sizing. A dedicated baseline cache would need a `baseline=` argument in
+the runner — an owner-gated change, not taken here.
+
+### 8.3 The disk cache: key and storage (level 3)
+
+`cached_propagate_turbulent_scenario(scenario, geometry, *, n_trials, seed,
+preset=..., cache_dir=None, block_size=50, screen_generator="olb", ...)` is the
+one entry point. It is a wrapper around the public runner; it edits no runner
+and changes no budget.
+
+- **The key** is a SHA-256 of everything that changes a trial: `repr(scenario)`
+  (dataclass repr, stable), a canonical geometry signature (the object has no
+  stable repr), the preset, the base seed, the screen generator, `CACHE_VERSION`,
+  `L0_m`, the subharmonic switch, hashes of `hs` and `cn2_profile`, the block
+  size, and any caller grid/plan. A change to any input gives a new file.
+- **The storage** is a small JSON: per trial, five scalars
+  (`collected_power`, `smf_eta`, `eta_turb`, `mmf_eta`, `wall_time_s`). That is
+  enough because the Term reducer (`olb.models.waveoptics.waveoptics_turbulence_term`)
+  reads only the per-trial scalars, the preset, and the seed entropy — never
+  the grid, the plan, or the field. A 150-trial run is ~10 KB.
+- **Extendable, by blocks.** A run is stored in fixed BLOCKS of `block_size`
+  trials. Block b is a self-contained runner call seeded from
+  `SeedSequence(base_seed, spawn_key=(CACHE_VERSION, b))`. So a stored run
+  serves any smaller request by a slice, and a grow computes ONLY the missing
+  blocks (measured: grow 100->150 = a fresh 50). The blocks are i.i.d.
+  snapshots, which is exactly what the empirical reducer wants. They are NOT
+  the trials of one native single-seed run: the public runner seeds trial k off
+  (base_seed, k) with no start index, so its tail cannot be computed alone. A
+  true single-seed tail extension would need a start-index argument inside
+  `propagate_turbulent_scenario` (owner-gated, out of scope).
+
+### 8.4 How a verification campaign runs fidelity 2
+
+1. **Precompute the bundle once per scenario.** Build the `Fidelity2Bundle`
+   with `olb.models.waveoptics.run_fidelity2` (the vacuum WaveResult plus the
+   turbulent `TurbWaveResult`). The budgets never run the sim; they consume the
+   bundle. Reuse ONE bundle across every budget of that scenario (uplink,
+   downlink, SMF, MMF, and every availability quantile) — the reducer is cheap.
+2. **Cache and extend the turbulent run.** For a long or repeated campaign,
+   fill the turbulent record through `cached_propagate_turbulent_scenario` with
+   a fixed integer seed. A re-run of the same scenario is a disk hit (~400x);
+   a deeper tail (more trials for a deep-fade quantile) grows the stored run and
+   computes only the new blocks. Keep the vacuum run as its own single
+   deterministic call (it is cheap; it is not cached).
+3. **Pick the execution mode from the P3 table.** For the "olb" generator,
+   PROCESSES win by about 1.4x over threads. Use a `ProcessPoolExecutor` with
+   8 to 16 workers: terrestrial and space rapid saturate at 16 (~17 trials/s),
+   space standard at 8 (~5.9 trials/s). Threads (`Threader`, default 16) are the
+   built-in, no-pickle fallback. Beyond 16 workers the rate falls (spawn and
+   memory-bandwidth limits; the raw fft2 numbers in the P0 JSON confirm the
+   band is the ceiling). The cache and any execution mode give the SAME trial
+   statistics (the seed contract).
+4. **Store the evidence in the validation/ pattern.** One script, one results
+   JSON, one run log. `validation/waveoptics_speed/cache_check.py` is the
+   template for a cache-backed measurement.
+
+### 8.5 Owner-gated follow-ups
+
+- Whether the cache ever backs a budget by default (today: opt-in only).
+- A start-index (or a per-trial scalar entry) in the runner, for a single-seed
+  tail extension that is bit-identical to a native run.
+- An in-process baseline cache, if the runner grows a `baseline=` argument.
