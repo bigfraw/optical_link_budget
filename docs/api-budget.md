@@ -82,24 +82,46 @@ frame to read the budget line by line.
 ### `assumptions_frame()`
 
 Return the model assumptions as a pandas DataFrame. There is one row per Term.
-The columns are `name`, `beam_type`, `regime`, `spectrum`, `validity`, `ok`, and
-`violations`. The `ok` column is `False` when the scenario breaks an assumption.
-The `violations` column gives the reasons.
+The columns are `name`, `beam_type`, `regime`, `spectrum`, `validity`,
+`provenance`, `n_constraints`, `ok`, and `violations`. The `ok` column is `False`
+when the scenario breaks an assumption. The `violations` column gives the
+reasons. The `provenance` column lists the traced physics source names (empty for
+a hand-built or untraced record), and `n_constraints` counts the function-owned
+constraints the Term inherited.
 
 Use `to_frame()` to read the loss values. Use `assumptions_frame()` to check the
 model validity. They answer different questions.
+
+### `constraints_frame()`
+
+Return the function-owned constraints as a pandas DataFrame, one row per Term and
+constraint. The columns are `name` (the Term), `source` (the physics function
+that owns the constraint, `<module>.<qualname>`), `kind` (the assumption axis
+slug), `statement` (the ASD-STE100 limit), `doi`, and `where` (the printed
+citation). This unfolds the `(source, Constraint)` pairs that a traced Term
+carries, so a reader sees which function owns each validity limit. A Term with no
+traced constraints contributes no row.
 
 ### `check(warn=True)`
 
 Find the Terms whose assumptions the scenario breaks. Return a list of
 `(term_name, reason)` pairs. Issue a warning for each violation when `warn` is
-`True`.
+`True`. A reason that came from a traced physics check or a source-tagged factory
+flag carries a `[<source>]` prefix, so the reader sees which function or factory
+raised it.
 
 `check()` also tests cross-term spectrum consistency. Every turbulence-bearing
 Term models the same atmosphere, so the Terms must agree on the spectrum. A
 budget that mixes, for example, a Kolmogorov analytic Term with a von Karman
 Term is inconsistent. `check()` then adds one `("budget", reason)` pair. Terms
 with no turbulence spectrum (geometric or pointing) do not constrain this.
+
+`check()` also runs an untraced-Term guard. A `turbulence` or `coupling` Term
+reads physics functions that now own their assumptions, so its record must carry
+traced `provenance`. An EMPTY provenance means the factory did not open the
+collection context, so the Term's assumptions are unverified; `check()` reports
+it. A legitimately untraced Term (a wave-optics simulation, the external FAST
+part) self-declares a `"untraced: ..."` provenance and passes the guard.
 
 ### `mean_only_terms()`
 
@@ -162,14 +184,17 @@ Monte Carlo path.
 
 ## `Assumptions` (`olb/assumptions.py`)
 
-Each model attaches an `Assumptions` record to its Term. The record states the
-regime the model is valid in.
+Each Term carries an `Assumptions` record. The record states the regime the model
+is valid in. A factory builds it from the trace of the physics functions that
+ran (see below), or by hand for a Term with no traced physics.
 
-### `Assumptions(beam_type, turbulence_regime, spectrum, validity="", violations=[])`
+### `Assumptions(beam_type, turbulence_regime, spectrum, validity="", violations=[], constraints=[], provenance=[])`
 
 The fields are `beam_type`, `turbulence_regime`, `spectrum`, `validity` (the
-numeric limit in words), and `violations` (the reasons the scenario breaks the
-model).
+numeric limit in words), `violations` (the reasons the scenario breaks the
+model), `constraints` (the traced `(source, Constraint)` pairs), and `provenance`
+(the traced physics source names). The last two default to empty, so the 23
+hand-built records break nothing.
 
 Use the string constants so every Term uses the same words: `BEAM_PLANE_WAVE`,
 `BEAM_SPHERICAL_WAVE`, `BEAM_GAUSSIAN`, `BEAM_NA`; `REGIME_WEAK`,
@@ -181,9 +206,49 @@ Use the string constants so every Term uses the same words: `BEAM_PLANE_WAVE`,
 `ok` is a property. It is `True` when the scenario breaks no assumption. It is
 `False` when the `violations` list is not empty.
 
-### `flag(reason)`
+### `flag(reason, source=None)`
 
-Add one reason that the scenario breaks an assumption. Return `self`.
+Add one reason that the scenario breaks an assumption. Return `self`. A
+scenario-level fact that the physics never sees (a central obscuration, the
+extended-Marechal limit, NO SCINTILLATION) passes `source`
+(`source="factory:links.downlink"`), so the violation carries the same
+`[source] reason` prefix as a traced check.
+
+## The function-owned assumption mechanism (`olb/assumptions.py`)
+
+A physics function states its own validity through the `@assumes(...)` decorator.
+This is the mechanism the Term factories in `olb/turbulence/**`, `olb/links/`, and
+`olb/models/` use; see [architecture.md](architecture.md) Section 5 for the
+design.
+
+### `Constraint(kind, statement, doi, where="", check=None)`
+
+A frozen record of one validity limit. `kind` is one slug from `KINDS` (an unknown
+kind raises); `statement` is one ASD-STE100 sentence; `doi` and `where` cite the
+source; `check(args, result) -> Optional[str]` optionally tests the run. A check
+returns one reason string when the scenario breaks the limit, or `None`. A check
+never warns and never raises.
+
+### `@assumes(*constraints, beam_type=..., turbulence_regime=..., spectrum=...)`
+
+Decorate a public physics function. The decorator stores a `FuncAssumptions`
+record on `wrapper.__assumptions__` and, inside a collection context only,
+registers the record and runs each constraint check. `module_assumptions(...)`
+returns a decorator that carries module-wide defaults; `assumes` is the
+no-default form.
+
+### `trace_assumptions()`
+
+A context manager. A Term factory opens `with trace_assumptions() as trace:`
+around its physics calls; every decorated function that runs registers to the
+`trace`. `trace.merge(beam_type=..., turbulence_regime=..., spectrum=...,
+validity=...)` folds the trace into one `Assumptions` record. Outside a context
+the decorator adds no work and the numeric output is unchanged.
+
+### `merge_assumptions(*records, validity="")`
+
+Recompose finished `Assumptions` records into one (the retro link folds the
+uplink and downlink records) without a trace of its own.
 
 ---
 
@@ -459,7 +524,7 @@ selects the physics through an auto-select dispatch:
   record flags that. It takes a scalar elevation only; an elevation array raises
   `NotImplementedError`.
 - `"auto"` — the selector layer. It reads the point `sigma2_I` and returns the
-  lognormal Term below `WEAK_FLUCTUATION_LIMIT = 0.25`, or the gamma-gamma Term
+  lognormal Term below `LOGNORMAL_PDF_LIMIT = 0.25`, or the gamma-gamma Term
   at or above it. For an elevation array that breaks the limit it keeps the
   lognormal Term and warns.
 

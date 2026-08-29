@@ -182,7 +182,22 @@ README fidelity ladder.
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
 - `olb/assumptions.py` — each Term declares its beam type, turbulence regime,
-  and spectrum. `Budget.check()` flags a scenario that breaks an assumption.
+  and spectrum. `Budget.check()` flags a scenario that breaks an assumption. A
+  physics function OWNS its assumptions through an `@assumes(...)` decorator that
+  attaches a `FuncAssumptions` record and optional `Constraint` runtime checks; a
+  Term factory opens `with trace_assumptions() as trace:` around its physics
+  calls, and every decorated function that runs registers its source and any
+  violation, so the Term inherits the union through `trace.merge(...)`.
+  `merge_assumptions(*records)` recomposes finished Terms (retro).
+  `Assumptions` gained `constraints` (`(source, Constraint)` pairs) and
+  `provenance` (traced source names); `flag(reason, source=)` tags a
+  scenario-level fact. `results.py` gained `provenance` and `n_constraints`
+  columns on `assumptions_frame()`, a new `constraints_frame()`, and a
+  `Budget.check()` untraced-Term guard (a turbulence or coupling Term with empty
+  provenance is reported; a legitimately untraced Term self-declares
+  `provenance=["untraced: ..."]`). Scope: `olb/turbulence/**` plus the link and
+  model factories; `olb/waveoptics/` is deferred. See `docs/architecture.md`
+  Section 5 and `docs/api-budget.md`.
 - olb is SELF-CONTAINED: it no longer depends on `my_analysis_modules`. The
   physics kernels once borrowed through `olb/_deps.py` are now VENDORED into olb:
   the unit conversions in `olb/units.py`, the Gaussian-beam `gaussz`/`zR` in
@@ -224,6 +239,35 @@ from Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196. The older
 turbulence modules keep their names and their signatures, and their bodies call
 the new layer. `olb/models/fade.py` turns one irradiance model into the three
 Term faces. See `docs/physics.md` Section 5h and `docs/andrews-crosscheck.md`.
+
+The function-owned assumptions refactor is MERGED (2026-08-29). Every public
+physics function in `olb/turbulence/**` carries an `@assumes(...)` decorator (88
+decorated functions across 18 modules; the `olb/assumptions.py` self-check asserts
+a floor of 85, so a dropped decorator fails mechanically). A prose-only limit is
+now a runtime `Constraint` check, and a Term factory opens `trace_assumptions()`
+so the Term inherits the union. Three newly ENFORCED checks flip `ok` to not-ok in
+cases that read ok before, and this is the INTENDED effect of the refactor, NOT a
+regression: the first zenith enforcement (a low-elevation slant), the Gaussian
+second weak condition (a focused beam), and the extended-Marechal limit (a strong
+AO residual). Honest status items:
+- The 0.25 house rule keeps ONE canonical definition, `LOGNORMAL_PDF_LIMIT = 0.25`
+  in `andrews/scintillation.py`. The retired `WEAK_FLUCTUATION_LIMIT` name is NOT
+  resurrected; it is only re-aliased where the import name is kept.
+- The terrestrial SMF walk-off weak-limit gap is CLOSED by a FACTORY regime flag,
+  not by a function-owned check, because the vendored Dios wander kernel
+  `coupled_flux.beam_wander_variance` has no runtime check to inherit. A
+  function-owned weak-regime check in that kernel is an OPEN follow-up.
+- `MARECHAL_SIGMA2_MAX = 1.0` is DUPLICATED in `olb/turbulence/ao.py` and
+  `olb/links/uplink.py` (the one-way `turbulence <- links` dependency forbids
+  importing up). A centralise-down is an OPEN follow-up.
+- The terrestrial scintillation hard-flag MIGRATED from the `sigma_R^2 >= 1.0`
+  axis to the beam-wave index axis (`sigma_I^2 >= 2.4`, owned by
+  `beam_wave_scintillation.on_axis_scintillation_index`). The two coincide on the
+  tested triggers; a narrow band can now read ok where it flagged, and the tighter
+  lognormal-PDF flag (0.25) backstops the common cases.
+- `olb/waveoptics/` is DEFERRED (a different, numerical-sampling assumption
+  family). Its Terms self-declare `provenance=["untraced: ..."]` to pass the
+  `Budget.check()` guard.
 
 The downlink budget now selects its distribution:
 `downlink_scintillation_term(..., model="auto")` gives the lognormal Term below

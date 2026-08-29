@@ -1022,6 +1022,11 @@ future caller that wants a simulation-validated beam wander must use the Dios
 kernel route (2.07), not the Andrews `beam_wander_variance` (7.25), and the
 wander.py docstring already carries this warning. C-01 is resolved.
 
+MACHINE-READABLE RECORD: `C01_WANDER`, a `kind="conflict"` `Constraint` on
+`coupled_flux.beam_wander_variance` in `olb/turbulence/coupled_flux.py`. It cites
+both sides (Belmonte 2.07 against Andrews 7.25). A traced Term that reads the Dios
+wander kernel inherits it, and `constraints_frame()` lists it.
+
 ---
 
 ## WP3 notes — spectra, structure functions and aperture averaging
@@ -1067,18 +1072,27 @@ delegated, and what the book would not give.
   same signature. Note that `olb/turbulence/ao.py` still uses the NOLL
   coefficients 1.0299 and 0.134, so the package now holds BOTH tilt
   conventions. A caller that adds the two must say which one it means.
+  MACHINE-READABLE RECORD: `_C04_TILT_CONFLICT`, a `kind="conflict"` `Constraint`
+  on `ao.apply_compensation` in `olb/turbulence/ao.py`. A traced Term inherits it
+  and `constraints_frame()` lists it.
 - **C-06 is honoured.** `aperture.py` uses the book's own SOFT Gaussian
   aperture, D_G^2 = 8 W_G^2 (Ch. 10, text below Eq. (57), printed p. 411). It
   does NOT reuse the olb Airy filter. The module docstring states the
   hard-against-soft difference and points to Ch. 14, Eq. (86), printed p. 634.
+  MACHINE-READABLE RECORD: `RECEIVER_AIRY_CONFLICT`, a `kind="conflict"`
+  `Constraint` in `olb/turbulence/andrews/aperture.py`.
 - **G-108 is confirmed.** The `aperture.py` docstring records that the book has
   NO annular receive aperture, so olb gap 8 needs another source.
 - **C-07 is honoured.** `gaussian_fried.spherical_wave_fried_parameter` keeps
   the exact (8/3)^(3/5). The docstring now says the book row 0.55 gives 1.7913
   in place of 1.7963, a 0.3 % difference. The self-check MEASURES that 0.273 %.
+  MACHINE-READABLE RECORD: `C07_SPHERICAL_RATIO`, a `kind="conflict"`
+  `Constraint` in `olb/turbulence/gaussian_fried.py`.
 - **C-02 is honoured.** `structure.py` takes one path length and one scalar
   Cn2, so it makes no path integral and picks no reference plane. Its docstring
   says so and points at C-02.
+  MACHINE-READABLE RECORD: `PATH_WEIGHT_CONFLICT`, a `kind="conflict"`
+  `Constraint` in `olb/turbulence/andrews/structure.py`.
 
 ### Reading resolved by a limit, not by the scan
 

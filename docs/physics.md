@@ -407,7 +407,7 @@ factors.
 
 - Plane wave, weak fluctuation, isotropic turbulence.
 - The lognormal irradiance PDF is trusted for `sigma2_I` below about
-  `WEAK_FLUCTUATION_LIMIT = 0.25`. Above it, focusing and saturation make the
+  `LOGNORMAL_PDF_LIMIT = 0.25`. Above it, focusing and saturation make the
   lognormal model depart from data. That 0.25 is a HOUSE RULE, 4 times stricter
   than the book bound `sigma_R^2 < 1` (Ch. 5, Eq. (15), printed p. 140). It is
   kept, because Ch. 11, Sec. 11.3, printed p. 451, says the lognormal tail is
@@ -474,9 +474,11 @@ so the result is additive with the geometric Term.
 #### Assumptions and limits
 
 - The Rytov model is a weak-fluctuation model.
-- When the mean log-amplitude variance `sigma2_x` exceeds
-  `WEAK_FLUCTUATION_LIMIT = 0.25`, the scintillation approaches saturation and the
-  numbers are not trustworthy. The code carries the flag and warns.
+- When the mean log-amplitude variance `sigma2_x` exceeds the Dios reliability
+  edge `UPLINK_SIGMA2X_LIMIT = 0.6`, the scintillation approaches saturation and
+  the numbers are not trustworthy. The code carries the flag and warns.
+  `_flux_result` now OWNS this limit as a traced hard-tier check (the uplink Term
+  inherits its violation), while the two `warnings.warn` lines stay verbatim.
 - The launch beam is an untruncated Gaussian of waist `w0`. The code models no
   launch aperture and no central obscuration, so the fade does not change with an
   obscured pupil. `uplink_turbulence_term` flags a set obscuration in
@@ -543,6 +545,16 @@ thin turbulence layer (the far-field limit).
 - Weak-to-moderate turbulence. The model has no saturation.
 - Dios reports good agreement with a split-step reference up to
   `sigma2_chi ~ 0.6`. Above that the true index saturates and the model overshoots.
+- `on_axis_scintillation_index` now OWNS this limit through a runtime check
+  (`@assumes`, the `DIOS_RELIABILITY` constraint). The check fires when the index
+  it returns leaves the weak regime (`hard_limit = 4 * UPLINK_SIGMA2X_LIMIT = 2.4`
+  on the Rytov axis). The terrestrial scintillation Term therefore inherits its
+  hard-tier violation from THIS function: the flag migrated from the factory's old
+  `sigma_R^2 >= 1.0` test to the beam-wave index axis (`sigma_I^2 >= 2.4`). The two
+  coincide on the tested strong and long-path triggers. A narrow band between them
+  can now read `ok` where the old axis flagged, which is defensible; the tighter
+  lognormal-PDF house rule (`sigma_I^2 < 0.25`, a PDF-shape flag the factory keeps)
+  backstops the common cases.
 
 #### Note (convergence, not duplication)
 
@@ -870,6 +882,28 @@ own body, because those constants are Churnside 1991, DOI 10.1364/AO.30.001982,
 not Andrews. Each docstring names its book-form alternative in
 `andrews.aperture`.
 
+#### The functions own their assumptions
+
+Every public physics function in `olb/turbulence/**` now carries an
+`@assumes(...)` decorator that attaches a machine-readable record and optional
+runtime checks (see [architecture.md](architecture.md) Section 5 and
+[api-budget.md](api-budget.md) for the mechanism). A Term factory opens
+`trace_assumptions()` around its physics calls, so the Term inherits the union of
+every function's assumptions automatically. The prose limit and the runtime check
+are now one object: for example `scintillation.rytov_variance` carries the
+`regime` constraint with a check on the Rytov variance it returns, and
+`paths.*` carries the `zenith` check (its first enforcement anywhere).
+
+One spectrum nuance is worth a headline. `andrews/scintillation.py` sets a MODULE
+default `spectrum=SPECTRUM_KOLMOGOROV`, because the mainline indices are
+Kolmogorov (no inner or outer scale). The opt-in two-scale `l0`/`L0` branches
+(`weak_two_scale_index`, and the large-scale and small-scale log variances)
+compute on the MODIFIED atmospheric spectrum, Ch. 9, Eqs. (48), (75) and (104).
+So a Term that reads a two-scale branch inherits the module's Kolmogorov label
+unless the factory states the modified spectrum. A factory that turns on `l0` or
+`L0` must set `spectrum=SPECTRUM_MODIFIED` on the merge; the worked example in the
+module self-check shows this.
+
 #### Documented refusals
 
 The package refuses a form that the book does not print. It does not guess a
@@ -1062,9 +1096,11 @@ an empty stack maps to `AO_MODE="NOAO"`. Subharmonics capture the low-order tilt
 - FAST models the phase with real Monte-Carlo screens (the phase-driven coupling
   fade is fidelity-1). It models the log-amplitude as an aperture-averaged
   log-normal, which holds only in the weak fluctuation regime. The code flags when
-  the plane-wave amplitude `sigma2_I` exceeds `WEAK_FLUCTUATION_LIMIT = 0.25`. A
-  deep coupled-power fade does not trip that flag, because that fade is phase-driven
-  and modelled correctly.
+  the plane-wave amplitude `sigma2_I` exceeds the lognormal-PDF house rule
+  `LOGNORMAL_PDF_LIMIT = 0.25` (the retired name `WEAK_FLUCTUATION_LIMIT` is gone;
+  the one canonical 0.25 lives in `andrews/scintillation.py`). A deep
+  coupled-power fade does not trip that flag, because that fade is phase-driven and
+  modelled correctly.
 - FAST is an optional dependency (GPLv3). The module imports it lazily.
 
 #### Source
@@ -1179,7 +1215,13 @@ focal spot (that would need a re-truncated aperture).
   form, C-04), but no coupling Term adds contribution B. So the received tip-tilt
   is a lower bound. See `docs/andrews-crosscheck.md` batch 2 and backlog 0-W3.
 - The beam-wander tilt is a weak-fluctuation model, so `sigma2_theta` is valid in
-  weak turbulence only. The walk-off mapping itself has no upper limit.
+  weak turbulence only. The walk-off mapping itself has no upper limit. The SMF
+  walk-off Term declared the weak regime and never flagged; the assumptions
+  refactor CLOSES that gap, but through a FACTORY regime flag, NOT an automatic
+  function-owned check. The reason is honest: the walk-off reads the vendored Dios
+  wander kernel `coupled_flux.beam_wander_variance`, which carries no runtime
+  check to inherit through the trace. A function-owned weak-regime check in that
+  kernel is the proper fix and stays an OPEN follow-up.
 - The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap
   optimum: a shorter focal length captures more, up to the numerical-aperture gate.
 - The MMF numerical-aperture gate is a flat power-transmission factor. It does not

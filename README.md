@@ -116,7 +116,10 @@ The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
   Monte Carlo is not a separate path. The Budget asks each Term for samples.
 - `olb/assumptions.py` — the model constraints (beam type, turbulence regime,
   spectrum) that each Term declares, and the check that flags a broken
-  assumption.
+  assumption. A physics function OWNS its assumptions through an `@assumes(...)`
+  decorator; a Term factory opens `trace_assumptions()` around its physics calls,
+  so the Term inherits the union automatically. `budget.check()` also flags a
+  turbulence or coupling Term whose factory forgot to open the trace.
 
 ## Roadmap
 

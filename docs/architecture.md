@@ -239,18 +239,95 @@ construction.
 
 ## 5. The assumptions mechanism
 
-Each model is valid only in a regime. A model attaches an
-[`Assumptions`](../olb/assumptions.py) record to its Term. The record states
-three constraints:
+Each model is valid only in a regime. A Term carries an
+[`Assumptions`](../olb/assumptions.py) record that states three headline axes:
 - `beam_type` — plane wave, spherical wave, or Gaussian beam.
 - `turbulence_regime` — weak, moderate, or strong, tied to a bound on the scintillation index.
 - `spectrum` — the turbulence spectrum, for example Kolmogorov with no inner or outer scale.
 
-A model adds a reason to `violations` when the scenario breaks an assumption.
-`Budget.check()` collects the violations and warns for each one. It also flags a
-budget that MIXES turbulence spectra, because the terms model the same
-atmosphere and must assume one spectrum. `Budget.assumptions_frame()` prints the
-regime table, one row per Term.
+`Budget.check()` collects the `violations` of every Term and warns for each one.
+It also flags a budget that MIXES turbulence spectra, because the terms model the
+same atmosphere and must assume one spectrum.
+`Budget.assumptions_frame()` prints the regime table, one row per Term.
+
+### The assumption belongs to the function
+
+A physics function OWNS its assumptions. The `@assumes(...)` decorator (in
+`olb/assumptions.py`) attaches a machine-readable `FuncAssumptions` record and
+optional `Constraint` runtime checks to the function. The scope is the physics
+layer: `olb/turbulence/**` plus the Term factories in `olb/links/` and
+`olb/models/`. (`olb/waveoptics/` waits; its numerical-sampling assumptions are a
+different family.)
+
+- A `Constraint` is a frozen record: a `kind` slug (one of ~21 axes, for example
+  `regime`, `zenith`, `tracking`, `tilt-convention`, `conflict`), one ASD-STE100
+  `statement`, the source `doi`, the printed `where`, and an optional
+  `check(args, result) -> Optional[str]`. A check returns one ASD-STE100 reason
+  string when the scenario breaks the limit, or `None`. A check NEVER warns and
+  NEVER raises; warnings stay factory-level.
+- A shared constraint is defined ONCE as a module-level `Constraint` and passed
+  to each `@assumes(...)` that carries it. `module_assumptions(...)` is optional
+  sugar for a statement true of EVERY public function in a file.
+
+A Term factory opens `with trace_assumptions() as trace:` around its physics
+calls. Every decorated function that runs registers its source and any check
+violation to the trace, so the Term inherits the union automatically through
+`trace.merge(beam_type=..., turbulence_regime=..., spectrum=..., validity=...)`.
+A forgotten physics dependency becomes impossible. `merge_assumptions(*records)`
+recomposes finished Terms (the retro link folds the uplink and downlink records).
+Outside a context the decorator does ONE `ContextVar` read and calls the
+function, so the numeric output is byte-identical. A `ContextVar` is thread-local:
+a worker thread does not inherit the caller's context (the untraced guard below is
+the net).
+
+The `Assumptions` record gained `constraints` (the traced `(source, Constraint)`
+pairs) and `provenance` (the traced physics source names); `flag(reason,
+source=...)` tags a scenario-level fact the physics never sees (a central
+obscuration, the extended-Marechal limit, NO SCINTILLATION) with the same
+`[source]` prefix. `results.py` adds a `provenance` column and an `n_constraints`
+column to `assumptions_frame()`, a new `constraints_frame()` (one row per Term
+and constraint), and an untraced-Term guard in `Budget.check()`: a `turbulence`
+or `coupling` Term with empty `provenance` is reported, because the factory did
+not open the collection context. A legitimately untraced Term self-declares
+`provenance=["untraced: ..."]` (the wave-optics simulation, the external FAST
+part) to pass the guard.
+
+### Newly enforced constraints, and the open follow-ups
+
+The refactor turns prose-only limits into runtime checks. Some checks now flip
+`ok` to not-ok in cases that previously read ok, and this is the INTENDED effect
+(the point is to catch a missed flag), NOT a regression. Two checks flip a
+CURRENT default budget, because the wired factories trace the feeders that carry
+them:
+
+- the Gaussian second weak condition (a focused beam, `sigma_R^2 * Lambda^(5/6)`);
+- the extended-Marechal limit (a strong adaptive-optics residual).
+
+One check is enforced but LATENT. The FIRST zenith enforcement
+(`ZENITH_CONSTRAINT` on the `andrews/paths.py` slant functions) is real, but it
+does NOT flip a current budget: the production downlink and uplink factories do
+NOT trace `andrews.paths`. They trace the parallel feeders
+`plane_wave_scintillation.plane_wave_scintillation_index` and
+`uplink_flux._flux_result`, which carry their OWN regime checks (a local
+`_sec_zeta`, no zenith gate). So the zenith flag fires only when a future factory
+is wired to the `andrews.paths` slant integrators (or in the paths.py
+self-check). It is a latent guard, not a live budget-flipper today.
+
+Three status items stay open and honest:
+
+- The 0.25 house rule has ONE canonical definition,
+  `LOGNORMAL_PDF_LIMIT = 0.25` in `andrews/scintillation.py`; the retired name
+  `WEAK_FLUCTUATION_LIMIT` is NOT resurrected, only re-aliased where the import
+  name is kept. The PDF-shape axis (`sigma2_I`) and the regime axis (`sigma2_R`)
+  stay separate.
+- The terrestrial SMF walk-off weak-limit gap is closed by a FACTORY regime flag,
+  NOT by an automatic function-owned check, because the vendored Dios wander
+  kernel `coupled_flux.beam_wander_variance` has no runtime check to inherit. A
+  function-owned weak-regime check in that kernel is an OPEN follow-up.
+- `MARECHAL_SIGMA2_MAX = 1.0` is defined twice, in `olb/turbulence/ao.py` AND in
+  `olb/links/uplink.py`, because the one-way `turbulence <- links` dependency
+  forbids the link module importing the value up. A centralise-down is a
+  follow-up.
 
 ### The fidelity ladder and the fidelity-0 fade lock
 
