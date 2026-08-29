@@ -1,23 +1,27 @@
 '''
 A broad validity pass on the fast olb phase-screen generator, ScreenFactory.
 
-VERDICT (filled from the run; see the results JSON and the run log).
-    The olb generator is a TRUSTWORTHY drop-in for aotools across every axis
-    tested. Equivalence: the mean power and the aperture sigma2_I agree for all
-    four cases (terrestrial standard, downlink rapid and standard, uplink
-    standard) inside the Monte-Carlo bars, the largest gap 0.39 sigma; the
-    uplink eta_turb agrees too. Converged (2000 trials) the olb sigma2_I is
-    0.01522, that is 1.012 times the analytic aperture-averaged value, against
-    0.994 for aotools; the two generators agree at 0.39 sigma. THE FADE TAIL IS
-    SAFE: the low collected-power quantiles that set a fade margin (0.1%, 1%,
-    5%, 10%), the median and the 90% point all agree inside the bootstrapped
-    bars; the margin-setting 1% quantile agrees to 0.014 dB (bar 0.067 dB), and
-    the worst gap is +0.05 dB at the 0.1% point (bar 0.20 dB). At a finite outer
-    scale (L0 = 25 m) the olb structure function stays inside 5% of aotools at
-    every separation; both fall below the pure-Kolmogorov 6.88 (r/r0)^(5/3)
-    line, which is the EXPECTED von Karman roll-off at r approaching L0, not a
-    failure. So nothing in the physics blocks making the olb generator a
-    default; the switch stays an owner decision, and the default stays aotools.
+VERDICT (filled from the run; see the results JSON and the run log). The olb
+generator IS a trustworthy drop-in for aotools across every axis tested, and
+THE FADE TAIL IS SAFE. On all four cases (terrestrial 2 km standard, space
+downlink 30 deg rapid and standard, space uplink 30 deg standard) the mean
+collected power and the aperture sigma2_I agree inside the combined
+Monte-Carlo bars; the largest gap is 0.76 sigma (the terrestrial sigma2_I, two
+tiny ~1e-5 aperture-averaged variances), and the SMF coupling and the uplink
+reciprocity eta_turb agree too (0.02 to 0.34 sigma). Converged over 2000
+downlink trials the olb sigma2_I is 0.01522, that is 1.012 times the analytic
+aperture-averaged 0.01505, against 0.994 for aotools, and the two generators
+agree at 0.39 sigma. The clinching tail number: the margin-setting 1% fade
+quantile differs by only 0.014 dB against a 0.067 dB bootstrap bar, and even
+the noisy 0.1% quantile by 0.05 dB against a 0.20 dB bar; every quantile from
+0.1% to 90% agrees inside 2 sigma. THE ONE CAVEAT is NOT a generator
+difference: the phase structure function sits 10 to 25 percent below the pure
+Kolmogorov 6.88 (r/r0)^(5/3), but that is the known finite-grid low-frequency
+(tilt) band-limit deficit (docs/schmidt-crosscheck.md S-27), not the r~L0
+roll-off (the tested separations 3 to 16 cm are far below L0 = 25 m); it is
+COMMON to both generators (they stay inside 3.5 percent of each other under
+L0 = 25 m) and it does not reach the aperture-integrated numbers a budget
+reads. The default stays aotools; the switch is an owner decision.
 
 THE POINT. P1 added a fast, opt-in generator, `ScreenFactory` (screens.py),
 selected by `screen_generator="olb"` on `propagate_turbulent_scenario` and
