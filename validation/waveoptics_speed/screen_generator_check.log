@@ -1,0 +1,38 @@
+1. structure function of the olb generator
+   r/r0 0.30  D    0.840  theory    0.925  ratio  0.908
+   r/r0 0.50  D    1.947  theory    2.167  ratio  0.899
+   r/r0 0.80  D    4.193  theory    4.743  ratio  0.884
+   r/r0 1.10  D    7.027  theory    8.064  ratio  0.871
+   r/r0 1.60  D   12.858  theory   15.059  ratio  0.854
+   ratio in [0.85, 1.02]: True
+   subharmonic on 35.154, off 22.288, deficit 0.366
+   two-screen add law (target 1.0): 0.9929
+
+2. statistical equivalence, 200 downlink trials at 30 deg, rapid
+   aotools   mean power 0.99936 +/- 0.00861   sigma2_I 0.01483 +/- 0.00149   (19.8 s)
+   olb       mean power 0.99719 +/- 0.00863   sigma2_I 0.01496 +/- 0.00150   (6.6 s)
+   analytic sigma2_I 0.01505
+   delta mean power  +0.00218 (0.18 sigma, agrees True)
+   delta sigma2_I    -0.00013 (0.06 sigma, agrees True)
+
+3a. seconds per screen, aotools vs olb
+    n     aotools     olb make   stack/scr   x make   x stack
+     512     0.2592     0.0305     0.0185     8.5x    14.0x
+    1024     1.0179     0.1294     0.0829     7.9x    12.3x
+    2048     4.0899     0.5417     0.3421     7.6x    12.0x
+    4096    16.2650     2.1467     1.4570     7.6x    11.2x
+
+3b. seconds per full stack, the P0 cases
+    case                            n   scr   aotools   olb loop  olb stack   x
+   terrestrial 2km standard        256    9    0.4787    0.0611    0.0414   11.6x
+   space downlink 30deg rapid      256    5    0.2709    0.0308    0.0218   12.4x
+   space downlink 30deg standard    512    9    2.2409    0.2404    0.1731   12.9x
+   space downlink 30deg reference   1024   15   15.4064    1.8541    1.2418   12.4x
+   space uplink 30deg standard     512    9    2.1872    0.2391    0.1715   12.8x
+
+4. float32 (complex64) error against float64
+   rel rms mean 6.45e-07, max 1.73e-06
+   numpy.fft upcasts to complex128 internally, so float32 saves memory, not FFT time; the error is the float32 storage of the filter and the output only
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_speed\screen_generator_check_results.json
+(elapsed 291 s)

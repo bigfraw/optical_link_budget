@@ -48,7 +48,7 @@ from ..run import _clip, _launch_aperture, _normalised_gauss
 from ..smf import coupling_efficiency
 from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
-from .screens import phase_screen
+from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
 
 
@@ -148,6 +148,49 @@ def _screen_seed(entropy, trial, screen):
     return int(ss.generate_state(1)[0])
 
 
+def _screen_builder(screen_generator, grid, L0_m, subharmonics):
+    """Give a function build(seed_int, r0_m) -> phase screen.
+
+    The two generators give DIFFERENT random draws for the same integer seed.
+    Both draw the same random field, so the statistics agree, but a screen is
+    not bit-identical between them. The default is "aotools", so an old run
+    stays reproducible.
+
+    - "aotools": one aotools call for each screen. It is the model of record.
+    - "olb":     a cached ScreenFactory (screens.py). It builds the filter and
+                 the separable subharmonic basis one time for the grid, then it
+                 scales them for each screen. It is faster; the subharmonic sum
+                 is a matrix product, not 27 full-grid exponentials.
+
+    Args:
+        screen_generator: "aotools" or "olb".
+        grid:             the GridSpec.
+        L0_m:             the outer scale of the screens, in m.
+        subharmonics:     True adds the three subharmonic levels.
+
+    Returns:
+        A callable build(seed_int, r0_m) that gives one n x n phase screen.
+
+    Raises:
+        ValueError: the generator name is unknown.
+    """
+    if screen_generator == "aotools":
+        def build(seed_int, r0_m):
+            return phase_screen(r0_m, grid.n, grid.pixel_m, L0_m=L0_m,
+                                seed=seed_int, subharmonics=subharmonics)
+        return build
+    if screen_generator == "olb":
+        factory = ScreenFactory(grid.n, grid.pixel_m, L0_m=L0_m,
+                                subharmonics=subharmonics)
+
+        def build(seed_int, r0_m):
+            return factory.make(r0_m, np.random.default_rng(seed_int))
+        return build
+    raise ValueError(
+        f"propagate_turbulent_scenario: screen_generator must be 'aotools' or "
+        f"'olb', not {screen_generator!r}.")
+
+
 def _start_field(scenario, grid, lam, is_space):
     """Make the field that enters the split step.
 
@@ -205,7 +248,8 @@ def _ground_transmit_mode(ground, grid):
 def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  hs=None, cn2_profile=None, L0_m=np.inf,
-                                 subharmonics=True, threader=None):
+                                 subharmonics=True, threader=None,
+                                 screen_generator="aotools"):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -245,6 +289,11 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         threader:     an optional olb.waveoptics.Threader. None runs the trials
                       one by one. A Threader runs them across threads, and it
                       keeps the trial order.
+        screen_generator: "aotools" (the default) or "olb". The default keeps
+                      an old run bit-identical. "olb" uses the fast cached
+                      ScreenFactory of screens.py. The two generators give
+                      DIFFERENT random draws for the same seed; the statistics
+                      agree, so use "olb" for speed.
 
     Returns:
         A TurbWaveResult.
@@ -320,13 +369,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
     seed_entropy = _resolve_seed(seed)
     n_screens = int(plan.z_m.size)
+    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics)
 
     def run_one(k):
         """Run trial k. It touches only its own state and read-only setup."""
         t0 = time.perf_counter()
-        stack = [phase_screen(plan.r0_m[j], grid.n, grid.pixel_m, L0_m=L0_m,
-                              seed=_screen_seed(seed_entropy, k, j),
-                              subharmonics=subharmonics)
+        stack = [build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
                  for j in range(n_screens)]
         F_start = Begin(grid.size_m, lam, grid.n) if is_space else F_in
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
@@ -382,7 +430,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               preset="standard", grid=None, plan=None,
                               hs=None, cn2_profile=None, L0_m=np.inf,
-                              subharmonics=True):
+                              subharmonics=True, screen_generator="aotools"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -409,6 +457,9 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         L0_m:         the outer scale of the screens, in m.
         subharmonics: True adds the three subharmonic levels to each screen.
+        screen_generator: "aotools" (the default) or "olb". See
+                      propagate_turbulent_scenario. The two give different draws
+                      for the same seed.
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field.
@@ -440,9 +491,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
     entropy = _resolve_seed(seed)
-    stack = [phase_screen(plan.r0_m[j], grid.n, grid.pixel_m, L0_m=L0_m,
-                          seed=_screen_seed(entropy, trial, j),
-                          subharmonics=subharmonics)
+    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics)
+    stack = [build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
              for j in range(int(plan.z_m.size))]
     F_start = _start_field(scenario, grid, lam, is_space)
     F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m, boundary=mask)
@@ -461,6 +511,18 @@ if __name__ == '__main__':
 
     t_start = time.time()
     lam = 1550e-9
+
+    # aotools 1.0.7 reads the deprecated scipy.ndimage.interpolation namespace
+    # on its FIRST call, so scipy raises a DeprecationWarning once per process.
+    # Trigger it here, quietly, so it does not land in the `assert not caught`
+    # block of the terrestrial vacuum check below. This warms a THIRD-PARTY
+    # deprecation only; it does not hide any olb warning.
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            phase_screen(0.1, 32, 0.01, seed=0)
+    except ImportError:
+        pass                                   # aotools is optional.
 
     # ---- 6. the deferred-record NOTE is present ----
     assert "deferred" in TurbWaveResult.__doc__.lower()
@@ -638,6 +700,26 @@ if __name__ == '__main__':
     assert abs(field_power / mc.trials[0].collected_power - 1.0) < 1e-9, \
         (field_power, mc.trials[0].collected_power)
 
+    # ---- 4c. the opt-in "olb" screen generator runs and agrees ----
+    # The fast ScreenFactory path must give the SAME loose scintillation band.
+    # It draws a DIFFERENT atmosphere from aotools for the same seed, so the
+    # two are not bit-identical; the statistics agree.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        mc_olb = propagate_turbulent_scenario(
+            down_scn, orbit30, n_trials=n_mc, seed=2024, preset="rapid",
+            screen_generator="olb")
+    power_olb = np.array([tr.collected_power for tr in mc_olb.trials])
+    sigma2_olb = float(power_olb.var() / power_olb.mean() ** 2)
+    assert 0.5 < sigma2_olb / sigma2_theory < 2.0, (sigma2_olb, sigma2_theory)
+    assert not np.array_equal(power_olb, power), 'olb must draw a new screen'
+    try:
+        propagate_turbulent_scenario(down_scn, orbit30, n_trials=1,
+                                     preset="rapid", screen_generator="bogus")
+        raise AssertionError("an unknown generator must raise ValueError")
+    except ValueError as exc:
+        assert "aotools" in str(exc), str(exc)
+
     # ---- the printed tables ----
     print("terrestrial vacuum limit, 1 km, Cn2 = 1e-20, standard preset:")
     print(f"  grid                    {vac.grid.n:11d} px, "
@@ -669,6 +751,8 @@ if __name__ == '__main__':
     print(f"  sigma2_I, wave optics   {sigma2_meas:11.5f}")
     print(f"  sigma2_I, analytic      {sigma2_theory:11.5f}")
     print(f"  ratio                   {sigma2_meas / sigma2_theory:11.3f}")
+    print(f"  sigma2_I, olb generator {sigma2_olb:11.5f}  "
+          f"(mean power {power_olb.mean():.5f})")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")

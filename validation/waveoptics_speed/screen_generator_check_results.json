@@ -1,0 +1,160 @@
+{
+ "environment": {
+  "numpy": "1.26.4",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "cores": 32
+ },
+ "structure_function": {
+  "r_over_r0": [
+   0.3,
+   0.5,
+   0.7999999999999999,
+   1.0999999999999999,
+   1.5999999999999999
+  ],
+  "d_measured": [
+   0.8399565950528777,
+   1.9473611296605753,
+   4.192885267732712,
+   7.026685384362748,
+   12.857877145425999
+  ],
+  "d_theory": [
+   0.9249619396893987,
+   2.167064205819182,
+   4.743203413574194,
+   8.06447772784971,
+   15.058732176813663
+  ],
+  "ratio": [
+   0.9080985487196741,
+   0.898617181914296,
+   0.8839775363066719,
+   0.8713131366333781,
+   0.8538485839613789
+  ],
+  "ratio_in_band": true,
+  "subharmonic_on": 35.15353550421837,
+  "subharmonic_off": 22.287668124757158,
+  "subharmonic_deficit": 0.36599070889803753,
+  "two_screen_add_law": 0.9928873200845023
+ },
+ "statistical_equivalence": {
+  "aotools": {
+   "mean_power": 0.9993643240635928,
+   "se_mean_power": 0.008605999817602272,
+   "sigma2_I": 0.014831496629962271,
+   "se_sigma2_I": 0.0014868714998719557,
+   "wall_s": 19.772218200028874
+  },
+  "olb": {
+   "mean_power": 0.9971875954058922,
+   "se_mean_power": 0.008625317052459584,
+   "sigma2_I": 0.014963266013506353,
+   "se_sigma2_I": 0.0015000815046230334,
+   "wall_s": 6.6426685999613255
+  },
+  "comparison": {
+   "n_trials": 200,
+   "sigma2_I_analytic": 0.01504758420836011,
+   "delta_mean_power": 0.0021767286577005773,
+   "se_delta_mean_power": 0.01218438866402498,
+   "mean_power_sigmas_apart": 0.17864898418149433,
+   "delta_sigma2_I": -0.00013176938354408224,
+   "se_delta_sigma2_I": 0.00211211537981323,
+   "sigma2_I_sigmas_apart": 0.06238739834172049,
+   "mean_power_agrees_2sigma": true,
+   "sigma2_I_agrees_2sigma": true
+  }
+ },
+ "speed_per_screen": [
+  {
+   "n": 512,
+   "aotools_s": 0.2591855499971037,
+   "olb_make_s": 0.030494150007143617,
+   "olb_make_stack_s_per_screen": 0.018504083331208676,
+   "olb_factory_build_s": 0.014347200049087405,
+   "speedup_make": 8.49951711841079,
+   "speedup_stack": 14.006938109707153
+  },
+  {
+   "n": 1024,
+   "aotools_s": 1.0179473333604012,
+   "olb_make_s": 0.12936753333391002,
+   "olb_make_stack_s_per_screen": 0.08288715416468524,
+   "olb_factory_build_s": 0.04868560004979372,
+   "speedup_make": 7.868646074691565,
+   "speedup_stack": 12.281122975194462
+  },
+  {
+   "n": 2048,
+   "aotools_s": 4.089943266667736,
+   "olb_make_s": 0.5416578666384643,
+   "olb_make_stack_s_per_screen": 0.34207394999975804,
+   "olb_factory_build_s": 0.19211709999945015,
+   "speedup_make": 7.55078716395273,
+   "speedup_stack": 11.956313150038548
+  },
+  {
+   "n": 4096,
+   "aotools_s": 16.265006733320963,
+   "olb_make_s": 2.146716433305604,
+   "olb_make_stack_s_per_screen": 1.4570031708329527,
+   "olb_factory_build_s": 0.7801715999376029,
+   "speedup_make": 7.5766908386104,
+   "speedup_stack": 11.163329674857494
+  }
+ ],
+ "speed_per_stack": [
+  {
+   "name": "terrestrial 2km standard",
+   "n": 256,
+   "n_screens": 9,
+   "aotools_stack_s": 0.47867095001856796,
+   "olb_make_loop_s": 0.06105142500018701,
+   "olb_make_stack_s": 0.041402175003895536,
+   "speedup_stack": 11.561492843637556
+  },
+  {
+   "name": "space downlink 30deg rapid",
+   "n": 256,
+   "n_screens": 5,
+   "aotools_stack_s": 0.27093494997825474,
+   "olb_make_loop_s": 0.030790549993980676,
+   "olb_make_stack_s": 0.02178637500037439,
+   "speedup_stack": 12.435981202636915
+  },
+  {
+   "name": "space downlink 30deg standard",
+   "n": 512,
+   "n_screens": 9,
+   "aotools_stack_s": 2.240869900017666,
+   "olb_make_loop_s": 0.2404312000144273,
+   "olb_make_stack_s": 0.17308150002888092,
+   "speedup_stack": 12.94690593531803
+  },
+  {
+   "name": "space downlink 30deg reference",
+   "n": 1024,
+   "n_screens": 15,
+   "aotools_stack_s": 15.406385499984026,
+   "olb_make_loop_s": 1.8540858666722972,
+   "olb_make_stack_s": 1.241834466656049,
+   "speedup_stack": 12.4061506695571
+  },
+  {
+   "name": "space uplink 30deg standard",
+   "n": 512,
+   "n_screens": 9,
+   "aotools_stack_s": 2.187181066682873,
+   "olb_make_loop_s": 0.23913349998959652,
+   "olb_make_stack_s": 0.17146233333429942,
+   "speedup_stack": 12.756043990247903
+  }
+ ],
+ "float32_error": {
+  "rel_rms_mean": 6.454795097383378e-07,
+  "rel_rms_max": 1.7272029849393957e-06,
+  "note": "numpy.fft upcasts to complex128 internally, so float32 saves memory, not FFT time; the error is the float32 storage of the filter and the output only"
+ }
+}
