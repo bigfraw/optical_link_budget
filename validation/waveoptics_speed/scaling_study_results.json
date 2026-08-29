@@ -1,0 +1,956 @@
+{
+ "environment": {
+  "numpy": "1.26.4",
+  "scipy": "1.11.4",
+  "aotools": "1.0.7",
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "cores": 32,
+  "platform": "Windows-10-10.0.26200-SP0",
+  "trials_per_point": 32,
+  "worker_list": [
+   1,
+   2,
+   4,
+   8,
+   16,
+   32
+  ]
+ },
+ "fft_microbench_ref_from_p0": {
+  "512": {
+   "numpy_fft2_s": 0.003833299968391657,
+   "scipy_fft2_w1_s": 0.004049499984830618
+  },
+  "1024": {
+   "numpy_fft2_s": 0.01957030000630766,
+   "scipy_fft2_w1_s": 0.025535800028592348
+  },
+  "2048": {
+   "numpy_fft2_s": 0.11386419995687902,
+   "scipy_fft2_w1_s": 0.1400859000859782
+  },
+  "4096": {
+   "numpy_fft2_s": 0.46207450004294515,
+   "scipy_fft2_w1_s": 0.5894411000190303
+  }
+ },
+ "scenario_pickles": {
+  "terrestrial 2km standard": {
+   "scenario": true,
+   "geometry": true,
+   "error": null
+  },
+  "space downlink 30deg rapid": {
+   "scenario": true,
+   "geometry": true,
+   "error": null
+  },
+  "space downlink 30deg standard": {
+   "scenario": true,
+   "geometry": true,
+   "error": null
+  }
+ },
+ "threads": {
+  "terrestrial 2km standard | aotools": [
+   {
+    "workers": 1,
+    "wall_s": 27.92744160001166,
+    "trials_per_s": 1.1458264046638142,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 16.825616999994963,
+    "trials_per_s": 1.9018619049755845,
+    "speedup": 1.6598167900778926,
+    "efficiency": 0.8299083950389463
+   },
+   {
+    "workers": 4,
+    "wall_s": 11.056312900036573,
+    "trials_per_s": 2.894274093843179,
+    "speedup": 2.525927210319751,
+    "efficiency": 0.6314818025799378
+   },
+   {
+    "workers": 8,
+    "wall_s": 9.394699699943885,
+    "trials_per_s": 3.4061759313276547,
+    "speedup": 2.97268060629745,
+    "efficiency": 0.37158507578718125
+   },
+   {
+    "workers": 16,
+    "wall_s": 8.11770569998771,
+    "trials_per_s": 3.9420005088443215,
+    "speedup": 3.4403121561864385,
+    "efficiency": 0.2150195097616524
+   },
+   {
+    "workers": 32,
+    "wall_s": 7.9074557001003996,
+    "trials_per_s": 4.046813692499561,
+    "speedup": 3.5317860332315325,
+    "efficiency": 0.11036831353848539
+   }
+  ],
+  "terrestrial 2km standard | olb": [
+   {
+    "workers": 1,
+    "wall_s": 8.524639899958856,
+    "trials_per_s": 3.753824252465426,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 4.873474800027907,
+    "trials_per_s": 6.566156862002602,
+    "speedup": 1.7491913367255008,
+    "efficiency": 0.8745956683627504
+   },
+   {
+    "workers": 4,
+    "wall_s": 3.2177300000330433,
+    "trials_per_s": 9.944899043633676,
+    "speedup": 2.649271349638197,
+    "efficiency": 0.6623178374095493
+   },
+   {
+    "workers": 8,
+    "wall_s": 2.633089800016023,
+    "trials_per_s": 12.153022657945533,
+    "speedup": 3.237504432969579,
+    "efficiency": 0.40468805412119735
+   },
+   {
+    "workers": 16,
+    "wall_s": 2.7068326000589877,
+    "trials_per_s": 11.82193534956785,
+    "speedup": 3.1493044304893796,
+    "efficiency": 0.19683152690558622
+   },
+   {
+    "workers": 32,
+    "wall_s": 2.86040420003701,
+    "trials_per_s": 11.187230112298801,
+    "speedup": 2.9802221307913612,
+    "efficiency": 0.09313194158723004
+   }
+  ],
+  "space downlink 30deg rapid | aotools": [
+   {
+    "workers": 1,
+    "wall_s": 18.27726579993032,
+    "trials_per_s": 1.7508089202336816,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 10.584361999994144,
+    "trials_per_s": 3.023328189268064,
+    "speedup": 1.7268179036148266,
+    "efficiency": 0.8634089518074133
+   },
+   {
+    "workers": 4,
+    "wall_s": 6.6473010999616235,
+    "trials_per_s": 4.813983828742878,
+    "speedup": 2.7495769373281194,
+    "efficiency": 0.6873942343320298
+   },
+   {
+    "workers": 8,
+    "wall_s": 5.423877000110224,
+    "trials_per_s": 5.899838805221744,
+    "speedup": 3.369778813118161,
+    "efficiency": 0.4212223516397701
+   },
+   {
+    "workers": 16,
+    "wall_s": 5.183376000029966,
+    "trials_per_s": 6.173582622563943,
+    "speedup": 3.5261315790760026,
+    "efficiency": 0.22038322369225016
+   },
+   {
+    "workers": 32,
+    "wall_s": 5.729153299937025,
+    "trials_per_s": 5.585467576919568,
+    "speedup": 3.1902211100078652,
+    "efficiency": 0.09969440968774579
+   }
+  ],
+  "space downlink 30deg rapid | olb": [
+   {
+    "workers": 1,
+    "wall_s": 12.143092700047418,
+    "trials_per_s": 2.6352429970229116,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 6.872270199935883,
+    "trials_per_s": 4.656394330988114,
+    "speedup": 1.7669696252863734,
+    "efficiency": 0.8834848126431867
+   },
+   {
+    "workers": 4,
+    "wall_s": 4.750405300059356,
+    "trials_per_s": 6.736267324306025,
+    "speedup": 2.5562224553546393,
+    "efficiency": 0.6390556138386598
+   },
+   {
+    "workers": 8,
+    "wall_s": 3.065248900093138,
+    "trials_per_s": 10.439608998482203,
+    "speedup": 3.961535619400581,
+    "efficiency": 0.49519195242507263
+   },
+   {
+    "workers": 16,
+    "wall_s": 3.3078492999775335,
+    "trials_per_s": 9.673959451604201,
+    "speedup": 3.6709933249165534,
+    "efficiency": 0.2294370828072846
+   },
+   {
+    "workers": 32,
+    "wall_s": 2.5881489000748843,
+    "trials_per_s": 12.364049069616561,
+    "speedup": 4.69180606250903,
+    "efficiency": 0.14661893945340718
+   }
+  ],
+  "space downlink 30deg standard | aotools": [
+   {
+    "workers": 1,
+    "wall_s": 215.90041449991986,
+    "trials_per_s": 0.14821648246540017,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 116.8286003000103,
+    "trials_per_s": 0.27390553270197127,
+    "speedup": 1.8480099388805296,
+    "efficiency": 0.9240049694402648
+   },
+   {
+    "workers": 4,
+    "wall_s": 66.22915139992256,
+    "trials_per_s": 0.4831709198079415,
+    "speedup": 3.259900058151316,
+    "efficiency": 0.814975014537829
+   },
+   {
+    "workers": 8,
+    "wall_s": 47.81508280010894,
+    "trials_per_s": 0.669244893578373,
+    "speedup": 4.5153203101726715,
+    "efficiency": 0.5644150387715839
+   },
+   {
+    "workers": 16,
+    "wall_s": 38.90889799990691,
+    "trials_per_s": 0.8224339841255992,
+    "speedup": 5.5488699397355425,
+    "efficiency": 0.3468043712334714
+   },
+   {
+    "workers": 32,
+    "wall_s": 38.966127400053665,
+    "trials_per_s": 0.8212260785236751,
+    "speedup": 5.540720335981412,
+    "efficiency": 0.17314751049941912
+   }
+  ],
+  "space downlink 30deg standard | olb": [
+   {
+    "workers": 1,
+    "wall_s": 27.281913900049403,
+    "trials_per_s": 1.172938237296543,
+    "speedup": 1.0,
+    "efficiency": 1.0
+   },
+   {
+    "workers": 2,
+    "wall_s": 15.983381900005043,
+    "trials_per_s": 2.002079422252302,
+    "speedup": 1.706892450592124,
+    "efficiency": 0.853446225296062
+   },
+   {
+    "workers": 4,
+    "wall_s": 10.372398699983023,
+    "trials_per_s": 3.0851108721893206,
+    "speedup": 2.6302415370992303,
+    "efficiency": 0.6575603842748076
+   },
+   {
+    "workers": 8,
+    "wall_s": 8.002269899938256,
+    "trials_per_s": 3.998865371967385,
+    "speedup": 3.409271899246976,
+    "efficiency": 0.426158987405872
+   },
+   {
+    "workers": 16,
+    "wall_s": 7.366925899987109,
+    "trials_per_s": 4.343738546366537,
+    "speedup": 3.7032969070718007,
+    "efficiency": 0.23145605669198754
+   },
+   {
+    "workers": 32,
+    "wall_s": 7.398723999969661,
+    "trials_per_s": 4.325070106700996,
+    "speedup": 3.6873809457091893,
+    "efficiency": 0.11523065455341217
+   }
+  ]
+ },
+ "processes": {
+  "terrestrial 2km standard | aotools": [
+   {
+    "workers": 1,
+    "spawn_init_s": 2.6158295999048278,
+    "steady_s": 20.339799500070512,
+    "trials_per_s": 1.5732701789852483,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9907121850982499
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 2.36555370001588,
+    "steady_s": 10.595954400021583,
+    "trials_per_s": 3.020020546703638,
+    "speedup": 1.9195816376889168,
+    "efficiency": 0.9597908188444584,
+    "collected_first": 0.9907121850982499
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 2.4726946000009775,
+    "steady_s": 6.5419020999688655,
+    "trials_per_s": 4.8915436995231545,
+    "speedup": 3.1091568154416915,
+    "efficiency": 0.7772892038604229,
+    "collected_first": 0.9907121850982499
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 2.8929999999236315,
+    "steady_s": 4.594377700006589,
+    "trials_per_s": 6.965034677047581,
+    "speedup": 4.427106526318318,
+    "efficiency": 0.5533883157897898,
+    "collected_first": 0.9907121850982499
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 4.824622599990107,
+    "steady_s": 4.871880099992268,
+    "trials_per_s": 6.568306145311497,
+    "speedup": 4.174938439084902,
+    "efficiency": 0.26093365244280636,
+    "collected_first": 0.9907121850982499
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 8.27574850001838,
+    "steady_s": 5.387264999910258,
+    "trials_per_s": 5.939934271013782,
+    "speedup": 3.775533503625557,
+    "efficiency": 0.11798542198829866,
+    "collected_first": 0.9907121850982499
+   }
+  ],
+  "terrestrial 2km standard | olb": [
+   {
+    "workers": 1,
+    "spawn_init_s": 3.292197300004773,
+    "steady_s": 8.590129799908027,
+    "trials_per_s": 3.7252056424505504,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9908296266630774
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 3.3602400000672787,
+    "steady_s": 4.68209969997406,
+    "trials_per_s": 6.834540494765049,
+    "speedup": 1.8346746866487311,
+    "efficiency": 0.9173373433243656,
+    "collected_first": 0.9908296266630774
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 3.47520889993757,
+    "steady_s": 2.6572089000837877,
+    "trials_per_s": 12.042711432658143,
+    "speedup": 3.232764198417806,
+    "efficiency": 0.8081910496044515,
+    "collected_first": 0.9908296266630774
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 4.376400199951604,
+    "steady_s": 1.920505000045523,
+    "trials_per_s": 16.662284138412282,
+    "speedup": 4.472849484747194,
+    "efficiency": 0.5591061855933992,
+    "collected_first": 0.9908296266630774
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 5.56043850001879,
+    "steady_s": 1.9080225999932736,
+    "trials_per_s": 16.771289816018328,
+    "speedup": 4.502111138483533,
+    "efficiency": 0.28138194615522083,
+    "collected_first": 0.9908296266630774
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 8.769683899939992,
+    "steady_s": 2.120702199987136,
+    "trials_per_s": 15.089341634197442,
+    "speedup": 4.05060635102851,
+    "efficiency": 0.12658144846964095,
+    "collected_first": 0.9908296266630774
+   }
+  ],
+  "space downlink 30deg rapid | aotools": [
+   {
+    "workers": 1,
+    "spawn_init_s": 3.5196741999825463,
+    "steady_s": 26.109896200010553,
+    "trials_per_s": 1.2255889397211417,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9193809172388283
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 3.476248599938117,
+    "steady_s": 10.435412400052883,
+    "trials_per_s": 3.0664815891548125,
+    "speedup": 2.5020473747523613,
+    "efficiency": 1.2510236873761806,
+    "collected_first": 0.9193809172388283
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 3.925636100000702,
+    "steady_s": 7.8509776999708265,
+    "trials_per_s": 4.075925473602977,
+    "speedup": 3.325687219836018,
+    "efficiency": 0.8314218049590045,
+    "collected_first": 0.9193809172388283
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 6.908641200046986,
+    "steady_s": 6.072826799936593,
+    "trials_per_s": 5.269374716949629,
+    "speedup": 4.299463340578587,
+    "efficiency": 0.5374329175723234,
+    "collected_first": 0.9193809172388283
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 10.200721599976532,
+    "steady_s": 5.388968399958685,
+    "trials_per_s": 5.938056716058185,
+    "speedup": 4.845063890189211,
+    "efficiency": 0.3028164931368257,
+    "collected_first": 0.9193809172388283
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 16.745465399930254,
+    "steady_s": 6.791169899981469,
+    "trials_per_s": 4.712001094257312,
+    "speedup": 3.84468310829358,
+    "efficiency": 0.12014634713417438,
+    "collected_first": 0.9193809172388283
+   }
+  ],
+  "space downlink 30deg rapid | olb": [
+   {
+    "workers": 1,
+    "spawn_init_s": 4.486205299966969,
+    "steady_s": 7.209652699995786,
+    "trials_per_s": 4.438493965183469,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9921617475269926
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 5.941877600038424,
+    "steady_s": 3.5465385999996215,
+    "trials_per_s": 9.022882198435234,
+    "speedup": 2.03287021886539,
+    "efficiency": 1.016435109432695,
+    "collected_first": 0.9921617475269926
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 6.9294570999918506,
+    "steady_s": 2.7884707000339404,
+    "trials_per_s": 11.475824364807027,
+    "speedup": 2.5855221286377623,
+    "efficiency": 0.6463805321594406,
+    "collected_first": 0.9921617475269926
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 7.153594299918041,
+    "steady_s": 1.8844542000442743,
+    "trials_per_s": 16.981044166129468,
+    "speedup": 3.825857216283844,
+    "efficiency": 0.4782321520354805,
+    "collected_first": 0.9921617475269926
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 6.975903999991715,
+    "steady_s": 1.858582800021395,
+    "trials_per_s": 17.217419638033686,
+    "speedup": 3.879112999384688,
+    "efficiency": 0.242444562461543,
+    "collected_first": 0.9921617475269926
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 12.149612099980004,
+    "steady_s": 2.779515100060962,
+    "trials_per_s": 11.512799480491456,
+    "speedup": 2.593852683094853,
+    "efficiency": 0.08105789634671416,
+    "collected_first": 0.9921617475269926
+   }
+  ],
+  "space downlink 30deg standard | aotools": [
+   {
+    "workers": 1,
+    "spawn_init_s": 5.974948799936101,
+    "steady_s": 176.30128280003555,
+    "trials_per_s": 0.1815074711412908,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9070219665098638
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 3.1352055000606924,
+    "steady_s": 55.91051169997081,
+    "trials_per_s": 0.572343178894868,
+    "speedup": 3.1532761450317333,
+    "efficiency": 1.5766380725158666,
+    "collected_first": 0.9070219665098638
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 3.3322703999001533,
+    "steady_s": 33.73037760006264,
+    "trials_per_s": 0.9486997263837501,
+    "speedup": 5.226780586046809,
+    "efficiency": 1.3066951465117023,
+    "collected_first": 0.9070219665098638
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 4.131990800029598,
+    "steady_s": 24.172445999924093,
+    "trials_per_s": 1.3238213460110941,
+    "speedup": 7.293481296869551,
+    "efficiency": 0.9116851621086939,
+    "collected_first": 0.9070219665098638
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 5.964373100083321,
+    "steady_s": 21.73986629990395,
+    "trials_per_s": 1.4719501747874768,
+    "speedup": 8.109584501024022,
+    "efficiency": 0.5068490313140014,
+    "collected_first": 0.9070219665098638
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 8.653259600047022,
+    "steady_s": 22.512277100002393,
+    "trials_per_s": 1.421446611457914,
+    "speedup": 7.831339407243561,
+    "efficiency": 0.2447293564763613,
+    "collected_first": 0.9070219665098638
+   }
+  ],
+  "space downlink 30deg standard | olb": [
+   {
+    "workers": 1,
+    "spawn_init_s": 3.1029701000079513,
+    "steady_s": 24.864168599946424,
+    "trials_per_s": 1.2869925600516139,
+    "speedup": 1.0,
+    "efficiency": 1.0,
+    "collected_first": 0.9397230684809338
+   },
+   {
+    "workers": 2,
+    "spawn_init_s": 2.94709419994615,
+    "steady_s": 12.866631200071424,
+    "trials_per_s": 2.487053487615497,
+    "speedup": 1.93245366353614,
+    "efficiency": 0.96622683176807,
+    "collected_first": 0.9397230684809338
+   },
+   {
+    "workers": 4,
+    "spawn_init_s": 3.047972199972719,
+    "steady_s": 7.2749376000138,
+    "trials_per_s": 4.398663158284588,
+    "speedup": 3.4177844494362755,
+    "efficiency": 0.8544461123590689,
+    "collected_first": 0.9397230684809338
+   },
+   {
+    "workers": 8,
+    "spawn_init_s": 3.5618304000236094,
+    "steady_s": 5.4419789999956265,
+    "trials_per_s": 5.880213797228126,
+    "speedup": 4.5689571018128525,
+    "efficiency": 0.5711196377266066,
+    "collected_first": 0.9397230684809338
+   },
+   {
+    "workers": 16,
+    "spawn_init_s": 4.802289700019173,
+    "steady_s": 5.747175099910237,
+    "trials_per_s": 5.567952854002969,
+    "speedup": 4.326328703702584,
+    "efficiency": 0.2703955439814115,
+    "collected_first": 0.9397230684809338
+   },
+   {
+    "workers": 32,
+    "spawn_init_s": 7.592013000044972,
+    "steady_s": 7.132817600038834,
+    "trials_per_s": 4.486305664093496,
+    "speedup": 3.4858831382161033,
+    "efficiency": 0.10893384806925323,
+    "collected_first": 0.9397230684809338
+   }
+  ]
+ },
+ "batched": {
+  "aotools": {
+   "case": "space downlink 30deg standard",
+   "generator": "aotools",
+   "grid_n": 512,
+   "rows": [
+    {
+     "B": 1,
+     "numpy_s": 2.892724800040014,
+     "numpy_trials_per_s": 0.3456948272390679,
+     "scipy_w1_s": 2.7654363000765443,
+     "scipy_w1_trials_per_s": 0.3616065934956886,
+     "scipy_w32_s": 2.5690023000352085,
+     "scipy_w32_trials_per_s": 0.38925617154421965
+    },
+    {
+     "B": 2,
+     "numpy_s": 5.291621600044891,
+     "numpy_trials_per_s": 0.3779559747777568,
+     "scipy_w1_s": 5.266535299946554,
+     "scipy_w1_trials_per_s": 0.37975630772289637,
+     "scipy_w32_s": 4.945573300006799,
+     "scipy_w32_trials_per_s": 0.40440205385233097
+    },
+    {
+     "B": 4,
+     "numpy_s": 10.676240500062704,
+     "numpy_trials_per_s": 0.37466372174516926,
+     "scipy_w1_s": 10.07309229997918,
+     "scipy_w1_trials_per_s": 0.3970975228737125,
+     "scipy_w32_s": 9.467671500053257,
+     "scipy_w32_trials_per_s": 0.42249036629307424
+    },
+    {
+     "B": 8,
+     "numpy_s": 20.806256500072777,
+     "numpy_trials_per_s": 0.3844997296833295,
+     "scipy_w1_s": 19.411459000082687,
+     "scipy_w1_trials_per_s": 0.4121277025063352,
+     "scipy_w32_s": 18.25679339992348,
+     "scipy_w32_trials_per_s": 0.4381930509239114
+    },
+    {
+     "B": 16,
+     "numpy_s": 40.211332299979404,
+     "numpy_trials_per_s": 0.397897783655584,
+     "scipy_w1_s": 37.12726300000213,
+     "scipy_w1_trials_per_s": 0.43095016187967,
+     "scipy_w32_s": 35.61412560008466,
+     "scipy_w32_trials_per_s": 0.44925994195859087
+    },
+    {
+     "B": 32,
+     "numpy_s": 78.7760769999586,
+     "numpy_trials_per_s": 0.4062146938342311,
+     "scipy_w1_s": 75.07755980000366,
+     "scipy_w1_trials_per_s": 0.42622589339935424,
+     "scipy_w32_s": 70.73790980002377,
+     "scipy_w32_trials_per_s": 0.4523741242915443
+    }
+   ],
+   "memory": {
+    "grid_n": 512,
+    "n_screens": 9,
+    "field_mb_each": 4.194304,
+    "screen_mb_each": 2.097152,
+    "note": "peak ~ B*(field + exp(screen)) + B*screen while a plane is applied; screens are made one plane at a time",
+    "peak_mb_per_B": 10.485759999999999,
+    "example_N2048_B32_gb": 5.368709119999999
+   }
+  },
+  "olb": {
+   "case": "space downlink 30deg standard",
+   "generator": "olb",
+   "grid_n": 512,
+   "rows": [
+    {
+     "B": 1,
+     "numpy_s": 0.5784978000447154,
+     "numpy_trials_per_s": 1.7286150438648242,
+     "scipy_w1_s": 0.48964379995595664,
+     "scipy_w1_trials_per_s": 2.0423009544692485,
+     "scipy_w32_s": 0.5049637000774965,
+     "scipy_w32_trials_per_s": 1.9803403687166634
+    },
+    {
+     "B": 2,
+     "numpy_s": 1.1379229999147356,
+     "numpy_trials_per_s": 1.757588167345119,
+     "scipy_w1_s": 1.0093710999935865,
+     "scipy_w1_trials_per_s": 1.981431804430212,
+     "scipy_w32_s": 0.8607688000192866,
+     "scipy_w32_trials_per_s": 2.323504290530962
+    },
+    {
+     "B": 4,
+     "numpy_s": 2.4115466999355704,
+     "numpy_trials_per_s": 1.65868651853471,
+     "scipy_w1_s": 1.9133841000730172,
+     "scipy_w1_trials_per_s": 2.0905368659890895,
+     "scipy_w32_s": 1.4931564000435174,
+     "scipy_w32_trials_per_s": 2.6788888289822967
+    },
+    {
+     "B": 8,
+     "numpy_s": 4.567949400050566,
+     "numpy_trials_per_s": 1.7513328847100282,
+     "scipy_w1_s": 3.689926899969578,
+     "scipy_w1_trials_per_s": 2.1680646302413082,
+     "scipy_w32_s": 2.966993400012143,
+     "scipy_w32_trials_per_s": 2.6963322533738223
+    },
+    {
+     "B": 16,
+     "numpy_s": 9.26473920000717,
+     "numpy_trials_per_s": 1.7269779164412546,
+     "scipy_w1_s": 7.291594200069085,
+     "scipy_w1_trials_per_s": 2.194307521920022,
+     "scipy_w32_s": 5.677957099978812,
+     "scipy_w32_trials_per_s": 2.817914915218311
+    },
+    {
+     "B": 32,
+     "numpy_s": 18.24669379997067,
+     "numpy_trials_per_s": 1.753742368387386,
+     "scipy_w1_s": 14.204519500024617,
+     "scipy_w1_trials_per_s": 2.252804116319777,
+     "scipy_w32_s": 11.341230499907397,
+     "scipy_w32_trials_per_s": 2.821563321569144
+    }
+   ],
+   "memory": {
+    "grid_n": 512,
+    "n_screens": 9,
+    "field_mb_each": 4.194304,
+    "screen_mb_each": 2.097152,
+    "note": "peak ~ B*(field + exp(screen)) + B*screen while a plane is applied; screens are made one plane at a time",
+    "peak_mb_per_B": 10.485759999999999,
+    "example_N2048_B32_gb": 5.368709119999999
+   }
+  }
+ },
+ "crosschecks": {
+  "terrestrial 2km standard | aotools": {
+   "name": "terrestrial 2km standard",
+   "generator": "aotools",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  },
+  "terrestrial 2km standard | olb": {
+   "name": "terrestrial 2km standard",
+   "generator": "olb",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  },
+  "space downlink 30deg rapid | aotools": {
+   "name": "space downlink 30deg rapid",
+   "generator": "aotools",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  },
+  "space downlink 30deg rapid | olb": {
+   "name": "space downlink 30deg rapid",
+   "generator": "olb",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  },
+  "space downlink 30deg standard | aotools": {
+   "name": "space downlink 30deg standard",
+   "generator": "aotools",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  },
+  "space downlink 30deg standard | olb": {
+   "name": "space downlink 30deg standard",
+   "generator": "olb",
+   "n": 8,
+   "serial_repl_vs_production_max_abs": 0.0,
+   "thread_vs_serial_max_abs": 0.0,
+   "process_vs_serial_max_abs": 0.0,
+   "batched_vs_serial_max_rel": 0.0,
+   "serial_repl_exact": true,
+   "thread_exact": true,
+   "process_exact": true,
+   "batched_within_1e-9": true
+  }
+ },
+ "recommendation": {
+  "terrestrial 2km standard | aotools": {
+   "mode": "processes",
+   "count": 8,
+   "trials_per_s": 6.965034677047581,
+   "speedup_over_1": 6.0786124745407,
+   "one_worker_trials_per_s": 1.1458264046638142
+  },
+  "terrestrial 2km standard | olb": {
+   "mode": "processes",
+   "count": 16,
+   "trials_per_s": 16.771289816018328,
+   "speedup_over_1": 4.467787698106358,
+   "one_worker_trials_per_s": 3.753824252465426
+  },
+  "space downlink 30deg rapid | aotools": {
+   "mode": "threads",
+   "count": 16,
+   "trials_per_s": 6.173582622563943,
+   "speedup_over_1": 3.5261315790760026,
+   "one_worker_trials_per_s": 1.7508089202336816
+  },
+  "space downlink 30deg rapid | olb": {
+   "mode": "processes",
+   "count": 16,
+   "trials_per_s": 17.217419638033686,
+   "speedup_over_1": 6.533522585008122,
+   "one_worker_trials_per_s": 2.6352429970229116
+  },
+  "space downlink 30deg standard | aotools": {
+   "mode": "processes",
+   "count": 16,
+   "trials_per_s": 1.4719501747874768,
+   "speedup_over_1": 9.931082901870179,
+   "one_worker_trials_per_s": 0.14821648246540017
+  },
+  "space downlink 30deg standard | olb": {
+   "mode": "processes",
+   "count": 8,
+   "trials_per_s": 5.880213797228126,
+   "speedup_over_1": 5.013233954058134,
+   "one_worker_trials_per_s": 1.172938237296543
+  }
+ },
+ "process_vs_thread": {
+  "terrestrial 2km standard | aotools": {
+   "best_thread_trials_per_s": 4.046813692499561,
+   "best_process_trials_per_s": 6.965034677047581,
+   "process_over_thread": 1.7211157237005263
+  },
+  "terrestrial 2km standard | olb": {
+   "best_thread_trials_per_s": 12.153022657945533,
+   "best_process_trials_per_s": 16.771289816018328,
+   "process_over_thread": 1.3800097546147019
+  },
+  "space downlink 30deg rapid | aotools": {
+   "best_thread_trials_per_s": 6.173582622563943,
+   "best_process_trials_per_s": 5.938056716058185,
+   "process_over_thread": 0.9618493959010235
+  },
+  "space downlink 30deg rapid | olb": {
+   "best_thread_trials_per_s": 12.364049069616561,
+   "best_process_trials_per_s": 17.217419638033686,
+   "process_over_thread": 1.3925389280720186
+  },
+  "space downlink 30deg standard | aotools": {
+   "best_thread_trials_per_s": 0.8224339841255992,
+   "best_process_trials_per_s": 1.4719501747874768,
+   "process_over_thread": 1.7897487253672215
+  },
+  "space downlink 30deg standard | olb": {
+   "best_thread_trials_per_s": 4.343738546366537,
+   "best_process_trials_per_s": 5.880213797228126,
+   "process_over_thread": 1.3537218537581697
+  }
+ }
+}
