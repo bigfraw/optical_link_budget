@@ -1,0 +1,51 @@
+(workers 10 of 32 cores)
+
+1. equivalence across cases (aotools vs olb, matched seed + count)
+   terrestrial 2km 5e-15 standard      (n=300, 256 px, 9 scr)
+     aotools  mean 0.98866 +/- 0.00014   sigma2_I 0.00001 +/- 0.00000   (79.6 s)
+     olb      mean 0.98865 +/- 0.00013   sigma2_I 0.00001 +/- 0.00000   (28.9 s)
+     delta mean +0.00001 (0.05 sig, agrees True)   delta sigma2 +0.00000 (0.76 sig, agrees True)
+     smf_eta mean aotools 0.22551 / olb 0.22087  (0.34 sig, agrees True)   sigma2 (0.26 sig, agrees True)
+   space downlink 30deg rapid          (n=2000, 256 px, 5 scr)
+     aotools  mean 0.98689 +/- 0.00270   sigma2_I 0.01496 +/- 0.00047   (346.5 s)
+     olb      mean 0.98667 +/- 0.00272   sigma2_I 0.01522 +/- 0.00048   (84.5 s)
+     delta mean +0.00021 (0.06 sig, agrees True)   delta sigma2 -0.00027 (0.39 sig, agrees True)
+   space downlink 30deg standard       (n=200, 512 px, 9 scr)
+     aotools  mean 1.00381 +/- 0.00802   sigma2_I 0.01278 +/- 0.00128   (181.0 s)
+     olb      mean 1.00559 +/- 0.00800   sigma2_I 0.01267 +/- 0.00127   (59.8 s)
+     delta mean -0.00178 (0.16 sig, agrees True)   delta sigma2 +0.00011 (0.06 sig, agrees True)
+   space uplink 30deg standard         (n=200, 512 px, 9 scr)
+     aotools  mean 0.99418 +/- 0.00834   sigma2_I 0.01406 +/- 0.00141   (222.0 s)
+     olb      mean 0.99559 +/- 0.00820   sigma2_I 0.01358 +/- 0.00136   (50.8 s)
+     delta mean -0.00141 (0.12 sig, agrees True)   delta sigma2 +0.00048 (0.25 sig, agrees True)
+     eta_turb mean aotools 0.38143 / olb 0.38089  (0.02 sig, agrees True)
+
+2. converged sigma2_I vs analytic (space downlink 30 deg, rapid)
+   n_trials 2000, 5 screens
+   analytic (aperture-averaged) 0.01505
+   aotools  0.01496 +/- 0.00047  (ratio to analytic 0.994)
+   olb      0.01522 +/- 0.00048  (ratio to analytic 1.012)
+   generator delta -0.00027 (0.39 sig, agrees True)
+
+3. the fade tail (space downlink 30 deg, rapid) n_trials 2000
+   quantile   aotools      olb      delta dB   bar dB   agree
+      0.1%   0.64828  0.65605  +0.0517  0.2014  True
+      1.0%   0.71892  0.71655  -0.0143  0.0672  True
+      5.0%   0.79335  0.79544  +0.0115  0.0424  True
+     10.0%   0.83255  0.83364  +0.0057  0.0277  True
+     50.0%   0.98399  0.98214  -0.0082  0.0227  True
+     90.0%   1.14176  1.14616  +0.0167  0.0244  True
+   scint index aotools 0.01495, olb 0.01522
+
+4. the outer scale, L0 = 25.0 m, structure function on one grid
+   r/r0    theory     olb(L0)   aot(L0)   olb/aot   olb/olb(inf)
+   0.30      0.925     0.752     0.764   0.9834   0.9340
+   0.50      2.167     1.702     1.737   0.9797   0.9202
+   0.80      4.743     3.563     3.654   0.9751   0.9042
+   1.10      8.064     5.838     6.011   0.9712   0.8911
+   1.60     15.059    10.354    10.725   0.9654   0.8730
+   olb vs aotools inside 5%: True
+   olb tracks theory in band: False
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_speed\generator_validation_results.json
+(elapsed 1072 s)
