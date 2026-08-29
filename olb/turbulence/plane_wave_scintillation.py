@@ -40,22 +40,21 @@ from scipy.special import j1
 from .andrews.aperture import averaged_index as _andrews_averaged_index
 from .andrews.scintillation import (
     scintillation_index as _andrews_scintillation_index,
+    LOGNORMAL_PDF_LIMIT,
 )
 from .andrews.structure import coherence_radius as _andrews_coherence_radius
 from .profiles import DEFAULT_HS, get_c2n
 
-# Weak-fluctuation limit for the plane-wave scintillation index. The lognormal
-# irradiance PDF is trusted for sigma2_I below 0.25.
-#
-# HOUSE RULE, NOT A BOOK NUMBER. Andrews and Phillips, Laser Beam Propagation
-# through Random Media, 2nd ed. (2005), DOI 10.1117/3.626196, give the weak
-# limit as sigma_R^2 < 1 (Ch. 5, Eq. (15) and the text after it, printed
-# p. 140; also Ch. 10, Eq. (61), printed p. 412, and Ch. 12, Eq. (40), printed
-# p. 497). The value 0.25 is 4 times stricter. It is kept deliberately, because
-# Ch. 11, Sec. 11.3, printed p. 451, says the lognormal tail is optimistic
-# against simulation, and this module reports fade depths from that tail. Do
-# not change this value to 1.0 as a "book fix".
-WEAK_FLUCTUATION_LIMIT = 0.25
+# The two weak-fluctuation limits now live in ONE place,
+# olb.turbulence.andrews.scintillation, so the regime gate and the lognormal-PDF
+# house rule are never conflated again (see Conflict C-05):
+#   - the REGIME gate rytov_weak(sigma2_R) with RYTOV_CONFIDENT_WEAK (0.3) and
+#     WEAK_REGIME_LIMIT (1.0), the book boundary sigma_R^2 < 1;
+#   - the DISTINCT lognormal-PDF house rule LOGNORMAL_PDF_LIMIT (0.25 on the
+#     scintillation index sigma2_I), 4x tighter because the lognormal tail is
+#     optimistic against simulation (Ch. 11, Sec. 11.3, printed p. 451).
+# LOGNORMAL_PDF_LIMIT is re-exported here (imported at the top) for the callers
+# that gate the lognormal PDF shape (the downlink lognormal Term and selector).
 
 
 def _sec_zeta(elevation_deg):

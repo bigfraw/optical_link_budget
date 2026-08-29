@@ -56,7 +56,7 @@ from ..results import Term, EmpiricalSampler
 from ..assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
                             REGIME_WEAK, REGIME_STRONG, REGIME_NA,
                             SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN, SPECTRUM_NA)
-from ..turbulence.plane_wave_scintillation import WEAK_FLUCTUATION_LIMIT
+from ..turbulence.andrews.scintillation import WEAK_REGIME_LIMIT
 
 # Each quantity fixes the default Term name and category.
 _QUANTITY_SPEC = {
@@ -246,7 +246,11 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
         "The outer scale is infinite (the Kolmogorov limit)." if np.isinf(L0_m)
         else f"The outer scale is L0={L0_m:g} m (von Karman).")
 
-    weak = sigma2_I is None or float(sigma2_I) <= WEAK_FLUCTUATION_LIMIT
+    # The split-step solver is valid at ALL strengths, so this is a REGIME LABEL
+    # (weak vs strong), not an accuracy gate. Use the regime boundary sigma_R^2 =
+    # 1 (WEAK_REGIME_LIMIT), NOT the tighter lognormal-PDF house rule -- the
+    # empirical sampler assumes no lognormal, so the 0.25 rule does not apply.
+    weak = sigma2_I is None or float(sigma2_I) <= WEAK_REGIME_LIMIT
     regime = REGIME_WEAK if weak else REGIME_STRONG
     assumptions = Assumptions(
         beam_type=beam_type,
@@ -273,7 +277,7 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
     if not weak:
         assumptions.flag(
             f"Plane-wave scintillation index sigma2_I={float(sigma2_I):.2f} is "
-            f"past the weak-fluctuation limit {WEAK_FLUCTUATION_LIMIT}. The "
+            f"past the weak regime boundary {WEAK_REGIME_LIMIT}. The "
             "split-step field solver stays valid, but the fade deepens, so the "
             "deep-tail quantile needs a large n_trials to converge."
         )
@@ -290,7 +294,7 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
         "sigma2_I": None if sigma2_I is None else float(sigma2_I),
         "L0_m": float(L0_m),
         "weak_fluctuation_valid": bool(weak),
-        "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+        "weak_fluctuation_limit": WEAK_REGIME_LIMIT,
     }
     if meta_extra:
         meta.update(meta_extra)

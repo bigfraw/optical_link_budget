@@ -25,7 +25,8 @@ from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.anisoplanatism import (anisoplanatic_phase_variance,
                                          max_radial_order)
 from ..turbulence.ao import plane_wave_fried_parameter_profile, apply_compensation
-from ..turbulence.uplink_flux import _flux_result, WEAK_FLUCTUATION_LIMIT
+from ..turbulence.uplink_flux import _flux_result
+from ..turbulence.andrews.scintillation import UPLINK_SIGMA2X_LIMIT
 from ..turbulence.plane_wave_scintillation import plane_wave_scintillation_index
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..terminal import AO
@@ -113,12 +114,16 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     mean_db = np.array([-10 * np.log10(np.mean(rep["Is_summed"])) for rep in reps])
     sigma2_x = np.array([rep["sigma2_x_mean"] for rep in reps])
     valid = np.array([rep["weak_fluctuation_valid"] for rep in reps])
+    regime = np.array([rep["rytov_regime"] for rep in reps])
 
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Rytov weak fluctuation: sigma2_x < 0.25 (WEAK_FLUCTUATION_LIMIT). "
+        validity="Weak fluctuation on the log-amplitude variance, with the Dios "
+                 "reliability edge sigma2_x < UPLINK_SIGMA2X_LIMIT (0.6) as the "
+                 "hard limit -- more generous than the book sigma2_x = 0.25, "
+                 "because the coupled-flux index saturates gracefully. "
                  "Divergence enters the beam broadening AND the scintillation "
                  "index (through the diverged receiver-plane Lambda and Theta). "
                  "Mechanical pointing jitter folds into the beam-wander "
@@ -133,8 +138,8 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     if not np.all(valid):
         worst = float(sigma2_x[~valid].max())
         assumptions.flag(
-            f"sigma2_x={worst:.2f} exceeds the weak-fluctuation limit "
-            f"{WEAK_FLUCTUATION_LIMIT}; scintillation approaches saturation."
+            f"sigma2_x={worst:.2f} meets or exceeds the Dios reliability edge "
+            f"{UPLINK_SIGMA2X_LIMIT}; scintillation approaches saturation."
         )
     # Dios assumes an untruncated Gaussian launch beam. A central obscuration on
     # the launch aperture (the Transmitter override, else the Terminal value)
@@ -170,8 +175,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         note="uplink beam wander + jitter + scintillation, coupled-flux Monte Carlo",
         meta={
             "weak_fluctuation_valid": bool(valid[0]) if scalar else valid,
+            "rytov_regime": str(regime[0]) if scalar else regime,
             "sigma2_x": float(sigma2_x[0]) if scalar else sigma2_x,
-            "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+            "weak_fluctuation_limit": UPLINK_SIGMA2X_LIMIT,
             "w_diffraction_limited": reps[0]["w_diffraction_limited"] if scalar
                 else np.array([rep["w_diffraction_limited"] for rep in reps]),
             "w_st": reps[0]["w_st"] if scalar

@@ -27,11 +27,14 @@ scintillation index (through the receiver-plane Lambda and Theta of the diverged
 beam -- see ``_scintillation_beam``). A diverged beam is larger and more
 spherical-wave-like, so it scintillates less.
 
-Validity: the Rytov model is a weak-fluctuation model. When the mean
-log-amplitude variance sigma2_x exceeds WEAK_FLUCTUATION_LIMIT, the
-scintillation approaches saturation and the numbers are not trustworthy. The
-code carries a ``weak_fluctuation_valid`` flag and sigma2_x in the result, and
-it gives a warning.
+Validity: the Rytov model is a weak-fluctuation model. The code carries a
+three-tier ``rytov_regime`` label ("weak"/"soft"/"hard") from the shared gate
+(olb.turbulence.andrews.scintillation.rytov_weak), read on the log-amplitude
+variance sigma2_x with the Dios reliability edge sigma2_x = UPLINK_SIGMA2X_LIMIT
+(0.6) as the hard limit -- more generous than the book sigma_R^2 = 1
+(sigma2_x = 0.25) because the coupled-flux index saturates gracefully. The
+``weak_fluctuation_valid`` flag stays True through the soft band and turns False
+at "hard"; a soft or hard regime gives a warning.
 
 Launch-pupil limit: this model reads the launch beam through the waist w0 ONLY.
 It has no launch aperture and no central obscuration -- it is a pure, unclipped
@@ -55,12 +58,15 @@ from .coupled_flux import (spherical_wave_coherence_diameter,
 from ..beam import free_space_radius, launch_curvature
 from .profiles import DEFAULT_HS
 
-# Log-amplitude variance limit. Above it the Rytov model is not valid
-# (saturation). Andrews and Phillips, Laser Beam Propagation through Random
-# Media, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 8, the text below Eq. (23),
-# printed pp. 264-265, give the weak limit as sigma_R^2 < 1. With
-# sigma_I^2 = 4 sigma_x^2 (Ch. 8, Eq. (13)) that limit is sigma_x^2 < 0.25.
-WEAK_FLUCTUATION_LIMIT = 0.25
+# The uplink gates on the log-amplitude variance sigma_x^2. It uses the shared
+# three-tier weak-fluctuation gate (olb.turbulence.andrews.scintillation), read
+# on the Rytov-variance axis via sigma_R^2 = 4 sigma_x^2 (Andrews and Phillips,
+# 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 8, Eq. (13)). The HARD limit is the
+# Dios reliability edge sigma_x^2 = UPLINK_SIGMA2X_LIMIT (0.6), MORE generous
+# than the book sigma_R^2 = 1 (sigma_x^2 = 0.25) because the coupled-flux index
+# is a two-scale product that saturates gracefully (DOI 10.1364/AO.43.003866).
+from .andrews.scintillation import (rytov_weak, UPLINK_SIGMA2X_LIMIT,
+                                    RYTOV_CONFIDENT_WEAK, WEAK_REGIME_LIMIT)
 
 
 def _scintillation_beam(w0, L, wavelength, divergence_rad):
@@ -225,6 +231,12 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     Is_summed = Is_summed * (w_free_div / w_st) ** 2
     sigma2_x_mean = float(np.mean(sigma2_xs))
 
+    # The three-tier gate on the Rytov axis (sigma_R^2 = 4 sigma_x^2), with the
+    # Dios hard edge at sigma_x^2 = UPLINK_SIGMA2X_LIMIT. weak_fluctuation_valid
+    # stays True through the "soft" band (the coupled-flux index is trusted there)
+    # and turns False only at "hard".
+    regime = rytov_weak(4.0 * sigma2_x_mean,
+                        hard_limit=4.0 * UPLINK_SIGMA2X_LIMIT)
     result = {
         "w_st": float(w_st),
         "w_lt": float(w_lt),
@@ -232,13 +244,22 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
         "sigma2_x_mean": sigma2_x_mean,
         "Is_summed": Is_summed,
         "w_diffraction_limited": w_free_div,
-        "weak_fluctuation_valid": bool(sigma2_x_mean < WEAK_FLUCTUATION_LIMIT),
+        "rytov_regime": regime,
+        "weak_fluctuation_valid": regime != 'hard',
     }
-    if not result["weak_fluctuation_valid"]:
+    if regime == 'soft':
+        warnings.warn(
+            f"log-amplitude variance sigma2_x={sigma2_x_mean:.2f} is past the "
+            f"confident-weak value {RYTOV_CONFIDENT_WEAK / 4.0:.3f} but within the "
+            f"Dios reliability edge {UPLINK_SIGMA2X_LIMIT}; the coupled-flux loss "
+            "is usable, but check it against the fidelity-2 sim near the edge."
+        )
+    elif regime == 'hard':
         warnings.warn(
             f"log-amplitude variance sigma2_x={sigma2_x_mean:.2f} >= "
-            f"{WEAK_FLUCTUATION_LIMIT} -- scintillation approaching saturation, "
-            "turbulence loss not trustworthy (Rytov weak-fluctuation model exceeded)."
+            f"{UPLINK_SIGMA2X_LIMIT} (Dios reliability edge) -- scintillation "
+            "approaching saturation, turbulence loss not trustworthy. Use the "
+            "fidelity-2 Monte Carlo."
         )
     return result
 

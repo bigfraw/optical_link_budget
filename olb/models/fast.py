@@ -48,8 +48,9 @@ from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                             SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
 from ..terminal import TipTilt, AO
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
-                                                   WEAK_FLUCTUATION_LIMIT)
+from ..turbulence.plane_wave_scintillation import plane_wave_scintillation_index
+from ..turbulence.andrews.scintillation import (rytov_weak, LOGNORMAL_PDF_LIMIT,
+                                                WEAK_REGIME_LIMIT)
 
 
 def _load_fast():
@@ -268,14 +269,25 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     # AMPLITUDE saturation: only here does FAST's log-normal scintillation break.
     # A large coupled-power fade (deep 99% tail) does NOT trip this -- that fade is
     # phase-driven and modelled correctly by the screens.
-    if sigma2_I_amp > WEAK_FLUCTUATION_LIMIT:
+    # TWO distinct amplitude tests, kept separate (Conflict C-05): the REGIME
+    # boundary (does the amplitude log-normal saturate? sigma_R^2 = 1) and the
+    # tighter lognormal-PDF house rule (is the amplitude tail optimistic?
+    # sigma2_I = 0.25). The amplitude index is a plane wave, so Lambda is None.
+    amp_regime = rytov_weak(sigma2_I_amp)
+    if amp_regime == 'hard':
         assumptions.flag(
-            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} exceeds "
-            f"the weak-fluctuation limit {WEAK_FLUCTUATION_LIMIT}; FAST's log-normal "
-            "scintillation (the amplitude part) departs from data in saturation. The "
-            "phase-driven coupling fade is still modelled by the screens, but the "
-            "amplitude contribution to the fade tail is not trustworthy. Raise the "
-            "elevation, or note the amplitude regime."
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
+            f"the weak REGIME boundary {WEAK_REGIME_LIMIT}; FAST's log-normal "
+            "amplitude scintillation saturates. The phase-driven coupling fade is "
+            "still modelled by the screens, but the amplitude contribution to the "
+            "fade tail is not trustworthy. Raise the elevation."
+        )
+    elif sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
+        assumptions.flag(
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
+            f"the lognormal-PDF limit {LOGNORMAL_PDF_LIMIT} (but within the weak "
+            "regime); the amplitude log-normal TAIL is optimistic. The phase-driven "
+            "coupling fade dominates and is modelled by the screens."
         )
 
     zmax = params.get("ZMAX")
@@ -299,7 +311,8 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "npxls": int(getattr(sim, "Npxls", 0)),
             "coupled_scintillation_index": float(result.scintillation_index),
             "amplitude_sigma2_I": sigma2_I_amp,
-            "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
+            "amplitude_rytov_regime": amp_regime,
+            "amplitude_regime_weak": amp_regime != 'hard',
             "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
             "L0_m": L0,
             "l0_m": l0,
@@ -524,14 +537,25 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
                  "jitter is in the standalone pointing Term. Do not "
                  "double-count them.",
     )
-    if sigma2_I_amp > WEAK_FLUCTUATION_LIMIT:
+    # TWO distinct amplitude tests, kept separate (Conflict C-05): the REGIME
+    # boundary (does the amplitude log-normal saturate? sigma_R^2 = 1) and the
+    # tighter lognormal-PDF house rule (is the amplitude tail optimistic?
+    # sigma2_I = 0.25). The amplitude index is a plane wave, so Lambda is None.
+    amp_regime = rytov_weak(sigma2_I_amp)
+    if amp_regime == 'hard':
         assumptions.flag(
-            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} exceeds "
-            f"the weak-fluctuation limit {WEAK_FLUCTUATION_LIMIT}; FAST's log-normal "
-            "scintillation (the amplitude part) departs from data in saturation. The "
-            "phase-driven fade is still modelled by the screens, but the amplitude "
-            "contribution to the fade tail is not trustworthy. Raise the elevation, "
-            "or note the amplitude regime."
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
+            f"the weak REGIME boundary {WEAK_REGIME_LIMIT}; FAST's log-normal "
+            "amplitude scintillation saturates. The phase-driven fade is still "
+            "modelled by the screens, but the amplitude contribution to the fade "
+            "tail is not trustworthy. Raise the elevation."
+        )
+    elif sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
+        assumptions.flag(
+            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
+            f"the lognormal-PDF limit {LOGNORMAL_PDF_LIMIT} (but within the weak "
+            "regime); the amplitude log-normal TAIL is optimistic. The phase-driven "
+            "fade dominates and is modelled by the screens."
         )
 
     zmax = params.get("ZMAX")
@@ -552,7 +576,8 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "dtheta_arcsec": dtheta_arcsec,
             "coupled_scintillation_index": float(result.scintillation_index),
             "amplitude_sigma2_I": sigma2_I_amp,
-            "amplitude_regime_weak": bool(sigma2_I_amp <= WEAK_FLUCTUATION_LIMIT),
+            "amplitude_rytov_regime": amp_regime,
+            "amplitude_regime_weak": amp_regime != 'hard',
             "r0_los_m": float(getattr(sim, "r0_los", np.nan)),
             "L0_m": L0,
             "l0_m": l0,

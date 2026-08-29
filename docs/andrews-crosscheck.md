@@ -239,7 +239,7 @@ One row per equation. Sorted by olb file path, then by line number.
 | TL-02 | mean_db = (5/ln10) sigma_l^2 | olb/links/terrestrial.py:155 | mean dB loss of a unit-mean lognormal | 5.7.2 | Ch. 5, Eq. (93) | 156 | 181 | weak | exact | Duplicate of DL-02 (olb gap 10). |
 | TL-03 | quantile(p) | olb/links/terrestrial.py:160 | fade depth not exceeded a fraction p of the time | 5.7.2 | Ch. 5, Eq. (93) | 156 | 181 | weak | exact | Duplicate of DL-03 (olb gap 10). |
 | TL-04 | mean-log offset = -sigma_l^2/2 | olb/links/terrestrial.py:160,163 | E[I] = 1 normalisation | 9.11 | Ch. 9, Eq. (158) | 384 | 409 | weak | exact | Duplicate of DL-04 (olb gap 10). |
-| TL-05 | validity test sigma2_I < 0.25 on a Gaussian beam | olb/links/terrestrial.py:166-197 | weak-fluctuation gate for a beam wave | 5.2.2 | Ch. 5, Eq. (16) | 140 | 165 | on-axis | wrong | Andrews printed 140 says the plane-wave criterion is not adequate for a Gaussian beam, and needs BOTH sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1, with Lambda = 2L/(k W^2). olb tests only one on-axis index. A focused or a strongly diffracted terrestrial beam can pass a gate it must fail. |
+| TL-05 | validity test sigma2_I < 0.25 on a Gaussian beam | olb/links/terrestrial.py | weak-fluctuation gate for a beam wave | 5.2.2 | Ch. 5, Eq. (16) | 140 | 165 | on-axis | FIXED 2026-08-29 | Andrews printed 140 says the plane-wave criterion is not adequate for a Gaussian beam, and needs BOTH sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1, with Lambda = 2L/(k W^2). RESOLVED: the terrestrial Term now calls the shared `rytov_weak(sigma2_R, Lambda)` (olb/turbulence/andrews/scintillation.py), which applies both conditions via the binding strength sigma2_R * max(1, Lambda^(5/6)), so a focused beam is caught. The lognormal-PDF house rule is now the distinct LOGNORMAL_PDF_LIMIT on sigma2_I. |
 | PT-01 | h(r) = exp(-2 r^2/w_z^2) | olb/models/pointing.py:10 (docstring), used at :54 | on-axis Gaussian roll-off of collected power against boresight | 11.4.1 | Ch. 11, Eqs. (40) and (41) | 459 | 484 | on-axis; unobscured | exact | The book writes the same free-space Gaussian profile in the detector plane. |
 | PT-02 | E[loss] = (20/ln10) 2 sigma_r^2/w_z^2 | olb/models/pointing.py:54 | mean pointing-jitter loss in dB | - | - | - | - | on-axis; unobscured | unmatched | Ch. 11.3 states at printed 451 that it neglects any possible pointing error. Ch. 12 DOES treat pointing error, but through a beam-wander pointing variance folded into the off-axis scintillation index (Ch. 12, Eqs. (53) and (54), printed 503), not as an exponential dB fade. See Table 2 rows G-140 to G-142. |
 | PT-03 | loss_db quantile = -mean ln(1-p) | olb/models/pointing.py:101 | inverse exponential CDF of the pointing loss | - | - | - | - | on-axis | unmatched | Ch. 11.3.1 builds the fade quantile from a lognormal (Eq. (24)) or a gamma-gamma (Eq. (26)) irradiance PDF, printed 451-452. No exponential-in-dB fade law appears in Ch. 10, Ch. 11 or Ch. 12. |
@@ -1549,6 +1549,13 @@ p. 451, says the lognormal model misses.
   its own r0. The single-path `gaussian_fried.gaussian_fried_parameter` still
   keeps its collimated signature (a tidy-up; the budgets use the profile form,
   which is general in f0). See `docs/physics.md` Section 5e.
-- **TL-05 stays `wrong`**: the terrestrial weak gate still tests one plane-wave
-  threshold on a Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs both
-  sigma_R^2 < 1 and sigma_R^2 Lambda^(5/6) < 1.
+- **TL-05 code half FIXED (2026-08-29)**: the terrestrial weak gate is now the
+  shared beam-aware `rytov_weak(sigma2_R, Lambda)` of
+  `olb/turbulence/andrews/scintillation.py`, which applies BOTH Ch. 5, Eq. (16)
+  conditions (binding strength `sigma2_R * max(1, Lambda**(5/6))`), so a focused
+  beam is caught. The same helper serves the uplink coupled-flux path (Dios edge
+  `UPLINK_SIGMA2X_LIMIT = 0.6`). The lognormal-PDF house rule is now the distinct
+  `LOGNORMAL_PDF_LIMIT = 0.25` on sigma2_I. This closes the code half of
+  Conflict C-05 recommendation parts (1) and (3), and the beam half of TL-05.
+  Remaining: the downlink (plane-wave) and `fast.py` limits are untouched
+  follow-ups (both individually correct, no longer conflated).

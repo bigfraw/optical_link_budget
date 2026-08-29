@@ -67,6 +67,39 @@ from .beam import BeamParams, beam_params, effective_beam_params, wavenumber
 # printed pp. 264-265. Ch. 12, Eq. (40), printed p. 497, repeats it.
 WEAK_REGIME_LIMIT = 1.0
 
+# The three-tier regime gate reads two thresholds on the SAME axis, the Rytov
+# variance sigma_R^2 (the turbulence-strength invariant). See `rytov_weak`.
+#
+#   sigma_R^2 <= RYTOV_CONFIDENT_WEAK   firmly weak; no warning.
+#   ... < sigma_R^2 < WEAK_REGIME_LIMIT canonical weak; a SOFT warning.
+#   sigma_R^2 >= WEAK_REGIME_LIMIT      leaving weak; a HARD warning.
+#
+# RYTOV_CONFIDENT_WEAK is a HOUSE value, not a book number: below it the Rytov
+# line and the true index agree to a few percent (Andrews et al. 1999, Fig.
+# behaviour, DOI 10.1364/JOSAA.16.001417; the book weak boundary is 1.0). The
+# HARD limit WEAK_REGIME_LIMIT is the book boundary above.
+RYTOV_CONFIDENT_WEAK = 0.3
+
+# The uplink coupled-flux hard limit, expressed on the log-amplitude variance
+# sigma_x^2. Dios et al. (DOI 10.1364/AO.43.003866) find the two-scale Gaussian
+# beam-wave index stays reliable to about sigma_x^2 = 0.6 -- MORE generous than
+# the book sigma_R^2 = 1 (which is sigma_x^2 = 0.25, via sigma_I^2 = 4 sigma_x^2,
+# Ch. 8, Eq. (13)), because the index is a product of a large-scale and a
+# small-scale factor that saturates gracefully. On the sigma_R^2 axis this is
+# sigma_R^2 = 4 * 0.6 = 2.4, so the uplink passes hard_limit = 4 *
+# UPLINK_SIGMA2X_LIMIT to `rytov_weak`.
+UPLINK_SIGMA2X_LIMIT = 0.6
+
+# A DISTINCT house rule, NOT a regime boundary: the largest scintillation INDEX
+# sigma_I^2 for which the lognormal irradiance PDF is trusted for fade draws. It
+# is 4x tighter than the Rytov regime boundary (sigma_I^2 = 1) because the
+# lognormal tail goes optimistic against simulation well before the Rytov theory
+# for the index itself fails (Andrews and Phillips, 2nd ed. (2005), Ch. 11, Sec.
+# 11.3, printed p. 451). Keep this SEPARATE from the regime gate above: this
+# gates the PDF SHAPE (lognormal vs gamma-gamma), the regime gate certifies the
+# analytic INDEX. Do not conflate the two, and do not "fix" this to 1.0.
+LOGNORMAL_PDF_LIMIT = 0.25
+
 # Q_l = L kl^2/k = 10.89 L/(k l0^2), with kl = 3.3/l0 the inner-scale wavenumber
 # of the modified atmospheric spectrum. Source: Andrews and Phillips, 2nd ed.
 # (2005), DOI 10.1117/3.626196, Ch. 9, text below Eq. (48), printed p. 338, and
@@ -348,6 +381,67 @@ def beam_rytov_variance(sigma2_R, beam):
     phase = np.cos((5.0 / 6.0) * np.arctan2(a, 2.0 * beam.lam))
     return 3.86 * sigma2_R * (0.40 * modulus * phase
                               - (11.0 / 16.0) * beam.lam ** (5.0 / 6.0))
+
+
+def rytov_weak(sigma2_R, Lambda=None, *, hard_limit=WEAK_REGIME_LIMIT,
+               soft_limit=RYTOV_CONFIDENT_WEAK):
+    '''
+    Classify the fluctuation regime as "weak", "soft", or "hard".
+
+    This is the one shared weak-fluctuation gate. It reads the Rytov variance
+    (the turbulence-strength invariant) against two thresholds and returns a
+    label the caller turns into no warning, a soft warning, or a hard warning.
+
+        sigma_R^2 <= soft_limit    -> "weak"   firmly weak; trust the model.
+        soft_limit < ... < hard    -> "soft"   canonical weak; a soft warning.
+        sigma_R^2 >= hard_limit    -> "hard"   leaving weak; a hard warning.
+
+    GAUSSIAN BEAM. The plane-wave threshold is not adequate for a beam wave.
+    Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 5, Eq. (16),
+    printed p. 140, need BOTH sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1, with
+    Lambda the OUTPUT-plane (receiver) Gaussian-beam parameter. Pass `Lambda` and
+    the gate reads the binding strength
+
+        s = sigma_R^2 * max(1, Lambda^(5/6)),
+
+    so a FOCUSED beam (Lambda > 1) trips the gate before sigma_R^2 alone would,
+    and a collimated or divergent beam (Lambda <= 0.5) is unchanged (the second
+    condition is looser and never binds first).
+
+    The two limits are keyword-only so a caller on a different axis can move
+    them. The uplink works on the log-amplitude variance sigma_x^2 (with
+    sigma_R^2 = 4 sigma_x^2, Ch. 8, Eq. (13)) and the Dios two-scale index is
+    reliable to sigma_x^2 = UPLINK_SIGMA2X_LIMIT; it calls this with the strength
+    already on the sigma_R^2 axis and hard_limit = 4 * UPLINK_SIGMA2X_LIMIT.
+
+    NOTE. This gate certifies the analytic INDEX (is Rytov theory valid?). It is
+    NOT the lognormal-PDF house rule LOGNORMAL_PDF_LIMIT, which gates the fade
+    PDF SHAPE on the scintillation index sigma_I^2. Keep the two separate.
+
+    Parameters:
+        sigma2_R : float
+            The strength on the Rytov-variance axis. Scalar.
+        Lambda : float, optional
+            The output-plane Gaussian-beam parameter. None for a plane wave (no
+            beam correction).
+        hard_limit : float
+            The hard-warning threshold (default WEAK_REGIME_LIMIT = 1.0, the
+            book boundary).
+        soft_limit : float
+            The soft-warning threshold (default RYTOV_CONFIDENT_WEAK = 0.3).
+
+    Returns:
+        str
+            "weak", "soft", or "hard".
+    '''
+    s = float(sigma2_R)
+    if Lambda is not None:
+        s *= max(1.0, float(Lambda) ** (5.0 / 6.0))
+    if s >= hard_limit:
+        return 'hard'
+    if s > soft_limit:
+        return 'soft'
+    return 'weak'
 
 
 def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
@@ -659,6 +753,34 @@ if __name__ == '__main__':
         pass
     else:
         raise AssertionError('a convergent beam must raise')
+
+    # ---------------- the three-tier weak gate ----------------
+    # Plane wave (no beam correction): the tiers sit at 0.3 and 1.0 on sigma_R^2.
+    assert rytov_weak(0.2) == 'weak'
+    assert rytov_weak(0.3) == 'weak'            # boundary is inclusive-weak
+    assert rytov_weak(0.5) == 'soft'
+    assert rytov_weak(1.0) == 'hard'
+    assert rytov_weak(3.0) == 'hard'
+    # A collimated / divergent beam has Lambda <= 0.5, so Lambda^(5/6) < 1 and
+    # the beam condition never binds: the label is the plane-wave label.
+    assert rytov_weak(0.5, Lambda=0.4) == 'soft'
+    assert rytov_weak(0.5, Lambda=0.0) == 'soft'
+    # A FOCUSED beam (Lambda > 1) trips the gate before sigma_R^2 alone does:
+    # sigma_R^2 = 0.5 is "soft" as a plane wave but "hard" at Lambda = 4
+    # (0.5 * 4^(5/6) = 1.66 >= 1). This is the TL-05 fix in one line.
+    assert rytov_weak(0.5) == 'soft'
+    assert rytov_weak(0.5, Lambda=4.0) == 'hard', 0.5 * 4.0 ** (5.0 / 6.0)
+    # The uplink axis: pass the strength as sigma_R^2 = 4 sigma_x^2 and raise the
+    # hard limit to 4 * UPLINK_SIGMA2X_LIMIT = 2.4. The Dios edge sigma_x^2 = 0.6
+    # is then "hard", and the book sigma_x^2 = 0.25 (sigma_R^2 = 1) is "soft".
+    up_hard = 4.0 * UPLINK_SIGMA2X_LIMIT
+    assert rytov_weak(4.0 * 0.25, hard_limit=up_hard) == 'soft'
+    assert rytov_weak(4.0 * 0.6, hard_limit=up_hard) == 'hard'
+    assert rytov_weak(4.0 * 0.05, hard_limit=up_hard) == 'weak'
+    # The two house rules are distinct numbers, not the same gate.
+    assert LOGNORMAL_PDF_LIMIT == 0.25 and WEAK_REGIME_LIMIT == 1.0
+    assert RYTOV_CONFIDENT_WEAK == 0.3 and UPLINK_SIGMA2X_LIMIT == 0.6
+    print('[gate] rytov_weak tiers (plane, collimated, focused, uplink) ok')
 
     # The GAUSSIAN two-scale STRONG branch is refused, not guessed.
     try:

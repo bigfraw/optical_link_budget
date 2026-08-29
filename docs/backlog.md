@@ -272,6 +272,31 @@ The path forward for each is a second reference or a derivation.
   equations; the jitter correction sits in the MC path only
   (olb/turbulence/beam_wave_scintillation.py:46). Converge on ONE
   implementation; do not make a third copy.
+- **1-6. Certify the aperture-averaged lognormal power draw against
+  fidelity 2 (owner-flagged 2026-08-29).** The question: in WEAK turbulence,
+  does the received-power distribution under APERTURE AVERAGING still follow the
+  lognormal that the cheap analytic route assumes? The route takes the
+  aperture-averaged index sigma2_P = A sigma2_I and draws from a lognormal (see
+  olb/links/terrestrial.py:162, olb/links/downlink.py:88). But an
+  aperture integrates a correlated lognormal field, and a sum of lognormals is
+  NOT lognormal: as D grows the power drifts toward Gaussian (thinner tails), and
+  for a finite Gaussian beam any beam wander adds a pointing tail the single
+  index cannot describe. The test: run the fidelity-2 split-step Monte Carlo
+  (olb/waveoptics/turbulence), histogram the aperture-collected power across
+  trials, and compare the empirical PDF (and, crucially, the deep-fade tail
+  quantiles) against the lognormal built from the analytic mean + sigma2_P at the
+  matched sigma2_I. Sweep D/rho_0 (point aperture to strong averaging) and the
+  beam geometry (collimated, diverged, focused). A pass certifies that the
+  'easy' analytic weak-turbulence calc can generate a trustworthy power
+  distribution; a fail bounds where it may be used and points to the composite
+  (lognormal x pointing) or a direct empirical sampler.
+  NOTE ON LADDER LABELLING: producing a power DISTRIBUTION (draws) from an
+  analytic sigma2_I is STATISTICAL, so by the olb ladder it is FIDELITY 1, even
+  though the sigma2_I itself is an easy fidelity-0 analytic quantity. The owner
+  confirms this labelling is intended and fine. The fidelity-2 sim here is the
+  reference that certifies the fidelity-1 draw; it is not a new budget path.
+  See the memory `aperture-averaged-lognormal-certification` and the discussion
+  of aperture averaging and beam wander in the C-05 / TL-05 thread.
 
 ---
 

@@ -15,10 +15,11 @@ Source of the lognormal irradiance PDF: Andrews and Phillips, Laser Beam
 Propagation through Random Media, 2nd ed. (2005), Ch. 5. Phi_inv is the inverse
 standard normal CDF.
 
-Validity: the Rytov (lognormal) model is a weak-fluctuation model. The code
-carries sigma2_I in Term.meta and sets a weak_fluctuation_valid flag. It gives a
-warning when sigma2_I exceeds WEAK_FLUCTUATION_LIMIT. Above that limit use
-model="auto", which selects the gamma-gamma Term. The gamma-gamma Term holds for
+Validity: the lognormal Term is trusted while the point index sigma2_I stays
+below the lognormal-PDF house rule LOGNORMAL_PDF_LIMIT (0.25); the gamma-gamma
+Term carries a separate rytov_regime label from the REGIME gate (boundary
+sigma_R^2 = 1). The lognormal Term warns when sigma2_I exceeds LOGNORMAL_PDF_LIMIT.
+Above that limit use model="auto", which selects the gamma-gamma Term. The gamma-gamma Term holds for
 every fluctuation strength: Andrews and Phillips, 2nd ed. (2005),
 DOI 10.1117/3.626196, Ch. 9, Eqs. (137) and (138), printed p. 370, and Ch. 12,
 Eq. (40), printed p. 497.
@@ -42,11 +43,12 @@ from ..turbulence.andrews.distributions import (gamma_gamma_mean_log,
                                                 gamma_gamma_rvs,
                                                 gamma_gamma_scintillation_index)
 from ..turbulence.andrews.scintillation import (large_scale_log_variance,
-                                                small_scale_log_variance)
+                                                small_scale_log_variance,
+                                                rytov_weak, LOGNORMAL_PDF_LIMIT,
+                                                WEAK_REGIME_LIMIT)
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
-                                        aperture_averaged_scintillation_index,
-                                        WEAK_FLUCTUATION_LIMIT)
+                                        aperture_averaged_scintillation_index)
 
 _LN10 = np.log(10.0)
 
@@ -90,17 +92,21 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
                           size=(n, *base_shape))
         return -10.0 * np.log10(P)
 
-    # The Rytov approximation validity is a turbulence property. Test it with
-    # the point sigma2_I, not the aperture-averaged sigma2_P.
-    valid = np.asarray(sigma2_I) < WEAK_FLUCTUATION_LIMIT
+    # This is a LOGNORMAL Term, so its binding validity is the lognormal-PDF
+    # house rule on the point index sigma2_I (NOT the aperture-averaged sigma2_P,
+    # and NOT the regime boundary sigma_R^2 = 1, which is 4x looser -- see
+    # Conflict C-05). Test the PDF shape with LOGNORMAL_PDF_LIMIT.
+    valid = np.asarray(sigma2_I) < LOGNORMAL_PDF_LIMIT
     assumptions = Assumptions(
         beam_type=BEAM_PLANE_WAVE,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Weak fluctuation: sigma2_I < 0.25. Aperture averaging uses "
-                 "the distributed-path spectral integral over height and "
-                 "spatial wavenumber. The aperture-averaging filter assumes a "
-                 "uniform circular aperture with no central obscuration.",
+        validity="Lognormal fade PDF trusted for sigma2_I < LOGNORMAL_PDF_LIMIT "
+                 "(0.25, the Ch. 11.3 optimistic-tail house rule, NOT the wider "
+                 "regime boundary sigma_R^2 = 1). Aperture averaging uses the "
+                 "distributed-path spectral integral over height and spatial "
+                 "wavenumber. The aperture-averaging filter assumes a uniform "
+                 "circular aperture with no central obscuration.",
     )
     # The circular-aperture filter models an unobscured aperture. A central
     # obscuration (Cassegrain secondary) breaks that. Flag the violation.
@@ -114,14 +120,14 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     if not np.all(valid):
         worst = float(np.asarray(sigma2_I)[~valid].max())
         assumptions.flag(
-            f"sigma2_I={worst:.3f} exceeds the weak-fluctuation limit 0.25; "
-            "use gamma-gamma or Monte Carlo."
+            f"sigma2_I={worst:.3f} exceeds the lognormal-PDF house limit "
+            f"{LOGNORMAL_PDF_LIMIT}; the lognormal fade tail is optimistic. Use "
+            "gamma-gamma (model='auto') or Monte Carlo."
         )
         warnings.warn(
             f"plane-wave scintillation index sigma2_I={np.max(sigma2_I):.3f} >= "
-            f"{WEAK_FLUCTUATION_LIMIT} -- the Rytov weak-fluctuation model is "
-            "exceeded. The lognormal fade is not trusted. Use the gamma-gamma "
-            "model or the Monte Carlo model."
+            f"{LOGNORMAL_PDF_LIMIT} -- the lognormal fade tail is not trusted. "
+            "Use the gamma-gamma model (model='auto') or the Monte Carlo model."
         )
 
     return Term(
@@ -137,7 +143,7 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
             "sigma2_P": float(sigma2_P) if base_shape == () else np.asarray(sigma2_P),
             "aperture_averaging_factor": float(A) if np.ndim(A) == 0 else np.asarray(A),
             "weak_fluctuation_valid": bool(valid) if base_shape == () else valid,
-            "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+            "weak_fluctuation_limit": LOGNORMAL_PDF_LIMIT,
         },
         assumptions=assumptions,
     )
@@ -230,8 +236,15 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
             "sigma2_P": sigma2_I,
             "aperture_averaging_factor": 1.0,
             "sigma2_R": sigma2_R,
-            "weak_fluctuation_valid": bool(sigma2_R < WEAK_FLUCTUATION_LIMIT),
-            "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+            # The gamma-gamma Term is valid at ALL strengths, so this flag is
+            # purely informational: is the case actually in the weak REGIME? Test
+            # the true Rytov variance against the REGIME boundary (1.0), NOT the
+            # lognormal-PDF house rule (0.25) -- that was the factor-of-4 error of
+            # Conflict C-05. sigma2_R here is a plane wave, so Lambda is None.
+            "rytov_regime": rytov_weak(float(np.max(sigma2_R))),
+            "weak_fluctuation_valid": bool(np.all(np.asarray(sigma2_R)
+                                                  < WEAK_REGIME_LIMIT)),
+            "weak_fluctuation_limit": WEAK_REGIME_LIMIT,
         },
         assumptions=assumptions,
     )
@@ -326,17 +339,18 @@ def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
 
     The selector reads the POINT scintillation index sigma2_I, which is the
     slant plane-wave Rytov variance. It returns:
-        sigma2_I <  WEAK_FLUCTUATION_LIMIT   the lognormal Term
-        sigma2_I >= WEAK_FLUCTUATION_LIMIT   the gamma-gamma Term
+        sigma2_I <  LOGNORMAL_PDF_LIMIT   the lognormal Term
+        sigma2_I >= LOGNORMAL_PDF_LIMIT   the gamma-gamma Term
 
-    The switch point is the house limit 0.25, not the book limit 1.0. Andrews
-    and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, put the weak boundary at
-    sigma_R^2 < 1 (Ch. 5, Eq. (15), printed p. 140; Ch. 12, Eq. (40), printed
-    p. 497). olb keeps the 4 times stricter house threshold, because Ch. 11,
+    The switch point is the lognormal-PDF house rule 0.25, DELIBERATELY tighter
+    than the regime boundary sigma_R^2 = 1 (Andrews and Phillips, 2nd ed. (2005),
+    DOI 10.1117/3.626196, Ch. 5, Eq. (15), printed p. 140; Ch. 12, Eq. (40),
+    printed p. 497). This is NOT the factor-of-4 conflation: the switch is a
+    PDF-fidelity decision, not a regime test. olb switches early because Ch. 11,
     Sec. 11.3, printed p. 451, says the lognormal tail is too thin, and this
     selector reports fade depths from that tail. The gamma-gamma chain of
     Ch. 12, Eq. (40) is valid at every fluctuation strength, so the early switch
-    costs no validity. See `WEAK_FLUCTUATION_LIMIT` and Conflict C-05 in
+    costs no validity. See `LOGNORMAL_PDF_LIMIT` and Conflict C-05 in
     docs/andrews-crosscheck.md.
 
     The gamma-gamma Term takes a scalar elevation only. For an elevation array
@@ -347,10 +361,10 @@ def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
     sigma2_I = plane_wave_scintillation_index(geometry.elevation_deg,
                                               scenario.rx_terminal.wavelength_m,
                                               hs, cn2_profile)
-    weak = np.all(np.asarray(sigma2_I) < WEAK_FLUCTUATION_LIMIT)
+    weak = np.all(np.asarray(sigma2_I) < LOGNORMAL_PDF_LIMIT)
     if not weak and np.ndim(sigma2_I) != 0:
         warnings.warn(
-            "auto selector: sigma2_I exceeds the weak-fluctuation limit at one "
+            "auto selector: sigma2_I exceeds the lognormal-PDF limit at one "
             "elevation or more, but the gamma-gamma Term takes a scalar "
             "elevation only. The lognormal Term is returned. Loop over the "
             "elevations to get the gamma-gamma fade."
@@ -682,7 +696,9 @@ if __name__ == '__main__':
     gg = downlink_scintillation_term(scenario, geom15, model="auto",
                                      cn2_profile=cn2)
     assert gg.meta["model"] == "gamma_gamma", gg.meta["model"]
-    assert gg.meta["sigma2_R"] >= WEAK_FLUCTUATION_LIMIT, gg.meta["sigma2_R"]
+    # The case passed the lognormal-PDF switch (sigma2_I >= LOGNORMAL_PDF_LIMIT),
+    # so it routed to gamma-gamma; sigma2_R is comfortably past 0.25 too.
+    assert gg.meta["sigma2_I"] >= LOGNORMAL_PDF_LIMIT, gg.meta["sigma2_I"]
     gg99 = gg.quantile_db(0.99)
     assert gg99 > gg.mean_db > 0.0, (gg99, gg.mean_db)
     assert not gg.mean_only

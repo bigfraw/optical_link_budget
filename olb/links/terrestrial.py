@@ -37,8 +37,10 @@ from ..models.extinction import terrestrial_extinction_term
 from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.beam_wave_scintillation import on_axis_scintillation_index
-from ..turbulence.plane_wave_scintillation import (aperture_averaging_factor_weak,
-                                        WEAK_FLUCTUATION_LIMIT)
+from ..turbulence.plane_wave_scintillation import aperture_averaging_factor_weak
+from ..turbulence.andrews.beam import beam_params
+from ..turbulence.andrews.scintillation import (rytov_weak, LOGNORMAL_PDF_LIMIT,
+                                        RYTOV_CONFIDENT_WEAK, WEAK_REGIME_LIMIT)
 
 # Below this launch-truncation loss the beam is an untruncated Gaussian, so the
 # transmit Gaussian-efficiency term is skipped [dB]. Matches olb.links.uplink.
@@ -85,10 +87,14 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     Source of the lognormal irradiance PDF: Andrews and Phillips, 2nd ed. (2005),
     Ch. 5. Phi_inv is the inverse standard normal CDF.
 
-    Validity: the lognormal model is a weak-fluctuation model. The Term carries
-    sigma2_I in Term.meta and sets a weak_fluctuation_valid flag. It flags a
-    violation and gives a warning when sigma2_I exceeds WEAK_FLUCTUATION_LIMIT.
-    Above that limit use a gamma-gamma or a Monte Carlo model.
+    Validity: TWO separate weak-fluctuation tests, kept distinct (Conflict C-05,
+    TL-05). The Term carries a `rytov_regime` label ("weak"/"soft"/"hard") from
+    the beam-aware regime gate on the Rytov variance (both Ch. 5, Eq. (16)
+    conditions, so a focused beam is caught), and a `weak_fluctuation_valid` flag
+    from the tighter lognormal-PDF house rule sigma2_I < LOGNORMAL_PDF_LIMIT
+    (0.25). A "soft" regime gives a soft warning; a "hard" regime or an invalid
+    PDF flags the assumptions and warns. Above the weak regime use the fidelity-2
+    Monte Carlo; above the PDF limit use gamma-gamma or Monte Carlo.
 
     Parameters:
         scenario : TerrestrialScenario
@@ -163,19 +169,37 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
         P = rng.lognormal(mean=-sigma_l2 / 2.0, sigma=sigma_l, size=n)
         return -10.0 * np.log10(P)
 
-    # The Rytov (lognormal) validity is a turbulence property. Test it with the
-    # point index sigma2_I, not the aperture-averaged sigma2_P.
-    valid = sigma2_I < WEAK_FLUCTUATION_LIMIT
+    # TWO separate weak-fluctuation tests (see olb.turbulence.andrews.scintillation
+    # and Conflict C-05 / TL-05 in docs/andrews-crosscheck.md):
+    #
+    #  1. The REGIME gate: is the analytic Rytov index valid at all? This is a
+    #     turbulence-strength test on the Rytov variance sigma2_R, and for a
+    #     Gaussian beam it needs BOTH sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1
+    #     (Andrews and Phillips 2005, Ch. 5, Eq. (16), printed p. 140). rytov_weak
+    #     reads Lambda (the receiver-plane beam parameter, collimated launch) so a
+    #     focused beam trips the gate a plane-wave test would pass. It returns
+    #     "weak" (firm), "soft" (canonical weak, a soft warning) or "hard"
+    #     (leaving weak, a hard warning).
+    #  2. The lognormal-PDF house rule: is the fade PDF SHAPE trusted? This is a
+    #     tighter test on the index sigma2_I < LOGNORMAL_PDF_LIMIT (0.25, from the
+    #     optimistic lognormal tail, Ch. 11.3, printed p. 451), kept SEPARATE.
+    k_wave = 2.0 * np.pi / wavelength
+    sigma2_R = float(1.23 * cn2 * k_wave ** (7.0 / 6.0) * L ** (11.0 / 6.0))
+    Lambda = float(beam_params(w0, wavelength, L).lam)   # collimated launch
+    regime = rytov_weak(sigma2_R, Lambda)
+    pdf_valid = bool(sigma2_I < LOGNORMAL_PDF_LIMIT)
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Weak fluctuation: sigma2_I < 0.25. The point index is the "
-                 "on-axis Gaussian beam-wave index over the constant-Cn2 "
-                 "horizontal path (Dios et al. 2004, Eq. 16). The weak "
-                 "aperture-averaging factor assumes a uniform circular aperture "
-                 "with no central obscuration and a small inner scale (Andrews "
-                 "and Phillips 2005, Ch. 10).",
+        validity="Weak fluctuation, TWO conditions. Regime: the Gaussian-beam "
+                 "gate sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1 (Andrews and "
+                 "Phillips 2005, Ch. 5, Eq. (16)). PDF shape: sigma2_I < 0.25, a "
+                 "house rule (Ch. 11.3). The point index is the on-axis Gaussian "
+                 "beam-wave index over the constant-Cn2 horizontal path (Dios et "
+                 "al. 2004, Eq. 16). The weak aperture-averaging factor assumes a "
+                 "uniform circular aperture with no central obscuration and a "
+                 "small inner scale (Andrews and Phillips 2005, Ch. 10).",
     )
     # The weak Kolmogorov averaging factor models a uniform circular aperture. A
     # central obscuration (Cassegrain secondary) breaks that. Flag the violation.
@@ -185,17 +209,36 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
             f"(ratio={rx.obscuration_ratio:.3f}); the weak aperture-averaging "
             "factor assumes a uniform circular aperture and does not model it."
         )
-    if not valid:
+    if regime == 'soft':
+        warnings.warn(
+            f"horizontal Gaussian-beam Rytov variance sigma2_R={sigma2_R:.3f} "
+            f"(Lambda={Lambda:.3f}) is past the confident-weak value "
+            f"{RYTOV_CONFIDENT_WEAK} but within the book weak limit "
+            f"{WEAK_REGIME_LIMIT}; the analytic index is usable, but check it "
+            "against a Monte Carlo near the top of the band."
+        )
+    elif regime == 'hard':
         assumptions.flag(
-            f"sigma2_I={sigma2_I:.3f} exceeds the weak-fluctuation limit "
-            f"{WEAK_FLUCTUATION_LIMIT}; the lognormal fade is not trusted. Use "
+            f"sigma2_R={sigma2_R:.3f} (Lambda={Lambda:.3f}) meets or exceeds the "
+            f"Gaussian-beam weak limit (sigma_R^2 or sigma_R^2 Lambda^(5/6) >= "
+            f"{WEAK_REGIME_LIMIT}); the analytic Rytov index is not trusted. Use "
+            "Monte Carlo (fidelity 2)."
+        )
+        warnings.warn(
+            f"horizontal Gaussian-beam Rytov variance sigma2_R={sigma2_R:.3f} "
+            f"(Lambda={Lambda:.3f}) leaves the weak regime -- the analytic index "
+            "is not trusted. Use the fidelity-2 Monte Carlo."
+        )
+    if not pdf_valid:
+        assumptions.flag(
+            f"sigma2_I={sigma2_I:.3f} exceeds the lognormal-PDF house limit "
+            f"{LOGNORMAL_PDF_LIMIT}; the lognormal fade tail is not trusted. Use "
             "gamma-gamma or Monte Carlo."
         )
         warnings.warn(
             f"horizontal Gaussian-beam scintillation index sigma2_I={sigma2_I:.3f} "
-            f">= {WEAK_FLUCTUATION_LIMIT} -- the Rytov weak-fluctuation model is "
-            "exceeded. The lognormal fade is not trusted. Use a gamma-gamma or a "
-            "Monte Carlo model."
+            f">= {LOGNORMAL_PDF_LIMIT} -- the lognormal fade tail is optimistic. "
+            "Use a gamma-gamma or a Monte Carlo model."
         )
 
     return Term(
@@ -211,8 +254,14 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
             "sigma2_I": sigma2_I,
             "sigma2_P": float(sigma2_P),
             "aperture_averaging_factor": A,
-            "weak_fluctuation_valid": bool(valid),
-            "weak_fluctuation_limit": WEAK_FLUCTUATION_LIMIT,
+            "sigma2_R": sigma2_R,
+            "Lambda": Lambda,
+            "rytov_regime": regime,
+            # weak_fluctuation_valid keeps its meaning: the lognormal PDF SHAPE
+            # is trusted (sigma2_I < LOGNORMAL_PDF_LIMIT). The regime label above
+            # is the separate index-validity test.
+            "weak_fluctuation_valid": pdf_valid,
+            "weak_fluctuation_limit": LOGNORMAL_PDF_LIMIT,
         },
         assumptions=assumptions,
     )

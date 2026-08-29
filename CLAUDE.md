@@ -288,8 +288,31 @@ Open items:
   tidy-up; the budgets use the profile form, which is general in f0).
 - **Gap 8, the annular (obscured) receive aperture, needs another source.** A
   full-text search of the book finds no obscured-aperture filter.
-- **TL-05**: the terrestrial weak gate tests one plane-wave threshold on a
-  Gaussian beam. Ch. 5, Eq. (16), printed p. 140, needs two.
+- **TL-05 / C-05 code half DONE (2026-08-29).** The weak-fluctuation gate is
+  now one shared, beam-aware helper: `olb.turbulence.andrews.scintillation`
+  `rytov_weak(sigma2_R, Lambda=None)` returns `"weak"|"soft"|"hard"` on the
+  Rytov-variance axis with tiers `RYTOV_CONFIDENT_WEAK=0.3` (soft) and
+  `WEAK_REGIME_LIMIT=1.0` (hard). For a Gaussian beam it reads the receiver-plane
+  `Lambda` and applies BOTH Ch. 5, Eq. (16) conditions (the binding strength is
+  `sigma2_R * max(1, Lambda**(5/6))`), so a FOCUSED beam trips a gate a
+  plane-wave test would pass (TL-05). The terrestrial scintillation Term
+  (`olb/links/terrestrial.py`) and the uplink coupled-flux path
+  (`olb/turbulence/uplink_flux.py`, `olb/links/uplink.py`) both call it; the
+  uplink uses the Dios reliability edge `UPLINK_SIGMA2X_LIMIT=0.6` on the
+  log-amplitude variance (hard_limit = 4*0.6 on the sigma2_R axis), MORE generous
+  than the book because the two-scale coupled-flux index saturates gracefully.
+  The lognormal-PDF house rule is now a DISTINCT named limit
+  `LOGNORMAL_PDF_LIMIT=0.25` on sigma2_I (fade-PDF shape), no longer conflated
+  with the regime gate. The old `WEAK_FLUCTUATION_LIMIT` name is RETIRED from the
+  code: the four constants live only in `andrews/scintillation.py`. The downlink
+  (`links/downlink.py`) now uses `LOGNORMAL_PDF_LIMIT` for the lognormal Term and
+  the model="auto" switch (a PDF decision) and `WEAK_REGIME_LIMIT` for the
+  gamma-gamma Term's regime flag (was the factor-of-4 error: it tested the true
+  sigma2_R against 0.25). `fast.py` (both the SMF and the pre-compensated uplink
+  Terms) gives the amplitude log-normal two flags: a REGIME hard-flag at 1.0 and
+  a lognormal-PDF caution at 0.25 (meta `amplitude_rytov_regime`). `waveoptics.py`
+  uses `WEAK_REGIME_LIMIT` for its weak/strong regime LABEL (the split-step solver
+  is valid at all strengths, so 0.25 there was also too tight).
 - **`downlink_budget` still defaults to `model="lognormal"`.** The selector
   `model="auto"` exists but is opt-in. The switch is an owner decision,
   because the gamma-gamma Term is point-receiver (see above) and the change
