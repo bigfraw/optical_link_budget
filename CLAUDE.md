@@ -245,14 +245,17 @@ physics function in `olb/turbulence/**` carries an `@assumes(...)` decorator (88
 decorated functions across 18 modules; the `olb/assumptions.py` self-check asserts
 a floor of 85, so a dropped decorator fails mechanically). A prose-only limit is
 now a runtime `Constraint` check, and a Term factory opens `trace_assumptions()`
-so the Term inherits the union. Three newly ENFORCED checks flip `ok` to not-ok in
-cases that read ok before, and this is the INTENDED effect of the refactor, NOT a
-regression: the first zenith enforcement (a low-elevation slant), the Gaussian
-second weak condition (a focused beam), and the extended-Marechal limit (a strong
-AO residual). Honest status items:
+so the Term inherits the union. Newly ENFORCED checks flip `ok` to not-ok in cases
+that read ok before, and this is the INTENDED effect of the refactor, NOT a
+regression. Two flip a CURRENT budget: the Gaussian second weak condition (a
+focused beam) and the extended-Marechal limit (a strong AO residual). The first
+zenith enforcement is real but LATENT: the production factories trace the parallel
+`plane_wave_scintillation` and `uplink_flux` feeders, not `andrews.paths`, so the
+zenith check fires only when a factory wires the `andrews.paths` slant integrators.
+Honest status items:
 - The 0.25 house rule keeps ONE canonical definition, `LOGNORMAL_PDF_LIMIT = 0.25`
-  in `andrews/scintillation.py`. The retired `WEAK_FLUCTUATION_LIMIT` name is NOT
-  resurrected; it is only re-aliased where the import name is kept.
+  in `andrews/scintillation.py`. The old `WEAK_FLUCTUATION_LIMIT` name is fully
+  retired: no source file references it.
 - The terrestrial SMF walk-off weak-limit gap is CLOSED by a FACTORY regime flag,
   not by a function-owned check, because the vendored Dios wander kernel
   `coupled_flux.beam_wander_variance` has no runtime check to inherit. A

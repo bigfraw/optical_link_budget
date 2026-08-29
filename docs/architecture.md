@@ -316,10 +316,9 @@ self-check). It is a latent guard, not a live budget-flipper today.
 Three status items stay open and honest:
 
 - The 0.25 house rule has ONE canonical definition,
-  `LOGNORMAL_PDF_LIMIT = 0.25` in `andrews/scintillation.py`; the retired name
-  `WEAK_FLUCTUATION_LIMIT` is NOT resurrected, only re-aliased where the import
-  name is kept. The PDF-shape axis (`sigma2_I`) and the regime axis (`sigma2_R`)
-  stay separate.
+  `LOGNORMAL_PDF_LIMIT = 0.25` in `andrews/scintillation.py`. The old name
+  `WEAK_FLUCTUATION_LIMIT` is fully retired: no source file references it. The
+  PDF-shape axis (`sigma2_I`) and the regime axis (`sigma2_R`) stay separate.
 - The terrestrial SMF walk-off weak-limit gap is closed by a FACTORY regime flag,
   NOT by an automatic function-owned check, because the vendored Dios wander
   kernel `coupled_flux.beam_wander_variance` has no runtime check to inherit. A
