@@ -159,6 +159,13 @@ Ranked. The physics faults come first, then the citation faults.
    give. See Conflicts C-05. — fixed on andrews-foundation. The value stays at
    0.25, but the comment now calls it a house rule that is stricter than the
    book, and gives the Ch. 11.3 (printed p. 451) lognormal-tail justification.
+
+   > **STALE (UF-01, PW-01, and the constants-ledger rows below):** the name
+   > `WEAK_FLUCTUATION_LIMIT` no longer exists in the code. The 0.25 house rule
+   > has ONE canonical definition, `LOGNORMAL_PDF_LIMIT = 0.25` in
+   > `andrews/scintillation.py`. The old file and line references
+   > (`plane_wave_scintillation.py:45`, `uplink_flux.py:72`) are historical. The
+   > findings above stay as the audit record; only the symbol name moved.
 8. **TL-05 — the terrestrial weak gate uses a plane-wave threshold on a
    Gaussian beam.** Andrews Ch. 5, Eq. (16) printed 140 needs BOTH
    sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1. A focused or a strongly
