@@ -58,6 +58,9 @@ import numpy as np
 from scipy.integrate import quad
 from scipy.special import hyp2f1
 
+from ...assumptions import (BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
+                            BEAM_SPHERICAL_WAVE, REGIME_WEAK,
+                            SPECTRUM_KOLMOGOROV, Constraint, assumes)
 from .beam import beam_params, wavenumber
 
 # The prefactor of Ch. 6, Eq. (93), printed p. 203. The analytic value is
@@ -85,6 +88,85 @@ CR_DEFAULT = 2.0 * np.pi
 # Source: Ch. 6, text below Eq. (90), printed p. 203: 1 <= C_0 <= 8 pi.
 # Ch. 12, Eq. (50), printed p. 502, uses kappa_0(h) = 1 / L0(h), so C_0 = 1.
 C0_DEFAULT = 1.0
+
+
+# ----------------------------------------------------------------------------
+# Function-owned assumptions. See olb/assumptions.py. Every wander and
+# pointing-error variance here is RADIAL, uses the geometrical-optics filter,
+# holds under weak fluctuations, and carries the C-01 constant conflict. These
+# are per-function (the Fried-parameter helpers do not share them), not module
+# defaults.
+# ----------------------------------------------------------------------------
+
+def _short_term_clip_check(args, result):
+    '''Return a reason when the short-term beam radius is clipped to zero.
+
+    W_ST^2 = W_LT^2 - <r_c^2>. A non-positive difference means the beam-wander
+    variance meets or exceeds the long-term spot, so the result clips to zero
+    and the weak-fluctuation limit of Ch. 6, Eq. (86) is broken. No warning
+    here: a check never warns. `long_term_beam_radius` is resolved at call time,
+    after the module is fully loaded.
+    '''
+    w_lt = np.asarray(long_term_beam_radius(args['beam'], args['sigma2_R']),
+                      dtype=float)
+    deficit = w_lt ** 2 - np.asarray(args['rc2'], dtype=float)
+    worst = float(np.min(deficit))
+    if worst <= 0.0:
+        return (f'the beam-wander variance meets or exceeds the long-term spot '
+                f'(W_LT^2 - <r_c^2> = {worst:.3e} m^2 <= 0); the short-term '
+                f'radius clips to zero, which breaks the weak-fluctuation limit '
+                f'of Ch. 6, Eq. (86).')
+    return None
+
+
+# The variances here are RADIAL (the magnitude of the two-dimensional hot-spot
+# displacement). Do not divide by 2 for a per-axis variance. See Conflict C-03.
+RADIAL_VARIANCE_CONSTRAINT = Constraint(
+    'variance-convention',
+    'The variance is radial (the magnitude of the two-dimensional '
+    'displacement). Do NOT divide by 2 to get a per-axis variance.',
+    '10.1117/3.626196',
+    'Ch. 6, Sec. 6.6, printed p. 201; Ch. 6, Eq. (100), printed p. 205')
+
+# The geometrical-optics large-scale filter of Ch. 6, Eq. (92). The refractive
+# beam radius replaces the diffractive one, so the wavelength drops out of the
+# Kolmogorov result.
+GEOMETRICAL_OPTICS_CONSTRAINT = Constraint(
+    'approximation',
+    'The form uses the geometrical-optics large-scale filter, so the '
+    'refractive beam radius replaces the diffractive one and the wavelength '
+    'drops out of the Kolmogorov result.',
+    '10.1117/3.626196', 'Ch. 6, Eq. (92), printed p. 203')
+
+# The wander forms hold under weak irradiance fluctuations.
+WEAK_FLUCTUATION_CONSTRAINT = Constraint(
+    'regime',
+    'The form holds under weak irradiance fluctuations.',
+    '10.1117/3.626196',
+    'Ch. 6, text at Eqs. (86) and (93), printed pp. 202-203')
+
+# C-01: the 7.25 Andrews prefactor against the 2.07 Dios/Belmonte image-motion
+# constant. Both are the same radial quantity and differ by the factor 3.50. A
+# split-step simulation validates the 2.07 form, so the olb uplink chain keeps
+# the Dios kernel route.
+C01_WANDER_CONFLICT = Constraint(
+    'conflict',
+    'The wander prefactor is 7.25 (Andrews). The olb uplink chain uses the '
+    'Dios/Belmonte image-motion constant 2.07, which a split-step simulation '
+    'validates. The two are the same radial quantity and differ by the factor '
+    '3.50.',
+    '10.1117/3.626196',
+    'Ch. 6, Eq. (93), printed p. 203; vs Belmonte DOI 10.1364/AO.39.005426, '
+    'Eq. (21)')
+
+# The short-term radius stays positive only while the long-term spot is larger
+# than the beam-wander variance. Enforced with a check on the clip.
+SHORT_TERM_WEAK_CONSTRAINT = Constraint(
+    'regime',
+    'The long-term spot is larger than the beam-wander variance '
+    '(W_LT^2 > <r_c^2>). A clip to zero breaks the weak-fluctuation limit.',
+    '10.1117/3.626196', 'Ch. 6, Eq. (86), printed p. 202',
+    check=_short_term_clip_check)
 
 
 def _outer_scale_bracket(a, kappa_w0):
@@ -186,6 +268,9 @@ def _spectrum_cutoff(spectrum, L0, c0):
         f'unknown spectrum {spectrum!r}. Use "kolmogorov" or "exponential".')
 
 
+@assumes(RADIAL_VARIANCE_CONSTRAINT, GEOMETRICAL_OPTICS_CONSTRAINT,
+         WEAK_FLUCTUATION_CONSTRAINT, C01_WANDER_CONFLICT,
+         beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def beam_wander_variance(w0, wavelength, z, cn2, *, f0=np.inf,
                          spectrum='kolmogorov', L0=None, c0=C0_DEFAULT):
     '''
@@ -244,6 +329,7 @@ def beam_wander_variance(w0, wavelength, z, cn2, *, f0=np.inf,
             * float(w0) ** (-1.0 / 3.0) * shape)
 
 
+@assumes(beam_type=BEAM_SPHERICAL_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def spherical_fried_parameter(wavelength, z, cn2):
     '''
     Return Fried's parameter r0 [m] of a reciprocal point source over the path.
@@ -262,6 +348,9 @@ def spherical_fried_parameter(wavelength, z, cn2):
     return (0.16 * float(cn2) * k ** 2 * float(z)) ** (-3.0 / 5.0)
 
 
+@assumes(RADIAL_VARIANCE_CONSTRAINT, GEOMETRICAL_OPTICS_CONSTRAINT,
+         WEAK_FLUCTUATION_CONSTRAINT, C01_WANDER_CONFLICT,
+         beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def pointing_error_variance(w0, wavelength, z, cn2, *, f0=np.inf,
                             c_r=CR_DEFAULT, r0=None):
     '''
@@ -316,6 +405,8 @@ def pointing_error_variance(w0, wavelength, z, cn2, *, f0=np.inf,
             * float(w0) ** (-1.0 / 3.0) * shape)
 
 
+@assumes(WEAK_FLUCTUATION_CONSTRAINT, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK)
 def long_term_beam_radius(beam, sigma2_R):
     '''
     Return the long-term beam radius W_LT [m] under weak fluctuations.
@@ -339,6 +430,8 @@ def long_term_beam_radius(beam, sigma2_R):
     return beam.w * np.sqrt(1.0 + 1.33 * sigma2_R * beam.lam ** (5.0 / 6.0))
 
 
+@assumes(RADIAL_VARIANCE_CONSTRAINT, SHORT_TERM_WEAK_CONSTRAINT,
+         beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def short_term_beam_radius(beam, sigma2_R, rc2):
     '''
     Return the short-term beam radius W_ST [m].
@@ -424,6 +517,9 @@ def _slant_variance(w0, wavelength, hs, cn2_profile, range_m, f0,
             * float(w0) ** (-1.0 / 3.0) * integral)
 
 
+@assumes(RADIAL_VARIANCE_CONSTRAINT, GEOMETRICAL_OPTICS_CONSTRAINT,
+         WEAK_FLUCTUATION_CONSTRAINT, C01_WANDER_CONFLICT,
+         beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def beam_wander_variance_slant(w0, wavelength, hs, cn2_profile, range_m, *,
                                f0=np.inf, elevation_deg=90.0,
                                spectrum='kolmogorov', L0=None, c0=C0_DEFAULT):
@@ -465,6 +561,7 @@ def beam_wander_variance_slant(w0, wavelength, hs, cn2_profile, range_m, *,
                            elevation_deg, kappa)
 
 
+@assumes(beam_type=BEAM_PLANE_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def plane_fried_parameter_slant(wavelength, hs, cn2_profile,
                                 elevation_deg=90.0):
     '''
@@ -484,6 +581,9 @@ def plane_fried_parameter_slant(wavelength, hs, cn2_profile,
     return (0.42 * airmass * k ** 2 * mu0) ** (-3.0 / 5.0)
 
 
+@assumes(RADIAL_VARIANCE_CONSTRAINT, GEOMETRICAL_OPTICS_CONSTRAINT,
+         WEAK_FLUCTUATION_CONSTRAINT, C01_WANDER_CONFLICT,
+         beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def pointing_error_variance_slant(w0, wavelength, hs, cn2_profile, range_m, *,
                                   f0=np.inf, elevation_deg=90.0,
                                   c_r=CR_DEFAULT, r0=None):
@@ -703,5 +803,46 @@ if __name__ == '__main__':
     # so it does NOT close the gap either.
     print(f'  {"both":<13} {"kernel factor-2 vs Andrews factor-1":<38} '
           f'{WANDER_CONSTANT / (2.0 * 2.07):.6g}')
+
+    # ================= part 3: function-owned assumptions =================
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    # When this module runs as __main__ the decorated functions carry
+    # __module__ == "__main__", so the traced source prefix is __name__.
+    src = __name__
+
+    # (1) value parity: the decorators change no number, in a context or out.
+    par_out = beam_wander_variance(0.05, lam_m, 2000.0, 3e-16)
+    with trace_assumptions():
+        par_in = beam_wander_variance(0.05, lam_m, 2000.0, 3e-16)
+    assert par_out == par_in, (par_out, par_in)
+
+    # (2) inside a trace the expected sources and kinds register. The
+    #     short-term radius pulls in the long-term radius through its own body.
+    with trace_assumptions() as tr:
+        beam_wander_variance(0.05, lam_m, 2000.0, 3e-16)
+        short_term_beam_radius(bp_we2, sigma2_R_we2, rc2_we2)
+    assert f'{src}.beam_wander_variance' in tr.records
+    assert f'{src}.short_term_beam_radius' in tr.records
+    assert f'{src}.long_term_beam_radius' in tr.records
+    reg_kinds = {c.kind for rec in tr.records.values() for c in rec.constraints}
+    assert {'variance-convention', 'approximation', 'regime', 'conflict'} \
+        <= reg_kinds, reg_kinds
+    assert not tr.violations, tr.violations
+    print(f'TRACE sources / kinds     : {len(tr.records)} sources, kinds '
+          f'{sorted(reg_kinds)}')
+
+    # (3) a beam-wander variance larger than the long-term spot yields a
+    #     source-prefixed violation on the clip, with NO warning emitted.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as tr:
+            short_term_beam_radius(bp_we2, sigma2_R_we2, 10.0 * w_lt_we2 ** 2)
+    assert any(v.startswith(f'[{src}.short_term_beam_radius]')
+               and 'clips to zero' in v for v in tr.violations), tr.violations
+    assert len(caught) == 0, caught
+    print(f'CLIP reported (broken weak): {tr.violations[0]}')
 
     print('self-check passed')

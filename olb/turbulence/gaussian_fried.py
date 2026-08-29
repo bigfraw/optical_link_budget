@@ -36,6 +36,10 @@ but they call the new home. Use the new home for new code.
 
 import numpy as np
 
+from ..assumptions import (
+    assumes, Constraint,
+    BEAM_GAUSSIAN, BEAM_SPHERICAL_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV,
+)
 from .andrews.beam import beam_params
 from .andrews.beam import effective_beam_params as _andrews_effective
 from .andrews.scintillation import rytov_variance as _andrews_rytov_variance
@@ -47,6 +51,90 @@ from .andrews.structure import fried_parameter as _andrews_fried_parameter
 # 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eq. (33), printed p. 92:
 # Theta0 = 1 - z/F0, which is 1 when F0 is infinite.
 COLLIMATED_THETA0 = 1.0
+
+
+# ---------------------------------------------------------------------------
+# Function-owned assumptions (see olb.assumptions). The beam type is not
+# unanimous (the spherical-wave function differs), so each function decorates
+# itself. The delegators keep NO decorator: the traced andrews call carries the
+# record.
+# ---------------------------------------------------------------------------
+def _convergent_launch_check(args, result):
+    '''Return a reason when the launch is convergent (finite positive f0).
+
+    A collimated launch has f0 = infinity (Theta0 = 1) and a divergent launch
+    has f0 < 0 (Theta0 > 1). A finite positive f0 focuses the beam (Theta0 < 1),
+    which the Dios weak beam-wave model does not carry. It never warns or raises.
+    '''
+    f0 = args.get('f0', np.inf)
+    f0 = float(np.min(np.asarray(f0, dtype=float)))
+    if np.isfinite(f0) and f0 > 0.0:
+        return ("the launch is convergent (finite positive f0 gives Theta0 < "
+                "1); the Dios weak beam-wave model assumes a collimated or a "
+                "divergent launch.")
+    return None
+
+
+# The closed-form single-path functions assume a collimated launch and one
+# homogeneous path (one length, one scalar Cn2).
+COLLIMATED = Constraint(
+    "launch-curvature",
+    "The launch beam is collimated: the input curvature Theta0 = 1 - z/F0 = 1 "
+    "(F0 infinite). A convergent or divergent launch needs the general f0 form.",
+    "10.1117/3.626196", "Ch. 4, Eq. (33), printed p. 92")
+GAUSSIAN_PATH_HOMOGENEITY = Constraint(
+    "path-homogeneity",
+    "One path length z and one scalar Cn2. The function makes no profile "
+    "integral.",
+    "10.1117/3.626196", "Ch. 6, Eq. (64), printed p. 194")
+
+# The spherical-wave Fried parameter is for a horizontal homogeneous path only,
+# and it keeps the exact ratio against the rounded book row (Conflict C-07).
+SPHERICAL_HORIZONTAL_PATH = Constraint(
+    "path-homogeneity",
+    "Use for a spherical wave on a horizontal path with a constant Cn2. Do NOT "
+    "use it for an uplink, which weights the turbulence by ((L-z)/L)^(5/3).",
+    "10.1117/3.626196", "Ch. 6, Eq. (71), printed p. 196")
+C07_SPHERICAL_RATIO = Constraint(
+    "conflict",
+    "This function keeps the exact ratio (8/3)^(3/5) = 1.7963. The book row "
+    "prints the rounded 0.55, which gives 1.7913 (0.3 percent low). See "
+    "Conflict C-07.",
+    "10.1117/3.626196", "Ch. 6, Eq. (71), printed p. 196")
+
+# The profile form integrates a real Cn2 profile. It carries the explicit
+# weak-turbulence block, the free-space-beam-parameter deferral, the
+# transmitter-referred path weight, and the slant-path geometry.
+WEAK_REGIME_PROFILE = Constraint(
+    "regime",
+    "Weak-to-moderate turbulence: the Rytov variance sigma_R^2 stays below 1 "
+    "(Dios reports good agreement to sigma_chi^2 ~ 0.6). Above that the "
+    "coherence saturates and r0 reads too small a loss.",
+    "10.1364/AO.43.003866", "Dios et al., Applied Optics 43 (2004) 3866")
+CONVERGENT_LAUNCH = Constraint(
+    "launch-curvature",
+    "The launch beam is collimated (f0 = infinity, Theta0 = 1) or divergent "
+    "(f0 < 0, Theta0 > 1). A convergent launch is not modelled.",
+    "10.1364/AO.43.003866",
+    "Dios et al., Applied Optics 43 (2004) 3866, Eq. (15)",
+    check=_convergent_launch_check)
+FREE_SPACE_BEAM_PARAMS = Constraint(
+    "approximation",
+    "The beam parameters use the free-space (diffractive) Theta and Lambda, "
+    "NOT the strong-turbulence effective Theta_e and Lambda_e. So the model "
+    "does not carry the turbulence-driven beam spread.",
+    "10.1117/3.626196", "Ch. 7, Eq. (58), printed p. 242")
+TX_REFERRED_WEIGHT = Constraint(
+    "path-weight",
+    "The path weight xi = (L - z)/L is transmitter-referred (Dios Eq. (3)). Do "
+    "NOT flip it to the receiver-referred z/L of the book Ch. 6, Eq. (115).",
+    "10.1364/AO.43.003866",
+    "Dios et al., Applied Optics 43 (2004) 3866, Eq. (3)")
+SLANT_GEOMETRY = Constraint(
+    "geometry",
+    "The uplink and downlink paths use a plane-parallel atmosphere with the "
+    "airmass sec(zeta) = 1/sin(elevation). It models no Earth curvature.",
+    "10.1117/3.626196", "Ch. 12, Eq. (23), printed p. 492")
 
 
 def _k(wavelength):
@@ -119,6 +207,8 @@ def _a_factor(theta_e):
     return numerator / (1.0 - theta_e)
 
 
+@assumes(COLLIMATED, GAUSSIAN_PATH_HOMOGENEITY, beam_type=BEAM_GAUSSIAN,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def beam_coherence_ratio(z, w0, cn2, wavelength):
     '''
     Return rho0_e: the beam coherence radius over the plane-wave coherence radius.
@@ -168,6 +258,8 @@ def plane_wave_fried_parameter(z, cn2, wavelength):
 _SPHERICAL_OVER_PLANE = (8.0 / 3.0) ** (3.0 / 5.0)
 
 
+@assumes(SPHERICAL_HORIZONTAL_PATH, C07_SPHERICAL_RATIO,
+         beam_type=BEAM_SPHERICAL_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def spherical_wave_fried_parameter(z, cn2, wavelength):
     '''
     Return the spherical-wave Fried parameter r0 for a single path.
@@ -196,6 +288,8 @@ def spherical_wave_fried_parameter(z, cn2, wavelength):
     return _SPHERICAL_OVER_PLANE * plane_wave_fried_parameter(z, cn2, wavelength)
 
 
+@assumes(COLLIMATED, GAUSSIAN_PATH_HOMOGENEITY, beam_type=BEAM_GAUSSIAN,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def gaussian_fried_parameter(z, w0, cn2, wavelength):
     '''
     Return the Fried parameter r0 of a collimated Gaussian beam.
@@ -223,6 +317,9 @@ def gaussian_fried_parameter(z, w0, cn2, wavelength):
     return 2.1 * rho0_e * rho_pl
 
 
+@assumes(CONVERGENT_LAUNCH, WEAK_REGIME_PROFILE, FREE_SPACE_BEAM_PARAMS,
+         TX_REFERRED_WEIGHT, SLANT_GEOMETRY, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
                                      path='uplink', elevation_deg=90.0,
                                      f0=np.inf, path_length_m=None):
@@ -437,4 +534,54 @@ if __name__ == '__main__':
     print(f"GEO uplink w0=1cm r0      = {r0_geo * 100:.2f} cm  "
           f"(plane-layer ref {r0_geo_plane * 100:.2f} cm)")
     print(f"terrestrial 2 km r0       = {r0_terr * 100:.2f} cm")
+
+    # ---------------- assumptions self-check ----------------
+    import warnings
+    from ..assumptions import trace_assumptions
+
+    # (1) VALUE PARITY: identical value inside and outside a context.
+    val_outside = gaussian_fried_parameter(z, w0, cn2, lam)
+    with trace_assumptions():
+        val_inside = gaussian_fried_parameter(z, w0, cn2, lam)
+    assert val_outside == val_inside, (val_outside, val_inside)
+
+    # (2) REGISTRATION: the expected sources, headline, and kinds register.
+    with trace_assumptions() as tr:
+        gaussian_fried_parameter(z, w0, cn2, lam)
+        spherical_wave_fried_parameter(z, cn2, lam)
+        beam_coherence_ratio(z, w0, cn2, lam)
+        gaussian_fried_parameter_profile(hs, cn2_flat, w0, lam, path='uplink')
+    for name in ('gaussian_fried_parameter', 'spherical_wave_fried_parameter',
+                 'beam_coherence_ratio', 'gaussian_fried_parameter_profile'):
+        assert any(name in s for s in tr.records), (name, set(tr.records))
+    my_sources = {f.__assumptions__.source for f in (
+        gaussian_fried_parameter, spherical_wave_fried_parameter,
+        beam_coherence_ratio, gaussian_fried_parameter_profile)}
+    mine = {s: r for s, r in tr.records.items() if s in my_sources}
+    beams = {r.beam_type for r in mine.values()}
+    assert beams == {'Gaussian beam', 'spherical wave'}, beams
+    kinds = {c.kind for rec in mine.values() for c in rec.constraints}
+    assert {'launch-curvature', 'path-homogeneity', 'conflict', 'regime',
+            'approximation', 'path-weight', 'geometry'} <= kinds, kinds
+    # A collimated profile call trips no violation.
+    assert not tr.violations, tr.violations
+    print(f"[assumptions] {len(mine)} own sources, kinds {sorted(kinds)}")
+
+    # (3) A convergent launch (finite positive f0) yields a source-prefixed
+    #     violation, and the physics layer emits NO warning.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            # A weakly convergent launch (finite positive f0 gives Theta0 < 1)
+            # trips the launch-curvature check but keeps the power bases in
+            # domain, so the physics itself emits no numpy warning either.
+            gaussian_fried_parameter_profile(hs, cn2_flat, w0, lam,
+                                             path='uplink', f0=1e9)
+    assert any('gaussian_fried_parameter_profile' in v
+               for v in tr_bad.violations), tr_bad.violations
+    assert any(v.startswith('[') for v in tr_bad.violations), tr_bad.violations
+    assert len(caught) == 0, [str(w.message) for w in caught]
+    print(f"[assumptions] convergent-launch violations: "
+          f"{len(tr_bad.violations)}, no warning")
+
     print("self-check passed")

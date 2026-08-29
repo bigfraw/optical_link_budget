@@ -47,6 +47,9 @@ from scipy.integrate import cumulative_trapezoid, quad
 from scipy.special import digamma, gammaln, i0e, kve
 from scipy.stats import norm
 
+from ...assumptions import REGIME_STRONG, REGIME_WEAK, Constraint, assumes
+from .scintillation import LOGNORMAL_PDF_LIMIT
+
 # Ch. 11, Eq. (25), printed 451, and Ch. 12, Eq. (69), printed 511, define the
 # fade threshold parameter F_T = 10 log10(E[I] / I_T) in dB. The book restates
 # it at Ch. 12, Eq. (71), printed 511, as ln(I_T / E[I]) = -0.23 F_T. The
@@ -61,8 +64,68 @@ _GRID_HI_LOG10 = 2.0
 _GRID_N = 4001
 
 
+# --- Function-owned assumptions ---------------------------------------------
+# Each distribution states its own regime. The lognormal is a weak-fluctuation
+# model whose fade PDF olb trusts only up to the scintillation index
+# LOGNORMAL_PDF_LIMIT. The gamma-gamma is valid at every fluctuation strength.
+# The K distribution is strong only. The lognormal-Rician gives the PDF alone.
+_DOI = "10.1117/3.626196"
+
+
+def _lognormal_pdf_shape_check(args, result):
+    '''Return a reason when a lognormal face is used past the PDF-shape limit.
+
+    The lognormal tail goes optimistic against simulation well before the Rytov
+    theory for the index fails, so olb trusts the lognormal fade PDF only up to
+    the scintillation index LOGNORMAL_PDF_LIMIT. The check reads the variance
+    from the bound arguments: `lognormal_params` takes the scintillation index
+    sigma_I^2 directly; the other faces take the log-irradiance variance
+    sigma_l2, and sigma_I^2 = exp(sigma_l2) - 1. No warning here.
+    '''
+    if 'sigma2_I' in args:
+        sigma2_I = float(np.max(np.asarray(args['sigma2_I'], dtype=float)))
+    else:
+        sigma_l2 = float(np.max(np.asarray(args['sigma_l2'], dtype=float)))
+        sigma2_I = float(np.expm1(sigma_l2))
+    if sigma2_I > LOGNORMAL_PDF_LIMIT:
+        return (f"sigma_I^2 = {sigma2_I:.3f} > {LOGNORMAL_PDF_LIMIT}; the "
+                f"lognormal fade PDF goes optimistic in the deep tail. Use the "
+                f"gamma-gamma model.")
+    return None
+
+
+LOGNORMAL_PDF_CONSTRAINT = Constraint(
+    "pdf-shape",
+    "The lognormal fade PDF is trusted only up to the scintillation index "
+    "sigma_I^2 = 0.25. Past it the deep tail is optimistic against simulation.",
+    _DOI, "Ch. 11, Sec. 11.3, printed p. 451",
+    check=_lognormal_pdf_shape_check)
+
+GAMMA_GAMMA_ALL_STRENGTH = Constraint(
+    "regime",
+    "The gamma-gamma model is valid at every fluctuation strength, from weak to "
+    "strong. Its two parameters come straight from the large-scale and "
+    "small-scale log-irradiance variances, with no fit.",
+    _DOI, "Ch. 9, Sec. 9.10, printed pp. 369 to 371")
+
+K_STRONG_ONLY = Constraint(
+    "regime",
+    "The K distribution applies in strong fluctuations only: its scintillation "
+    "index sigma_I^2 = 1 + 2/alpha always exceeds one.",
+    _DOI, "Ch. 9, Sec. 9.9.1, printed pp. 368 to 369")
+
+LOGNORMAL_RICIAN_NOT_BUILT = Constraint(
+    "not-built",
+    "The lognormal-Rician model gives the PDF only: no CDF, no quantile and no "
+    "sampler. The book states its coherence parameter and modulation variance "
+    "cannot be tied to atmospheric conditions, so it is not a link-budget "
+    "model. Use the gamma-gamma model for a budget.",
+    _DOI, "Ch. 9, Sec. 9.9.2, Eq. (133), printed p. 369")
+
+
 # --- lognormal (Ch. 5.7.2, printed 156-157) ---------------------------------
 
+@assumes(LOGNORMAL_PDF_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def lognormal_params(sigma2_I):
     '''
     Turn a scintillation index into the log-irradiance variance.
@@ -84,6 +147,7 @@ def lognormal_params(sigma2_I):
     return np.log(1.0 + np.asarray(sigma2_I, dtype=float))
 
 
+@assumes(LOGNORMAL_PDF_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def lognormal_mean_log(sigma_l2):
     '''
     E[ln I] for a lognormal irradiance with E[I] = 1.
@@ -104,6 +168,7 @@ def lognormal_mean_log(sigma_l2):
     return -np.asarray(sigma_l2, dtype=float) / 2.0
 
 
+@assumes(LOGNORMAL_PDF_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def lognormal_cdf(I, sigma_l2):
     '''
     Pr(I <= value) for a lognormal irradiance with E[I] = 1.
@@ -140,6 +205,7 @@ def lognormal_cdf(I, sigma_l2):
     return norm.cdf((np.log(I) - lognormal_mean_log(sigma_l2)) / sigma_l)
 
 
+@assumes(LOGNORMAL_PDF_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def lognormal_quantile(p, sigma_l2):
     '''
     The p-quantile of a lognormal irradiance with E[I] = 1.
@@ -163,6 +229,7 @@ def lognormal_quantile(p, sigma_l2):
     return np.exp(-sigma_l2 / 2.0 + sigma_l * norm.ppf(p))
 
 
+@assumes(LOGNORMAL_PDF_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def lognormal_rvs(n, sigma_l2, rng):
     '''
     Draw n samples of a lognormal irradiance with E[I] = 1.
@@ -189,6 +256,7 @@ def lognormal_rvs(n, sigma_l2, rng):
 
 # --- gamma-gamma (Ch. 9.10, printed 369-371) --------------------------------
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_params(sigma2_lnX, sigma2_lnY):
     '''
     The two gamma-gamma parameters from the log-irradiance variances.
@@ -219,6 +287,7 @@ def gamma_gamma_params(sigma2_lnX, sigma2_lnY):
     return alpha, beta
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_scintillation_index(alpha, beta):
     '''
     The scintillation index of a gamma-gamma irradiance.
@@ -240,6 +309,7 @@ def gamma_gamma_scintillation_index(alpha, beta):
     return 1.0 / alpha + 1.0 / beta + 1.0 / (alpha * beta)
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_mean_log(alpha, beta):
     '''
     E[ln I] for a gamma-gamma irradiance with E[I] = 1.
@@ -265,6 +335,7 @@ def gamma_gamma_mean_log(alpha, beta):
     return digamma(alpha) + digamma(beta) - np.log(alpha * beta)
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_pdf(I, alpha, beta):
     '''
     The gamma-gamma PDF of the normalised irradiance.
@@ -339,6 +410,7 @@ def _gamma_gamma_grid(alpha, beta):
     return I, cdf
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_cdf(I, alpha, beta):
     '''
     Pr(I <= value) for a gamma-gamma irradiance.
@@ -366,6 +438,7 @@ def gamma_gamma_cdf(I, alpha, beta):
     return float(out) if np.ndim(I) == 0 else out
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_quantile(p, alpha, beta):
     '''
     The p-quantile of a gamma-gamma irradiance.
@@ -390,6 +463,7 @@ def gamma_gamma_quantile(p, alpha, beta):
     return float(out) if np.ndim(p) == 0 else out
 
 
+@assumes(GAMMA_GAMMA_ALL_STRENGTH)
 def gamma_gamma_rvs(n, alpha, beta, rng):
     '''
     Draw n samples of a gamma-gamma irradiance with E[I] = 1.
@@ -426,6 +500,7 @@ def gamma_gamma_rvs(n, alpha, beta, rng):
 _K_BETA = 1.0
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_params(sigma2_I):
     '''
     The K-distribution parameter from a scintillation index.
@@ -458,6 +533,7 @@ def k_params(sigma2_I):
     return 2.0 / (sigma2_I - 1.0)
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_scintillation_index(alpha):
     '''
     The scintillation index of a K-distributed irradiance.
@@ -476,6 +552,7 @@ def k_scintillation_index(alpha):
     return 1.0 + 2.0 / alpha
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_mean_log(alpha):
     '''
     E[ln I] for a K-distributed irradiance with E[I] = 1.
@@ -494,6 +571,7 @@ def k_mean_log(alpha):
     return gamma_gamma_mean_log(alpha, _K_BETA)
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_pdf(I, alpha):
     '''
     The K-distribution PDF of the normalised irradiance.
@@ -517,6 +595,7 @@ def k_pdf(I, alpha):
     return gamma_gamma_pdf(I, alpha, _K_BETA)
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_cdf(I, alpha):
     '''
     Pr(I <= value) for a K-distributed irradiance. See k_pdf and gamma_gamma_cdf.
@@ -525,6 +604,7 @@ def k_cdf(I, alpha):
     return gamma_gamma_cdf(I, alpha, _K_BETA)
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_quantile(p, alpha):
     '''
     The p-quantile of a K-distributed irradiance. See gamma_gamma_quantile.
@@ -533,6 +613,7 @@ def k_quantile(p, alpha):
     return gamma_gamma_quantile(p, alpha, _K_BETA)
 
 
+@assumes(K_STRONG_ONLY, turbulence_regime=REGIME_STRONG)
 def k_rvs(n, alpha, rng):
     '''
     Draw n samples of a K-distributed irradiance with E[I] = 1.
@@ -559,6 +640,7 @@ def k_rvs(n, alpha, rng):
 
 # --- lognormal-Rician (Ch. 9.9.2, printed 369) ------------------------------
 
+@assumes(LOGNORMAL_RICIAN_NOT_BUILT)
 def lognormal_rician_pdf(I, r, sigma_z2):
     '''
     The lognormal-Rician (Beckmann) PDF of the normalised irradiance.
@@ -1096,5 +1178,46 @@ if __name__ == '__main__':
     t2 = mean_fade_time(6.0, 200.0, "lognormal", sigma_l2=sl2)
     print(f"[reduce ] <t> nu0 scaling ratio = {t1 / t2:.6f} (2 wanted)")
     assert np.isclose(t1 / t2, 2.0)
+
+    # === assumptions ========================================================
+    import warnings as _warnings
+
+    from ...assumptions import trace_assumptions
+
+    # (1) VALUE PARITY. The decorator does not change the number, in or out of
+    #     a collection context.
+    _out = gamma_gamma_quantile(0.01, 4.0, 1.8)
+    with trace_assumptions():
+        _in = gamma_gamma_quantile(0.01, 4.0, 1.8)
+    assert _out == _in, (_out, _in)
+    _lo = lognormal_quantile(0.01, 0.2)
+    with trace_assumptions():
+        _li = lognormal_quantile(0.01, 0.2)
+    assert _lo == _li, (_lo, _li)
+
+    # (2) REGISTRATION. The three builders register, with the expected kinds.
+    with trace_assumptions() as _tr:
+        _sl2 = lognormal_params(0.1)                 # weak, inside the PDF limit
+        lognormal_quantile(0.01, _sl2)
+        _a, _b = gamma_gamma_params(0.2, 0.3)
+        gamma_gamma_quantile(0.01, _a, _b)
+        k_quantile(0.05, k_params(2.0))              # strong only
+    for _src in ("lognormal_params", "gamma_gamma_params", "k_params"):
+        assert f"{__name__}.{_src}" in _tr.records, _src
+    _kinds = {c.kind for r in _tr.records.values() for c in r.constraints}
+    assert {"pdf-shape", "regime"} <= _kinds, _kinds
+    # Weak turbulence inside the PDF limit breaks nothing.
+    assert not _tr.violations, _tr.violations
+
+    # (3) VIOLATION, NO WARNING. A lognormal face past the PDF-shape limit
+    #     yields a source-prefixed violation, and the layer warns about nothing.
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        with trace_assumptions() as _tr:
+            lognormal_quantile(0.01, lognormal_params(0.9))   # sigma_I^2 = 0.9
+    assert any(f"[{__name__}.lognormal_params]" in v and "sigma_I^2" in v
+               for v in _tr.violations), _tr.violations
+    assert len(_caught) == 0, _caught
+    print("[assume] distributions registration, kinds and violation ok")
 
     print("self-check passed")

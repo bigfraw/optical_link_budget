@@ -16,7 +16,10 @@ Source of the classification: Andrews and Phillips, Laser Beam Propagation
 through Random Media, 2nd ed. (SPIE Press, 2005), DOI 10.1117/3.626196, Ch. 4,
 Sec. 4.4.1, text below Eq. (38), printed p. 93.
 
-This module holds physics only. It imports numpy only. It returns no decibels.
+This module holds physics only. It returns no decibels. The beam functions
+declare the paraxial approximation and the launch-curvature branch through the
+@assumes decorator (see olb.assumptions), so a Term that runs them inside a
+trace_assumptions() context inherits those limits automatically.
 
 Plane of reference: all quantities are referred to the TRANSMITTER at z = 0 and
 the OUTPUT plane at z. No path integral occurs in this module, so no path weight
@@ -26,6 +29,8 @@ and no reference-plane choice is made here.
 from typing import NamedTuple
 
 import numpy as np
+
+from ...assumptions import BEAM_GAUSSIAN, Constraint, module_assumptions
 
 
 class BeamParams(NamedTuple):
@@ -54,6 +59,41 @@ class BeamParams(NamedTuple):
     w: np.ndarray
 
 
+# ---------------------------------------------------------------------------
+# Function-owned validity limits (see olb.assumptions).
+#
+# Both beam functions describe the lowest-order paraxial Gaussian-beam wave, so
+# the paraxial approximation is a module default. beam_params adds the
+# launch-curvature branch (the f0 sign). effective_beam_params adds the
+# strong-fluctuation extension. No numeric run-time check applies: the branches
+# and the approximation are structural, not regime bounds. `wavenumber` is pure
+# algebra (k = 2*pi/lambda), so it carries no assumption and no decorator.
+# ---------------------------------------------------------------------------
+_DOI = "10.1117/3.626196"
+
+_PARAXIAL = Constraint(
+    "approximation",
+    "The parameters describe the lowest-order (paraxial) Gaussian-beam wave. "
+    "They neglect the non-paraxial and the higher-mode corrections.",
+    _DOI, "Ch. 4, Sec. 4.4, printed pp. 91 to 92")
+
+_LAUNCH_CURVATURE = Constraint(
+    "launch-curvature",
+    "The phase-front radius f0 selects the launch branch. An infinite f0 is a "
+    "collimated beam (Theta0 = 1). A negative f0 is a divergent beam "
+    "(Theta0 > 1). A positive f0 is a convergent beam (Theta0 < 1).",
+    _DOI, "Ch. 4, Sec. 4.4.1, text below Eq. (38), printed p. 93")
+
+_EFFECTIVE_EXTENSION = Constraint(
+    "approximation",
+    "The effective parameters extend a weak-fluctuation formula into the "
+    "strong-fluctuation regime. Turbulence spreads the beam and flattens the "
+    "mean phase front. The transmitter plane passes through unchanged.",
+    _DOI, "Ch. 7, Eqs. (57) and (58), printed p. 242")
+
+assumes = module_assumptions(beam_type=BEAM_GAUSSIAN, constraints=(_PARAXIAL,))
+
+
 def wavenumber(wavelength):
     '''
     Return the optical wavenumber k = 2*pi/lambda [rad/m].
@@ -64,6 +104,7 @@ def wavenumber(wavelength):
     return 2.0 * np.pi / np.asarray(wavelength, dtype=float)
 
 
+@assumes(_LAUNCH_CURVATURE)
 def beam_params(w0, wavelength, z, f0=np.inf):
     '''
     Return the Gaussian-beam parameters at range z, for any input curvature.
@@ -118,6 +159,7 @@ def beam_params(w0, wavelength, z, f0=np.inf):
     return BeamParams(theta0, lambda0, theta, 1.0 - theta, lam, w)
 
 
+@assumes(_EFFECTIVE_EXTENSION)
 def effective_beam_params(bp, sigma2_R):
     '''
     Return the strong-fluctuation effective beam parameters.
@@ -237,6 +279,44 @@ if __name__ == '__main__':
     assert err_th_e < 1e-9 and err_lam_e < 1e-9, (err_th_e, err_lam_e)
     print(f'REDUCTION effective_beam_params : dTheta_e = {err_th_e:.3e}  '
           f'dLambda_e = {err_lam_e:.3e}  (target 1e-9)')
+
+    # ---------------- assumption-trace checks ----------------
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    # (1) Value parity: the return value is byte-identical with and without a
+    # collection context.
+    theta_plain = float(beam_params(0.05, lam_m, 2000.0).theta)
+    with trace_assumptions():
+        theta_traced = float(beam_params(0.05, lam_m, 2000.0).theta)
+    assert theta_plain == theta_traced, (theta_plain, theta_traced)
+
+    # (2) Registration: both beam functions register their source, the Gaussian
+    # beam type, and the expected constraint kinds. wavenumber is undecorated.
+    with trace_assumptions() as tr:
+        beam_params(0.05, lam_m, 2000.0, -1000.0)
+        effective_beam_params(bp, 4.0)
+        wavenumber(lam_m)
+    sources = set(tr.records)
+    assert any(s.endswith('.beam_params') for s in sources), sources
+    assert any(s.endswith('.effective_beam_params') for s in sources), sources
+    assert not any(s.endswith('.wavenumber') for s in sources), 'wavenumber is undecorated'
+    beams = {r.beam_type for r in tr.records.values()}
+    assert beams == {BEAM_GAUSSIAN}, beams
+    kinds = {c.kind for r in tr.records.values() for c in r.constraints}
+    assert {'approximation', 'launch-curvature'} <= kinds, kinds
+
+    # (3) The module carries no numeric run-time check (the branches and the
+    # paraxial approximation are structural), so the physics layer emits no
+    # warning inside a context.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions():
+            beam_params(0.05, lam_m, 2000.0)
+            effective_beam_params(bp, 4.0)
+    assert len(caught) == 0, 'the physics layer must not warn'
+    print(f'assumption trace : {len(sources)} sources, kinds {sorted(kinds)}')
 
     print(f'collimated 2 km w0=5 cm : Theta = {bp.theta:.5f}  '
           f'Lambda = {bp.lam:.5f}  W = {bp.w * 100:.2f} cm')

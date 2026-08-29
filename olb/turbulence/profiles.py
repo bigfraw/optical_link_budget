@@ -18,9 +18,28 @@ Source: Andrews and Phillips, Laser Beam Propagation through Random Media,
 
 import numpy as np
 
+from ..assumptions import Constraint, assumes
+
 DEFAULT_HS = np.logspace(np.log10(1), np.log10(20e3), 20)   # turbulence altitude grid [m]
 
+# The two atmosphere models each state one modelling assumption: the empirical
+# form of the height profile. There is no numeric validity gate, so neither
+# constraint carries a check. Source: Andrews and Phillips, 2nd ed. (2005),
+# DOI 10.1117/3.626196, Ch. 12, printed p. 481.
+_HV_MODEL = Constraint(
+    "approximation",
+    "The Cn2 height profile is the empirical Hufnagel-Valley model. The default "
+    "pair w = 21 m/s and A = 1.7e-14 is the HV5/7 model (r0 = 5 cm, "
+    "theta0 = 7 urad at 0.5 um).",
+    "10.1117/3.626196", "Ch. 12, Eq. (1), printed p. 481")
 
+_BUFTON_MODEL = Constraint(
+    "approximation",
+    "The wind height profile is the empirical Bufton model.",
+    "10.1117/3.626196", "Ch. 12, Eq. (3), printed p. 481")
+
+
+@assumes(_HV_MODEL)
 def get_c2n(height, wind_rms=21, c2n_0=1.7e-14):
     '''
     Return the Hufnagel-Valley Cn2(h) profile [m^-2/3].
@@ -56,6 +75,7 @@ def get_c2n(height, wind_rms=21, c2n_0=1.7e-14):
     return c2ns
 
 
+@assumes(_BUFTON_MODEL)
 def v_wind(h, ws=1, Vg=10):
     '''
     Return the Bufton wind-speed profile V(h) [m/s].
@@ -129,6 +149,36 @@ if __name__ == '__main__':
     assert abs(v_wind(0.0, 0.0, 10.0) - 10.0) < 1.0
     assert abs(v_wind(9400.0, 0.0, 10.0) - 40.0) < 1e-6      # Vg + 30, exp = 1
     assert v_wind(9400.0, 0.0, 10.0) > v_wind(0.0, 0.0, 10.0)
+
+    # --- assumptions layer ---------------------------------------------------
+    import warnings
+
+    from ..assumptions import trace_assumptions
+
+    # (1) Value parity: a decorated function returns the identical value with and
+    #     without a collection context.
+    outside = float(get_c2n(1000.0, 21.0, 1.7e-14))
+    with trace_assumptions():
+        inside = float(get_c2n(1000.0, 21.0, 1.7e-14))
+    assert outside == inside, (outside, inside)
+
+    # (2) Registration: inside a context the two model functions register, and
+    #     the physics layer emits no warning. (profiles has no numeric gate, so
+    #     there is no violation block.)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            get_c2n(DEFAULT_HS, 21.0, 1.7e-14)
+            v_wind(DEFAULT_HS, 0.0, 10.0)
+            # default_cn2_profile is a pure delegator to get_c2n, so it carries
+            # no decorator; the traced get_c2n call above holds its record.
+    src_c2n = f"{__name__}.get_c2n"
+    src_wind = f"{__name__}.v_wind"
+    assert src_c2n in trace.records, trace.records
+    assert src_wind in trace.records, trace.records
+    kinds = {c.kind for rec in trace.records.values() for c in rec.constraints}
+    assert kinds == {"approximation"}, kinds
+    assert len(caught) == 0, "the profiles physics must not warn"
 
     print(f"H-V5/7 self-check: r0(0.5 um, zenith) = {r0 * 100:.2f} cm "
           f"(book about 5 cm); Cn2(0) = {cn2[0]:.2e}")

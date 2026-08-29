@@ -43,6 +43,12 @@ Physics (Dios Eqs. 14-20, collimated beam launched from the ground):
 import numpy as np
 from scipy.special import gamma, hyp1f1
 
+from ..assumptions import (
+    Constraint, module_assumptions,
+    BEAM_GAUSSIAN, REGIME_MODERATE, SPECTRUM_KOLMOGOROV,
+)
+from .andrews.scintillation import rytov_weak, UPLINK_SIGMA2X_LIMIT
+
 # ponytail: DEBT. This analytic Dios path duplicates the beam-wave scintillation
 # physics inside the shared coupled-flux MC (olb.turbulence.uplink_flux, which
 # now folds pointing jitter + beam wander into the off-axis radius r=beta). This
@@ -54,6 +60,54 @@ from scipy.special import gamma, hyp1f1
 # Leading constant of the Kolmogorov spectrum, Phi_n = 0.033 Cn2 kappa^(-11/3).
 _KOLMOGOROV = 0.033
 _GAMMA_M56 = gamma(-5.0 / 6.0)   # Gamma(-5/6) ~ -6.6865, negative by design
+
+
+# ---------------------------------------------------------------------------
+# Function-owned assumptions (see olb.assumptions). Every function here is a
+# collimated Gaussian beam on a Kolmogorov spectrum in weak-to-moderate
+# turbulence, so those headlines and the two shared constraints are module
+# defaults; the on-axis index adds the Dios reliability check.
+# ---------------------------------------------------------------------------
+def _dios_weak_check(args, result):
+    '''Return a reason when the on-axis index passes the Dios reliability bound.
+
+    The result is the scintillation index sigma_I^2 = 4 sigma_chi^2 (Andrews and
+    Phillips, 2nd ed. (2005), Ch. 8, Eq. (13)). Dios reports good agreement to
+    sigma_chi^2 = UPLINK_SIGMA2X_LIMIT, so the gate reads the index on the Rytov
+    axis with hard_limit = 4 * UPLINK_SIGMA2X_LIMIT. It reports only the "hard"
+    tier and never warns or raises.
+    '''
+    worst = float(np.max(np.abs(np.asarray(result, dtype=float))))
+    if rytov_weak(worst, hard_limit=4.0 * UPLINK_SIGMA2X_LIMIT) == 'hard':
+        return (f"sigma_I^2 = {worst:.3f} (sigma_chi^2 = {worst / 4.0:.3f}) >= "
+                f"{4.0 * UPLINK_SIGMA2X_LIMIT}; the Dios beam-wave index is "
+                f"unreliable above sigma_chi^2 = {UPLINK_SIGMA2X_LIMIT}.")
+    return None
+
+
+DIOS_RELIABILITY = Constraint(
+    "regime",
+    "Weak-to-moderate fluctuation: the model has no saturation and stays "
+    "reliable to about sigma_chi^2 = 0.6. Above that the true index saturates "
+    "and this model overshoots.",
+    "10.1364/AO.43.003866", "Dios et al., Applied Optics 43 (2004) 3866",
+    check=_dios_weak_check)
+COLLIMATED_LAUNCH = Constraint(
+    "launch-curvature",
+    "The launch beam is collimated or divergent (f0 = infinity gives the "
+    "collimated case). The Dios beam-wave forms assume this launch.",
+    "10.1364/AO.43.003866",
+    "Dios et al., Applied Optics 43 (2004) 3866, Eqs. (15)-(20)")
+SLANT_GEOMETRY = Constraint(
+    "geometry",
+    "The slant path uses a plane-parallel atmosphere with the airmass "
+    "sec(zeta) = 1/sin(elevation). It models no Earth curvature.",
+    "10.1364/AO.43.003866", "Dios et al., Applied Optics 43 (2004) 3866")
+
+assumes = module_assumptions(
+    beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_MODERATE,
+    spectrum=SPECTRUM_KOLMOGOROV,
+    constraints=(COLLIMATED_LAUNCH, SLANT_GEOMETRY))
 
 
 def _beam_and_path(hs, w0, wavelength, elevation_deg, f0, path_length_m):
@@ -96,6 +150,7 @@ def _beam_and_path(hs, w0, wavelength, elevation_deg, f0, path_length_m):
     return k, sec_z, L, theta, lam, w2, a, b
 
 
+@assumes(DIOS_RELIABILITY)
 def on_axis_scintillation_index(hs, cn2_profile, w0, wavelength,
                                 elevation_deg=90.0, f0=np.inf,
                                 path_length_m=None):
@@ -141,6 +196,7 @@ def on_axis_scintillation_index(hs, cn2_profile, w0, wavelength,
     return prefactor * np.trapz(integrand, np.asarray(hs, dtype=float))
 
 
+@assumes()
 def radial_scintillation_index(r, hs, cn2_profile, w0, wavelength,
                                elevation_deg=90.0, f0=np.inf,
                                path_length_m=None):
@@ -259,4 +315,47 @@ if __name__ == '__main__':
     print(f"radial small-r            = {s_r:.3e}  (target {pred:.3e})")
     print(f"Dios GEO, w0=1cm          = {s_geo:.4f}  "
           f"(sigma2_chi ~ {s_geo / 4:.4f}, Fig.5 ~ 0.02-0.03)")
+
+    # ---------------- assumptions self-check ----------------
+    import warnings
+    from ..assumptions import trace_assumptions
+
+    # (1) VALUE PARITY: identical value inside and outside a context.
+    val_outside = on_axis_scintillation_index(hs, cn2, w0, lam)
+    with trace_assumptions():
+        val_inside = on_axis_scintillation_index(hs, cn2, w0, lam)
+    assert val_outside == val_inside, (val_outside, val_inside)
+
+    # (2) REGISTRATION: the expected sources, headline, and kinds register.
+    with trace_assumptions() as tr:
+        on_axis_scintillation_index(hs, cn2, w0, lam)
+        radial_scintillation_index(r_small, hs, cn2, w0, lam)
+    for name in ('on_axis_scintillation_index', 'radial_scintillation_index'):
+        assert any(name in s for s in tr.records), (name, set(tr.records))
+    my_sources = {f.__assumptions__.source
+                  for f in (on_axis_scintillation_index,
+                            radial_scintillation_index)}
+    mine = {s: r for s, r in tr.records.items() if s in my_sources}
+    assert all(r.beam_type == 'Gaussian beam' for r in mine.values())
+    assert all(r.turbulence_regime == 'moderate' for r in mine.values())
+    kinds = {c.kind for rec in mine.values() for c in rec.constraints}
+    assert {'regime', 'launch-curvature', 'geometry'} <= kinds, kinds
+    assert not tr.violations, tr.violations
+    print(f"[assumptions] {len(mine)} own sources, kinds {sorted(kinds)}")
+
+    # (3) A deliberately out-of-range (strong) on-axis call yields a
+    #     source-prefixed violation, and the physics layer emits NO warning.
+    hs_strong = np.linspace(0.0, 5000.0, 400)
+    cn2_strong = np.full_like(hs_strong, 1e-12)     # sigma_chi^2 >> 0.6
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            on_axis_scintillation_index(hs_strong, cn2_strong, 5.0, lam)
+    assert any('on_axis_scintillation_index' in v for v in tr_bad.violations), \
+        tr_bad.violations
+    assert any(v.startswith('[') for v in tr_bad.violations), tr_bad.violations
+    assert len(caught) == 0, [str(w.message) for w in caught]
+    print(f"[assumptions] strong-path violations: {len(tr_bad.violations)}, "
+          f"no warning")
+
     print("self-check passed")

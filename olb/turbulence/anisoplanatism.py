@@ -74,6 +74,44 @@ import numpy as np
 from scipy.integrate import quad
 from scipy.special import jv
 
+from ..assumptions import (BEAM_PLANE_WAVE, SPECTRUM_KOLMOGOROV, Constraint,
+                           assumes)
+
+# The three slant functions below share these assumptions. The phase-difference
+# result is a wavefront quantity (a phase structure function), so it does not
+# carry a scintillation regime. There is no numeric validity gate, so no
+# constraint carries a check.
+_ISOPLANATISM = Constraint(
+    "isoplanatism",
+    "The model describes angular anisoplanatism: the phase error between two "
+    "directions at a small angle grows over the isoplanatic angle theta0.",
+    "10.1364/JOSAA.11.000347", "Eqs. (26), (27)")
+
+# The slant scaling uses the plane-parallel airmass 1/sin(elevation). It has no
+# Earth curvature. Source: Andrews and Phillips, 2nd ed. (2005),
+# DOI 10.1117/3.626196, Ch. 12, printed p. 481.
+_PLANE_PARALLEL = Constraint(
+    "geometry",
+    "The slant path uses the plane-parallel airmass 1/sin(elevation). It has no "
+    "Earth curvature, so it breaks near the horizon.",
+    "10.1117/3.626196", "Ch. 12, printed p. 481")
+
+# The finite-aperture result is the pure angular case: both sources are at
+# infinity (plane waves), so the two apertures have equal radius R1 = R2 = R.
+_PURE_ANGULAR = Constraint(
+    "field-region",
+    "Both sources are at infinity (plane waves), so the two apertures have equal "
+    "radius R1 = R2 = R. It is the pure angular case, not a finite-range beacon.",
+    "10.1364/JOSAA.11.000347", "Eqs. (29), (36), R1(S) = R2(S) = R")
+
+# The classical law is a zero-size aperture. It keeps the piston and the tilt.
+_ZERO_APERTURE = Constraint(
+    "aperture-order",
+    "The classical law is a zero-size aperture. It keeps the piston and the "
+    "tilt, so it reads up to about 10 times too large an error over a real "
+    "aperture. Use anisoplanatic_phase_variance for a finite aperture.",
+    "10.1364/JOSAA.11.000347", "Eqs. (1), (26); Fig. 1")
+
 # Turbulence constant of the phase structure function. Eq. (14) of the paper:
 # C_A = (5/36) 2^(1/3) / ( pi^(5/3) Gamma(1/3) ).
 # DOI: 10.1364/JOSAA.11.000347
@@ -227,6 +265,7 @@ def max_radial_order(n_zernike_modes):
     return n
 
 
+@assumes(_ISOPLANATISM, _PLANE_PARALLEL, spectrum=SPECTRUM_KOLMOGOROV)
 def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0):
     '''
     Return the classical isoplanatic angle theta0.
@@ -274,6 +313,8 @@ def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0):
 _REMOVE_NLO = {'none': 0, 'piston': 1, 'piston_tilt': 2}
 
 
+@assumes(_ISOPLANATISM, _PLANE_PARALLEL, _PURE_ANGULAR,
+         beam_type=BEAM_PLANE_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
                                  remove='piston_tilt', max_order=None,
                                  elevation_deg=90.0):
@@ -358,6 +399,8 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
     return float(prefactor * np.trapz(cn2 * inner, hs))
 
 
+@assumes(_ISOPLANATISM, _PLANE_PARALLEL, _ZERO_APERTURE,
+         beam_type=BEAM_PLANE_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def anisoplanatic_phase_variance_classic(theta, hs, cn2_profile, wavelength,
                                          elevation_deg=90.0):
     '''
@@ -505,4 +548,31 @@ if __name__ == '__main__':
     print("   n:     " + "  ".join(f"{m:>6d}" for m in orders) + "     inf")
     print("   var: " + "  ".join(f"{b:6.3f}" for b in bands)
           + f"   {inf_pt:6.3f}")
+
+    # --- assumptions layer ---------------------------------------------------
+    from ..assumptions import trace_assumptions
+
+    # (1) Value parity: a decorated function returns the identical value with and
+    #     without a collection context.
+    outside = isoplanatic_angle(hs, cn2, lam, 90.0)
+    with trace_assumptions():
+        inside = isoplanatic_angle(hs, cn2, lam, 90.0)
+    assert outside == inside, (outside, inside)
+
+    # (2) Registration: inside a context the three slant functions register their
+    #     sources and kinds, and the physics layer emits no warning. (There is no
+    #     numeric validity gate, so no violation block.)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            isoplanatic_angle(hs, cn2, lam, 90.0)
+            anisoplanatic_phase_variance(1.0, 10e-6, hs, cn2, lam)
+            anisoplanatic_phase_variance_classic(10e-6, hs, cn2, lam)
+    for name in ("isoplanatic_angle", "anisoplanatic_phase_variance",
+                 "anisoplanatic_phase_variance_classic"):
+        assert f"{__name__}.{name}" in trace.records, trace.records
+    kinds = {c.kind for rec in trace.records.values() for c in rec.constraints}
+    assert {"isoplanatism", "geometry", "field-region", "aperture-order"} <= kinds, kinds
+    assert len(caught) == 0, "the anisoplanatism physics must not warn"
+
     print('self-check passed')

@@ -36,10 +36,19 @@ instead define k0 = 2*pi/L0 or k0 = 8*pi/L0". The Ch. 9 scintillation model uses
 C0 = 8*pi (text below Eq. (21), printed p. 68). Each function below states the
 constant it uses and lets the caller change it.
 
-This module holds physics only. It imports numpy only. It returns no decibels.
+This module holds physics only. It returns no decibels. Each builder declares
+its spectrum model through the @assumes decorator (see olb.assumptions), so a
+Term that runs the builder inside a trace_assumptions() context inherits the
+spectrum limit automatically.
 '''
 
 import numpy as np
+
+from ...assumptions import (
+    Constraint, assumes,
+    SPECTRUM_KOLMOGOROV, SPECTRUM_TATARSKII, SPECTRUM_VON_KARMAN,
+    SPECTRUM_EXPONENTIAL, SPECTRUM_MODIFIED,
+)
 
 # The Kolmogorov constant of the refractive-index spectrum. Source: Andrews and
 # Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (18), printed p. 67.
@@ -64,6 +73,52 @@ EXPONENTIAL_C0 = 4.0 * np.pi
 MODIFIED_EQ23_C0 = 4.0 * np.pi
 
 
+# ---------------------------------------------------------------------------
+# Function-owned validity limits (see olb.assumptions).
+#
+# Each builder carries ONE spectrum Constraint that names the model and states
+# which scales the model holds. The `_refuse`/`_need` raises still enforce a
+# missing or a forbidden scale; the Constraint records the same limit for a
+# reader and for Budget.check(). No numeric run-time check applies here: a
+# spectrum is a modelling choice, not a regime bound.
+# ---------------------------------------------------------------------------
+_DOI = "10.1117/3.626196"
+
+_KOLMOGOROV_SPECTRUM = Constraint(
+    "spectrum",
+    "This is the Kolmogorov spectrum. It has no inner scale and no outer "
+    "scale. It holds only over the inertial subrange 1/L0 << kappa << 1/l0. An "
+    "extension to all wavenumbers makes some integrals diverge.",
+    _DOI, "Ch. 3, Eq. (18), printed p. 67")
+
+_TATARSKII_SPECTRUM = Constraint(
+    "spectrum",
+    "This is the Tatarskii spectrum. It adds a Gaussian cut at the inner scale "
+    "l0. It has no outer scale, so it keeps the singularity at kappa = 0.",
+    _DOI, "Ch. 3, Eq. (19), printed p. 67")
+
+_VON_KARMAN_SPECTRUM = Constraint(
+    "spectrum",
+    "This is the von Karman spectrum. It carries the outer scale L0. With l0 "
+    "set it becomes the modified von Karman spectrum and carries the inner "
+    "scale too. The outer-scale constant k0 = C0/L0 belongs to the "
+    "application.",
+    _DOI, "Ch. 3, Eq. (20), printed p. 68")
+
+_EXPONENTIAL_SPECTRUM = Constraint(
+    "spectrum",
+    "This is the exponential outer-scale spectrum. It carries the outer scale "
+    "L0 and cuts the low wavenumbers. It has no inner scale.",
+    _DOI, "Ch. 3, Eq. (21), printed p. 68")
+
+_MODIFIED_SPECTRUM = Constraint(
+    "spectrum",
+    "This is the modified atmospheric (Andrews-Hill) spectrum. It carries the "
+    "high-wavenumber bump and needs the inner scale l0. The outer scale L0 is "
+    "optional.",
+    _DOI, "Ch. 3, Eqs. (22) and (23), printed p. 69")
+
+
 def _base(kappa, cn2):
     '''Return the two inputs as float arrays.'''
     return (np.asarray(kappa, dtype=float), np.asarray(cn2, dtype=float))
@@ -84,6 +139,7 @@ def _refuse(l0, L0, func, allowed):
         raise ValueError(f'{func} has no outer scale; L0 must be None')
 
 
+@assumes(_KOLMOGOROV_SPECTRUM, spectrum=SPECTRUM_KOLMOGOROV)
 def kolmogorov(kappa, cn2, l0=None, L0=None):
     '''
     Return the Kolmogorov spectrum Phi_n(kappa).
@@ -106,6 +162,7 @@ def kolmogorov(kappa, cn2, l0=None, L0=None):
     return KOLMOGOROV_CONSTANT * cn2 * kappa ** (-11.0 / 3.0)
 
 
+@assumes(_TATARSKII_SPECTRUM, spectrum=SPECTRUM_TATARSKII)
 def tatarskii(kappa, cn2, l0=None, L0=None):
     '''
     Return the Tatarskii spectrum Phi_n(kappa) with a finite inner scale.
@@ -131,6 +188,7 @@ def tatarskii(kappa, cn2, l0=None, L0=None):
             * np.exp(-(kappa / km) ** 2))
 
 
+@assumes(_VON_KARMAN_SPECTRUM, spectrum=SPECTRUM_VON_KARMAN)
 def von_karman(kappa, cn2, l0=None, L0=None, *, c0=VON_KARMAN_C0):
     '''
     Return the von Karman spectrum Phi_n(kappa).
@@ -168,6 +226,7 @@ def von_karman(kappa, cn2, l0=None, L0=None, *, c0=VON_KARMAN_C0):
     return out * np.exp(-(kappa / km) ** 2)
 
 
+@assumes(_EXPONENTIAL_SPECTRUM, spectrum=SPECTRUM_EXPONENTIAL)
 def exponential(kappa, cn2, l0=None, L0=None, *, c0=EXPONENTIAL_C0):
     '''
     Return the exponential outer-scale spectrum Phi_n(kappa).
@@ -193,6 +252,7 @@ def exponential(kappa, cn2, l0=None, L0=None, *, c0=EXPONENTIAL_C0):
             * (1.0 - np.exp(-(kappa / k0) ** 2)))
 
 
+@assumes(_MODIFIED_SPECTRUM, spectrum=SPECTRUM_MODIFIED)
 def modified_atmospheric(kappa, cn2, l0=None, L0=None, *, outer='karman',
                          c0=None):
     '''
@@ -364,6 +424,54 @@ if __name__ == '__main__':
     print(f'REDUCTION modified -> kolmogorov at kappa l0 ~ 1e-3 : '
           f'max rel err = {err_mod:.3e}  (no target, the bump term is linear '
           f'in kappa l0)')
+
+    # ---------------- assumption-trace checks ----------------
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    # (1) Value parity: the return value is byte-identical with and without a
+    # collection context.
+    kol_plain = float(kolmogorov(10.0, cn2_ref))
+    with trace_assumptions():
+        kol_traced = float(kolmogorov(10.0, cn2_ref))
+    assert kol_plain == kol_traced, (kol_plain, kol_traced)
+
+    # (2) Registration: every builder registers its source and its spectrum
+    # Constraint, and its headline spectrum.
+    with trace_assumptions() as tr:
+        for name, func in SPECTRA.items():
+            kwargs = {}
+            if name in ('tatarskii', 'modified'):
+                kwargs['l0'] = l0_ref
+            if name in ('von_karman', 'exponential'):
+                kwargs['L0'] = L0_ref
+            func(inertial, cn2_ref, **kwargs)
+    sources = set(tr.records)
+    for fn in ('kolmogorov', 'tatarskii', 'von_karman', 'exponential',
+               'modified_atmospheric'):
+        assert any(s.endswith('.' + fn) for s in sources), fn
+    kinds = {c.kind for r in tr.records.values() for c in r.constraints}
+    assert kinds == {'spectrum'}, kinds
+    specs = {r.spectrum for r in tr.records.values()}
+    assert {SPECTRUM_KOLMOGOROV, SPECTRUM_TATARSKII, SPECTRUM_VON_KARMAN,
+            SPECTRUM_EXPONENTIAL, SPECTRUM_MODIFIED} == specs, specs
+
+    # (3) The module carries no numeric run-time check (a spectrum is a
+    # modelling choice, not a regime bound), so a refused scale still RAISES,
+    # and the physics layer emits no warning inside a context.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions():
+            kolmogorov(inertial, cn2_ref)
+            try:
+                kolmogorov(inertial, cn2_ref, l0=l0_ref)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('kolmogorov must still refuse l0 in a context')
+    assert len(caught) == 0, 'the physics layer must not warn'
+    print(f'assumption trace : {len(sources)} sources, kinds {sorted(kinds)}')
 
     print(f'Phi_n(kappa=10, Cn2=1e-14) = {kolmogorov(10.0, cn2_ref):.4e} m^3')
     print('self-check passed')

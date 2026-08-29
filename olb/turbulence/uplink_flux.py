@@ -67,6 +67,44 @@ from .profiles import DEFAULT_HS
 # is a two-scale product that saturates gracefully (DOI 10.1364/AO.43.003866).
 from .andrews.scintillation import (rytov_weak, UPLINK_SIGMA2X_LIMIT,
                                     RYTOV_CONFIDENT_WEAK, WEAK_REGIME_LIMIT)
+from ..assumptions import (assumes, Constraint, BEAM_GAUSSIAN, REGIME_WEAK,
+                           SPECTRUM_KOLMOGOROV)
+
+
+def _uplink_hard_regime_check(args, result):
+    '''Return a reason when the run leaves the Dios reliability edge.
+
+    The run stores its three-tier label in ``result["rytov_regime"]`` (computed
+    from the mean log-amplitude variance sigma_x^2 through the shared gate, with
+    the hard edge at UPLINK_SIGMA2X_LIMIT). The check reports only the hard tier,
+    so a soft run stays a factory warning. The check never warns and never
+    raises; the module keeps its own warnings.warn calls, unchanged.
+    '''
+    if result.get("rytov_regime") == "hard":
+        s2x = float(result["sigma2_x_mean"])
+        return (f"log-amplitude variance sigma_x^2 = {s2x:.3f} >= "
+                f"{UPLINK_SIGMA2X_LIMIT} (the Dios reliability edge); the "
+                "coupled-flux turbulence loss is not trustworthy. Use the "
+                "fidelity-2 Monte Carlo.")
+    return None
+
+
+# The coupled-flux loss is trustworthy only below the Dios reliability edge.
+HARD_REGIME = Constraint(
+    "regime",
+    "The coupled-flux turbulence loss is trustworthy only below the Dios "
+    "reliability edge sigma_x^2 < 0.6 (sigma_R^2 < 2.4). Past it, scintillation "
+    "approaches saturation.",
+    "10.1364/AO.43.003866", "reliability edge, printed p. 3871",
+    check=_uplink_hard_regime_check)
+
+# The launch is a pure unclipped Gaussian; the index is blind to obscuration.
+OBSCURATION_BLIND = Constraint(
+    "obscuration",
+    "The launch is a pure unclipped Gaussian of waist w0, with no launch "
+    "aperture and no central obscuration, so the scintillation index does not "
+    "change with an obscured pupil.",
+    "10.1364/AO.43.003866", "the on-axis index reads only the waist w0")
 
 
 def _scintillation_beam(w0, L, wavelength, divergence_rad):
@@ -126,6 +164,8 @@ def _scintillation_beam(w0, L, wavelength, divergence_rad):
     return wL, z0_eff
 
 
+@assumes(HARD_REGIME, OBSCURATION_BLIND, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
                  hv57_A, n_samples, n_apertures, divergence_rad=None,
                  sigma_theta_rad=0.0):
@@ -366,4 +406,50 @@ if __name__ == '__main__':
           f"turbulence loss {loss_coll:.3f} dB, sigma2_x={m_coll['sigma2_x_mean']:.4f}")
     print(f"5x diverged -> w_free={r_div['w_diffraction_limited']:.2f} m, "
           f"turbulence loss {loss_div:.3f} dB, sigma2_x={m_div['sigma2_x_mean']:.4f}")
+
+    # ---------------- assumption self-checks ----------------
+    from ..assumptions import trace_assumptions
+
+    # (1) Value parity: one representative run returns the identical samples with
+    #     and without a collection context. Seed the RNG identically each time.
+    np.random.seed(7)
+    p_out = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14, 500, 1)
+    np.random.seed(7)
+    with trace_assumptions():
+        p_in = _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14,
+                            500, 1)
+    assert np.array_equal(p_out["Is_summed"], p_in["Is_summed"]), "parity broke"
+
+    # (2) Registration: inside a context the entry point and its decorated
+    #     coupled-flux dependencies register, with the expected kinds. The
+    #     obscuration blindness and the C-01 conflict tag both inherit.
+    np.random.seed(7)
+    with trace_assumptions() as tr:
+        _flux_result(w0, 90.0, range_m, lam, hs, moderate_cn2, 1.7e-14, 500, 1)
+    mod = __name__
+    assert f"{mod}._flux_result" in tr.records
+    assert "olb.turbulence.coupled_flux.beam_wander_variance" in tr.records
+    kinds = {c.kind for rec in tr.records.values() for c in rec.constraints}
+    assert {"regime", "obscuration", "path-weight", "variance-convention",
+            "conflict"} <= kinds, kinds
+
+    # (3) A deliberately strong run trips the hard-tier check, which appends a
+    #     source-prefixed violation. The pre-existing warnings.warn on the hard
+    #     tier is EXPECTED and separate; assert the decorator adds no NEW warning
+    #     by comparing the warning count with and without a context.
+    np.random.seed(11)
+    with warnings.catch_warnings(record=True) as base:
+        warnings.simplefilter("always")
+        _flux_result(w0, 90.0, range_m, lam, hs, strong_cn2, 1.7e-14, 500, 1)
+    np.random.seed(11)
+    with warnings.catch_warnings(record=True) as traced:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            _flux_result(w0, 90.0, range_m, lam, hs, strong_cn2, 1.7e-14, 500, 1)
+    assert any(v.startswith(f"[{mod}._flux_result]")
+               for v in tr_bad.violations), tr_bad.violations
+    assert len(traced) == len(base), \
+        "the decorator check must add no warning of its own"
+
+    print("uplink_flux assumptions self-check passed")
     print("self-check passed.")

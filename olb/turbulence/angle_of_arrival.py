@@ -7,8 +7,20 @@ focuses the beam onto a fibre tip. A tip-tilt of angle theta moves the focal
 spot by f*theta, with f the focal length. So the received tip-tilt drives the
 fibre-coupling loss. The Term factories live in olb.models.coupling.
 
-The module is pure physics. It imports only numpy and olb.turbulence.coupled_flux.
-It does not import the scenario, the terminal, or the results.
+The module is pure physics. It imports numpy, olb.turbulence.coupled_flux, the
+sibling andrews layer, and the olb assumptions decorator layer. It does not
+import the scenario, the terminal, or the results.
+
+Each public function declares its own validity through the `@assumes` decorator
+(olb.assumptions). The beam-wander arrival tilt is a radial (two-axis) variance
+(`RADIAL_TILT`). The aperture angle-of-arrival tilt is the Andrews gradient tilt,
+NOT the Noll Zernike tilt (`TILT_G_TILT`, Conflict C-04), and it holds only when
+the Fresnel zone is small against the aperture (`FRESNEL_ZONE`). The Fresnel
+condition needs the path length L, which `aperture_arrival_angle_variance` folds
+into the Fried parameter r0; the RUNTIME gate on that condition therefore lives on
+the delegate `olb.turbulence.andrews.structure.angle_of_arrival_variance`, which
+takes the path length z directly. Outside a collection context the decorator is a
+no-op, so the numeric output does not change.
 
 Two contributions:
 
@@ -38,8 +50,43 @@ from .coupled_flux import beam_wander_variance
 from .andrews.structure import (
     angle_of_arrival_variance as _andrews_angle_of_arrival_variance,
 )
+from ..assumptions import (assumes, Constraint, BEAM_GAUSSIAN, REGIME_WEAK,
+                           SPECTRUM_KOLMOGOROV)
+
+# ----------------------------------------------------------------------------
+# The module assumptions, as shared Constraint instances (see the docstring).
+# ----------------------------------------------------------------------------
+
+# The received beam-wander tip-tilt is a radial (two-axis) variance.
+RADIAL_TILT = Constraint(
+    "variance-convention",
+    "The returned beam-wander tip-tilt variance is radial (two-axis). The "
+    "per-axis variance is one half.",
+    "10.1364/AO.43.003866", "beam-wander offset variance, Eq. (11), printed "
+    "p. 3868")
+
+# The aperture angle-of-arrival tilt is the Andrews gradient tilt (G-tilt).
+TILT_G_TILT = Constraint(
+    "tilt-convention",
+    "The returned tilt is the Andrews gradient tilt (G-tilt), what a centroid "
+    "tracker measures. It is NOT the Noll Zernike tilt. See Conflict C-04.",
+    "10.1117/3.626196",
+    "Ch. 6, Eq. (84), printed p. 201; definition Eq. (82), printed p. 200")
+
+# The gradient-tilt result holds only in the small-Fresnel-zone limit. This
+# signature folds the path length into r0, so the runtime gate on the condition
+# lives on the delegate structure.angle_of_arrival_variance (which takes z).
+FRESNEL_ZONE = Constraint(
+    "field-region",
+    "The gradient-tilt aperture angle of arrival holds only when the Fresnel "
+    "zone is small against the aperture, sqrt(L/k) << D. The runtime gate is on "
+    "the delegate structure.angle_of_arrival_variance, which takes the path "
+    "length.",
+    "10.1117/3.626196", "Ch. 6, text below Eq. (83), printed p. 200")
 
 
+@assumes(RADIAL_TILT, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs):
     '''
     Return the received beam-wander tip-tilt variance (radial, 2-axis) [rad^2].
@@ -70,6 +117,8 @@ def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs):
     return float(np.squeeze(r_c2)) / float(L) ** 2
 
 
+@assumes(TILT_G_TILT, FRESNEL_ZONE, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def aperture_arrival_angle_variance(D, r0, wavelength):
     '''
     Return the aperture angle-of-arrival tip-tilt variance (per axis) [rad^2].
@@ -174,4 +223,56 @@ if __name__ == '__main__':
           f"(gradient tilt, {pct:.3f} % from the 0.174 recast)")
     print(f"  radial 1-sigma = {np.sqrt(v) * 1e6:.3f} urad  "
           f"per-axis 1-sigma = {np.sqrt(v / 2) * 1e6:.3f} urad")
+
+    # ---------------- assumption self-checks ----------------
+    import warnings
+    from ..assumptions import trace_assumptions
+
+    grid = np.linspace(0.0, L, 200)
+    cn2_grid = np.full_like(grid, 1e-14)
+    w_grid = free_space_radius(w0, grid, None, lam)
+
+    # (1) Value parity: one representative call returns the identical float with
+    #     and without a collection context.
+    ap_out = aperture_arrival_angle_variance(0.2, 0.1, lam)
+    with trace_assumptions():
+        ap_in = aperture_arrival_angle_variance(0.2, 0.1, lam)
+    assert ap_out == ap_in, (ap_out, ap_in)
+
+    # (2) Registration: inside a context the expected sources and kinds register.
+    #     The wander call also registers the decorated coupled_flux dependency, so
+    #     the C-01 conflict tag is inherited automatically.
+    with trace_assumptions() as tr:
+        wander_arrival_angle_variance(L, cn2_grid, w_grid, grid)
+        aperture_arrival_angle_variance(0.2, 0.1, lam)
+    mod = __name__
+    assert f"{mod}.wander_arrival_angle_variance" in tr.records
+    assert f"{mod}.aperture_arrival_angle_variance" in tr.records
+    assert "olb.turbulence.coupled_flux.beam_wander_variance" in tr.records, \
+        "the decorated dependency must register through the wander call"
+    ap_rec = tr.records[f"{mod}.aperture_arrival_angle_variance"]
+    ap_kinds = {c.kind for c in ap_rec.constraints}
+    assert {"tilt-convention", "field-region"} <= ap_kinds, ap_kinds
+    wander_kinds = {c.kind for c in
+                    tr.records[f"{mod}.wander_arrival_angle_variance"].constraints}
+    assert "variance-convention" in wander_kinds, wander_kinds
+
+    # (3) No decorator check in this module warns. Neither validity condition is
+    #     a runtime callable here: the tilt-convention is a labelling assumption,
+    #     and the sqrt(L/k) << D gate needs the path length, which this signature
+    #     folds into r0 (its runtime gate is on the delegate
+    #     structure.angle_of_arrival_variance). So a deliberately large-Fresnel
+    #     call registers the field-region CONSTRAINT (below) but raises no
+    #     decorator violation and no warning. The firing-check demonstration for
+    #     the traced machinery is in coupled_flux and uplink_flux.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            aperture_arrival_angle_variance(1e-3, 0.1, lam)   # a tiny aperture
+    assert any(c.kind == "field-region"
+               for c in tr_bad.records[f"{mod}.aperture_arrival_angle_variance"]
+               .constraints), "the sqrt(L/k) << D limit must be recorded"
+    assert len(caught) == 0, "a decorator check must not warn"
+
+    print("angle_of_arrival assumptions self-check passed")
     print("self-check passed")

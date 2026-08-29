@@ -53,6 +53,8 @@ forms on a single homogeneous path.
 
 import numpy as np
 
+from ...assumptions import (BEAM_GAUSSIAN, BEAM_PLANE_WAVE, SPECTRUM_KOLMOGOROV,
+                            Constraint, assumes)
 from ..profiles import get_c2n, v_wind
 from .beam import wavenumber
 from .scintillation import (WEAK_REGIME_LIMIT, large_scale_log_variance,
@@ -106,6 +108,86 @@ _C = 299792458.0
 _DIRECTIONS = ('uplink', 'downlink')
 
 
+# ----------------------------------------------------------------------------
+# Function-owned assumptions. See olb/assumptions.py. Each slant function
+# carries the plane-parallel geometry and, for the first time in olb, an
+# ENFORCED zenith-angle check on ZENITH_LIMIT_DEG.
+# ----------------------------------------------------------------------------
+
+def _zenith_check(args, result):
+    '''Return a reason when the zenith angle is more than ZENITH_LIMIT_DEG.
+
+    The lowest elevation in the argument is the worst case, because it gives the
+    largest zenith angle zeta = 90 - elevation. A vector input tests the whole
+    vector and reports that worst value. No warning here: a check never warns.
+    '''
+    elevation = np.asarray(args['elevation_deg'], dtype=float)
+    zenith = 90.0 - float(np.min(elevation))
+    if zenith > ZENITH_LIMIT_DEG:
+        return (f'the zenith angle {zenith:.1f} deg is more than '
+                f'{ZENITH_LIMIT_DEG:.0f} deg; the book does not trust the '
+                f'weak-fluctuation slant result at this zenith angle.')
+    return None
+
+
+# The plane-parallel atmosphere of Chapter 12. It carries no Earth-curvature
+# correction to sec(zeta).
+GEOMETRY_CONSTRAINT = Constraint(
+    'geometry',
+    'The atmosphere is plane-parallel. The model gives no Earth-curvature '
+    'correction to sec(zeta).',
+    '10.1117/3.626196', 'Ch. 12, text below Eq. (14), printed p. 490')
+
+# The zenith-angle bound of the weak-fluctuation slant results. This is the
+# first place in olb that enforces ZENITH_LIMIT_DEG.
+ZENITH_CONSTRAINT = Constraint(
+    'zenith',
+    'The zenith angle does not exceed ZENITH_LIMIT_DEG for the '
+    'weak-fluctuation slant result.',
+    '10.1117/3.626196',
+    'Ch. 12, Sec. 12.1, printed p. 478; Ch. 12, Sec. 12.9, printed p. 521',
+    check=_zenith_check)
+
+# Chapter 12 uses the Kolmogorov spectrum only. An inner scale or an outer scale
+# is refused, not approximated (see `_refuse_two_scale`).
+KOLMOGOROV_ONLY_CONSTRAINT = Constraint(
+    'spectrum',
+    'The slant forms use the Kolmogorov spectrum only. An inner scale or an '
+    'outer scale is refused, not approximated.',
+    '10.1117/3.626196', 'Ch. 12, Eq. (15), printed p. 490')
+
+# The strong-regime downlink index models a point receiver. The book gives no
+# aperture-averaged strong downlink index, so a finite aperture is refused there
+# (an existing raise, recorded here as a constraint too).
+POINT_RECEIVER_STRONG_CONSTRAINT = Constraint(
+    'receiver',
+    'In the strong regime the downlink index models a point receiver. A finite '
+    'receive aperture is refused, because the book gives no aperture-averaged '
+    'strong downlink index.',
+    '10.1117/3.626196',
+    'Ch. 12, Eq. (39), printed p. 496; Ch. 12, Eq. (40), printed p. 497')
+
+# The tracked uplink form removes the beam wander completely. GAP 2 (decision
+# 2026-08-27): it is OPTIMISTIC for a pre-compensated uplink and does not model
+# one; a residual tilt from point-ahead decorrelation is not charged.
+UPLINK_TRACKED_CONSTRAINT = Constraint(
+    'tracking',
+    'The tracked form removes the beam wander completely (a perfect tilt '
+    'correction). It is OPTIMISTIC for a pre-compensated uplink and does not '
+    'model one, because a residual tilt from point-ahead decorrelation is not '
+    'charged (GAP 2).',
+    '10.1117/3.626196',
+    'Ch. 12, Eq. (57), printed p. 504; Ch. 12, Eq. (59), printed p. 506')
+
+# The isoplanatic angle may not describe a tilt-related quantity.
+ISOPLANATIC_TILT_CONSTRAINT = Constraint(
+    'isoplanatism',
+    'The isoplanatic angle may not describe a tilt-related quantity such as a '
+    'point-ahead tracking error.',
+    '10.1117/3.626196', 'Ch. 12, footnote, printed p. 493')
+
+
+@assumes(GEOMETRY_CONSTRAINT, ZENITH_CONSTRAINT)
 def sec_zeta(elevation_deg):
     '''
     Return the slant secant sec(zeta) of the plane-parallel atmosphere.
@@ -295,6 +377,8 @@ def _xi(hs, altitude_m, direction, h0):
     return np.clip(1.0 - frac if direction == 'uplink' else frac, 0.0, 1.0)
 
 
+@assumes(GEOMETRY_CONSTRAINT, KOLMOGOROV_ONLY_CONSTRAINT,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def mu(hs, cn2_profile, order, *, direction='uplink', beam=None,
        altitude_m=None, h0=None):
     '''
@@ -408,6 +492,9 @@ def _refuse_two_scale(l0, L0):
             'single homogeneous path.')
 
 
+@assumes(GEOMETRY_CONSTRAINT, ZENITH_CONSTRAINT, KOLMOGOROV_ONLY_CONSTRAINT,
+         POINT_RECEIVER_STRONG_CONSTRAINT, beam_type=BEAM_PLANE_WAVE,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def downlink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
                                  *, D=None, regime='auto', l0=None, L0=None):
     '''
@@ -546,6 +633,9 @@ def _uplink_longitudinal(sigma2_bu, theta, strong):
     return np.exp(x + y) - 1.0
 
 
+@assumes(GEOMETRY_CONSTRAINT, ZENITH_CONSTRAINT, KOLMOGOROV_ONLY_CONSTRAINT,
+         UPLINK_TRACKED_CONSTRAINT, beam_type=BEAM_GAUSSIAN,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def uplink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
                                beam, *, altitude_m, r=0.0, tracked=True,
                                regime='auto', pointing_error_m=None,
@@ -693,6 +783,8 @@ def uplink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     return radial + longitudinal
 
 
+@assumes(GEOMETRY_CONSTRAINT, ZENITH_CONSTRAINT, KOLMOGOROV_ONLY_CONSTRAINT,
+         beam_type=BEAM_GAUSSIAN, spectrum=SPECTRUM_KOLMOGOROV)
 def uplink_coherence_radius(hs, cn2_profile, wavelength, elevation_deg, beam,
                             *, altitude_m):
     '''
@@ -754,6 +846,8 @@ def uplink_coherence_radius(hs, cn2_profile, wavelength, elevation_deg, beam,
     return float((_RHO0_CONSTANT * k ** 2 * sec * weighted) ** (-3.0 / 5.0))
 
 
+@assumes(GEOMETRY_CONSTRAINT, ZENITH_CONSTRAINT, KOLMOGOROV_ONLY_CONSTRAINT,
+         ISOPLANATIC_TILT_CONSTRAINT, spectrum=SPECTRUM_KOLMOGOROV)
 def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0, *,
                       beam=None, altitude_m=None):
     '''
@@ -1067,5 +1161,49 @@ if __name__ == '__main__':
     print(f'MEASURED mu_1d two readings : (1 - xi) reading = {used:.4e} '
           f'(= mu_0 {m0:.4e}, as the book text needs); literal-xi reading = '
           f'{literal:.4e} (= the book Worked Example 2 value 1.98e-19)')
+
+    # ================= part 3: function-owned assumptions =================
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    # When this module runs as __main__ the decorated functions carry
+    # __module__ == "__main__", so the traced source prefix is __name__.
+    src = __name__
+
+    # (1) value parity: the decorators change no number, in a context or out.
+    par_out = sec_zeta(30.0)
+    with trace_assumptions():
+        par_in = sec_zeta(30.0)
+    assert par_out == par_in and abs(par_in - 2.0) < 1e-12, (par_out, par_in)
+
+    # (2) inside a trace the expected sources and kinds register. At 60 deg
+    #     elevation the zenith is 30 deg, so no check fires.
+    with trace_assumptions() as tr:
+        downlink_scintillation_index(hs, cn2, LAM, ELEV)
+        uplink_scintillation_index(hs, cn2, LAM, ELEV, bp, altitude_m=H_GEO)
+    assert f'{src}.downlink_scintillation_index' in tr.records
+    assert f'{src}.uplink_scintillation_index' in tr.records
+    assert f'{src}.sec_zeta' in tr.records          # the slant secant call
+    assert f'{src}.mu' in tr.records                # mu_3u through the uplink
+    reg_kinds = {c.kind for rec in tr.records.values() for c in rec.constraints}
+    assert {'geometry', 'zenith', 'spectrum', 'receiver', 'tracking'} \
+        <= reg_kinds, reg_kinds
+    assert not tr.violations, tr.violations
+    print(f'TRACE sources / kinds     : {len(tr.records)} sources, kinds '
+          f'{sorted(reg_kinds)}')
+
+    # (3) a low elevation (zenith 70 deg > 60 deg) yields a source-prefixed
+    #     zenith violation, and the physics layer emits NO warning.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as tr:
+            downlink_scintillation_index(hs, cn2, LAM, 20.0)
+    assert any(v.startswith(f'[{src}.downlink_scintillation_index]')
+               and 'zenith' in v for v in tr.violations), tr.violations
+    assert any(v.startswith(f'[{src}.sec_zeta]') and 'zenith' in v
+               for v in tr.violations), tr.violations
+    assert len(caught) == 0, caught
+    print(f'ZENITH enforced at 20 deg : {tr.violations[0]}')
 
     print('self-check passed')

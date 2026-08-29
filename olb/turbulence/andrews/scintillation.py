@@ -60,6 +60,8 @@ spherical limits are measured in the self-check.
 
 import numpy as np
 
+from ...assumptions import (BEAM_GAUSSIAN, Constraint, REGIME_WEAK,
+                            SPECTRUM_KOLMOGOROV, module_assumptions)
 from .beam import BeamParams, beam_params, effective_beam_params, wavenumber
 
 # Weak-fluctuation boundary on the plane-wave Rytov variance. Source: Andrews
@@ -114,6 +116,89 @@ Q0_CONSTANT = 64.0 * np.pi ** 2
 _WAVES = ('plane', 'spherical', 'gaussian')
 
 
+# ---------------------------------------------------------------------------
+# Function-owned assumptions (see olb/assumptions.py and
+# docs/assumptions-refactor-plan.md). This module lands the worked example.
+#
+# The module default is the Kolmogorov spectrum and the one-path homogeneity
+# that the module docstring (PLANE OF REFERENCE) states for EVERY public
+# function. A two-scale branch that a caller opts into with l0 or L0 changes the
+# spectrum, but the headline stays the Kolmogorov root, which is what every
+# default call assumes.
+# ---------------------------------------------------------------------------
+PATH_HOMOGENEITY = Constraint(
+    "path-homogeneity",
+    "One path length L and one scalar Cn2. No profile integral, no reference "
+    "plane.",
+    "10.1117/3.626196", "Ch. 8, text at Eq. (4), printed p. 261")
+
+assumes = module_assumptions(
+    spectrum=SPECTRUM_KOLMOGOROV,
+    constraints=(PATH_HOMOGENEITY,))
+
+
+def _weak_regime_check(args, result):
+    '''Return a reason when the Rytov gate reads "hard". No warning here.'''
+    s = float(np.max(np.asarray(result, dtype=float)))
+    if rytov_weak(s) == 'hard':
+        return (f"sigma_R^2 = {s:.3f} >= {WEAK_REGIME_LIMIT}; the Rytov weak "
+                f"theory does not hold.")
+    return None
+
+
+WEAK_REGIME_CONSTRAINT = Constraint(
+    "regime", "Weak fluctuation: sigma_R^2 < 1.",
+    "10.1117/3.626196", "Ch. 8, text below Eq. (23), printed pp. 264-265",
+    check=_weak_regime_check)
+
+
+def _gaussian_weak_check(args, result):
+    '''Return a reason when the Gaussian weak gate reads "hard". No warning here.
+
+    Andrews and Phillips need BOTH Ch. 5, Eq. (16) conditions for a beam wave, so
+    a focused beam (Lambda > 1) trips the gate before sigma_R^2 alone does.
+    '''
+    sigma2_R = float(np.max(np.asarray(args['sigma2_R'], dtype=float)))
+    Lambda = float(np.max(np.asarray(args['beam'].lam, dtype=float)))
+    if rytov_weak(sigma2_R, Lambda) == 'hard':
+        return (f"sigma_R^2 = {sigma2_R:.3f}, Lambda = {Lambda:.3f}; the "
+                f"Gaussian weak conditions sigma_R^2 < {WEAK_REGIME_LIMIT} and "
+                f"sigma_R^2 Lambda^(5/6) < {WEAK_REGIME_LIMIT} do not both hold.")
+    return None
+
+
+GAUSSIAN_WEAK_CONSTRAINT = Constraint(
+    "regime",
+    "Gaussian weak fluctuation: both sigma_R^2 < 1 and sigma_R^2 Lambda^(5/6) "
+    "< 1 hold. A focused beam trips the second condition first.",
+    "10.1117/3.626196", "Ch. 5, Eq. (16), printed p. 140",
+    check=_gaussian_weak_check)
+
+COLLIMATED_LAUNCH_CONSTRAINT = Constraint(
+    "launch-curvature",
+    "The launch is collimated or divergent (Theta0 >= 1). A convergent beam "
+    "raises; it needs the exact hypergeometric form.",
+    "10.1117/3.626196", "Ch. 8, text above Eq. (23), printed p. 264")
+
+ON_AXIS_CONSTRAINT = Constraint(
+    "on-axis",
+    "The value is the longitudinal (on-axis) scintillation index. The off-axis "
+    "radial term is separate.",
+    "10.1117/3.626196", "Ch. 8, Eq. (23), printed p. 264")
+
+GAUSSIAN_TWO_SCALE_NOT_BUILT = Constraint(
+    "not-built",
+    "The Gaussian two-scale large-scale branch is not built; wave='gaussian' "
+    "with a finite l0 or L0 raises.",
+    "10.1117/3.626196", "Ch. 9, Eq. (109), printed p. 355")
+
+TRACKING_CONSTRAINT = Constraint(
+    "tracking",
+    "The Gaussian radial term removes the beam wander when tracked is True (the "
+    "tracked model) and keeps it when tracked is False (the untracked model).",
+    "10.1117/3.626196", "Ch. 8, Secs. 8.3.1 and 8.3.2, printed pp. 272-276")
+
+
 def two_scale_parameters(wavelength, z, l0=None, L0=None):
     '''
     Return the nondimensional scale parameters (Q_l, Q_0).
@@ -161,6 +246,7 @@ def _eta_filter(eta, ql):
             * (1.0 - 1.75 * ratio ** 0.5 + 0.25 * ratio ** (7.0 / 12.0)))
 
 
+@assumes(turbulence_regime=REGIME_WEAK)
 def weak_two_scale_index(wavelength, z, cn2, *, wave='plane', l0=None,
                          beam=None):
     '''
@@ -290,6 +376,7 @@ def _need_beam(beam, wave):
     return beam
 
 
+@assumes(WEAK_REGIME_CONSTRAINT, turbulence_regime=REGIME_WEAK)
 def rytov_variance(wavelength, z, cn2, *, wave='plane', beam=None):
     '''
     Return the weak-fluctuation Rytov variance of the named wave type.
@@ -349,6 +436,9 @@ def rytov_variance(wavelength, z, cn2, *, wave='plane', beam=None):
     return beam_rytov_variance(sigma2_R, _need_beam(beam, wave))
 
 
+@assumes(GAUSSIAN_WEAK_CONSTRAINT, COLLIMATED_LAUNCH_CONSTRAINT,
+         ON_AXIS_CONSTRAINT, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK)
 def beam_rytov_variance(sigma2_R, beam):
     '''
     Return the Gaussian-beam Rytov variance sigma_B^2 from sigma_R^2.
@@ -444,6 +534,7 @@ def rytov_weak(sigma2_R, Lambda=None, *, hard_limit=WEAK_REGIME_LIMIT,
     return 'weak'
 
 
+@assumes(GAUSSIAN_TWO_SCALE_NOT_BUILT)
 def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
                              beam=None, r=0.0, wavelength=None, z=None):
     '''
@@ -546,6 +637,7 @@ def large_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
     return 0.49 * b2 / denom
 
 
+@assumes()
 def small_scale_log_variance(sigma2_R, *, wave='plane', l0=None, L0=None,
                              beam=None, r=0.0, wavelength=None, z=None):
     '''
@@ -625,6 +717,7 @@ def _radial_component(sigma2_R, lam_eff, w_eff, r, tracked, pointing_error_m,
     return coef * (np.where(r > pe, (r + pe) ** 2, 0.0) + pe ** 2)
 
 
+@assumes(TRACKING_CONSTRAINT)
 def scintillation_index(wavelength, z, cn2, *, wave='plane', regime='auto',
                         l0=None, L0=None, beam=None, r=0.0, tracked=True,
                         pointing_error_m=0.0, wander_rms_m=0.0):
@@ -963,5 +1056,62 @@ if __name__ == '__main__':
     print(f'GAP 9 divergent f0={f0_div} m : '
           f'Andrews Eq. (23) = {mine_div:.6f}  Dios = {dios_div:.6f}  '
           f'diff = {gap9_div:+.2f} %  (no assert)')
+
+    # ---------------- assumption annotations ----------------
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    mod = __name__
+
+    # (1) value parity: a representative call returns the identical float in and
+    #     out of a collection context (the decorator is zero-overhead outside).
+    ref_val = rytov_variance(lam_m, L, cn2_weak)
+    with trace_assumptions():
+        traced_val = rytov_variance(lam_m, L, cn2_weak)
+    assert traced_val == ref_val, (traced_val, ref_val)
+
+    # (2) registration: the expected sources and constraint kinds appear.
+    with trace_assumptions() as trace:
+        rytov_variance(lam_m, L, cn2_weak)
+        beam_rytov_variance(s2_R, bp)
+        large_scale_log_variance(s2_R, wave='plane')
+        small_scale_log_variance(s2_R, wave='plane')
+        weak_two_scale_index(lam_m, L, cn2_weak, wave='plane')
+        scintillation_index(lam_m, L, cn2_weak)
+    for name in ('rytov_variance', 'beam_rytov_variance',
+                 'large_scale_log_variance', 'small_scale_log_variance',
+                 'weak_two_scale_index', 'scintillation_index'):
+        assert f'{mod}.{name}' in trace.records, name
+    kinds = {c.kind for rec in trace.records.values() for c in rec.constraints}
+    for expected in ('path-homogeneity', 'regime', 'launch-curvature',
+                     'on-axis', 'not-built', 'tracking'):
+        assert expected in kinds, expected
+    # Every traced record carries the module default spectrum.
+    assert {rec.spectrum for rec in trace.records.values()} == {
+        SPECTRUM_KOLMOGOROV}
+    print('[assumes] scintillation sources and kinds register ok')
+
+    # (3) an out-of-range call yields a source-prefixed violation, and the
+    #     physics layer emits NO warning. A strong path gives sigma_R^2 >> 1.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            rytov_variance(lam_m, L, 1e-12)
+    assert any(v.startswith(f'[{mod}.rytov_variance]')
+               for v in trace.violations), trace.violations
+    assert len(caught) == 0, 'a check must not warn'
+
+    # The Gaussian second weak condition is a real check: a FOCUSED beam
+    # (Lambda > 1) trips it where sigma_R^2 = 0.5 alone stays soft.
+    focused = BeamParams(1.0, 0.0, 0.0, 1.0, 4.0, bp.w)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            beam_rytov_variance(0.5, focused)
+    assert any(v.startswith(f'[{mod}.beam_rytov_variance]')
+               for v in trace.violations), trace.violations
+    assert len(caught) == 0, 'a check must not warn'
+    print('[assumes] regime and Gaussian-second-condition checks fire ok')
 
     print('self-check passed')

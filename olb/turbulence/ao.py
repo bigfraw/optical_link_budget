@@ -42,6 +42,7 @@ from typing import Callable
 
 import numpy as np
 
+from ..assumptions import Constraint, assumes
 from .andrews.structure import coherence_radius as _andrews_coherence_radius
 from .andrews.structure import fried_parameter as _andrews_fried_parameter
 
@@ -52,7 +53,70 @@ NOLL_TIPTILT = 0.134          # first 3 Zernikes removed (tip-tilt)
 _NOLL_AO_CONST = 0.2944       # large-J asymptotic prefactor
 _AO_EXP = -np.sqrt(3.0) / 2.0  # large-J asymptotic exponent
 
+# Above this residual phase variance [rad^2] the extended-Marechal Strehl
+# eta = exp(-sigma^2) is a small-residual form that overstates the Strehl.
+# Source: T. S. Ross, "Limitations and applicability of the Marechal
+# approximation," Appl. Opt. 48(10), 1812 (2009), DOI 10.1364/AO.48.001812.
+MARECHAL_SIGMA2_MAX = 1.0
 
+
+# The slant Fried parameter uses the plane-parallel airmass 1/sin(elevation).
+# Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 12,
+# printed p. 481. (The plane-wave beam type comes from the traced Andrews chain.)
+_PLANE_PARALLEL = Constraint(
+    "geometry",
+    "The slant path uses the plane-parallel airmass 1/sin(elevation). It has no "
+    "Earth curvature, so it breaks near the horizon.",
+    "10.1117/3.626196", "Ch. 12, printed p. 481")
+
+# The residual-variance model uses the Noll Zernike tilt convention.
+_NOLL_TILT = Constraint(
+    "tilt-convention",
+    "The tip-tilt and higher-order correction uses the Noll Zernike tilt "
+    "convention (coefficients 1.0299, 0.134, and 0.2944 J^(-sqrt(3)/2)).",
+    "10.1364/JOSA.66.000207", "Noll 1976, Table IV")
+
+# olb holds two tilt conventions. This module uses the Noll Zernike tilt
+# (0.182 per axis for the two tilts). olb.turbulence.andrews.structure uses the
+# Andrews gradient tilt (0.174 per axis). A caller that adds one tilt from each
+# must state which convention it means. See Conflict C-04 in
+# docs/andrews-crosscheck.md.
+_C04_TILT_CONFLICT = Constraint(
+    "conflict",
+    "olb holds two tilt conventions. This module uses the Noll Zernike tilt "
+    "(0.182 per axis). olb.turbulence.andrews.structure uses the Andrews "
+    "gradient tilt (0.174 per axis). Do not add a tilt from each without a "
+    "stated convention.",
+    "10.1364/JOSA.66.000207",
+    "Noll 1976 vs Andrews Ch. 6, Eq. (84), printed p. 201, DOI 10.1117/3.626196")
+
+
+def _marechal_check(args, result):
+    '''Return a reason when the residual variance breaks the extended-Marechal limit.
+
+    The residual phase variance feeds the extended-Marechal Strehl
+    eta = exp(-sigma^2) downstream. Past MARECHAL_SIGMA2_MAX rad^2 that form
+    overstates the Strehl. No warning here; the reason is a violation only.
+    '''
+    worst = float(np.max(result.variance))
+    if worst > MARECHAL_SIGMA2_MAX:
+        return (f"the residual phase variance sigma^2 = {worst:.2f} rad^2 is "
+                f"more than {MARECHAL_SIGMA2_MAX:g} rad^2; the extended-Marechal "
+                "Strehl eta = exp(-sigma^2) overstates the correction.")
+    return None
+
+
+# The extended-Marechal Strehl that reads this residual variance is a
+# small-residual approximation. Source: T. S. Ross 2009, DOI 10.1364/AO.48.001812.
+_MARECHAL = Constraint(
+    "approximation",
+    "The residual phase variance feeds the extended-Marechal Strehl "
+    "eta = exp(-sigma^2). That form is a small-residual approximation; past "
+    "sigma^2 = 1 rad^2 it overstates the Strehl.",
+    "10.1364/AO.48.001812", "T. S. Ross 2009", check=_marechal_check)
+
+
+@assumes(_PLANE_PARALLEL)
 def plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elevation_deg):
     '''
     Return the plane-wave Fried parameter r0 for the downlink.
@@ -169,6 +233,7 @@ def _residual_psd(r0, D, n_modes):
     return psd
 
 
+@assumes(_NOLL_TILT, _C04_TILT_CONFLICT, _MARECHAL)
 def apply_compensation(stack, D, r0):
     '''
     Apply a compensation stack to the raw turbulence over one aperture.
@@ -246,6 +311,47 @@ if __name__ == '__main__':
     # The elevation array broadcasts.
     r0_sweep = plane_wave_fried_parameter_profile(cn2, hs, lam, np.array([30.0, 60.0, 90.0]))
     assert r0_sweep.shape == (3,)
+
+    # --- assumptions layer ---------------------------------------------------
+    import warnings
+
+    from ..assumptions import trace_assumptions
+
+    # (1) Value parity: a decorated function returns the identical value with and
+    #     without a collection context.
+    outside = apply_compensation([TipTilt()], D, r0).variance
+    with trace_assumptions():
+        inside = apply_compensation([TipTilt()], D, r0).variance
+    assert outside == inside, (outside, inside)
+
+    # (2) Registration: inside a context the two physics functions register their
+    #     sources and kinds, and a well-corrected stack emits no violation and no
+    #     warning.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            plane_wave_fried_parameter_profile(cn2, hs, lam, 60.0)
+            apply_compensation([TipTilt(), AO(200)], D, r0)   # residual << 1 rad^2
+    src_fried = f"{__name__}.plane_wave_fried_parameter_profile"
+    src_ac = f"{__name__}.apply_compensation"
+    assert src_fried in trace.records, trace.records
+    assert src_ac in trace.records, trace.records
+    kinds = {c.kind for rec in trace.records.values() for c in rec.constraints}
+    assert {"geometry", "tilt-convention", "conflict", "approximation"} <= kinds, kinds
+    assert not trace.violations, trace.violations
+    assert len(caught) == 0, "the ao physics must not warn"
+
+    # (3) An out-of-range call: an uncorrected stack over a large D/r0 leaves a
+    #     residual far past the extended-Marechal limit, so the traced check
+    #     yields a source-prefixed violation, and it does not warn.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace_bad:
+            rw_bad = apply_compensation([], 4.0, 0.05)     # sigma^2 >> 1 rad^2
+    assert rw_bad.variance > MARECHAL_SIGMA2_MAX, rw_bad.variance
+    assert any(v.startswith(f"[{src_ac}]") and "Marechal" in v
+               for v in trace_bad.violations), trace_bad.violations
+    assert len(caught) == 0, "a check must not warn"
 
     print(f"r0(1064 nm) = {r0_1064*100:.2f} cm   r0(1550 nm) = {r0_1550*100:.2f} cm")
     print(f"r0 @60deg   = {r0_60*100:.2f} cm     D/r0 = {D/r0_60:.2f}")

@@ -37,6 +37,7 @@ returns no decibels.
 
 import numpy as np
 
+from ...assumptions import Constraint, module_assumptions
 from .beam import wavenumber
 
 _WAVES = ('plane', 'spherical', 'gaussian')
@@ -58,6 +59,78 @@ _QL_CONSTANT = 10.89
 
 # Outer-scale wavenumber k0 = 2*pi/L0. Source: Ch. 3, Eq. (20), printed p. 68.
 _K0_CONSTANT = 2.0 * np.pi
+
+
+# ---------------------------------------------------------------------------
+# Function-owned assumptions (see olb/assumptions.py and
+# docs/assumptions-refactor-plan.md).
+#
+# Two statements hold for EVERY public function in the file, so they are module
+# defaults: the one-path homogeneity (PLANE OF REFERENCE), and the C-02
+# reference-plane conflict (the olb uplink weight is transmitter-referred, the
+# book weight is receiver-referred). The spectrum is NOT a module default,
+# because a function takes "kolmogorov", "von_karman" or "modified" by argument.
+# ---------------------------------------------------------------------------
+PATH_HOMOGENEITY = Constraint(
+    "path-homogeneity",
+    "One path length L and one scalar Cn2. The book prints these forms for a "
+    "horizontal path with a constant Cn2. No profile integral, no reference "
+    "plane.",
+    "10.1117/3.626196", "Appendix III, header text, printed p. 765")
+
+PATH_WEIGHT_CONFLICT = Constraint(
+    "conflict",
+    "A caller that builds a slant integral must pick the reference plane. The "
+    "olb uplink weight is transmitter-referred; the book weight is "
+    "receiver-referred. Do not flip either one (Conflict C-02).",
+    "10.1117/3.626196", "Ch. 6, Eq. (115), printed p. 199")
+
+assumes = module_assumptions(
+    constraints=(PATH_HOMOGENEITY, PATH_WEIGHT_CONFLICT))
+
+MODIFIED_GAUSSIAN_NOT_BUILT = Constraint(
+    "not-built",
+    "The Gaussian wave structure function on the modified spectrum is not "
+    "built; wave='gaussian' with spectrum='modified' raises.",
+    "10.1117/3.626196", "Appendix III, Table III, printed p. 766")
+
+OUTER_SCALE_INFINITE = Constraint(
+    "spectrum",
+    "The outer scale is infinite: the book prints the coherence-radius rows for "
+    "k0 = 0 only. A finite L0 raises.",
+    "10.1117/3.626196", "Appendix III, Tables IV to VI, printed pp. 767-768")
+
+TILT_CONVENTION_G = Constraint(
+    "tilt-convention",
+    "The returned tilt is the Andrews gradient tilt (G-tilt), what a centroid "
+    "tracker measures. It is NOT the Noll Zernike tilt. A caller that mixes "
+    "conventions must say which tilt it means (Conflict C-04).",
+    "10.1117/3.626196", "Ch. 6, Eq. (84), printed p. 201")
+
+
+def _fresnel_zone_check(args, result):
+    '''Return a reason when the Fresnel zone is not small against the lens.
+
+    Eq. (83) needs sqrt(L/k) << D (Ch. 6, text below Eq. (83), printed p. 200).
+    The check reports the worst case (the largest Fresnel scale, the smallest
+    lens) and flags the boundary where the Fresnel scale reaches the lens size.
+    No warning here.
+    '''
+    L = float(np.max(np.asarray(args['z'], dtype=float)))
+    D = float(np.min(np.asarray(args['D'], dtype=float)))
+    k = float(np.min(np.asarray(wavenumber(args['wavelength']), dtype=float)))
+    fresnel = float(np.sqrt(L / k))
+    if fresnel >= D:
+        return (f"sqrt(L/k) = {fresnel:.4f} m is not << D = {D:.4f} m; the "
+                f"small-Fresnel-zone condition for Eq. (83) fails.")
+    return None
+
+
+FRESNEL_ZONE_CONSTRAINT = Constraint(
+    "field-region",
+    "The Fresnel zone is small against the lens: sqrt(L/k) << D.",
+    "10.1117/3.626196", "Ch. 6, text below Eq. (83), printed p. 200",
+    check=_fresnel_zone_check)
 
 
 def _check(wave, spectrum):
@@ -136,6 +209,7 @@ def _theta_difference(theta, term):
     return np.where(near_one, 3.0 * term(1.0) + 2.0 * dterm, ratio)
 
 
+@assumes(MODIFIED_GAUSSIAN_NOT_BUILT)
 def wave_structure_function(rho, wavelength, z, cn2, *, wave='plane',
                             spectrum='kolmogorov', l0=None, L0=None, beam=None):
     '''
@@ -282,6 +356,7 @@ def wave_structure_function(rho, wavelength, z, cn2, *, wave='plane',
         'two-scale Gaussian wave structure function.')
 
 
+@assumes(OUTER_SCALE_INFINITE)
 def coherence_radius(wavelength, z, cn2, *, wave='plane',
                      spectrum='kolmogorov', l0=None, L0=None, beam=None,
                      branch='auto'):
@@ -398,6 +473,7 @@ def fried_parameter(rho0):
     return FRIED_OVER_RHO0 * np.asarray(rho0, dtype=float)
 
 
+@assumes(TILT_CONVENTION_G, FRESNEL_ZONE_CONSTRAINT)
 def angle_of_arrival_variance(D, wavelength, z, cn2, *,
                               spectrum='kolmogorov', l0=None, L0=None,
                               radial=False):
@@ -702,4 +778,44 @@ if __name__ == '__main__':
 
     print(f'rho_0 = {rho0 * 100:.3f} cm   r_0 = {mine_r0 * 100:.3f} cm   '
           f'tilt rms = {np.sqrt(mine_tilt) * 1e6:.3f} urad')
+
+    # ---------------- assumption annotations ----------------
+    import warnings
+
+    from ...assumptions import trace_assumptions
+
+    mod = __name__
+
+    # (1) value parity in and out of a collection context.
+    ref_wsf = wave_structure_function(0.01, lam_m, L, cn2_ref)
+    with trace_assumptions():
+        traced_wsf = wave_structure_function(0.01, lam_m, L, cn2_ref)
+    assert traced_wsf == ref_wsf, (traced_wsf, ref_wsf)
+
+    # (2) registration: the expected sources and constraint kinds appear.
+    with trace_assumptions() as trace:
+        wave_structure_function(0.01, lam_m, L, cn2_ref)
+        coherence_radius(lam_m, L, cn2_ref)
+        angle_of_arrival_variance(0.3, lam_m, L, cn2_ref)
+    for name in ('wave_structure_function', 'coherence_radius',
+                 'angle_of_arrival_variance'):
+        assert f'{mod}.{name}' in trace.records, name
+    kinds = {c.kind for rec in trace.records.values() for c in rec.constraints}
+    for expected in ('path-homogeneity', 'conflict', 'not-built', 'spectrum',
+                     'tilt-convention', 'field-region'):
+        assert expected in kinds, expected
+    print('[assumes] structure sources and kinds register ok')
+
+    # (3) an out-of-range call yields a source-prefixed violation, and the
+    #     physics layer emits NO warning. A long path with a tiny lens breaks
+    #     the sqrt(L/k) << D condition of Eq. (83).
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as trace:
+            angle_of_arrival_variance(1e-3, lam_m, 200e3, cn2_ref)
+    assert any(v.startswith(f'[{mod}.angle_of_arrival_variance]')
+               for v in trace.violations), trace.violations
+    assert len(caught) == 0, 'a check must not warn'
+    print('[assumes] angle-of-arrival Fresnel-zone check fires ok')
+
     print('self-check passed')

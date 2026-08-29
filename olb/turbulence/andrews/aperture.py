@@ -48,12 +48,78 @@ modules. It returns no decibels.
 import numpy as np
 from scipy.special import hyp2f1
 
+from ...assumptions import (BEAM_PLANE_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV,
+                            Constraint, assumes)
 from .beam import wavenumber
-from .scintillation import (_eta_filter, beam_rytov_variance, rytov_variance,
-                            two_scale_parameters, weak_two_scale_index)
+from .scintillation import (WEAK_REGIME_LIMIT, _eta_filter, beam_rytov_variance,
+                            rytov_variance, rytov_weak, two_scale_parameters,
+                            weak_two_scale_index)
 
 _WAVES = ('plane', 'spherical', 'gaussian')
 _REGIMES = ('weak', 'strong')
+
+
+# --- Function-owned assumptions ---------------------------------------------
+# The aperture-averaging chain of Sec. 10.3 carries standing limits that every
+# Term which reads it must inherit. It averages through a SOFT Gaussian aperture,
+# NOT the hard Airy filter (Conflict C-06). It carries NO central obscuration
+# (gap G-108). Its Gaussian-beam branch needs Omega_G >= Lambda. The weak
+# branches also need weak fluctuations, and that limit is a run-time check.
+_DOI = "10.1117/3.626196"
+
+
+def _weak_regime_check(args, result):
+    '''Return a reason when a regime="weak" call runs in strong turbulence.
+
+    The weak aperture-averaging forms hold for sigma_R^2 < 1 only. The strong
+    chains are valid at all fluctuation strengths, so the check fires on the
+    weak branch only. The returned `result` is a flux variance, not sigma_R^2,
+    so the check rebuilds the plane-wave Rytov variance from the bound Cn2, the
+    wavelength and the path. No warning here.
+    '''
+    if args.get('regime') != 'weak':
+        return None
+    sigma2_R = float(np.max(rytov_variance(
+        args['wavelength'], args['z'], args['cn2'], wave='plane')))
+    if rytov_weak(sigma2_R) == 'hard':
+        return (f"sigma_R^2 = {sigma2_R:.3f} >= {WEAK_REGIME_LIMIT}; the weak "
+                f"aperture-averaging forms do not hold. Use regime='strong'.")
+    return None
+
+
+SOFT_GAUSSIAN_RECEIVER = Constraint(
+    "receiver",
+    "The receive lens is a soft Gaussian limiting aperture of radius W_G, with "
+    "D_G^2 = 8 W_G^2, not a hard circular Airy filter.",
+    _DOI, "Ch. 10, text below Eq. (57), printed p. 411")
+
+RECEIVER_AIRY_CONFLICT = Constraint(
+    "conflict",
+    "Conflict C-06: this module averages through the soft Gaussian aperture, "
+    "but olb.turbulence.plane_wave_scintillation averages through the hard "
+    "Airy filter [2 J1(x)/x]^2. The two agree in the limits and differ "
+    "between.",
+    _DOI, "Ch. 10, Eq. (59), printed p. 412 (soft Gaussian); Ch. 14, Eq. (86), "
+    "printed p. 634 (the Airy function, used only as the piston filter)")
+
+NO_ANNULAR_APERTURE = Constraint(
+    "obscuration",
+    "The receive aperture has no central obscuration. The book gives no "
+    "annular-aperture flux variance, so olb gap G-108 stays open.",
+    _DOI, "Ch. 10, Secs. 10.3.1 to 10.3.6, printed pp. 409 to 421")
+
+APERTURE_ORDER = Constraint(
+    "aperture-order",
+    "The Gaussian-beam branch needs Omega_G >= Lambda: the collecting lens is "
+    "not wider than the incident beam radius. A wider lens raises.",
+    _DOI, "Ch. 10, Eqs. (87) to (89), printed p. 420")
+
+WEAK_REGIME_CONSTRAINT = Constraint(
+    "regime",
+    "Weak fluctuation: sigma_R^2 < 1. The weak aperture-averaging forms hold "
+    "below the boundary only; use regime='strong' above it.",
+    _DOI, "Ch. 8, text below Eq. (23), printed pp. 264-265",
+    check=_weak_regime_check)
 
 
 def d_param(D, wavelength, z):
@@ -81,6 +147,9 @@ def omega_g(D, wavelength, z):
     return 4.0 / d_param(D, wavelength, z) ** 2
 
 
+@assumes(SOFT_GAUSSIAN_RECEIVER, RECEIVER_AIRY_CONFLICT, NO_ANNULAR_APERTURE,
+         beam_type=BEAM_PLANE_WAVE, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def plane_weak_averaging_fit(D, wavelength, z):
     '''
     Return the book's own weak-fluctuation aperture-averaging fit for a plane
@@ -282,6 +351,8 @@ def _strong_two_scale(D, wavelength, z, cn2, wave, l0, L0, s2):
     return np.exp(large + small) - 1.0
 
 
+@assumes(SOFT_GAUSSIAN_RECEIVER, RECEIVER_AIRY_CONFLICT, NO_ANNULAR_APERTURE,
+         APERTURE_ORDER, WEAK_REGIME_CONSTRAINT)
 def averaged_index(D, wavelength, z, cn2, *, wave='plane', regime='weak',
                    spectrum='kolmogorov', l0=None, L0=None, beam=None):
     '''
@@ -556,4 +627,39 @@ if __name__ == '__main__':
 
     print(f'A(D = 0.7 m, 2 km, weak) = '
           f'{float(averaging_factor(0.7, lam_m, L, cn2_weak)):.5f}')
+
+    # ---------------- assumptions self-check ----------------
+    import warnings as _warnings
+
+    from ...assumptions import trace_assumptions
+
+    # (1) VALUE PARITY. The decorator does not change the number.
+    _out = averaged_index(0.1, lam_m, L, cn2_mid, regime='strong')
+    with trace_assumptions():
+        _in = averaged_index(0.1, lam_m, L, cn2_mid, regime='strong')
+    assert _out == _in, (_out, _in)
+
+    # (2) REGISTRATION. The two decorated functions and the expected kinds.
+    with trace_assumptions() as _tr:
+        averaged_index(0.1, lam_m, L, cn2_weak, regime='strong')
+        plane_weak_averaging_fit(0.1, lam_m, L)
+    assert f'{__name__}.averaged_index' in _tr.records
+    assert f'{__name__}.plane_weak_averaging_fit' in _tr.records
+    _kinds = {c.kind for r in _tr.records.values() for c in r.constraints}
+    assert {'receiver', 'conflict', 'obscuration', 'aperture-order',
+            'regime'} <= _kinds, _kinds
+    # A weak call in weak turbulence, and a strong call, break nothing.
+    assert not _tr.violations, _tr.violations
+
+    # (3) VIOLATION, NO WARNING. A weak-regime call in strong turbulence yields
+    #     a source-prefixed violation, and the physics layer warns about nothing.
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter('always')
+        with trace_assumptions() as _tr:
+            averaged_index(0.1, lam_m, L, 1e-12, regime='weak')
+    assert any(f'[{__name__}.averaged_index]' in v and 'sigma_R^2' in v
+               for v in _tr.violations), _tr.violations
+    assert len(_caught) == 0, _caught
+    print('[assume] aperture registration, kinds and violation ok')
+
     print('self-check passed')

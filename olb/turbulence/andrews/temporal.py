@@ -41,6 +41,12 @@ WHAT IS BUILT:
 
 This module holds physics only. It returns no decibels.
 
+FUNCTION-OWNED ASSUMPTIONS. Each public function carries an `@assumes` record
+(see `olb.assumptions`). The Taylor frozen-flow hypothesis is true of every
+function here, so it is a module default. Outside a collection context the
+decorator does one lookup and calls the function, so every number this module
+returns is unchanged.
+
 WHAT IS NOT BUILT, AND WHY:
 
 - A finite inner scale or outer scale in ANY temporal spectrum. Ch. 9.8, printed
@@ -59,10 +65,12 @@ import numpy as np
 from scipy.integrate import quad
 from scipy.special import gamma as _gamma_fn, hyp1f1, kve
 
+from ...assumptions import (Constraint, SPECTRUM_KOLMOGOROV, module_assumptions,
+                            trace_assumptions)
 from ..profiles import v_wind
 from .aperture import d_param
 from .beam import wavenumber
-from .scintillation import rytov_variance
+from .scintillation import WEAK_REGIME_LIMIT, rytov_variance, rytov_weak
 
 # Greenwood constant of Ch. 14, Eq. (38), printed p. 622, restated as Ch. 14,
 # Eq. (98), printed p. 637. DOI: 10.1117/3.626196
@@ -114,6 +122,106 @@ _WAVES = ('plane', 'spherical', 'gaussian')
 _REGIMES = ('weak', 'strong')
 
 
+# ----------------------------------------------------------------------------
+# Function-owned assumptions.
+# ----------------------------------------------------------------------------
+
+# The Taylor frozen-flow hypothesis is the bridge from space to time. It holds
+# for EVERY public function in this module, so it is the module default. Source:
+# Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Sec. 3.4,
+# Eq. (27), printed p. 73.
+FROZEN_FLOW_CONSTRAINT = Constraint(
+    "frozen-flow",
+    "The Taylor frozen-flow hypothesis holds. The eddy pattern moves across "
+    "the path at the transverse wind speed V and does not change its shape, so "
+    "a spatial separation rho maps to a time lag tau through rho = V tau. It "
+    "fails when V is much less than the turbulent wind fluctuations.",
+    "10.1117/3.626196", "Ch. 3, Sec. 3.4, Eq. (27), printed p. 73")
+
+assumes = module_assumptions(constraints=(FROZEN_FLOW_CONSTRAINT,))
+
+
+def _weak_temporal_regime_check(args, result):
+    '''
+    Return a reason when the weak temporal branch runs past the weak boundary.
+
+    The weak branch (regime="weak") uses the Rytov covariance of Ch. 8.5, which
+    holds only for sigma_R^2 < 1. This reuses the shared weak-fluctuation gate
+    `olb.turbulence.andrews.scintillation.rytov_weak`; it fires on the "hard"
+    tier only. The strong branch (regime="strong") is valid at every strength,
+    so this check passes it through. It never warns and never raises.
+    '''
+    if args.get('regime') != 'weak':
+        return None
+    s2r = float(np.max(rytov_variance(args['wavelength'], args['z'],
+                                      args['cn2'], wave='plane')))
+    if rytov_weak(s2r) == 'hard':
+        return (f"sigma_R^2 = {s2r:.3f} >= {WEAK_REGIME_LIMIT}; the weak "
+                f"temporal spectrum (Ch. 8.5) does not hold. Use "
+                f"regime='strong', which is valid at every strength.")
+    return None
+
+
+# The weak branch needs weak fluctuation; the strong branch does not. Source:
+# Ch. 8, text below Eq. (23), printed pp. 264-265. DOI: 10.1117/3.626196
+WEAK_TEMPORAL_REGIME_CONSTRAINT = Constraint(
+    "regime",
+    "The weak branch (regime='weak') needs weak fluctuation, sigma_R^2 < 1. "
+    "The strong branch (regime='strong') holds at every strength.",
+    "10.1117/3.626196", "Ch. 8, text below Eq. (23), printed pp. 264-265",
+    check=_weak_temporal_regime_check)
+
+# The spectrum takes one path length L and one scalar Cn2. Source: Ch. 8,
+# Eq. (4), printed p. 261. DOI: 10.1117/3.626196
+PATH_HOMOGENEITY_CONSTRAINT = Constraint(
+    "path-homogeneity",
+    "The path takes one length L and one scalar Cn2, with no profile integral.",
+    "10.1117/3.626196", "Ch. 8, Eq. (4), printed p. 261")
+
+# The module gives the longitudinal (on-axis) spectrum only. Source: Ch. 8,
+# Eqs. (66) and (67), printed pp. 286-287. DOI: 10.1117/3.626196
+ON_AXIS_CONSTRAINT = Constraint(
+    "on-axis",
+    "The spectrum is the longitudinal (on-axis) component only. It carries no "
+    "off-axis radial part.",
+    "10.1117/3.626196", "Ch. 8, Eqs. (66) and (67), printed pp. 286-287")
+
+# The three not-built branches. Each one is an existing raise. The book gives no
+# closed form, so the code refuses instead of a guess. DOI: 10.1117/3.626196
+NO_SCALE_TEMPORAL_CONSTRAINT = Constraint(
+    "not-built",
+    "A temporal spectrum with a finite inner scale or outer scale is not built. "
+    "The book ignores both scales in every temporal spectrum, so l0 and L0 "
+    "raise NotImplementedError.",
+    "10.1117/3.626196", "Ch. 9.8, printed p. 364; Ch. 10, printed p. 425")
+
+STRONG_PLANE_ONLY_CONSTRAINT = Constraint(
+    "not-built",
+    "The strong-regime temporal spectrum is built for a plane wave only. A "
+    "spherical wave or a Gaussian beam raises NotImplementedError.",
+    "10.1117/3.626196", "Ch. 9.8, printed p. 364")
+
+NO_WEAK_APERTURE_CONSTRAINT = Constraint(
+    "not-built",
+    "The book gives no weak-only aperture-averaged temporal spectrum. A "
+    "receiver aperture D in the weak branch raises NotImplementedError; use the "
+    "strong (all-regime) branch with D.",
+    "10.1117/3.626196", "Ch. 10.3.6, printed pp. 421-422")
+
+# The quasi-frequency depends on the top of the frequency grid. Source: the
+# omega^(-8/3) decay of Ch. 8, text below Eq. (57), printed p. 283, and the
+# moment ratio of Ch. 12, Eq. (73), printed p. 514. DOI: 10.1117/3.626196
+BAND_DEPENDENCE_CONSTRAINT = Constraint(
+    "approximation",
+    "The quasi-frequency depends on the top of the frequency grid. With a "
+    "Kolmogorov spectrum and a zero inner scale the second moment has no upper "
+    "limit of its own, so the caller must set the band from the detector "
+    "bandwidth or from an inner scale.",
+    "10.1117/3.626196",
+    "Ch. 8, text below Eq. (57), printed p. 283; Ch. 12, Eq. (73), "
+    "printed p. 514")
+
+
 def _hyp1f1(a, b, z):
     '''
     Return the confluent hypergeometric function 1F1(a; b; z) of a complex z.
@@ -155,6 +263,7 @@ def _hyp1f1(a, b, z):
     return out
 
 
+@assumes()
 def taylor_wavenumber(freq, wind_speed):
     '''
     Map a temporal frequency to a spatial wavenumber by frozen flow.
@@ -184,6 +293,7 @@ def taylor_wavenumber(freq, wind_speed):
             / np.asarray(wind_speed, dtype=float))
 
 
+@assumes()
 def fresnel_frequency(wind_speed, wavelength, z):
     '''
     Return the Fresnel (transition) frequency of the irradiance spectrum [Hz].
@@ -352,6 +462,10 @@ def _strong_covariance(s, sigma2_R, d2):
     return np.exp(b_x + np.nan_to_num(b_y)) - 1.0
 
 
+@assumes(WEAK_TEMPORAL_REGIME_CONSTRAINT, PATH_HOMOGENEITY_CONSTRAINT,
+         ON_AXIS_CONSTRAINT, NO_SCALE_TEMPORAL_CONSTRAINT,
+         STRONG_PLANE_ONLY_CONSTRAINT, NO_WEAK_APERTURE_CONSTRAINT,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def irradiance_temporal_spectrum(freq, wind_speed, wavelength, z, cn2, *,
                                  wave='plane', regime='weak', l0=None,
                                  L0=None, beam=None, D=None):
@@ -461,6 +575,7 @@ def irradiance_temporal_spectrum(freq, wind_speed, wavelength, z, cn2, *,
     return out.reshape(freq.shape) if freq.shape else float(out[0])
 
 
+@assumes(BAND_DEPENDENCE_CONSTRAINT)
 def quasi_frequency(freq, spectrum):
     '''
     Return the quasi-frequency nu0 [Hz] of a temporal irradiance spectrum.
@@ -516,6 +631,7 @@ def quasi_frequency(freq, spectrum):
     return float(np.sqrt(b2 / b0))
 
 
+@assumes(spectrum=SPECTRUM_KOLMOGOROV)
 def greenwood_frequency(hs, cn2_profile, wavelength, elevation_deg=90.0,
                         wind_profile=None):
     '''
@@ -567,6 +683,7 @@ def greenwood_frequency(hs, cn2_profile, wavelength, elevation_deg=90.0,
     return float(1.0 / tau0)
 
 
+@assumes()
 def coherence_time(greenwood_hz):
     '''
     Return the Greenwood time constant tau0 [s] from the Greenwood frequency.
@@ -881,5 +998,78 @@ if __name__ == '__main__':
             print(f"[reduce ] refuses {why:<18} ok")
         else:
             raise AssertionError(f'{why} must raise NotImplementedError')
+
+    # === assumptions ========================================================
+    import warnings
+
+    # (1) VALUE PARITY. A representative call returns the identical value inside
+    # and outside a collection context, so the decorator changes no number.
+    par_out = float(irradiance_temporal_spectrum(100.0, WIND, LAM, LEN, CN2,
+                                                 wave='plane'))
+    with trace_assumptions():
+        par_in = float(irradiance_temporal_spectrum(100.0, WIND, LAM, LEN, CN2,
+                                                    wave='plane'))
+    fg_out = greenwood_frequency(HS, CN2P, LAM)
+    with trace_assumptions():
+        fg_in = greenwood_frequency(HS, CN2P, LAM)
+    assert par_out == par_in and fg_out == fg_in, 'a context must not move a value'
+    print(f"[assume ] value parity spectrum={par_out:.6e}  f_G={fg_out:.3f} Hz ok")
+
+    # (2) REGISTRATION. Inside a context every public function registers its
+    # source and its constraint kinds. The frozen-flow default sits on all.
+    with trace_assumptions() as trace:
+        taylor_wavenumber(10.0, 10.0)
+        fresnel_frequency(WIND, LAM, LEN)
+        irradiance_temporal_spectrum(100.0, WIND, LAM, LEN, CN2, wave='plane')
+        quasi_frequency(grid, spec)
+        greenwood_frequency(HS, CN2P, LAM)
+        coherence_time(fg_out)
+    expected = {f'{__name__}.{name}' for name in (
+        'taylor_wavenumber', 'fresnel_frequency',
+        'irradiance_temporal_spectrum', 'quasi_frequency',
+        'greenwood_frequency', 'coherence_time')}
+    assert expected <= set(trace.records), expected - set(trace.records)
+    # Frozen flow is the module default of THIS module, so it sits on every
+    # temporal source. A sibling source that this module calls (for example
+    # scintillation.rytov_variance, through irradiance_temporal_spectrum)
+    # registers too and carries ITS OWN kinds, so scope this to temporal's
+    # sources only -- the automatic inheritance is the point, not a fault.
+    for src in expected:
+        rec = trace.records[src]
+        assert any(c.kind == 'frozen-flow' for c in rec.constraints), src
+    seen_kinds = {c.kind for rec in trace.records.values()
+                  for c in rec.constraints}
+    for kind in ('frozen-flow', 'regime', 'path-homogeneity', 'on-axis',
+                 'not-built', 'approximation'):
+        assert kind in seen_kinds, kind
+    spec_rec = trace.records[f'{__name__}.irradiance_temporal_spectrum']
+    assert spec_rec.spectrum == SPECTRUM_KOLMOGOROV
+    assert trace.records[f'{__name__}.greenwood_frequency'].spectrum \
+        == SPECTRUM_KOLMOGOROV
+    print(f"[assume ] {len(trace.records)} sources register, "
+          f"kinds = {sorted(seen_kinds)}")
+
+    # (3) VIOLATION WITH NO WARNING. A strong Cn2 on the weak branch trips the
+    # shared regime gate. The violation carries the source prefix, and the
+    # physics layer emits no warning (warnings stay factory-level).
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        with trace_assumptions() as bad:
+            irradiance_temporal_spectrum(100.0, WIND, LAM, LEN, 1e-12,
+                                         wave='plane', regime='weak')
+    prefix = f'[{__name__}.irradiance_temporal_spectrum]'
+    assert any(v.startswith(prefix) for v in bad.violations), bad.violations
+    assert len(caught) == 0, [str(w.message) for w in caught]
+    # The same call on the strong branch is valid at every strength, so THIS
+    # module's regime check does not flag. A sibling weak-theory quantity that
+    # the branch reads as a strength input (scintillation.rytov_variance) may
+    # still flag its own hard regime -- that inherited flag is expected and
+    # belongs to the sibling source, so scope this assertion to temporal's own
+    # function.
+    with trace_assumptions() as good:
+        irradiance_temporal_spectrum(100.0, WIND, LAM, LEN, 1e-12,
+                                     wave='plane', regime='strong')
+    assert not any(v.startswith(prefix) for v in good.violations), good.violations
+    print(f"[assume ] out-of-range weak call flags {prefix}, 0 warnings ok")
 
     print("self-check passed")

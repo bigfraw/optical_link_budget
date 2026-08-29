@@ -15,12 +15,87 @@ internally consistent Dios, and two split-step simulations validate 2.07. See
 Conflict C-01 in docs/andrews-crosscheck.md, and olb.turbulence.andrews.wander
 for the independent Andrews measurement kept side by side.
 
-The module needs only numpy and scipy. It imports nothing from the rest of olb
-and nothing from my_analysis_modules.
+The module needs numpy, scipy, and the olb assumptions decorator layer. It
+imports nothing else from the rest of olb and nothing from my_analysis_modules.
+
+Each public physics function declares its own validity through the `@assumes`
+decorator (olb.assumptions). Three assumptions recur here: the coherence-diameter
+path weight is transmitter-referred and must not flip (`PATH_WEIGHT`); the
+beam-wander variance is a radial (two-axis) variance (`RADIAL_VARIANCE`); and the
+beam-wander constant is the Dios/Belmonte 2.07, which conflicts with the Andrews
+7.25 (`C01_WANDER`, Conflict C-01). Outside a collection context the decorator is
+a no-op, so the numeric output does not change.
 '''
 
 import numpy as np
 from scipy.special import gamma, hyp1f1
+
+from ..assumptions import (assumes, Constraint, BEAM_GAUSSIAN,
+                           BEAM_SPHERICAL_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV)
+
+# ----------------------------------------------------------------------------
+# The module assumptions, as shared Constraint instances (see the docstring).
+# ----------------------------------------------------------------------------
+
+# The transmitter-referred path weight of the spherical-wave coherence diameter.
+PATH_WEIGHT = Constraint(
+    "path-weight",
+    "The coherence-diameter path weight ((L-z)/L)^(5/3) is transmitter-referred, "
+    "for the uplink. Do not flip it to the receiver-referred (z/L)^(5/3).",
+    "10.1364/AO.43.003866", "Eq. (3), printed p. 3868")
+
+# The beam-wander variance is a radial (two-axis) quantity, never per-axis.
+RADIAL_VARIANCE = Constraint(
+    "variance-convention",
+    "The beam-wander variance <beta^2> is the radial (two-axis) displacement "
+    "variance. A one-axis draw uses 0.5*<beta^2>.",
+    "10.1364/AO.43.003866", "Eqs. (9) and (10), printed p. 3868")
+
+# The Dios/Belmonte 2.07 versus the Andrews 7.25 (Conflict C-01).
+C01_WANDER = Constraint(
+    "conflict",
+    "The beam-wander constant is the Dios/Belmonte 2.07, NOT the Andrews 7.25 "
+    "(a factor 3.50 lower). Two split-step simulations validate 2.07. See "
+    "Conflict C-01.",
+    "10.1364/AO.39.005426",
+    "Belmonte Eq. (21), printed p. 5435; against Andrews DOI 10.1117/3.626196, "
+    "Ch. 6, Eq. (93), printed p. 203")
+
+# The lognormal flux draw of the coupled-flux sample.
+LOGNORMAL_DRAW = Constraint(
+    "pdf-shape",
+    "The flux fluctuation is drawn from a lognormal irradiance PDF (a Gaussian "
+    "log-amplitude).",
+    "10.1364/AO.43.003866", "Eqs. (25) to (27), printed p. 3870")
+
+# The wander-removal correction of the short-term waist turns negative for
+# r0s/W0 > (1/0.26)^3 ~ 57. That is a small aperture in very weak turbulence.
+_CORRECTION_MAX_RATIO = (1.0 / 0.26) ** 3
+
+
+def _correction_range_check(args, result):
+    '''Return a reason when the short-term-waist correction leaves its range.
+
+    The correction 1 - 0.26 (r0s/W0)^(1/3) turns negative for
+    r0s/W0 > (1/0.26)^3. The check reads the bound arguments and never warns.
+    '''
+    r0s = float(np.max(np.asarray(args["r0s"], dtype=float)))
+    w0 = float(np.min(np.asarray(args["W0"], dtype=float)))
+    ratio = r0s / w0
+    if ratio > _CORRECTION_MAX_RATIO:
+        return (f"r0s/W0 = {ratio:.1f} > {_CORRECTION_MAX_RATIO:.0f}; the "
+                "wander-removal correction 1-0.26(r0s/W0)^(1/3) is out of range "
+                "(a small aperture in very weak turbulence).")
+    return None
+
+
+CORRECTION_RANGE = Constraint(
+    "approximation",
+    "The wander-removal correction 1-0.26(r0s/W0)^(1/3) is an aperture-size "
+    "effect; it stays in range only for r0s/W0 < 57, and W0 must be the physical "
+    "launch radius.",
+    "10.1364/AO.43.003866", "Eqs. (4) to (6), printed p. 3868",
+    check=_correction_range_check)
 
 
 def _lambda_function(L, k0, wL):
@@ -43,6 +118,7 @@ def _B(z, L, k_0, Z0):
     return (L / k_0) * ((L - z) / L) * (Theta + (1 - Theta) * z / L)
 
 
+@assumes(PATH_WEIGHT, beam_type=BEAM_SPHERICAL_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def spherical_wave_coherence_diameter(k, L, cn2_vals, z):
     '''
     Spherical-wave coherence diameter r0s.
@@ -78,6 +154,8 @@ def spherical_wave_coherence_diameter(k, L, cn2_vals, z):
     return (0.42 * (k ** 2) * path_integral) ** (-3 / 5)
 
 
+@assumes(CORRECTION_RANGE, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def short_term_beam_waist(W0, L, Z0, k, r0s, return_squared=False, w_free=None):
     '''
     Short-term beam waist at propagation distance z=L.
@@ -125,6 +203,8 @@ def short_term_beam_waist(W0, L, Z0, k, r0s, return_squared=False, w_free=None):
     return np.sqrt(np.maximum(w_st_squared, 0.0))
 
 
+@assumes(RADIAL_VARIANCE, C01_WANDER, beam_type=BEAM_GAUSSIAN,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def beam_wander_variance(L, cn2, ws, z):
     '''
     Beam-wander variance <beta^2>.
@@ -179,6 +259,7 @@ def beam_wander_variance(L, cn2, ws, z):
     return 2.07 * np.trapz(integrand, z_grid)
 
 
+@assumes(RADIAL_VARIANCE, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
 def long_term_beam_waist(w_st, beta2):
     '''
     Long-term beam waist, combining short-term spreading with beam wander.
@@ -207,6 +288,8 @@ def long_term_beam_waist(w_st, beta2):
     return np.sqrt(w_st ** 2 + 2 * beta2)
 
 
+@assumes(beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def off_axis_scintillation_index(L, k_0, wL, cn2s, z_points, r):
     '''
     Off-axis scintillation index sigma_r,L^2(r, L), equation (20) of Dios et al.
@@ -232,6 +315,8 @@ def off_axis_scintillation_index(L, k_0, wL, cn2s, z_points, r):
     return coefficient * result
 
 
+@assumes(beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def on_axis_scintillation_index(L, k_0, wL, Z0, cn2s, z_points):
     '''
     On-axis scintillation index sigma_r^2(0, L), equation (16) of Dios et al.
@@ -279,6 +364,8 @@ def mean_off_axis_irradiance(r, wlt_L):
     return np.exp(-2 * r ** 2 / wlt_L ** 2)
 
 
+@assumes(LOGNORMAL_DRAW, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def coupled_flux_sample(beta, cn2_profile, Z0, hs, L, k_0, wL, wL_lt):
     '''
     Draw a single realization of the turbulence-induced flux fluctuation at
@@ -375,4 +462,43 @@ if __name__ == '__main__':
 
     print(f"coupled_flux self-check: r0s={r0s * 100:.2f} cm, "
           f"w_st={w_st:.2f} m, beta2={beta2:.3f} m^2")
+
+    # ---------------- assumption self-checks ----------------
+    import warnings
+    from ..assumptions import trace_assumptions
+
+    # (1) Value parity: one representative call returns the identical float with
+    #     and without a collection context.
+    r0s_out = spherical_wave_coherence_diameter(k, L, cn2_slant, hs)
+    with trace_assumptions():
+        r0s_in = spherical_wave_coherence_diameter(k, L, cn2_slant, hs)
+    assert r0s_out == r0s_in, (r0s_out, r0s_in)
+
+    # (2) Registration: inside a context the expected sources and kinds register.
+    with trace_assumptions() as tr:
+        spherical_wave_coherence_diameter(k, L, cn2_slant, hs)
+        beam_wander_variance(L, cn2_slant, hs * 0 + 0.6, hs)
+        long_term_beam_waist(0.6, beta2)
+    mod = __name__
+    assert f"{mod}.spherical_wave_coherence_diameter" in tr.records
+    assert f"{mod}.beam_wander_variance" in tr.records
+    kinds = {c.kind for rec in tr.records.values() for c in rec.constraints}
+    assert {"path-weight", "variance-convention", "conflict"} <= kinds, kinds
+    # The transmitter-referred path weight and the C-01 conflict both register.
+    wander_rec = tr.records[f"{mod}.beam_wander_variance"]
+    assert any(c.kind == "conflict" for c in wander_rec.constraints)
+
+    # (3) A deliberately out-of-range call yields a source-prefixed violation,
+    #     and the decorator check itself emits NO warning (a separate matter from
+    #     any pre-existing warnings.warn, of which this function has none).
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            # r0s/W0 = 1.0/0.01 = 100 > 57 -> the correction leaves its range.
+            short_term_beam_waist(0.01, L, np.pi * 0.01 ** 2 / 1550e-9, k, 1.0)
+    assert any(v.startswith(f"[{mod}.short_term_beam_waist]")
+               for v in tr_bad.violations), tr_bad.violations
+    assert len(caught) == 0, "a decorator check must not warn"
+
+    print("coupled_flux assumptions self-check passed")
     print("coupled_flux self-check passed")

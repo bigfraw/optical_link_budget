@@ -37,10 +37,15 @@ Physics (plane wave, weak fluctuation, isotropic turbulence):
 import numpy as np
 from scipy.special import j1
 
+from ..assumptions import (
+    Constraint, module_assumptions,
+    BEAM_PLANE_WAVE, REGIME_WEAK, REGIME_STRONG,
+    SPECTRUM_KOLMOGOROV, SPECTRUM_TATARSKII,
+)
 from .andrews.aperture import averaged_index as _andrews_averaged_index
 from .andrews.scintillation import (
     scintillation_index as _andrews_scintillation_index,
-    LOGNORMAL_PDF_LIMIT,
+    LOGNORMAL_PDF_LIMIT, WEAK_REGIME_LIMIT, rytov_weak,
 )
 from .andrews.structure import coherence_radius as _andrews_coherence_radius
 from .profiles import DEFAULT_HS, get_c2n
@@ -56,12 +61,121 @@ from .profiles import DEFAULT_HS, get_c2n
 # LOGNORMAL_PDF_LIMIT is re-exported here (imported at the top) for the callers
 # that gate the lognormal PDF shape (the downlink lognormal Term and selector).
 
+# ---------------------------------------------------------------------------
+# Function-owned assumptions (see olb.assumptions). Every function in this
+# module is a PLANE-wave model, so the module default sets that headline.
+# ---------------------------------------------------------------------------
+assumes = module_assumptions(beam_type=BEAM_PLANE_WAVE)
+
+
+def _index_weak_check(args, result):
+    '''Return a reason when the plane-wave index leaves the weak regime.
+
+    The result is the plane-wave scintillation index, which equals the Rytov
+    variance sigma_R^2 in the weak regime, so the gate reads the result on the
+    Rytov axis. It reports only the "hard" tier (a "soft" tier stays a
+    factory-level warning). It never warns and never raises.
+    '''
+    worst = float(np.max(np.abs(np.asarray(result, dtype=float))))
+    if rytov_weak(worst) == 'hard':
+        return (f"sigma_I^2 = {worst:.3f} >= {WEAK_REGIME_LIMIT}; the weak "
+                f"plane-wave Rytov theory does not hold.")
+    return None
+
+
+def _std_weak_check(args, result):
+    '''Return a reason when the plane-wave Rytov std leaves the weak regime.
+
+    The result is the Rytov standard deviation sigma_1, so the gate reads
+    sigma_1^2 on the Rytov axis. It reports only the "hard" tier.
+    '''
+    worst = float(np.max(np.abs(np.asarray(result, dtype=float))))
+    s2 = worst ** 2
+    if rytov_weak(s2) == 'hard':
+        return (f"sigma_R^2 = {s2:.3f} >= {WEAK_REGIME_LIMIT}; the weak "
+                f"plane-wave Rytov theory does not hold.")
+    return None
+
+
+# The slant path uses a plane-parallel airmass. Source: Andrews and Phillips,
+# 2nd ed. (2005), DOI 10.1117/3.626196.
+SLANT_GEOMETRY = Constraint(
+    "geometry",
+    "The slant path uses a plane-parallel atmosphere with the airmass "
+    "sec(zeta) = 1/sin(elevation). It models no Earth curvature.",
+    "10.1117/3.626196", "Ch. 12, Eq. (23), printed p. 492")
+
+# The aperture-averaging filter [2 J1(x)/x]^2 assumes a uniform circular
+# unobscured aperture.
+CIRCULAR_APERTURE = Constraint(
+    "receiver",
+    "The aperture-averaging filter [2 J1(x)/x]^2 assumes a uniform circular "
+    "receive aperture.",
+    "10.1117/3.626196", "Ch. 10 (aperture-averaging filter function)")
+NO_OBSCURATION = Constraint(
+    "obscuration",
+    "The receive aperture has no central obscuration. An annular aperture is "
+    "not modelled.",
+    "10.1117/3.626196", "Ch. 10 (aperture-averaging filter function)")
+
+# Weak-fluctuation regime. The point index carries the check on the result; the
+# aperture-averaged forms keep the declarative statement, because aperture
+# averaging drops the index below the point Rytov value it must gate.
+WEAK_REGIME_INDEX = Constraint(
+    "regime",
+    "Weak fluctuation: the plane-wave scintillation index sigma_I^2 = "
+    "sigma_R^2 stays below 1.",
+    "10.1117/3.626196", "Ch. 8, text below Eq. (23), printed pp. 264-265",
+    check=_index_weak_check)
+WEAK_REGIME_STD = Constraint(
+    "regime",
+    "Weak fluctuation: the plane-wave Rytov variance sigma_R^2 stays below 1.",
+    "10.1117/3.626196", "Ch. 8, text below Eq. (23), printed pp. 264-265",
+    check=_std_weak_check)
+WEAK_REGIME_APERTURE = Constraint(
+    "regime",
+    "Weak fluctuation: the point Rytov variance obeys sigma_R^2 < 1. Aperture "
+    "averaging reduces the index below that point value.",
+    "10.1117/3.626196", "Ch. 8, text below Eq. (23), printed pp. 264-265")
+STRONG_REGIME_APERTURE = Constraint(
+    "regime",
+    "Strong fluctuation: the Churnside strong-turbulence fit holds when the "
+    "inner scale is much smaller than the coherence length.",
+    "10.1364/AO.30.001982", "Churnside, Applied Optics 30 (1991) 1982")
+
+# One path length L and one scalar Cn2 (the closed-form single-path functions).
+PATH_HOMOGENEITY = Constraint(
+    "path-homogeneity",
+    "One path length L and one scalar Cn2. The function makes no profile "
+    "integral.",
+    "10.1117/3.626196", "Ch. 8, Eq. (4), printed p. 261")
+
+# The three closed-form aperture-averaging factors are CHURNSIDE fits, not the
+# Andrews book fits. Each names the other option.
+CHURNSIDE_WEAK_FIT = Constraint(
+    "approximation",
+    "This is the Churnside 1991 aperture-averaging fit (constant 1.07), NOT the "
+    "Andrews Ch. 10, Eq. (61) fit. The two fits differ by up to 12 percent.",
+    "10.1364/AO.30.001982", "Churnside, Applied Optics 30 (1991) 1982")
+CHURNSIDE_INNER_FIT = Constraint(
+    "approximation",
+    "This is the Churnside 1991 large-inner-scale fit (constant 2.21), NOT the "
+    "Andrews Ch. 10, Eqs. (62)-(68) two-scale chain.",
+    "10.1364/AO.30.001982", "Churnside, Applied Optics 30 (1991) 1982")
+CHURNSIDE_STRONG_FIT = Constraint(
+    "approximation",
+    "This is the Churnside 1991 strong-turbulence fit (constants 0.908 and "
+    "0.162), NOT the Andrews Ch. 10, Eq. (69) chain.",
+    "10.1364/AO.30.001982", "Churnside, Applied Optics 30 (1991) 1982")
+
 
 def _sec_zeta(elevation_deg):
     '''Return sec(zeta) = 1/sin(elevation) for the slant path.'''
     return 1.0 / np.sin(np.radians(np.asarray(elevation_deg, dtype=float)))
 
 
+@assumes(WEAK_REGIME_INDEX, SLANT_GEOMETRY, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def plane_wave_scintillation_index(elevation_deg, wavelength, hs, cn2_profile):
     '''
     Return the plane-wave point scintillation index sigma2_I.
@@ -167,6 +281,8 @@ def _scintillation_integral(rx_diameter_m, elevation_deg, wavelength, hs,
     return result.reshape(np.shape(sec))
 
 
+@assumes(WEAK_REGIME_APERTURE, SLANT_GEOMETRY, CIRCULAR_APERTURE, NO_OBSCURATION,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def aperture_averaged_scintillation_index(rx_diameter_m, elevation_deg,
                                           wavelength, hs, cn2_profile):
     '''
@@ -196,6 +312,8 @@ def aperture_averaged_scintillation_index(rx_diameter_m, elevation_deg,
                                    cn2_profile)
 
 
+@assumes(WEAK_REGIME_APERTURE, SLANT_GEOMETRY, CIRCULAR_APERTURE, NO_OBSCURATION,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def aperture_averaging_factor(rx_diameter_m, elevation_deg, wavelength, hs,
                               cn2_profile):
     '''
@@ -252,6 +370,8 @@ def _wavenumber(wavelength):
     return 2.0 * np.pi / wavelength
 
 
+@assumes(WEAK_REGIME_STD, PATH_HOMOGENEITY, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_KOLMOGOROV)
 def sigma1_rytov(cn2, wavelength, path_length_m):
     '''
     Return the plane-wave Rytov standard deviation sigma_1 for a single path.
@@ -320,6 +440,8 @@ def aperture_averaged_index_andrews(rx_diameter_m, cn2, wavelength,
                                    cn2, wave='plane', regime='strong')
 
 
+@assumes(WEAK_REGIME_APERTURE, CHURNSIDE_WEAK_FIT, PATH_HOMOGENEITY,
+         turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
 def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
     '''
     Return the weak-turbulence aperture-averaging factor A for a Kolmogorov path.
@@ -344,6 +466,8 @@ def aperture_averaging_factor_weak(rx_diameter_m, wavelength, path_length_m):
     return (1.0 + 1.07 * d2 ** (7.0 / 6.0)) ** (-1.0)
 
 
+@assumes(WEAK_REGIME_APERTURE, CHURNSIDE_INNER_FIT, turbulence_regime=REGIME_WEAK,
+         spectrum=SPECTRUM_TATARSKII)
 def aperture_averaging_factor_weak_inner(rx_diameter_m, inner_scale_m):
     '''
     Return the weak-turbulence aperture-averaging factor A for a large inner scale.
@@ -368,6 +492,8 @@ def aperture_averaging_factor_weak_inner(rx_diameter_m, inner_scale_m):
     return (1.0 + 2.21 * ratio ** (7.0 / 3.0)) ** (-1.0)
 
 
+@assumes(STRONG_REGIME_APERTURE, CHURNSIDE_STRONG_FIT, PATH_HOMOGENEITY,
+         turbulence_regime=REGIME_STRONG, spectrum=SPECTRUM_KOLMOGOROV)
 def aperture_averaging_factor_strong(rx_diameter_m, cn2, wavelength,
                                      path_length_m):
     '''
@@ -462,4 +588,58 @@ if __name__ == '__main__':
     print(f"A(D=0.7m) 30 deg = {A_30:.4f}   sigma2_P = {A_30 * s_30:.4f}")
     print(f"closed-form A_weak={A_w:.4f} A_strong={A_s:.4f} "
           f"A_weak_inner={A_wi:.4f}")
+
+    # ---------------- assumptions self-check ----------------
+    import warnings
+    from ..assumptions import trace_assumptions
+
+    # (1) VALUE PARITY: a representative call returns the identical value inside
+    #     and outside a collection context.
+    val_outside = plane_wave_scintillation_index(30.0, lam, hs, cn2)
+    with trace_assumptions():
+        val_inside = plane_wave_scintillation_index(30.0, lam, hs, cn2)
+    assert val_outside == val_inside, (val_outside, val_inside)
+
+    # (2) REGISTRATION: inside a context the expected sources and kinds register.
+    with trace_assumptions() as tr:
+        plane_wave_scintillation_index(30.0, lam, hs, cn2)
+        aperture_averaged_scintillation_index(D, 30.0, lam, hs, cn2)
+        aperture_averaging_factor(D, 30.0, lam, hs, cn2)
+        sigma1_rytov(cn2_flat, lam, L)
+        aperture_averaging_factor_weak(0.7, lam, L)
+        aperture_averaging_factor_weak_inner(0.7, 5e-3)
+        aperture_averaging_factor_strong(0.7, cn2_flat, lam, L)
+    srcs = set(tr.records)
+    for name in ('plane_wave_scintillation_index', 'aperture_averaging_factor',
+                 'sigma1_rytov', 'aperture_averaging_factor_strong'):
+        assert any(name in s for s in srcs), (name, srcs)
+    # This module's own records are all plane-wave. Delegated andrews calls also
+    # register (the inheritance mechanism), so scope the headline check to the
+    # sources this module owns (robust to the __main__ module name under -m).
+    my_sources = {f.__assumptions__.source for f in (
+        plane_wave_scintillation_index, aperture_averaged_scintillation_index,
+        aperture_averaging_factor, sigma1_rytov, aperture_averaging_factor_weak,
+        aperture_averaging_factor_weak_inner, aperture_averaging_factor_strong)}
+    mine = {s: r for s, r in tr.records.items() if s in my_sources}
+    assert mine and all(r.beam_type == 'plane wave' for r in mine.values())
+    kinds = {c.kind for rec in mine.values() for c in rec.constraints}
+    assert {'regime', 'geometry', 'receiver', 'obscuration', 'approximation',
+            'path-homogeneity'} <= kinds, kinds
+    # No weak call trips a violation.
+    assert not tr.violations, tr.violations
+    print(f"[assumptions] {len(tr.records)} sources, kinds {sorted(kinds)}")
+
+    # (3) A deliberately out-of-range (strong) call yields a source-prefixed
+    #     violation, and the physics layer emits NO warning.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_bad:
+            sigma1_rytov(1e-12, lam, 5000.0)                 # sigma_R^2 >> 1
+            plane_wave_scintillation_index(90.0, lam, hs, 300.0 * cn2)
+    assert any('sigma1_rytov' in v for v in tr_bad.violations), tr_bad.violations
+    assert any(v.startswith('[') for v in tr_bad.violations), tr_bad.violations
+    assert len(caught) == 0, [str(w.message) for w in caught]
+    print(f"[assumptions] strong-path violations: {len(tr_bad.violations)}, "
+          f"no warning")
+
     print("self-check passed")
