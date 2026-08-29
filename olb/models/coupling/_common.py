@@ -182,12 +182,18 @@ def _smf_static_term(eta_max):
     Roddier, Applied Optics 27, 2334 (1988), DOI 10.1364/AO.27.002334.
     '''
     coupling_loss = -10.0 * np.log10(eta_max)
+    # This Term is category "coupling" but reads NO decorated turbulence physics
+    # (it is a deterministic mode-match loss, not a fade). So it opens no
+    # collection context. It self-declares an "untraced: static optics"
+    # provenance, so the Budget.check() untraced-Term guard stays quiet (the
+    # guard flags a coupling Term with EMPTY provenance; see olb.results).
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_NA,
         spectrum=SPECTRUM_NA,
         validity="Turbulence off: static single-mode-fibre mode-match coupling only "
                  "(eta_max). No residual wavefront error and no fade.",
+        provenance=["untraced: static optics"],
     )
     return Term(
         name="receive coupling (SMF)",
@@ -201,6 +207,8 @@ def _smf_static_term(eta_max):
 
 
 if __name__ == '__main__':
+    import warnings
+
     from ...terminal import SMF
 
     lam = 1550e-9
@@ -249,6 +257,17 @@ if __name__ == '__main__':
     st = _smf_static_term(0.8145)
     assert np.isclose(st.mean_db, -10.0 * np.log10(0.8145))
     assert st.quantile is None and not st.mean_only and st.meta["model"] == "static"
+    # The static Term is category "coupling" with no traced physics, so it
+    # self-declares the "untraced: static optics" provenance that satisfies the
+    # Budget.check() untraced-Term guard (olb.results).
+    from ...results import Budget
+    assert st.assumptions.provenance == ["untraced: static optics"], \
+        st.assumptions.provenance
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")   # the guard must NOT warn on this Term
+        guard = [(n, r) for n, r in Budget([st]).check(warn=True)
+                 if "did not open the assumption collection context" in r]
+    assert guard == [], guard
 
     # --- _effective_dr0 inverts the piston-removed Noll relation ------------
     assert np.isclose(_effective_dr0(NOLL_PISTON), 1.0)

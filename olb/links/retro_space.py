@@ -33,7 +33,8 @@ from dataclasses import replace
 import numpy as np
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_NA, SPECTRUM_NA)
+from ..assumptions import (Assumptions, merge_assumptions, BEAM_PLANE_WAVE,
+                          REGIME_NA, SPECTRUM_NA)
 from ..models.geometric import geometric_loss_term
 from ..models.gaussian_efficiency import (uniform_aperture_correction_db,
                                           tx_gaussian_efficiency_term)
@@ -267,6 +268,27 @@ if __name__ == '__main__':
     assert not retro_row.empty, "retro reflection row missing"
     assert "plane wave" in retro_row.iloc[0]["validity"], retro_row.iloc[0]
     assert "retransmission" in retro_row.iloc[0]["validity"], retro_row.iloc[0]
+
+    # --- assumption trace wiring (WP3b) -------------------------------------
+    # retro recomposes finished Terms; it opens NO trace of its own. The up-leg
+    # turbulence Term comes from the wired uplink factory, so it carries traced
+    # provenance, and the untraced guard must not flag it.
+    up_turb = next(t for t in retro.terms
+                   if t.name == "uplink turbulence (coupled-flux)")
+    assert up_turb.assumptions.provenance, "the up-leg turbulence Term needs provenance"
+    assert any("uplink_flux._flux_result" in s
+               for s in up_turb.assumptions.provenance), up_turb.assumptions.provenance
+    guard = [name for name, reason in retro.check(warn=False)
+             if "did not open" in reason]
+    # This WP owns the up-leg turbulence Term. (The down-leg receive-coupling Term
+    # is a sibling WP, so do not assert on it here.)
+    assert "uplink turbulence (coupled-flux)" not in guard, guard
+    # merge_assumptions recomposes finished records with NO trace of its own: the
+    # folded up+down record carries the union of the two provenances.
+    down_cpl = next(t for t in retro.terms
+                    if t.name == "downlink receive coupling (aperture)")
+    folded = merge_assumptions(up_turb.assumptions, down_cpl.assumptions)
+    assert set(up_turb.assumptions.provenance) <= set(folded.provenance)
 
     print("retro (space) budget terms:")
     print(retro.to_frame().to_string(index=False))

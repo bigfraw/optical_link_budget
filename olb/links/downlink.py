@@ -31,7 +31,7 @@ import numpy as np
 from scipy.stats import norm
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_PLANE_WAVE, REGIME_STRONG,
+from ..assumptions import (trace_assumptions, BEAM_PLANE_WAVE, REGIME_STRONG,
                           REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..models.fade import irradiance_fade_term
 from ..models.geometric import geometric_loss_term
@@ -66,11 +66,16 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     D = rx.aperture_m
     elev = geometry.elevation_deg
 
-    sigma2_I = plane_wave_scintillation_index(elev, wavelength, hs, cn2_profile)
+    # Open the collection context around the PHYSICS CALLS only. Each decorated
+    # function registers its own assumptions, so the Term inherits the union.
+    with trace_assumptions() as trace:
+        sigma2_I = plane_wave_scintillation_index(elev, wavelength, hs,
+                                                  cn2_profile)
+        if aperture_average:
+            # Use the distributed-path aperture-averaging integral directly.
+            sigma2_P = aperture_averaged_scintillation_index(D, elev, wavelength,
+                                                             hs, cn2_profile)
     if aperture_average:
-        # Use the distributed-path aperture-averaging integral directly.
-        sigma2_P = aperture_averaged_scintillation_index(D, elev, wavelength,
-                                                         hs, cn2_profile)
         A = np.asarray(sigma2_P) / np.asarray(sigma2_I)
     else:
         A = 1.0
@@ -97,7 +102,11 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     # and NOT the regime boundary sigma_R^2 = 1, which is 4x looser -- see
     # Conflict C-05). Test the PDF shape with LOGNORMAL_PDF_LIMIT.
     valid = np.asarray(sigma2_I) < LOGNORMAL_PDF_LIMIT
-    assumptions = Assumptions(
+    # The traced physics functions own the beam type, the regime, the spectrum,
+    # the slant-geometry constraint, and the circular-aperture / no-obscuration
+    # constraints; the merge inherits their union and any traced violation. State
+    # the three headline fields explicitly (this is a plane-wave lognormal Term).
+    assumptions = trace.merge(
         beam_type=BEAM_PLANE_WAVE,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -108,21 +117,27 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
                  "wavenumber. The aperture-averaging filter assumes a uniform "
                  "circular aperture with no central obscuration.",
     )
-    # The circular-aperture filter models an unobscured aperture. A central
-    # obscuration (Cassegrain secondary) breaks that. Flag the violation.
+    # The central obscuration is a scenario-level fact the physics never sees (the
+    # circular-aperture filter takes no obscuration ratio). A Cassegrain secondary
+    # breaks the unobscured-aperture constraint, so flag it at the factory level.
     obscuration = rx.obscuration_ratio
     if aperture_average and obscuration > 0.0:
         assumptions.flag(
             f"The receive aperture has a central obscuration "
             f"(ratio={obscuration:.3f}); the circular-aperture averaging "
-            "filter does not model it."
+            "filter does not model it.",
+            source="factory:links.downlink",
         )
+    # The lognormal-PDF house rule (0.25 on sigma2_I) is a PDF-SHAPE decision that
+    # the physics does not gate (the traced regime check is the WIDER sigma_R^2 = 1
+    # boundary). So it stays a factory flag, source-tagged the same way.
     if not np.all(valid):
         worst = float(np.asarray(sigma2_I)[~valid].max())
         assumptions.flag(
             f"sigma2_I={worst:.3f} exceeds the lognormal-PDF house limit "
             f"{LOGNORMAL_PDF_LIMIT}; the lognormal fade tail is optimistic. Use "
-            "gamma-gamma (model='auto') or Monte Carlo."
+            "gamma-gamma (model='auto') or Monte Carlo.",
+            source="factory:links.downlink",
         )
         warnings.warn(
             f"plane-wave scintillation index sigma2_I={np.max(sigma2_I):.3f} >= "
@@ -185,22 +200,26 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     flags that when aperture_average is true.
     '''
     rx = scenario.rx_terminal
-    sigma2_R = plane_wave_scintillation_index(geometry.elevation_deg,
-                                              rx.wavelength_m, hs, cn2_profile)
-    if np.ndim(sigma2_R) != 0:
-        raise NotImplementedError(
-            "the gamma_gamma model takes a scalar elevation only. The "
-            "gamma-gamma quantile and sampler carry one (alpha, beta) pair "
-            "(olb.turbulence.andrews.distributions). Loop over the elevations."
-        )
-    sigma2_R = float(sigma2_R)
-    sigma2_lnX = float(large_scale_log_variance(sigma2_R, wave='plane'))
-    sigma2_lnY = float(small_scale_log_variance(sigma2_R, wave='plane'))
-    alpha, beta = gamma_gamma_params(sigma2_lnX, sigma2_lnY)
-    alpha, beta = float(alpha), float(beta)
-    sigma2_I = float(gamma_gamma_scintillation_index(alpha, beta))
+    # Open the collection context around the PHYSICS CALLS only.
+    with trace_assumptions() as trace:
+        sigma2_R = plane_wave_scintillation_index(geometry.elevation_deg,
+                                                  rx.wavelength_m, hs, cn2_profile)
+        if np.ndim(sigma2_R) != 0:
+            raise NotImplementedError(
+                "the gamma_gamma model takes a scalar elevation only. The "
+                "gamma-gamma quantile and sampler carry one (alpha, beta) pair "
+                "(olb.turbulence.andrews.distributions). Loop over the elevations."
+            )
+        sigma2_R = float(sigma2_R)
+        sigma2_lnX = float(large_scale_log_variance(sigma2_R, wave='plane'))
+        sigma2_lnY = float(small_scale_log_variance(sigma2_R, wave='plane'))
+        alpha, beta = gamma_gamma_params(sigma2_lnX, sigma2_lnY)
+        alpha, beta = float(alpha), float(beta)
+        sigma2_I = float(gamma_gamma_scintillation_index(alpha, beta))
 
-    assumptions = Assumptions(
+    # State the headline fields explicitly: this is the extended-Rytov strong
+    # model, so REGIME_STRONG overrides the weak regime of the plane-wave feeder.
+    assumptions = trace.merge(
         beam_type=BEAM_PLANE_WAVE,
         turbulence_regime=REGIME_STRONG,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -211,13 +230,16 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
                  "spectrum only (Ch. 12, Eq. (15), printed p. 490), so it has "
                  "no inner scale and no outer scale. The receiver is a POINT.",
     )
+    # The point-receiver limit is a scenario-level fact (the physics never sees
+    # the receive aperture here), so flag it at the factory level.
     if aperture_average:
         assumptions.flag(
             "aperture averaging is NOT applied: the book gives no "
             "aperture-averaged downlink index in the moderate-to-strong regime "
             "(Ch. 12, Eq. (39) is weak theory, Ch. 12, Eq. (40) is a point "
             "form). This point-receiver fade is deeper than the true aperture "
-            "fade."
+            "fade.",
+            source="factory:links.downlink",
         )
 
     return irradiance_fade_term(
@@ -582,6 +604,15 @@ if __name__ == '__main__':
     assert q99 is not None and np.isfinite(q99) and q99 > term.mean_db, (q99, term.mean_db)
     assert term.assumptions is not None
 
+    # WP3a: the lognormal factory now INHERITS its assumptions from the traced
+    # physics. The Term carries the plane-wave scintillation source and (when
+    # aperture-averaged) the aperture-averaging source; the provenance is not
+    # empty, so Budget.check()'s untraced guard stays quiet.
+    prov = term.assumptions.provenance
+    assert prov, "the lognormal Term must carry traced provenance"
+    assert any("plane_wave_scintillation_index" in s for s in prov), prov
+    assert any("aperture_averaged_scintillation_index" in s for s in prov), prov
+
     # A 20 deg elevation breaks the weak-fluctuation limit; 60 deg does not.
     import warnings as _w
     with _w.catch_warnings():
@@ -696,6 +727,12 @@ if __name__ == '__main__':
     gg = downlink_scintillation_term(scenario, geom15, model="auto",
                                      cn2_profile=cn2)
     assert gg.meta["model"] == "gamma_gamma", gg.meta["model"]
+    # WP3a: the gamma-gamma factory inherits the traced extended-Rytov chain.
+    gg_prov = gg.assumptions.provenance
+    assert gg_prov, "the gamma-gamma Term must carry traced provenance"
+    assert any("plane_wave_scintillation_index" in s for s in gg_prov), gg_prov
+    assert any("large_scale_log_variance" in s for s in gg_prov), gg_prov
+    assert any("small_scale_log_variance" in s for s in gg_prov), gg_prov
     # The case passed the lognormal-PDF switch (sigma2_I >= LOGNORMAL_PDF_LIMIT),
     # so it routed to gamma-gamma; sigma2_R is comfortably past 0.25 too.
     assert gg.meta["sigma2_I"] >= LOGNORMAL_PDF_LIMIT, gg.meta["sigma2_I"]
@@ -762,6 +799,10 @@ if __name__ == '__main__':
     assert np.isfinite(down_fade), down_fade
     # The plain downlink budget shows the base Term name "scintillation".
     assert "scintillation" in [t.name for t in down.terms], [t.name for t in down.terms]
+    # WP3a: the demo budget's turbulence Term carries traced provenance, so
+    # Budget.check() reports NO untraced-guard entry.
+    guard = down.check(warn=False)
+    assert not any("did not open" in reason for _, reason in guard), guard
 
     # --- opt-in receive terminal --------------------------------------------
     # The no-detector budget is unchanged: 4 terms, base scintillation name.

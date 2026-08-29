@@ -264,6 +264,11 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
                  scale_note +
                  " SNAPSHOT-ONLY: the trials have no time axis, so this Term is a "
                  "fade-DEPTH distribution, not a fade RATE or a fade DURATION.",
+        # The physics is the wave-optics field solve, NOT a set of @assumes
+        # functions, so this factory opens no collection context. Self-declare an
+        # untraced provenance so Budget.check()'s untraced guard stays quiet for
+        # this turbulence/coupling Term.
+        provenance=["untraced: wave-optics simulation"],
     )
     # SNAPSHOT-ONLY is a real limit, so flag it always.
     assumptions.flag(
@@ -475,6 +480,10 @@ def waveoptics_vacuum_term(result, *, include_smf=None, name=None,
                  "aperture capture, and the vacuum fibre coupling. It replaces "
                  "the analytic geometric, launch-truncation, and static-coupling "
                  "Terms at fidelity 2. It carries no fade.",
+        # The wave-optics field solve is not an @assumes function chain, so
+        # self-declare an untraced provenance (a geometric Term is exempt from the
+        # untraced guard, but declare it for consistency with the other faces).
+        provenance=["untraced: wave-optics simulation"],
     )
     meta = {
         "model": "waveoptics-vacuum",
@@ -583,6 +592,15 @@ if __name__ == '__main__':
     assert any("split-step field solver stays valid" in v
                for v in strong.assumptions.violations)
 
+    # WP3a: the wave-optics factory opens NO collection context (its physics is
+    # the field solve, not @assumes functions), so its Terms SELF-DECLARE an
+    # untraced provenance. That keeps Budget.check()'s untraced guard quiet for
+    # this turbulence/coupling Term.
+    from ..results import Budget
+    assert term.assumptions.provenance == ["untraced: wave-optics simulation"]
+    guard = Budget([term]).check(warn=False)
+    assert not any("did not open" in reason for _, reason in guard), guard
+
     # Spectrum follows the outer scale.
     assert term.assumptions.spectrum == SPECTRUM_KOLMOGOROV
     vk = waveoptics_turbulence_term(rec, quantity="smf_eta", L0_m=20.0)
@@ -681,6 +699,7 @@ if __name__ == '__main__':
     # The deterministic vacuum-optics Term: the full no-turbulence loss.
     vac = waveoptics_vacuum_term(bundle.vacuum)
     assert vac.category == "geometric" and vac.meta["model"] == "waveoptics-vacuum"
+    assert vac.assumptions.provenance == ["untraced: wave-optics simulation"]
     assert not vac.stochastic and vac.quantile is None and not vac.mean_only
     assert vac.meta["smf_coupling_db"] is not None      # an SMF receiver
     # A deterministic Term's quantile is its mean (constant across availability),

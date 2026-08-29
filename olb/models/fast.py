@@ -44,13 +44,13 @@ import logging
 import numpy as np
 
 from ..results import Term
-from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
-                            SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN)
+from ..assumptions import (BEAM_GAUSSIAN, REGIME_WEAK,
+                            SPECTRUM_KOLMOGOROV, SPECTRUM_VON_KARMAN,
+                            trace_assumptions)
 from ..terminal import TipTilt, AO
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.plane_wave_scintillation import plane_wave_scintillation_index
-from ..turbulence.andrews.scintillation import (rytov_weak, LOGNORMAL_PDF_LIMIT,
-                                                WEAK_REGIME_LIMIT)
+from ..turbulence.andrews.scintillation import rytov_weak, LOGNORMAL_PDF_LIMIT
 
 
 def _load_fast():
@@ -235,8 +235,18 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     # sigma2_I (NOT by result.scintillation_index, which is the COUPLED-power index
     # -- for a no-AO fibre that is dominated by phase speckle and is routinely > 1
     # even when the amplitude is weak). So flag on the amplitude sigma2_I only.
-    sigma2_I_amp = float(plane_wave_scintillation_index(
-        elev, rx.wavelength_m, hs, cn2_profile))
+    # AMPLITUDE-regime physics. Trace it so the weak-regime check on
+    # plane_wave_scintillation_index registers automatically. FAST models the
+    # phase with real Monte-Carlo screens (the phase-driven modal-coupling fade is
+    # fidelity-1), but it models the log-AMPLITUDE as an aperture-averaged
+    # log-normal, which only holds in the weak fluctuation regime. The regime is
+    # set by the plane-wave scintillation index sigma2_I (NOT by
+    # result.scintillation_index, which is the COUPLED-power index -- for a no-AO
+    # fibre that is dominated by phase speckle and is routinely > 1 even when the
+    # amplitude is weak).
+    with trace_assumptions() as trace:
+        sigma2_I_amp = float(plane_wave_scintillation_index(
+            elev, rx.wavelength_m, hs, cn2_profile))
 
     def quantile(p):
         return float(np.quantile(loss_db, p))
@@ -246,7 +256,7 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
 
     # The spectrum label follows the RESOLVED scales (see _spectrum_label).
     spectrum, scale_note, L0, l0 = _spectrum_label(params)
-    assumptions = Assumptions(
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=spectrum,
@@ -260,11 +270,17 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
                  "tilt and understates the loss by several dB. " + scale_note +
                  " Weak-to-moderate fluctuation (log-normal scintillation).",
     )
-    # First-cut limitation: no point-ahead.
+    # The core FAST coupling is an EXTERNAL Monte Carlo (fast-aosim), not an
+    # @assumes physics function, so the trace cannot see it. Declare it honestly,
+    # so the provenance is not empty and the untraced guard is satisfied.
+    assumptions.provenance.append("untraced: fast-aosim")
+    # First-cut limitation: no point-ahead. A scenario-level fact the traced
+    # physics never sees, so it stays a factory flag.
     assumptions.flag(
         "Point-ahead is off (DTHETA=0): the up-leg / down-leg anisoplanatism of a "
         "moving satellite is not modelled. Pass fast_params={'DTHETA': [x, y]} in "
-        "arcsec to include it."
+        "arcsec to include it.",
+        source="factory:models.fast"
     )
     # AMPLITUDE saturation: only here does FAST's log-normal scintillation break.
     # A large coupled-power fade (deep 99% tail) does NOT trip this -- that fade is
@@ -274,20 +290,18 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     # tighter lognormal-PDF house rule (is the amplitude tail optimistic?
     # sigma2_I = 0.25). The amplitude index is a plane wave, so Lambda is None.
     amp_regime = rytov_weak(sigma2_I_amp)
-    if amp_regime == 'hard':
-        assumptions.flag(
-            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
-            f"the weak REGIME boundary {WEAK_REGIME_LIMIT}; FAST's log-normal "
-            "amplitude scintillation saturates. The phase-driven coupling fade is "
-            "still modelled by the screens, but the amplitude contribution to the "
-            "fade tail is not trustworthy. Raise the elevation."
-        )
-    elif sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
+    # The REGIME hard-flag (sigma2_I >= WEAK_REGIME_LIMIT) is now produced by the
+    # traced weak-regime check on plane_wave_scintillation_index (an equivalent
+    # violation), so no factory flag is built for it. The tighter lognormal-PDF
+    # caution (>= 0.25 but still in the weak regime) has no traced check, so it
+    # stays a factory flag.
+    if amp_regime != 'hard' and sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
         assumptions.flag(
             f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
             f"the lognormal-PDF limit {LOGNORMAL_PDF_LIMIT} (but within the weak "
             "regime); the amplitude log-normal TAIL is optimistic. The phase-driven "
-            "coupling fade dominates and is modelled by the screens."
+            "coupling fade dominates and is modelled by the screens.",
+            source="factory:models.fast"
         )
 
     zmax = params.get("ZMAX")
@@ -495,12 +509,14 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     loss_db = -np.asarray(result.dB_rel, dtype=float)
     mean_db = float(loss_db.mean())
 
-    # AMPLITUDE-regime check. The adaptive-optics filter does not touch the
+    # AMPLITUDE-regime physics. The adaptive-optics filter does not touch the
     # log-amplitude, and that log-normal holds in the weak-fluctuation regime
     # only. Gate on the plane-wave index, NOT on result.scintillation_index
-    # (which is the COUPLED-power index and is phase-dominated).
-    sigma2_I_amp = float(plane_wave_scintillation_index(
-        elev, tx.wavelength_m, hs, cn2_profile))
+    # (which is the COUPLED-power index and is phase-dominated). Trace it so the
+    # weak-regime check on plane_wave_scintillation_index registers automatically.
+    with trace_assumptions() as trace:
+        sigma2_I_amp = float(plane_wave_scintillation_index(
+            elev, tx.wavelength_m, hs, cn2_profile))
 
     def quantile(p):
         return float(np.quantile(loss_db, p))
@@ -509,7 +525,7 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
         return rng.choice(loss_db, size=n, replace=True)
 
     spectrum, scale_note, L0, l0 = _spectrum_label(params)
-    assumptions = Assumptions(
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=spectrum,
@@ -537,25 +553,27 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
                  "jitter is in the standalone pointing Term. Do not "
                  "double-count them.",
     )
+    # The core FAST coupling is an EXTERNAL Monte Carlo (fast-aosim), not an
+    # @assumes physics function, so the trace cannot see it. Declare it honestly,
+    # so the provenance is not empty and the untraced guard is satisfied.
+    assumptions.provenance.append("untraced: fast-aosim")
     # TWO distinct amplitude tests, kept separate (Conflict C-05): the REGIME
     # boundary (does the amplitude log-normal saturate? sigma_R^2 = 1) and the
     # tighter lognormal-PDF house rule (is the amplitude tail optimistic?
     # sigma2_I = 0.25). The amplitude index is a plane wave, so Lambda is None.
     amp_regime = rytov_weak(sigma2_I_amp)
-    if amp_regime == 'hard':
-        assumptions.flag(
-            f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
-            f"the weak REGIME boundary {WEAK_REGIME_LIMIT}; FAST's log-normal "
-            "amplitude scintillation saturates. The phase-driven fade is still "
-            "modelled by the screens, but the amplitude contribution to the fade "
-            "tail is not trustworthy. Raise the elevation."
-        )
-    elif sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
+    # The REGIME hard-flag (sigma2_I >= WEAK_REGIME_LIMIT) is now produced by the
+    # traced weak-regime check on plane_wave_scintillation_index (an equivalent
+    # violation), so no factory flag is built for it. The tighter lognormal-PDF
+    # caution (>= 0.25 but still in the weak regime) has no traced check, so it
+    # stays a factory flag.
+    if amp_regime != 'hard' and sigma2_I_amp >= LOGNORMAL_PDF_LIMIT:
         assumptions.flag(
             f"Plane-wave amplitude scintillation sigma2_I={sigma2_I_amp:.2f} is past "
             f"the lognormal-PDF limit {LOGNORMAL_PDF_LIMIT} (but within the weak "
             "regime); the amplitude log-normal TAIL is optimistic. The phase-driven "
-            "fade dominates and is modelled by the screens."
+            "fade dominates and is modelled by the screens.",
+            source="factory:models.fast"
         )
 
     zmax = params.get("ZMAX")
@@ -651,6 +669,31 @@ if __name__ == '__main__':
     # No correction -> NOAO, no ZMAX.
     assert term.meta["ao_mode"] == "NOAO" and term.meta["zmax"] is None
 
+    # WP3d: the traced olb-side physics (the plane-wave amplitude index) is in the
+    # provenance, and the external FAST Monte Carlo self-declares.
+    from ..results import Budget
+    prov = term.assumptions.provenance
+    assert any("plane_wave_scintillation_index" in s for s in prov), prov
+    assert "untraced: fast-aosim" in prov, prov
+    # The demo (coupling category) Term passes the untraced guard.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        checked = Budget([term]).check(warn=False)
+    assert not any("did not open the assumption collection context" in reason
+                   for _name, reason in checked), checked
+
+    # The migrated REGIME hard-flag: a 10 deg downlink drives the plane-wave
+    # amplitude index past the weak boundary (sigma2_I ~ 1.6), so the TRACED
+    # weak-regime check on plane_wave_scintillation_index fires. The Term is
+    # not ok, and the violation carries the physics source prefix.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        term_low = smf_fast_term(scn, CircularOrbit(1500e3, 10.0), n_samples=100)
+    assert not term_low.assumptions.ok
+    assert any("plane_wave_scintillation_index" in v and "weak" in v
+               for v in term_low.assumptions.violations), \
+        term_low.assumptions.violations
+
     # AO order is honoured: AO(n_modes) -> FAST MODAL ZMAX=n_modes, and more
     # corrected modes give less coupling loss. Tip-tilt sits between NOAO and AO.
     def build(comp, n=400):
@@ -713,6 +756,17 @@ if __name__ == '__main__':
     # The orbit gives a real point-ahead offset.
     assert u60.meta["dtheta_arcsec"] > 0, u60.meta["dtheta_arcsec"]
     assert u60.meta["zmax"] == 60 and u60.meta["ao_mode"] == "AO"
+
+    # WP3d: the pre-compensated uplink Term carries the same traced provenance and
+    # the external FAST self-declaration, and passes the untraced guard.
+    up_prov = u60.assumptions.provenance
+    assert any("plane_wave_scintillation_index" in s for s in up_prov), up_prov
+    assert "untraced: fast-aosim" in up_prov, up_prov
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        up_checked = Budget([u60]).check(warn=False)
+    assert not any("did not open the assumption collection context" in reason
+                   for _name, reason in up_checked), up_checked
 
     # More corrected modes -> less mean loss.
     u6 = up_term(_uplink([TipTilt(), AO(6)]))

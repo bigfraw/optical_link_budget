@@ -204,4 +204,28 @@ if __name__ == '__main__':
     assert np.max(np.abs(a - b)) == 0.0
     assert a.shape == b.shape == (50_000,)
 
+    # WP3a: the adapter carries a TRACED assumptions record through unchanged.
+    # links/downlink._gamma_gamma_term hands this adapter a merged, provenance-
+    # bearing record (the factory owns the merge; the adapter builds none of its
+    # own). Prove the pass-through keeps the provenance and the constraints.
+    from ..assumptions import (Assumptions, Constraint, BEAM_PLANE_WAVE,
+                               REGIME_STRONG, SPECTRUM_KOLMOGOROV)
+    traced_rec = Assumptions(
+        beam_type=BEAM_PLANE_WAVE, turbulence_regime=REGIME_STRONG,
+        spectrum=SPECTRUM_KOLMOGOROV, validity="traced demo",
+        constraints=[("olb.demo.phys", Constraint(
+            "regime", "Weak fluctuation: sigma_R^2 < 1.", "10.1117/3.626196",
+            "Ch. 8, printed p. 264"))],
+        provenance=["olb.demo.phys"])
+    carried = irradiance_fade_term(
+        "scintillation", "turbulence", mean_log=gamma_gamma_mean_log(aa, bb),
+        quantile=lambda p: gamma_gamma_quantile(p, aa, bb),
+        rvs=lambda n, rng: gamma_gamma_rvs(n, aa, bb, rng),
+        assumptions=traced_rec)
+    assert carried.assumptions is traced_rec
+    assert carried.assumptions.provenance == ["olb.demo.phys"]
+    assert len(carried.assumptions.constraints) == 1
+    print(f"[reduce ] traced record carried through: provenance "
+          f"{carried.assumptions.provenance}")
+
     print("self-check passed")

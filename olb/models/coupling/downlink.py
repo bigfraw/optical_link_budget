@@ -52,7 +52,7 @@ import numpy as np
 from ...results import Term
 from ...assumptions import (Assumptions, BEAM_PLANE_WAVE, BEAM_GAUSSIAN,
                             REGIME_WEAK, REGIME_NA, SPECTRUM_KOLMOGOROV,
-                            SPECTRUM_NA)
+                            SPECTRUM_NA, trace_assumptions)
 from ...terminal import Aperture, SMF, MMF
 from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ...turbulence.ao import (plane_wave_fried_parameter_profile,
@@ -103,15 +103,19 @@ def _smf_mean_term(scenario, geometry, *, hs, cn2_profile, turbulence=True):
         return _smf_static_term(eta_max)
 
     elev = geometry.elevation_deg
-    r0 = plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elev)
-    residual = apply_compensation(terminal.compensation, D, r0)
+    # Trace the AO chain physics (the Fried parameter and the residual-variance
+    # compensation). apply_compensation carries the extended-Marechal check, so a
+    # large residual variance registers a traced violation automatically.
+    with trace_assumptions() as trace:
+        r0 = plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elev)
+        residual = apply_compensation(terminal.compensation, D, r0)
     sigma2_res = residual.variance
     eta = _smf_coupling_efficiency(sigma2_res, eta_max)
     coupling_loss = -10.0 * np.log10(eta)     # positive dB, scalar or per-elevation
     dr0_eff = _effective_dr0(sigma2_res)
     base_shape = np.shape(coupling_loss)
 
-    assumptions = Assumptions(
+    assumptions = trace.merge(
         beam_type=BEAM_PLANE_WAVE,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -124,28 +128,35 @@ def _smf_mean_term(scenario, geometry, *, hs, cn2_profile, turbulence=True):
                  "smf_fidelity='fast'.",
     )
     # MEAN-ONLY. The Term carries no coupling fade. Always flag it, so a fade
-    # margin (for example a 99% link margin) is never read off this Term.
+    # margin (for example a 99% link margin) is never read off this Term. This is
+    # a Term-shape fact the physics never sees, so it stays a factory flag.
     assumptions.flag(
         "Mean-only SMF coupling: this Term is the expected coupling loss and models "
         "NO fade (no sampler, no quantile). Every fade margin read from it is wrong. "
-        "Use smf_fidelity='fast' for the statistical (fidelity-1) coupling."
+        "Use smf_fidelity='fast' for the statistical (fidelity-1) coupling.",
+        source="factory:models.coupling.downlink"
     )
     # Dikmelik-Davidson assumes a uniform circular aperture. A central obscuration
-    # on the receive aperture breaks the coupling curve. Flag the violation.
+    # on the receive aperture breaks the coupling curve. The obscuration is a
+    # scenario fact the traced physics never reads, so it stays a factory flag.
     if terminal.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The receive aperture has a central obscuration "
             f"(ratio={terminal.obscuration_ratio:.3f}); the Dikmelik-Davidson "
             "coupling curve assumes a uniform circular aperture and does not "
-            "model it."
+            "model it.",
+            source="factory:models.coupling.downlink"
         )
     # Flag deep turbulence, where the practical coupling curve is extrapolated.
+    # The D/r0 test is on the effective coupling curve, not on the traced residual
+    # variance, so it stays a factory flag.
     dr0_max = float(np.max(dr0_eff))
     if dr0_max > SMF_DEEP_TURBULENCE_DR0:
         assumptions.flag(
             f"effective D/r0={dr0_max:.1f} exceeds {SMF_DEEP_TURBULENCE_DR0:.0f}; "
             "the practical uncorrected coupling curve is extrapolated. Use "
-            "smf_fidelity='fast'."
+            "smf_fidelity='fast'.",
+            source="factory:models.coupling.downlink"
         )
 
     note = (f"SMF coupling (mean-only), eta_max={eta_max:g}, "
@@ -257,7 +268,10 @@ def downlink_coupling_term(scenario, geometry, *, hs=None, cn2_profile=None,
                     turbulence_regime=REGIME_NA,
                     spectrum=SPECTRUM_NA,
                     validity="Turbulence off: a bucket detector has no static "
-                             "coupling loss and no scintillation, so 0 dB."),
+                             "coupling loss and no scintillation, so 0 dB.",
+                    # Deterministic static optics: no turbulence physics to trace.
+                    # Self-declare so the coupling-category untraced guard passes.
+                    provenance=["untraced: static optics"]),
             )
         if isinstance(detector, SMF):
             eta_max = _smf_eta_max(detector, terminal.aperture_m,
@@ -341,6 +355,36 @@ if __name__ == '__main__':
     assert t_smf.meta["coupling_loss_db"] > 0.0
     assert any("Mean-only" in v for v in t_smf.assumptions.violations)
     assert not t_smf.assumptions.ok
+
+    # WP3d: the mean tier inherits the traced AO-chain provenance, and the
+    # mean_only Term shape is untouched.
+    prov = t_smf.assumptions.provenance
+    assert prov, "the traced coupling Term must carry provenance"
+    assert any("apply_compensation" in s for s in prov), prov
+    assert any("plane_wave_fried_parameter_profile" in s for s in prov), prov
+    assert t_smf.mean_only is True                 # mean-only semantics unchanged
+    # The demo budget's coupling Term passes the untraced guard (non-empty
+    # provenance), so Budget.check() reports no untraced-guard entry for it.
+    from ...results import Budget
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        checked = Budget([t_smf]).check(warn=False)
+    assert not any("did not open the assumption collection context" in reason
+                   for _name, reason in checked), checked
+
+    # A strong-turbulence case trips the traced extended-Marechal check on
+    # apply_compensation (residual variance > 1 rad^2): the violation arrives
+    # through the trace, not a factory flag.
+    scn_strong = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam,
+                                    detector=SMF(), compensation=[TipTilt()]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t_strong = downlink_coupling_term(
+            scn_strong, CircularOrbit(600e3, 20.0), hs=hs, smf_fidelity="mean",
+            cn2_profile=default_cn2_profile(scn_strong.channel.site, hs))
+    assert any("Marechal" in v for v in t_strong.assumptions.violations), \
+        t_strong.assumptions.violations
+    assert any("apply_compensation" in s for s in t_strong.assumptions.provenance)
 
     # --- SMF with AO: AO buys back coupling (less mean loss than no AO) -----
     scn_ao = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam, detector=SMF(),

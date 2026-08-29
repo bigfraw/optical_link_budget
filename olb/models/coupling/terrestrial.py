@@ -19,13 +19,16 @@ Sources:
 import numpy as np
 
 from ...results import Term
-from ...assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
+from ...assumptions import (trace_assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                             SPECTRUM_KOLMOGOROV)
 from ...terminal import SMF, MMF, TipTilt, AO
 from ...beam import free_space_radius, launch_curvature
 from ...turbulence.gaussian_fried import gaussian_fried_parameter_profile
 from ...turbulence.angle_of_arrival import wander_arrival_angle_variance
 from ...turbulence.ao import apply_compensation
+from ...turbulence.andrews.beam import beam_params
+from ...turbulence.andrews.scintillation import (rytov_weak, rytov_variance,
+                                                 WEAK_REGIME_LIMIT)
 from ._common import (_smf_eta_max, _smf_coupling_efficiency, _effective_dr0,
                      _smf_static_term, SMF_OPTIMAL_A, SMF_DEEP_TURBULENCE_DR0)
 
@@ -277,22 +280,34 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
     f0 = launch_curvature(w0, tx.transmitter.divergence_rad, wavelength)
     hs = np.linspace(0.0, L, int(n_grid))
     cn2_profile = np.full_like(hs, cn2)
-    r0 = gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
-                                          path='terrestrial', f0=f0)
 
-    # When the receive tip-tilt walk-off Term is active, it carries the tip-tilt
-    # coupling loss. So this coupling Term keeps the HIGHER-ORDER residual only.
-    # A virtual TipTilt removes the tip-tilt (Noll modes 2 and 3). The
-    # best-correcting stage wins, so a stack that already corrects more than
-    # tip-tilt does not change. Source: Noll 1976 (residual variance by mode).
-    stack = [*rx.compensation, TipTilt()] if drop_tiptilt else rx.compensation
-    residual = apply_compensation(stack, D, r0)
+    # Open the collection context around the PHYSICS CALLS only. The Gaussian
+    # Fried parameter and the compensation chain register their own assumptions
+    # (beam type, weak regime, spectrum, launch curvature, path weight, and the
+    # extended-Marechal residual check), so the Term inherits the union. A strong
+    # path trips the Marechal residual check inside apply_compensation
+    # automatically.
+    with trace_assumptions() as trace:
+        r0 = gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
+                                              path='terrestrial', f0=f0)
+        # When the receive tip-tilt walk-off Term is active, it carries the
+        # tip-tilt coupling loss. So this coupling Term keeps the HIGHER-ORDER
+        # residual only. A virtual TipTilt removes the tip-tilt (Noll modes 2 and
+        # 3). The best-correcting stage wins, so a stack that already corrects
+        # more than tip-tilt does not change. Source: Noll 1976 (residual
+        # variance by mode).
+        stack = [*rx.compensation, TipTilt()] if drop_tiptilt else rx.compensation
+        residual = apply_compensation(stack, D, r0)
     sigma2_res = residual.variance
     eta = _smf_coupling_efficiency(sigma2_res, eta_max)
     coupling_loss = -10.0 * np.log10(eta)
     dr0_eff = _effective_dr0(sigma2_res)
 
-    assumptions = Assumptions(
+    # The traced physics own the beam type, the weak regime, the spectrum, and
+    # the launch-curvature / path-weight / Marechal constraints; the merge
+    # inherits their union and any traced violation. State the three headline
+    # fields explicitly (this is a Gaussian-beam mean-only coupling Term).
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -303,10 +318,13 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
                  "horizontal Gaussian-beam r0. This Term is DETERMINISTIC and "
                  "models NO fade.",
     )
+    # Scenario-level facts the physics never sees stay factory flags, source
+    # tagged so they carry the same "[source] reason" prefix as a traced check.
     assumptions.flag(
         "Mean-only SMF coupling: this Term is the expected coupling loss and models "
         "NO fade (no sampler, no quantile). It locks the budget to fidelity 0, so "
-        "no budget fade margin is reported."
+        "no budget fade margin is reported.",
+        source="factory:models.coupling.terrestrial",
     )
     assumptions.flag(
         "Effective-r0 weak-turbulence approximation: the Noll residual and the "
@@ -314,19 +332,22 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
         "evaluated at the Gaussian-beam r0. Valid only in weak turbulence; it "
         "ignores beam-wave amplitude scintillation, beam wander, and near-field "
         "curvature. A fidelity-2 split-step beam-propagation model is needed for "
-        "those."
+        "those.",
+        source="factory:models.coupling.terrestrial",
     )
     if rx.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The far aperture has a central obscuration "
             f"(ratio={rx.obscuration_ratio:.3f}); the Dikmelik-Davidson coupling "
-            "curve assumes a uniform circular aperture and does not model it."
+            "curve assumes a uniform circular aperture and does not model it.",
+            source="factory:models.coupling.terrestrial",
         )
     dr0_max = float(np.max(dr0_eff))
     if dr0_max > SMF_DEEP_TURBULENCE_DR0:
         assumptions.flag(
             f"effective D/r0={dr0_max:.1f} exceeds {SMF_DEEP_TURBULENCE_DR0:.0f}; "
-            "the practical uncorrected coupling curve is extrapolated."
+            "the practical uncorrected coupling curve is extrapolated.",
+            source="factory:models.coupling.terrestrial",
         )
 
     base_shape = np.shape(coupling_loss)
@@ -417,11 +438,16 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
     # DOI 10.1364/AO.27.002334.
     w_s = rx.wavelength_m * f / (np.pi * rx.aperture_m / 2.0)
     w_eff = np.sqrt(w_s ** 2 + w_m ** 2)
-    sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
-                                                    turbulence=turbulence)
+    # Open the collection context around the PHYSICS CALL only. The received
+    # tip-tilt reads the decorated beam-wander arrival-tilt kernel (through
+    # _received_tiptilt_variance), so the Term inherits its assumptions and
+    # carries traced provenance.
+    with trace_assumptions() as trace:
+        sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
+                                                        turbulence=turbulence)
     mean, quantile, sampler = _walkoff_faces(f, w_eff, sigma2_theta)
 
-    assumptions = Assumptions(
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -433,6 +459,31 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
                  "coupling loss has no upper limit: more tilt gives more loss. Only "
                  "the weak-turbulence validity of the tilt variance limits the Term.",
     )
+    # Close the known gap (the walk-off Term declared REGIME_WEAK but never
+    # flagged). The beam-wander arrival tilt is a WEAK-turbulence model, but the
+    # vendored kernel (olb.turbulence.coupled_flux.beam_wander_variance) carries
+    # NO runtime weak-regime check, so the trace alone does not flag a strong
+    # path. Flag it here as a scenario-level regime fact (source tagged), only
+    # when the wander tilt actually contributes (turbulence on and not tracked
+    # out, so sigma2_wander > 0). The gate is the same beam-aware Rytov test the
+    # scintillation Term uses (Andrews and Phillips 2005, Ch. 5, Eq. (16), DOI
+    # 10.1117/3.626196).
+    if meta["sigma2_wander"] > 0.0:
+        L = float(scenario.channel.path_length_m)
+        cn2 = float(scenario.channel.cn2)
+        w0 = scenario.tx_terminal.transmitter.waist_m
+        # Read the plane-wave Rytov variance from the andrews kernel, do not
+        # re-derive it: sigma_R^2 = 1.23 Cn2 k^(7/6) L^(11/6), Andrews and
+        # Phillips 2005, Ch. 8, Eq. (10), printed p. 262, DOI 10.1117/3.626196.
+        sigma2_R = float(rytov_variance(rx.wavelength_m, L, cn2))
+        Lambda = float(beam_params(w0, rx.wavelength_m, L).lam)
+        if rytov_weak(sigma2_R, Lambda) == 'hard':
+            assumptions.flag(
+                f"sigma2_R={sigma2_R:.3f} (Lambda={Lambda:.3f}) meets or exceeds "
+                f"the Gaussian-beam weak limit {WEAK_REGIME_LIMIT}; the beam-wander "
+                "arrival-tilt model is not trusted. Use the fidelity-2 Monte Carlo.",
+                source="factory:models.coupling.terrestrial",
+            )
     return Term(
         name="SMF tip-tilt walk-off",
         category="pointing",
@@ -573,8 +624,13 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
     # 1-sigma of sigma_d = f*sqrt(sigma2_theta/2). The coupled power is the
     # encircled energy of the displaced Gaussian spot inside the hard core (a
     # light bucket, NOT a mode overlap). See _mmf_encircled_efficiency.
-    sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
-                                                    turbulence=turbulence)
+    #
+    # Open the collection context around the PHYSICS CALL only. The received
+    # tip-tilt reads the decorated beam-wander arrival-tilt kernel, so the Term
+    # inherits its assumptions and carries traced provenance.
+    with trace_assumptions() as trace:
+        sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
+                                                        turbulence=turbulence)
     sigma_d = f * np.sqrt(sigma2_theta / 2.0)          # per-axis spot offset [m]
     eta_static = na_factor * float(_mmf_encircled_efficiency(0.0, w_s, a_core))
     static_db = -10.0 * np.log10(eta_static)
@@ -605,7 +661,10 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
         dy = rng.normal(0.0, sigma_d, n)
         return _loss_db(np.sqrt(dx ** 2 + dy ** 2))
 
-    assumptions = Assumptions(
+    # The traced beam-wander kernel owns the beam type, the weak regime, and the
+    # spectrum; the merge inherits its union and provenance. State the three
+    # headline fields explicitly (this is a Gaussian-beam light-bucket Term).
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -621,12 +680,15 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
                  "set) is a flat power-transmission factor, NOT a re-truncated "
                  "aperture: it does not re-broaden the focal spot.",
     )
+    # Scenario-level facts the physics never sees stay factory flags, source
+    # tagged so they carry the same "[source] reason" prefix as a traced check.
     if na_fibre is not None and na_optic > na_fibre:
         assumptions.flag(
             f"The focusing cone NA_optic={na_optic:.3f} exceeds the fibre "
             f"NA={na_fibre:.3f}; the fibre does not guide the steep rays. The "
             f"angular gate cuts the coupled power by {(-10.0 * np.log10(na_factor)):.2f} "
-            "dB. Shorten nothing further, or use a larger-NA fibre."
+            "dB. Shorten nothing further, or use a larger-NA fibre.",
+            source="factory:models.coupling.terrestrial",
         )
         assumptions.flag(
             "The NA gate (NA/NA_optic)^2 is an aperture-AREA fraction, so it assumes "
@@ -636,13 +698,15 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
             "so its true NA loss is SMALLER. Thus this gate is CONSERVATIVE "
             "(pessimistic) for an underfilled pupil, and exact for a filled uniform "
             "one. A distant-source receive beam is near uniform, so the assumption "
-            "holds for a receive aperture."
+            "holds for a receive aperture.",
+            source="factory:models.coupling.terrestrial",
         )
     if rx.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The far aperture has a central obscuration "
             f"(ratio={rx.obscuration_ratio:.3f}); the Gaussian focal-spot model "
-            "assumes a uniform circular aperture and does not model it."
+            "assumes a uniform circular aperture and does not model it.",
+            source="factory:models.coupling.terrestrial",
         )
     return Term(
         name="receive coupling (MMF)",
@@ -667,6 +731,8 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
 
 
 if __name__ == '__main__':
+    import warnings
+
     from ...scenario import TerrestrialScenario, TerrestrialChannel
     from ...geometry import HorizontalPath
     from ...terminal import Terminal, Transmitter, Aperture, SMF, MMF, TipTilt
@@ -811,6 +877,55 @@ if __name__ == '__main__':
                                        cn2=1e-14)),
         hpath, turbulence=False)
     assert terr_off.meta["model"] == "static" and not terr_off.mean_only
+
+    # --- WP3c: traced provenance, the walk-off gap closure, and the guard ----
+    from ...results import Budget
+
+    # (1) The coupling and walk-off Terms now carry traced provenance naming
+    #     their physics sources.
+    smf_plain2 = SMF(sensitivity_dbm=-40)
+    cpl = terrestrial_smf_coupling_term(_terr(smf_plain2, cn2=1e-15), hpath)
+    assert cpl.assumptions.provenance, "SMF coupling must carry traced provenance"
+    assert any("gaussian_fried_parameter_profile" in s
+               for s in cpl.assumptions.provenance), cpl.assumptions.provenance
+    assert any("apply_compensation" in s
+               for s in cpl.assumptions.provenance), cpl.assumptions.provenance
+    wo_prov = terrestrial_smf_walkoff_term(_terr(smf_opt, jitter=10e-6, cn2=1e-15),
+                                           hpath)
+    assert any("wander_arrival_angle_variance" in s
+               for s in wo_prov.assumptions.provenance), wo_prov.assumptions.provenance
+    mmf_prov = terrestrial_mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15),
+                                             hpath)
+    assert mmf_prov.assumptions.provenance, "MMF coupling must carry provenance"
+
+    # (2) THE GAP CLOSED. The walk-off Term declared REGIME_WEAK but NEVER
+    #     flagged. In strong turbulence it now reads not-ok; in genuinely weak
+    #     turbulence it stays ok. No spurious field-region violation reaches it:
+    #     the walk-off reads wander_arrival_angle_variance, NOT the z=1.0-carrier
+    #     aperture_arrival_angle_variance, so the delegate Fresnel-zone check is
+    #     never on the trace.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wo_weak = terrestrial_smf_walkoff_term(
+            _terr(smf_opt, jitter=10e-6, cn2=1e-16), hpath)
+        wo_strong = terrestrial_smf_walkoff_term(
+            _terr(smf_opt, jitter=10e-6, cn2=1e-13), hpath)
+    assert wo_weak.assumptions.ok, wo_weak.assumptions.violations
+    assert not wo_strong.assumptions.ok, \
+        "the walk-off Term must flag in strong turbulence (gap closed)"
+    assert any("beam-wander arrival-tilt model is not trusted" in v
+               for v in wo_strong.assumptions.violations), \
+        wo_strong.assumptions.violations
+    assert not any("field-region" in v.lower() or "Fresnel" in v
+                   for v in wo_strong.assumptions.violations), \
+        "no spurious field-region violation must reach the walk-off Term"
+
+    # (3) Budget.check() reports NO untraced-guard entry for the coupling Terms.
+    guard_reason = "did not open the assumption collection context"
+    for term in (cpl, mmf_prov):
+        found = [(n, r) for n, r in Budget([term]).check(warn=False)
+                 if guard_reason in r]
+        assert found == [], found
 
     wo_big_q99 = wo_big.quantile_db(0.99)
     t_mmf_q99 = t_mmf.quantile_db(0.99)

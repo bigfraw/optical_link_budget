@@ -30,7 +30,7 @@ import numpy as np
 from scipy.stats import norm
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
+from ..assumptions import (trace_assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                            SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
 from ..models.extinction import terrestrial_extinction_term
@@ -132,8 +132,21 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     # (sec=1), L = the grid length. This gives the on-axis index sigma2_I(0, L).
     hs = np.linspace(0.0, L, int(n_grid))
     cn2_profile = np.full_like(hs, cn2)
-    sigma2_I = float(on_axis_scintillation_index(
-        hs, cn2_profile, w0, wavelength, elevation_deg=90.0, path_length_m=None))
+
+    # Open the collection context around the PHYSICS CALLS only. Each decorated
+    # function registers its own assumptions (beam type, regime, spectrum, and
+    # its constraints and checks), so the Term inherits the union. A strong path
+    # trips the Dios beam-wave reliability check (sigma_chi^2 >= 0.6) inside
+    # on_axis_scintillation_index automatically, so the hard-regime violation is
+    # traced, not hand-built.
+    with trace_assumptions() as trace:
+        sigma2_I = float(on_axis_scintillation_index(
+            hs, cn2_profile, w0, wavelength, elevation_deg=90.0, path_length_m=None))
+        # Aperture-averaging win: a larger D averages more, so A and sigma2_P fall.
+        A = float(aperture_averaging_factor_weak(D, wavelength, L))
+        # Lambda (receiver-plane beam parameter, collimated launch) for the
+        # regime label below.
+        Lambda = float(beam_params(w0, wavelength, L).lam)
 
     # TODO(pointing jitter): this Term is ON-AXIS only (r=0), so it does NOT yet
     # carry pointing/tracking jitter. When adding it, note the ANALYTIC-PATH
@@ -151,8 +164,6 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     # This is the reason to converge the analytic and MC Dios paths rather than
     # patch one. See memory dios-scintillation-convergence / pointing-jitter-into-beta.
 
-    # Aperture-averaging win: a larger D averages more, so A and sigma2_P fall.
-    A = float(aperture_averaging_factor_weak(D, wavelength, L))
     sigma2_P = A * sigma2_I
 
     sigma_l2 = np.log(1.0 + sigma2_P)
@@ -185,10 +196,13 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     #     optimistic lognormal tail, Ch. 11.3, printed p. 451), kept SEPARATE.
     k_wave = 2.0 * np.pi / wavelength
     sigma2_R = float(1.23 * cn2 * k_wave ** (7.0 / 6.0) * L ** (11.0 / 6.0))
-    Lambda = float(beam_params(w0, wavelength, L).lam)   # collimated launch
     regime = rytov_weak(sigma2_R, Lambda)
     pdf_valid = bool(sigma2_I < LOGNORMAL_PDF_LIMIT)
-    assumptions = Assumptions(
+    # The traced physics functions own the beam type, the regime, the spectrum,
+    # and the circular-aperture / no-obscuration constraints; the merge inherits
+    # their union and the traced Dios reliability violation. State the three
+    # headline fields explicitly (this is a Gaussian-beam lognormal Term).
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -202,12 +216,14 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
                  "small inner scale (Andrews and Phillips 2005, Ch. 10).",
     )
     # The weak Kolmogorov averaging factor models a uniform circular aperture. A
-    # central obscuration (Cassegrain secondary) breaks that. Flag the violation.
+    # central obscuration (Cassegrain secondary) breaks that. It is a
+    # scenario-level fact the physics never sees, so flag it at the factory level.
     if rx.obscuration_ratio > 0.0:
         assumptions.flag(
             f"The far aperture has a central obscuration "
             f"(ratio={rx.obscuration_ratio:.3f}); the weak aperture-averaging "
-            "factor assumes a uniform circular aperture and does not model it."
+            "factor assumes a uniform circular aperture and does not model it.",
+            source="factory:links.terrestrial",
         )
     if regime == 'soft':
         warnings.warn(
@@ -218,22 +234,24 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
             "against a Monte Carlo near the top of the band."
         )
     elif regime == 'hard':
-        assumptions.flag(
-            f"sigma2_R={sigma2_R:.3f} (Lambda={Lambda:.3f}) meets or exceeds the "
-            f"Gaussian-beam weak limit (sigma_R^2 or sigma_R^2 Lambda^(5/6) >= "
-            f"{WEAK_REGIME_LIMIT}); the analytic Rytov index is not trusted. Use "
-            "Monte Carlo (fidelity 2)."
-        )
+        # The hard-tier regime violation is now OWNED by the physics: the traced
+        # on_axis_scintillation_index check flags the Dios beam-wave index as
+        # unreliable (sigma_chi^2 >= 0.6). So the factory keeps only the warning
+        # here (verbatim); the assumptions violation arrives through the trace.
         warnings.warn(
             f"horizontal Gaussian-beam Rytov variance sigma2_R={sigma2_R:.3f} "
             f"(Lambda={Lambda:.3f}) leaves the weak regime -- the analytic index "
             "is not trusted. Use the fidelity-2 Monte Carlo."
         )
     if not pdf_valid:
+        # The lognormal-PDF house rule (0.25 on sigma2_I) is a PDF-SHAPE decision
+        # that the physics does not gate (the traced regime check is the wider
+        # Dios reliability bound). So it stays a factory flag, source-tagged.
         assumptions.flag(
             f"sigma2_I={sigma2_I:.3f} exceeds the lognormal-PDF house limit "
             f"{LOGNORMAL_PDF_LIMIT}; the lognormal fade tail is not trusted. Use "
-            "gamma-gamma or Monte Carlo."
+            "gamma-gamma or Monte Carlo.",
+            source="factory:links.terrestrial",
         )
         warnings.warn(
             f"horizontal Gaussian-beam scintillation index sigma2_I={sigma2_I:.3f} "
@@ -551,6 +569,25 @@ if __name__ == '__main__':
     obsc = terrestrial_scintillation_term(
         _terr(0.02, 5e3, far_aperture=0.2, far_obscuration=0.3), geom)
     assert any("central obscuration" in v for v in obsc.assumptions.violations)
+
+    # --- WP3c: the scintillation Term inherits traced provenance --------------
+    # The weak default Term names its physics sources.
+    prov = scint.assumptions.provenance
+    assert prov, "the scintillation Term must carry traced provenance"
+    assert any("on_axis_scintillation_index" in s for s in prov), prov
+    assert any("aperture_averaging_factor_weak" in s for s in prov), prov
+    # The hard-tier regime flag MIGRATED to the physics: the strong and long-path
+    # cases now read not-ok through the TRACED Dios reliability check, not a
+    # hand-built factory flag. Assert membership, not the exact count.
+    assert any("on_axis_scintillation_index" in v and "unreliable" in v
+               for v in strong.assumptions.violations), strong.assumptions.violations
+    assert any("on_axis_scintillation_index" in v and "unreliable" in v
+               for v in long_path.assumptions.violations), long_path.assumptions.violations
+    # Budget.check() on the default aperture budget reports NO untraced-guard
+    # entry (the turbulence-category scintillation Term now carries provenance).
+    guard = [(n, r) for n, r in budget.check(warn=False)
+             if "did not open the assumption collection context" in r]
+    assert guard == [], guard
 
     # The aperture budget now carries the turbulence fade, so its 99% fade is
     # DEEPER than the pointing-only (scintillation-off) budget.

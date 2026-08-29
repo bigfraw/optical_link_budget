@@ -16,8 +16,8 @@ analytic fade sum.
 import numpy as np
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, BEAM_GAUSSIAN, BEAM_PLANE_WAVE,
-                          REGIME_WEAK, SPECTRUM_KOLMOGOROV)
+from ..assumptions import (Assumptions, trace_assumptions, BEAM_GAUSSIAN,
+                          BEAM_PLANE_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
 from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
@@ -106,17 +106,27 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     ranges = np.atleast_1d(np.asarray(geometry.slant_range_m, dtype=float))
     scalar = np.ndim(geometry.elevation_deg) == 0
 
-    # Representative draw per elevation -> table mean + validity metadata.
-    reps = [_flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
-                         n_samples, n_apertures, divergence_rad=divergence_rad,
-                         sigma_theta_rad=sigma_theta)
-            for e, r in zip(elev, ranges)]
+    # Representative draw per elevation -> table mean + validity metadata. Open
+    # the collection context around the PHYSICS CALLS only. _flux_result and its
+    # coupled-flux dependencies own their assumptions, so the hard-tier Dios
+    # reliability-edge check on sigma_x^2 fires automatically here; the factory no
+    # longer hand-computes that gate (WP3b migration).
+    with trace_assumptions() as trace:
+        reps = [_flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
+                             n_samples, n_apertures, divergence_rad=divergence_rad,
+                             sigma_theta_rad=sigma_theta)
+                for e, r in zip(elev, ranges)]
     mean_db = np.array([-10 * np.log10(np.mean(rep["Is_summed"])) for rep in reps])
     sigma2_x = np.array([rep["sigma2_x_mean"] for rep in reps])
     valid = np.array([rep["weak_fluctuation_valid"] for rep in reps])
     regime = np.array([rep["rytov_regime"] for rep in reps])
 
-    assumptions = Assumptions(
+    # The traced physics owns the beam type, the regime, the spectrum, the Dios
+    # reliability-edge check, the launch obscuration-blindness constraint, and the
+    # C-01 wander conflict tag. State the three headline fields explicitly (this is
+    # a Gaussian-beam coupled-flux Term); the merge inherits the traced union and
+    # any traced violation.
+    assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
@@ -135,15 +145,15 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
                  "(tx_gaussian_efficiency_term). The size of the obscuration effect "
                  "on this fade is UNRESOLVED (see the investigation note).",
     )
-    if not np.all(valid):
-        worst = float(sigma2_x[~valid].max())
-        assumptions.flag(
-            f"sigma2_x={worst:.2f} meets or exceeds the Dios reliability edge "
-            f"{UPLINK_SIGMA2X_LIMIT}; scintillation approaches saturation."
-        )
-    # Dios assumes an untruncated Gaussian launch beam. A central obscuration on
-    # the launch aperture (the Transmitter override, else the Terminal value)
-    # breaks that. Flag the violation.
+    # The Dios sigma_x^2 hard gate is now the TRACED reliability-edge check on
+    # _flux_result (olb.turbulence.uplink_flux), so the factory no longer computes
+    # it by hand. A strong slab still yields a source-prefixed violation, and it
+    # still turns weak_fluctuation_valid False in the meta below.
+    #
+    # The launch obscuration is a scenario-level fact the physics never sees (the
+    # coupled-flux index reads only the waist w0, the Transmitter override else the
+    # Terminal value). A central obscuration breaks the untruncated-Gaussian
+    # assumption, so flag it at the factory level.
     tx_obsc = (tx.transmitter.obscuration_ratio
                if tx.transmitter.obscuration_ratio is not None
                else tx.obscuration_ratio)
@@ -151,7 +161,8 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         assumptions.flag(
             f"The launch aperture has a central obscuration (ratio={tx_obsc:.3f}); "
             "the Dios coupled-flux analysis assumes an untruncated Gaussian beam "
-            "and does not model it."
+            "and does not model it.",
+            source="factory:links.uplink",
         )
 
     def sampler(n, rng):
@@ -822,6 +833,27 @@ if __name__ == '__main__':
     eff = next(t for t in up_ap.terms if t.category == "system")
     assert eff.mean_db > 0                       # truncation is a loss
     assert up_ap.total_loss_db() > up.total_loss_db()   # aperture truncation costs margin
+
+    # --- assumption trace wiring (WP3b) -------------------------------------
+    # (1) The wired coupled-flux turbulence Term inherits traced provenance: the
+    #     _flux_result entry point and its coupled-flux dependencies register.
+    prov = clean_term.assumptions.provenance
+    assert prov, "the turbulence Term must carry traced provenance"
+    assert any("uplink_flux._flux_result" in s for s in prov), prov
+    assert any("coupled_flux" in s for s in prov), prov
+    # (2) The migrated Dios sigma_x^2 hard gate is now the TRACED check: a strong
+    #     slab still yields not-ok, and the violation carries the physics source
+    #     prefix (not the old factory text).
+    assert not invalid_term.assumptions.ok
+    assert any(v.startswith("[olb.turbulence.uplink_flux._flux_result]")
+               and "sigma_x^2" in v
+               for v in invalid_term.assumptions.violations), \
+        invalid_term.assumptions.violations
+    # (3) Budget.check() on the uncorrected demo budget reports no untraced-guard
+    #     entry: the turbulence Term now carries provenance.
+    guard = [name for name, reason in up.check(warn=False)
+             if "did not open" in reason]
+    assert not guard, guard
 
     # --- point-ahead anisoplanatism self-check -------------------------------
     pa_geom = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
