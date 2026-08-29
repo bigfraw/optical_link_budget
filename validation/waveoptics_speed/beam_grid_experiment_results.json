@@ -1,0 +1,286 @@
+{
+ "environment": {
+  "numpy": "1.26.4",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "cores": 32
+ },
+ "n_trials": 200,
+ "references": {
+  "terrestrial": {
+   "mean_power": 0.9890073041638484,
+   "se_mean_power": 0.00023842887186820567,
+   "sigma2_I": 1.1623814896931233e-05,
+   "se_sigma2_I": 1.1652983863488962e-06,
+   "smf_eta": 0.11634486354940952,
+   "build_s": 0.1686653000069782
+  },
+  "space": {
+   "mean_power": 0.9904313849321055,
+   "se_mean_power": 0.007458910282117599,
+   "sigma2_I": 0.011343105584833523,
+   "se_sigma2_I": 0.001137157013544781,
+   "smf_eta": null,
+   "build_s": 0.4943487000418827
+  }
+ },
+ "step1_space_support": [
+  {
+   "plane": "input",
+   "z_km": 0.0,
+   "r90_over_interior": 0.9484900056491509,
+   "fill_fraction": 1.0
+  },
+  {
+   "plane": "screen 0",
+   "z_km": 0.0,
+   "r90_over_interior": 0.9484900056491509,
+   "fill_fraction": 1.0
+  },
+  {
+   "plane": "screen 1",
+   "z_km": 16.24855746057258,
+   "r90_over_interior": 0.9464391003457461,
+   "fill_fraction": 1.0
+  },
+  {
+   "plane": "screen 2",
+   "z_km": 25.896724432406913,
+   "r90_over_interior": 0.9580236485726696,
+   "fill_fraction": 0.9961163816353079
+  },
+  {
+   "plane": "screen 3",
+   "z_km": 31.62567151846505,
+   "r90_over_interior": 0.9603922721089183,
+   "fill_fraction": 0.9753085636323254
+  },
+  {
+   "plane": "screen 4",
+   "z_km": 35.0274404566133,
+   "r90_over_interior": 0.9608590736620928,
+   "fill_fraction": 0.9479518989751563
+  },
+  {
+   "plane": "screen 5",
+   "z_km": 37.04736344328424,
+   "r90_over_interior": 0.9601847319072279,
+   "fill_fraction": 0.9237998540470223
+  },
+  {
+   "plane": "screen 6",
+   "z_km": 38.24676556208382,
+   "r90_over_interior": 0.9602781305487511,
+   "fill_fraction": 0.9061331979566584
+  },
+  {
+   "plane": "screen 7",
+   "z_km": 38.95895382474222,
+   "r90_over_interior": 0.9603300147578945,
+   "fill_fraction": 0.8944886886442237
+  },
+  {
+   "plane": "screen 8",
+   "z_km": 39.80270451021998,
+   "r90_over_interior": 0.9603300147578944,
+   "fill_fraction": 0.880794491861535
+  },
+  {
+   "plane": "rx",
+   "z_km": 40.000000000000014,
+   "r90_over_interior": 0.9601847319072279,
+   "fill_fraction": 0.8561157470571438
+  }
+ ],
+ "step2_beam_sized_screens": {
+  "mean_power": 0.9893511239773222,
+  "se_mean_power": 0.00021299256199221124,
+  "sigma2_I": 9.269535407513921e-06,
+  "se_sigma2_I": 9.292796511609689e-07,
+  "smf_eta": 0.11760612309414005,
+  "build_s": 0.02327460004016757,
+  "mean_db": 0.0015095247366706892,
+  "sigma2_pct": -20.25393134949919,
+  "m_pix": [
+   70,
+   76,
+   82,
+   88,
+   94,
+   98,
+   104,
+   110,
+   118
+  ],
+  "n": 256,
+  "speedup_build": 7.246753959934595,
+  "saves_time": true,
+  "killed": true
+ },
+ "step3_terrestrial": {
+  "flat": {
+   "n": 256,
+   "hops": 10,
+   "ffts": 20,
+   "ops": 10485760.0,
+   "prop_s": 0.18458250002004206
+  },
+  "variants": [
+   {
+    "name": "match n256 1:1",
+    "mean_power": 0.9890073040678681,
+    "smf_eta": 0.11634486297953982,
+    "sigma2_I": 1.1623819729113832e-05,
+    "mean_db": -4.214704090434307e-10,
+    "sigma2_pct": 4.157140011016256e-05,
+    "ops": 10485760.0,
+    "ops_ratio": 1.0,
+    "prop_s": 0.3255197999533266,
+    "time_ratio": 1.763546381254894,
+    "saves_time": false,
+    "killed": true,
+    "n_proto": 256,
+    "dx1_mm": 3.031239136959394,
+    "dxn_mm": 3.031239136959394,
+    "n_planes": 11,
+    "n_steps": 10,
+    "chain_ffts": 20,
+    "side_launch_m": 0.7759972190616048,
+    "side_rx_m": 0.7759972190616048,
+    "worst_step_constraints": {
+     "constraint 1": false,
+     "constraint 2": false,
+     "constraint 3": true,
+     "constraint 4": true,
+     "Fresnel-integral minimum distance": false
+    }
+   },
+   {
+    "name": "graded n128 1:4",
+    "mean_power": 0.9917035354781689,
+    "smf_eta": 0.11765775651329037,
+    "sigma2_I": 7.337866247134245e-06,
+    "mean_db": 0.011823624948839814,
+    "sigma2_pct": -36.87213438789797,
+    "ops": 2293760.0,
+    "ops_ratio": 0.21875,
+    "prop_s": 0.08573529997374862,
+    "time_ratio": 0.4644822773797052,
+    "saves_time": true,
+    "killed": true,
+    "n_proto": 128,
+    "dx1_mm": 3.031239136959394,
+    "dxn_mm": 12.124956547837575,
+    "n_planes": 11,
+    "n_steps": 10,
+    "chain_ffts": 20,
+    "side_launch_m": 0.3879986095308024,
+    "side_rx_m": 1.5519944381232096,
+    "worst_step_constraints": {
+     "constraint 1": false,
+     "constraint 2": true,
+     "constraint 3": false,
+     "constraint 4": true,
+     "Fresnel-integral minimum distance": false
+    }
+   },
+   {
+    "name": "graded n192 1:2",
+    "mean_power": 0.9901695557099047,
+    "smf_eta": 0.12025074561937651,
+    "sigma2_I": 1.0444634328577356e-05,
+    "mean_db": 0.005100701218689722,
+    "sigma2_pct": -10.144522936830223,
+    "ops": 5592241.152531694,
+    "ops_ratio": 0.5333176758319562,
+    "prop_s": 0.1059922999702394,
+    "time_ratio": 0.5742272423373327,
+    "saves_time": true,
+    "killed": true,
+    "n_proto": 192,
+    "dx1_mm": 3.031239136959394,
+    "dxn_mm": 6.062478273918788,
+    "n_planes": 11,
+    "n_steps": 10,
+    "chain_ffts": 20,
+    "side_launch_m": 0.5819979142962036,
+    "side_rx_m": 1.1639958285924072,
+    "worst_step_constraints": {
+     "constraint 1": false,
+     "constraint 2": true,
+     "constraint 3": true,
+     "constraint 4": true,
+     "Fresnel-integral minimum distance": false
+    }
+   }
+  ]
+ },
+ "step3_space": {
+  "flat": {
+   "n": 512,
+   "hops": 10,
+   "ffts": 20,
+   "ops": 47185920.0,
+   "prop_s": 0.8584998999722302
+  },
+  "variants": [
+   {
+    "name": "match n512 1:1",
+    "mean_power": 0.9905941454643916,
+    "smf_eta": null,
+    "sigma2_I": 0.011338985645906435,
+    "mean_db": 0.0007136303911078827,
+    "sigma2_pct": -0.03632108417112942,
+    "ops": 51904512.0,
+    "ops_ratio": 1.1,
+    "prop_s": 0.9576473000925034,
+    "time_ratio": 1.115489122507155,
+    "saves_time": false,
+    "killed": true,
+    "n_proto": 512,
+    "dx1_mm": 5.575942740941081,
+    "dxn_mm": 5.575942740941081,
+    "n_planes": 12,
+    "n_steps": 11,
+    "chain_ffts": 22,
+    "side_launch_m": 2.8548826833618337,
+    "side_rx_m": 2.8548826833618337,
+    "worst_step_constraints": {
+     "constraint 1": false,
+     "constraint 2": false,
+     "constraint 3": true,
+     "constraint 4": true,
+     "Fresnel-integral minimum distance": false
+    }
+   },
+   {
+    "name": "half n256 1:1",
+    "mean_power": 1.0148991366838747,
+    "smf_eta": null,
+    "sigma2_I": 0.006917008608446918,
+    "mean_db": 0.10598489198479734,
+    "sigma2_pct": -39.02015143281913,
+    "ops": 15728640.0,
+    "ops_ratio": 0.3333333333333333,
+    "prop_s": 0.3118096999824047,
+    "time_ratio": 0.36320295435385697,
+    "saves_time": true,
+    "killed": true,
+    "n_proto": 256,
+    "dx1_mm": 5.575942740941081,
+    "dxn_mm": 5.575942740941081,
+    "n_planes": 16,
+    "n_steps": 15,
+    "chain_ffts": 30,
+    "side_launch_m": 1.4274413416809169,
+    "side_rx_m": 1.4274413416809169,
+    "worst_step_constraints": {
+     "constraint 1": false,
+     "constraint 2": false,
+     "constraint 3": true,
+     "constraint 4": true,
+     "Fresnel-integral minimum distance": false
+    }
+   }
+  ]
+ }
+}

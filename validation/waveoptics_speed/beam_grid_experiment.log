@@ -1,0 +1,51 @@
+building flat references (200 trials each)
+  terrestrial ref: mean 0.98901  sigma2_I 0.00001  eta 0.11634
+  space ref:       mean 0.99043  sigma2_I 0.01134 +/- 0.00114
+
+STEP 1: the space slab fills the grid (one snapshot, 30 deg std)
+  plane        z[km]   r90/interior   fill_fraction
+  input           0.0       0.948      1.0000
+  screen 0        0.0       0.948      1.0000
+  screen 1       16.2       0.946      1.0000
+  screen 2       25.9       0.958      0.9961
+  screen 3       31.6       0.960      0.9753
+  screen 4       35.0       0.961      0.9480
+  screen 5       37.0       0.960      0.9238
+  screen 6       38.2       0.960      0.9061
+  screen 7       39.0       0.960      0.8945
+  screen 8       39.8       0.960      0.8808
+  rx             40.0       0.960      0.8561
+
+STEP 2: beam-sized screens (terrestrial 2km standard)
+  m_pix per screen: [70, 76, 82, 88, 94, 98, 104, 110, 118] (grid n=256)
+  beam-sized: mean 0.98935 (+0.00 dB)  sigma2_I 0.00001 (-20.3%)  eta 0.11761  build 23.3 ms (7.25x)  killed=True
+
+STEP 3: per-plane-pitch chain (gap S-14)
+ terrestrial:
+  flat reference: n=256, hops=10, ffts=20, ops=1.049e+07, prop 184.6 ms
+  match n256 1:1   n=256 steps=10 ffts=20  mean 0.98901 (-0.00 dB)  sigma2 0.00001 (+0.0%)  ops 1.00x  time 1.76x  killed=True
+                   constraints {'constraint 1': False, 'constraint 2': False, 'constraint 3': True, 'constraint 4': True, 'Fresnel-integral minimum distance': False}
+  graded n128 1:4  n=128 steps=10 ffts=20  mean 0.99170 (+0.01 dB)  sigma2 0.00001 (-36.9%)  ops 0.22x  time 0.46x  killed=True
+                   constraints {'constraint 1': False, 'constraint 2': True, 'constraint 3': False, 'constraint 4': True, 'Fresnel-integral minimum distance': False}
+  graded n192 1:2  n=192 steps=10 ffts=20  mean 0.99017 (+0.01 dB)  sigma2 0.00001 (-10.1%)  ops 0.53x  time 0.57x  killed=True
+                   constraints {'constraint 1': False, 'constraint 2': True, 'constraint 3': True, 'constraint 4': True, 'Fresnel-integral minimum distance': False}
+ space slab:
+  flat reference: n=512, hops=10, ffts=20, ops=4.719e+07, prop 858.5 ms
+  match n512 1:1   n=512 steps=11 ffts=22  mean 0.99059 (+0.00 dB)  sigma2 0.01134 (-0.0%)  ops 1.10x  time 1.12x  killed=True
+                   constraints {'constraint 1': False, 'constraint 2': False, 'constraint 3': True, 'constraint 4': True, 'Fresnel-integral minimum distance': False}
+  half n256 1:1    n=256 steps=15 ffts=30  mean 1.01490 (+0.11 dB)  sigma2 0.00692 (-39.0%)  ops 0.33x  time 0.36x  killed=True
+                   constraints {'constraint 1': False, 'constraint 2': False, 'constraint 3': True, 'constraint 4': True, 'Fresnel-integral minimum distance': False}
+
+=== SUMMARY ===
+  step1: space fill fraction stays >= 0.856 at every plane -> the plane wave fills the grid; beam-sizing saves nothing.
+  step2 (terrestrial beam-sized): killed=True (sigma2 -20.3%, mean +0.00 dB, build 7.25x)
+  step3 terrestrial:
+    match n256 1:1   killed=True  ops 1.00x time 1.76x  sigma2 +0.0%  mean -0.00 dB
+    graded n128 1:4  killed=True  ops 0.22x time 0.46x  sigma2 -36.9%  mean +0.01 dB
+    graded n192 1:2  killed=True  ops 0.53x time 0.57x  sigma2 -10.1%  mean +0.01 dB
+  step3 space:
+    match n512 1:1   killed=True  ops 1.10x time 1.12x  sigma2 -0.0%  mean +0.00 dB
+    half n256 1:1    killed=True  ops 0.33x time 0.36x  sigma2 -39.0%  mean +0.11 dB
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_speed\beam_grid_experiment_results.json
+(elapsed 285 s)

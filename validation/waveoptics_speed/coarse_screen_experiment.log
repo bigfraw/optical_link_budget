@@ -1,0 +1,51 @@
+structure function of full vs coarse+interp screens
+(Fried D_phi = 6.88 (r/r0)^(5/3); ratio < 1 is a band-limit deficit)
+  r/r0:      0.20    0.30    0.50    0.80    1.10    1.60
+  full ratio    0.910   0.908   0.899   0.884   0.871   0.854
+  f2_fft        7.403   2.852   1.697   1.153   1.090   0.959
+  f2_bicubic    0.829   0.875   0.890   0.885   0.877   0.864
+  f4_fft       10.224   8.603   4.433   1.669   1.609   1.136
+  f4_bicubic    0.675   0.752   0.826   0.850   0.848   0.838
+  f8_fft        4.412   4.642   4.422   3.282   2.092   1.179
+  f8_bicubic    0.492   0.558   0.646   0.715   0.743   0.749
+
+=== terrestrial 2km standard  (n=256, 9 screens, pixel 3.031 mm, r0 7.85 cm) ===
+  reference (olb full)   mean 0.98901  sigma2_I 0.00001 +/- 0.00000  eta 0.11634  build 62.4 ms
+  f2_fft        mean 0.99081 (+0.01 dB)  sigma2_I 0.00001 (-19.0%)  eta 0.11837  build 33.6 ms (1.86x, saves=True)
+  f2_bicubic    mean 0.99168 (+0.01 dB)  sigma2_I 0.00001 (-23.3%)  eta 0.11895  build 48.1 ms (1.30x, saves=True)
+  f4_fft        mean 0.99413 (+0.02 dB)  sigma2_I 0.00001 (-15.2%)  eta 0.12129  build 25.2 ms (2.47x, saves=True)
+  f4_bicubic    mean 0.99488 (+0.03 dB)  sigma2_I 0.00001 (-16.9%)  eta 0.12351  build 41.1 ms (1.52x, saves=True)
+  f8_fft        mean 0.99677 (+0.03 dB)  sigma2_I 0.00001 (-34.9%)  eta 0.11730  build 22.2 ms (2.80x, saves=True)
+  f8_bicubic    mean 0.99714 (+0.04 dB)  sigma2_I 0.00001 (-54.1%)  eta 0.11921  build 35.0 ms (1.78x, saves=True)
+  hybrid f4      mean 0.98833 (-0.00 dB)  sigma2_I 0.00002 (+31.8%)  build 145.2 ms (0.43x)
+  VERDICT: killed=True  (time-savers=6, any equal-accuracy+faster=False)
+
+=== space downlink 30deg rapid  (n=256, 5 screens, pixel 8.672 mm, r0 12.42 cm) ===
+  reference (olb full)   mean 0.99529  sigma2_I 0.00798 +/- 0.00080  build 35.6 ms
+  f2_fft        mean 1.00949 (+0.06 dB)  sigma2_I 0.00916 (+14.8%)  build 18.5 ms (1.92x, saves=True)
+  f2_bicubic    mean 1.00029 (+0.02 dB)  sigma2_I 0.00916 (+14.8%)  build 30.1 ms (1.18x, saves=True)
+  f4_fft        mean 1.00355 (+0.04 dB)  sigma2_I 0.01106 (+38.6%)  build 17.0 ms (2.10x, saves=True)
+  f4_bicubic    mean 0.99412 (-0.01 dB)  sigma2_I 0.01108 (+38.9%)  build 22.9 ms (1.55x, saves=True)
+  f8_fft        mean 0.99531 (+0.00 dB)  sigma2_I 0.00995 (+24.7%)  build 14.6 ms (2.43x, saves=True)
+  f8_bicubic    mean 0.99473 (-0.00 dB)  sigma2_I 0.00970 (+21.6%)  build 31.3 ms (1.14x, saves=True)
+  hybrid f4      mean 1.00465 (+0.04 dB)  sigma2_I 0.00854 (+7.1%)  build 140.2 ms (0.25x)
+  VERDICT: killed=True  (time-savers=6, any equal-accuracy+faster=False)
+
+=== SUMMARY ===
+  terrestrial 2km standard: killed=True
+    f2_fft       sigma2   -19.0%  mean +0.01 dB  build 1.86x  saves=True
+    f2_bicubic   sigma2   -23.3%  mean +0.01 dB  build 1.30x  saves=True
+    f4_fft       sigma2   -15.2%  mean +0.02 dB  build 2.47x  saves=True
+    f4_bicubic   sigma2   -16.9%  mean +0.03 dB  build 1.52x  saves=True
+    f8_fft       sigma2   -34.9%  mean +0.03 dB  build 2.80x  saves=True
+    f8_bicubic   sigma2   -54.1%  mean +0.04 dB  build 1.78x  saves=True
+  space downlink 30deg rapid: killed=True
+    f2_fft       sigma2   +14.8%  mean +0.06 dB  build 1.92x  saves=True
+    f2_bicubic   sigma2   +14.8%  mean +0.02 dB  build 1.18x  saves=True
+    f4_fft       sigma2   +38.6%  mean +0.04 dB  build 2.10x  saves=True
+    f4_bicubic   sigma2   +38.9%  mean -0.01 dB  build 1.55x  saves=True
+    f8_fft       sigma2   +24.7%  mean +0.00 dB  build 2.43x  saves=True
+    f8_bicubic   sigma2   +21.6%  mean -0.00 dB  build 1.14x  saves=True
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_speed\coarse_screen_experiment_results.json
+(elapsed 155 s)
