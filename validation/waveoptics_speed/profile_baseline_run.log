@@ -1,0 +1,56 @@
+environment:
+  numpy                  1.26.4
+  scipy                  1.11.4
+  aotools                1.0.7
+  cpu                    Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
+  machine                AMD64
+  cores                  32
+  platform               Windows-10-10.0.26200-SP0
+  reps                   3
+
+raw FFT microbenchmark (complex128, best of 5):
+       n   numpy fft2 [ms]  scipy fft2 w1 [ms]
+     512             3.833               4.049
+    1024            19.570              25.536
+    2048           113.864             140.086
+    4096           462.075             589.441
+
+profiling: terrestrial 2km standard ...
+profiling: space downlink 30deg rapid ...
+profiling: space downlink 30deg standard ...
+profiling: space downlink 30deg reference ...
+profiling: space uplink 30deg standard ...
+
+per-case breakdown (median of the trial, shares in percent):
+  case                                   n scr  ffts  trial[s]   scr%  prop%  scal%
+  terrestrial 2km standard             256   9    20     0.485   83.4   15.5    1.1
+  space downlink 30deg rapid           256   5    12     0.289   81.8   16.3    1.9
+  space downlink 30deg standard        512   9    20     2.307   83.6   15.2    1.2
+  space downlink 30deg reference      1024  15    36    16.781   80.1   19.2    0.7
+  space uplink 30deg standard          512   9    20     2.283   83.5   15.2    1.3
+
+screen generation split (base FFT vs subharmonics, seconds):
+  case                                 base[s]   subh[s]  sub/base
+  terrestrial 2km standard              0.0482    0.3551      7.36
+  space downlink 30deg rapid            0.0298    0.2033      6.83
+  space downlink 30deg standard         0.2243    1.7001      7.58
+  space downlink 30deg reference        1.6594   11.7506      7.08
+  space uplink 30deg standard           0.2314    1.6742      7.24
+
+propagation detail:
+  case                                 hops[s]  s/fft[ms] substeps  scr+mask[s]
+  terrestrial 2km standard               0.048      2.419       10       0.0266
+  space downlink 30deg rapid             0.031      2.585        6       0.0155
+  space downlink 30deg standard          0.234     11.719       10       0.1149
+  space downlink 30deg reference         2.346     65.156       18       0.8703
+  space uplink 30deg standard            0.233     11.673       10       0.1131
+
+SUMMARY (the biggest slice per case):
+  terrestrial 2km standard: screen generation takes 83% (256 px, 9 screens, 20 FFTs).
+  space downlink 30deg rapid: screen generation takes 82% (256 px, 5 screens, 12 FFTs).
+  space downlink 30deg standard: screen generation takes 84% (512 px, 9 screens, 20 FFTs).
+  space downlink 30deg reference: screen generation takes 80% (1024 px, 15 screens, 36 FFTs).
+  space uplink 30deg standard: screen generation takes 83% (512 px, 9 screens, 20 FFTs).
+
+wrote validation\waveoptics_speed\profile_baseline_results.json
+(elapsed 86.8 s)

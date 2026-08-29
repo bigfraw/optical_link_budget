@@ -1,0 +1,300 @@
+{
+ "environment": {
+  "numpy": "1.26.4",
+  "scipy": "1.11.4",
+  "aotools": "1.0.7",
+  "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "machine": "AMD64",
+  "cores": 32,
+  "platform": "Windows-10-10.0.26200-SP0",
+  "reps": 3
+ },
+ "fft_microbench": {
+  "512": {
+   "numpy_fft2_s": 0.003833299968391657,
+   "scipy_fft2_w1_s": 0.004049499984830618
+  },
+  "1024": {
+   "numpy_fft2_s": 0.01957030000630766,
+   "scipy_fft2_w1_s": 0.025535800028592348
+  },
+  "2048": {
+   "numpy_fft2_s": 0.11386419995687902,
+   "scipy_fft2_w1_s": 0.1400859000859782
+  },
+  "4096": {
+   "numpy_fft2_s": 0.46207450004294515,
+   "scipy_fft2_w1_s": 0.5894411000190303
+  }
+ },
+ "cases": [
+  {
+   "name": "terrestrial 2km standard",
+   "preset": "standard",
+   "grid": {
+    "n": 256,
+    "side_m": 0.7759972190616048,
+    "pixel_m": 0.0030312391369593937
+   },
+   "plan": {
+    "n_screens": 9,
+    "z_total_m": 2000.0,
+    "r0_total_m": 0.07848343006817796,
+    "n_substeps": 10,
+    "n_forvard": 10,
+    "n_ffts": 20
+   },
+   "report": {
+    "pixels_per_r0": 25.891533634295815,
+    "grid_margin": 2.433704260440223,
+    "fresnel_pixels_min": 7.498683476061972,
+    "step_over_limit_max": 0.14643295279730445,
+    "sigma2_r_screen_max": 0.06874928996391384,
+    "n_clamped": false
+   },
+   "physics": {
+    "collected_power": 0.9890506162167672,
+    "smf_eta": 0.1834719010768502,
+    "eta_turb": null
+   },
+   "timing_s": {
+    "screen_base_fft": 0.048232699860818684,
+    "screen_subharmonic": 0.35506620025262237,
+    "screen_gen_total": 0.40329890011344105,
+    "prop_hops": 0.048375099664554,
+    "prop_screen_apply": 0.0150765998987481,
+    "prop_mask_apply": 0.01149000006262213,
+    "prop_total": 0.07494169962592423,
+    "scalar_clip": 0.001114599988795817,
+    "scalar_power": 0.00023809995036572218,
+    "scalar_coupling": 0.004065299988724291,
+    "scalar_overlap": 0.0,
+    "scalar_total": 0.00541799992788583,
+    "s_per_fft": 0.0024187549832277,
+    "setup_s": 0.0033356999047100544,
+    "trial_total": 0.4850192000158131
+   },
+   "share_pct": {
+    "screen_gen": 83.38503655076201,
+    "propagation": 15.494751809950829,
+    "scalar_reads": 1.1202116392871588
+   },
+   "warnings": []
+  },
+  {
+   "name": "space downlink 30deg rapid",
+   "preset": "rapid",
+   "grid": {
+    "n": 256,
+    "side_m": 2.2200248310462274,
+    "pixel_m": 0.008671971996274326
+   },
+   "plan": {
+    "n_screens": 5,
+    "z_total_m": 40000.000000000015,
+    "r0_total_m": 0.12424571479360845,
+    "n_substeps": 6,
+    "n_forvard": 6,
+    "n_ffts": 12
+   },
+   "report": {
+    "pixels_per_r0": 14.327273525212858,
+    "grid_margin": 1.3337733917568304,
+    "fresnel_pixels_min": 2.4390955600648905,
+    "step_over_limit_max": 1.3081899545102984,
+    "sigma2_r_screen_max": 0.09280086274039843,
+    "n_clamped": false
+   },
+   "physics": {
+    "collected_power": 0.9390361547042497,
+    "smf_eta": 0.01433426813962101,
+    "eta_turb": null
+   },
+   "timing_s": {
+    "screen_base_fft": 0.029787899926304817,
+    "screen_subharmonic": 0.20332439988851547,
+    "screen_gen_total": 0.2331122998148203,
+    "prop_hops": 0.031017399858683348,
+    "prop_screen_apply": 0.008598300162702799,
+    "prop_mask_apply": 0.006898899795487523,
+    "prop_total": 0.04651459981687367,
+    "scalar_clip": 0.001075600041076541,
+    "scalar_power": 0.00012039998546242714,
+    "scalar_coupling": 0.0043110999977216125,
+    "scalar_overlap": 0.0,
+    "scalar_total": 0.0055071000242605805,
+    "s_per_fft": 0.002584783321556946,
+    "setup_s": 0.059454800095409155,
+    "trial_total": 0.2891911999322474
+   },
+   "share_pct": {
+    "screen_gen": 81.75535014978777,
+    "propagation": 16.3132421503569,
+    "scalar_reads": 1.9314076998553316
+   },
+   "warnings": []
+  },
+  {
+   "name": "space downlink 30deg standard",
+   "preset": "standard",
+   "grid": {
+    "n": 512,
+    "side_m": 2.8548826833618337,
+    "pixel_m": 0.0055759427409410815
+   },
+   "plan": {
+    "n_screens": 9,
+    "z_total_m": 40000.000000000015,
+    "r0_total_m": 0.12424571479360845,
+    "n_substeps": 10,
+    "n_forvard": 10,
+    "n_ffts": 20
+   },
+   "report": {
+    "pixels_per_r0": 22.28245887127579,
+    "grid_margin": 1.6675467835136606,
+    "fresnel_pixels_min": 3.1362171283003835,
+    "step_over_limit_max": 1.5821218813073417,
+    "sigma2_r_screen_max": 0.09280086274039843,
+    "n_clamped": false
+   },
+   "physics": {
+    "collected_power": 1.0735369802277785,
+    "smf_eta": 0.003066261305821898,
+    "eta_turb": null
+   },
+   "timing_s": {
+    "screen_base_fft": 0.22429949999786913,
+    "screen_subharmonic": 1.700103799928911,
+    "screen_gen_total": 1.9244032999267802,
+    "prop_hops": 0.23437020007986575,
+    "prop_screen_apply": 0.059646799927577376,
+    "prop_mask_apply": 0.055282199871726334,
+    "prop_total": 0.34929919987916946,
+    "scalar_clip": 0.006461900076828897,
+    "scalar_power": 0.0010259998962283134,
+    "scalar_coupling": 0.020460600033402443,
+    "scalar_overlap": 0.0,
+    "scalar_total": 0.027948500006459653,
+    "s_per_fft": 0.011718510003993288,
+    "setup_s": 0.36941429995931685,
+    "trial_total": 2.3066232999553904
+   },
+   "share_pct": {
+    "screen_gen": 83.60969148162012,
+    "propagation": 15.17602798632974,
+    "scalar_reads": 1.214280532050147
+   },
+   "warnings": []
+  },
+  {
+   "name": "space downlink 30deg reference",
+   "preset": "reference",
+   "grid": {
+    "n": 1024,
+    "side_m": 3.426311254790405,
+    "pixel_m": 0.0033460070847562548
+   },
+   "plan": {
+    "n_screens": 15,
+    "z_total_m": 40000.000000000015,
+    "r0_total_m": 0.12424571479360846,
+    "n_substeps": 18,
+    "n_forvard": 18,
+    "n_ffts": 36
+   },
+   "report": {
+    "pixels_per_r0": 37.13253189440253,
+    "grid_margin": 2.001320175270491,
+    "fresnel_pixels_min": 3.2617373739636415,
+    "step_over_limit_max": 2.196811734401252,
+    "sigma2_r_screen_max": 0.09280086274039843,
+    "n_clamped": false
+   },
+   "physics": {
+    "collected_power": 1.1313678754664855,
+    "smf_eta": 0.037780979496226094,
+    "eta_turb": null
+   },
+   "timing_s": {
+    "screen_base_fft": 1.6594294996466488,
+    "screen_subharmonic": 11.75062700046692,
+    "screen_gen_total": 13.41005650011357,
+    "prop_hops": 2.3456277003278956,
+    "prop_screen_apply": 0.4109058000613004,
+    "prop_mask_apply": 0.4593509993283078,
+    "prop_total": 3.215884499717504,
+    "scalar_clip": 0.02622399991378188,
+    "scalar_power": 0.004844700102694333,
+    "scalar_coupling": 0.09143879998009652,
+    "scalar_overlap": 0.0,
+    "scalar_total": 0.12250749999657273,
+    "s_per_fft": 0.06515632500910822,
+    "setup_s": 3.1772124000126496,
+    "trial_total": 16.781345600029454
+   },
+   "share_pct": {
+    "screen_gen": 80.06745520488998,
+    "propagation": 19.201088982962197,
+    "scalar_reads": 0.7314558121478143
+   },
+   "warnings": [
+    "turbulent_grid: one Cn2 LAYER carries a Rytov contribution of 0.0928, past the preset cap of 0.05. The planner only merges layers; it does not split one. Give a finer hs grid.",
+    "turbulent_grid: the strongest screen carries a Rytov contribution of 0.0928, past the preset cap of 0.05. The thin-screen approximation is weak here."
+   ]
+  },
+  {
+   "name": "space uplink 30deg standard",
+   "preset": "standard",
+   "grid": {
+    "n": 512,
+    "side_m": 2.8548826833618337,
+    "pixel_m": 0.0055759427409410815
+   },
+   "plan": {
+    "n_screens": 9,
+    "z_total_m": 40000.000000000015,
+    "r0_total_m": 0.12424571479360845,
+    "n_substeps": 10,
+    "n_forvard": 10,
+    "n_ffts": 20
+   },
+   "report": {
+    "pixels_per_r0": 22.28245887127579,
+    "grid_margin": 1.6675467835136606,
+    "fresnel_pixels_min": 3.1362171283003835,
+    "step_over_limit_max": 1.5821218813073417,
+    "sigma2_r_screen_max": 0.09280086274039843,
+    "n_clamped": false
+   },
+   "physics": {
+    "collected_power": 1.0735369802277785,
+    "smf_eta": 0.003066261305821898,
+    "eta_turb": 0.014621832083784722
+   },
+   "timing_s": {
+    "screen_base_fft": 0.231352899922058,
+    "screen_subharmonic": 1.674211900215596,
+    "screen_gen_total": 1.905564800137654,
+    "prop_hops": 0.23345129995141178,
+    "prop_screen_apply": 0.05894350016023964,
+    "prop_mask_apply": 0.05414259992539883,
+    "prop_total": 0.34653740003705025,
+    "scalar_clip": 0.0061104000778868794,
+    "scalar_power": 0.001021199976094067,
+    "scalar_coupling": 0.021646499983035028,
+    "scalar_overlap": 0.001868800027295947,
+    "scalar_total": 0.03064690006431192,
+    "s_per_fft": 0.011672564997570588,
+    "setup_s": 0.3776821999344975,
+    "trial_total": 2.283395400037989
+   },
+   "share_pct": {
+    "screen_gen": 83.47675177872728,
+    "propagation": 15.18070470384879,
+    "scalar_reads": 1.3425435174239266
+   },
+   "warnings": []
+  }
+ ]
+}
