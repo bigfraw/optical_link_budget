@@ -1,0 +1,15 @@
+
+=== case filled_0p3: w0 = 0.18 m, Cn2 scale = 0.3 ===
+  fid1: sigma2_I = 0.938  (wander-only 0.085, on-axis 0.004, sigma2_x = 0.167, weak_valid = True)
+  fid2: sigma2_I on-axis = 0.412, tracked = 0.018  (1024 px, 9 screens, 725 s)
+  wander <beta^2>: sim 2.479  Dios 1.369  Andrews 4.792948944829986
+  widths: w_free 1.88  vac meas 1.87  w_st Dios 2.66 / sim 2.40  w_lt Dios 3.13 / sim 3.12
+  andrews: untracked 0.13587611160809523, tracked 0.0037722606373241396
+
+=== variants on filled_0p3 ===
+  reference       : sigma2_I = 0.390, tracked = 0.019, <beta^2> = 2.330 m^2, w_lt = 3.09 m  (2048 px, 15 screens, 5046 s)
+  wide_x2         : sigma2_I = 0.359, tracked = 0.015, <beta^2> = 2.118 m^2, w_lt = 3.05 m  (2048 px, 9 screens, 2913 s)
+  no_subharmonics : sigma2_I = 0.254, tracked = 0.018, <beta^2> = 1.714 m^2, w_lt = 2.96 m  (1024 px, 9 screens, 95 s)
+
+wrote D:\repos\optical_link_budget\validation\uplink_farfield_reciprocity_results_variants.json
+(elapsed 8813 s)

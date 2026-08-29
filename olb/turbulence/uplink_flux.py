@@ -32,6 +32,15 @@ log-amplitude variance sigma2_x exceeds WEAK_FLUCTUATION_LIMIT, the
 scintillation approaches saturation and the numbers are not trustworthy. The
 code carries a ``weak_fluctuation_valid`` flag and sigma2_x in the result, and
 it gives a warning.
+
+Launch-pupil limit: this model reads the launch beam through the waist w0 ONLY.
+It has no launch aperture and no central obscuration -- it is a pure, unclipped
+Gaussian. So its scintillation index does not change with an obscured pupil. The
+size of that omission is UNRESOLVED (an earlier obscuration validation compared
+this index against the fidelity-2 reciprocity overlap, but those two do not agree
+even with no obscuration, so that comparison is void; see the investigation
+note). The MEAN loss from a central obscuration is separate and IS carried, by
+the launch-truncation Term olb.models.gaussian_efficiency.tx_gaussian_efficiency_term.
 '''
 
 import warnings
@@ -127,6 +136,9 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     turbulence broadening and does not double-count the divergence. The
     scintillation index also reads the diverged beam, through its receiver-plane
     Lambda and Theta (see ``_scintillation_beam``).
+
+    The launch is a pure Gaussian of waist w0, with no launch aperture and no
+    central obscuration, so ``Is_summed`` does not change with an obscured pupil.
 
     Parameters:
         divergence_rad : float, optional

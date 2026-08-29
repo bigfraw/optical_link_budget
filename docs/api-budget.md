@@ -286,7 +286,12 @@ UNCORRECTED (no source, or a tip-tilt-only `DownlinkBeacon`):
   (`uplink_turbulence_term`, beam wander plus scintillation). It is a
   Monte-Carlo-only Term (`quantile=None`), so the budget must use
   `monte_carlo()`. This Term also carries the tracking jitter, so there is no
-  standalone pointing Term.
+  standalone pointing Term. The coupled-flux fade reads only the waist `w0`, so it
+  is obscuration-blind: a set launch `obscuration_ratio` gives the same fade. The
+  Term flags this in `budget.check()` and grades the severity by the obscuration
+  radius against the waist. The mean loss stays correct through the
+  launch-truncation Term. Use fidelity 2 for the fade past a small obscuration
+  (see `docs/physics.md` Section 5c).
 - `fidelity=2`: two wave-optics Terms. A deterministic vacuum-optics Term (launch
   truncation plus geometric spread plus satellite-aperture capture) and a
   stochastic turbulence Term from the reciprocity overlap `eta_turb` (Shapiro,

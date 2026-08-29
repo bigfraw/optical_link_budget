@@ -1,0 +1,51 @@
+==============================================================================
+Uplink through a centrally obscured pupil: Dios (fidelity 1) vs wave optics (fidelity 2)
+==============================================================================
+wavelength           1550 nm
+transmit waist w0    0.180 m
+launch aperture      0.400 m (radius R = 0.200 m)
+orbit / elevation    600 km / 60 deg  (slant 683 km)
+ground Cn2           1.00e-15 m^-2/3
+preset / trials      rapid / 200
+
+Dios (fidelity 1), obscuration-blind, constant across eps:
+  sigma2_x           0.1550  (weak-fluctuation valid: True)
+  sigma2_I (Is dist) 0.7843
+  sigma2_I (4 s_x)   0.6199  [weak approx]
+
+  eps=0.00  eR/w0=0.00  done (ring 46.3 px, sampled)
+  eps=0.10  eR/w0=0.11  done (ring 41.7 px, sampled)
+  eps=0.15  eR/w0=0.17  done (ring 39.4 px, sampled)
+  eps=0.20  eR/w0=0.22  done (ring 37.0 px, sampled)
+  eps=0.25  eR/w0=0.28  done (ring 34.7 px, sampled)
+  eps=0.30  eR/w0=0.33  done (ring 32.4 px, sampled)
+  eps=0.35  eR/w0=0.39  done (ring 30.1 px, sampled)
+  eps=0.40  eR/w0=0.44  done (ring 27.8 px, sampled)
+
+baseline (eps=0) receiver-model offset: wave optics / Dios = 0.26
+  (Dios = on-axis point; reciprocity = extended-mode coupling. This offset is fixed across eps; the obscuration effect is the RISE below.)
+
+--------------------------------------------------------------------------------------------
+MEAN loss: wave-optics far-field vs the fidelity-1 analytic truncation term
+  eps  eR/w0   WO mean  F1 trunc    diff     SCINTILLATION    sig2_I WO     +/-   rise     Dios
+                  (dB)      (dB)    (dB)                        (truth)          /eps0   (flat)
+--------------------------------------------------------------------------------------------
+ 0.00   0.00      0.00      0.00    0.00                         0.2007  0.0201   1.00   0.7843
+ 0.10   0.11      0.05      0.15   -0.10                         0.2084  0.0208   1.04   0.7843
+ 0.15   0.17      0.17      0.34   -0.17                         0.2165  0.0217   1.08   0.7843
+ 0.20   0.22      0.39      0.61   -0.22                         0.2295  0.0229   1.14   0.7843
+ 0.25   0.28      0.74      0.96   -0.22                         0.2428  0.0243   1.21   0.7843
+ 0.30   0.33      1.15      1.39   -0.24                         0.2590  0.0259   1.29   0.7843
+ 0.35   0.39      1.62      1.92   -0.29                         0.2795  0.0279   1.39   0.7843
+ 0.40   0.44      2.17      2.53   -0.36                         0.3031  0.0303   1.51   0.7843
+--------------------------------------------------------------------------------------------
+
+VERDICT
+  scintillation: the true sigma2_I stays inside +/-15% of its unobscured value up to eR/w0 ~ 0.22; beyond that the obscuration lifts it while Dios stays flat.
+  by eR/w0 ~ 0.44 the true sigma2_I is 1.5x its unobscured value; Dios, reading only w0, reports no change.
+  mean power: the FULL fidelity-1 budget carries this loss in its tx_gaussian_efficiency_term (it reads the obscuration). It matches the wave-optics far-field within 0.4 dB across the whole sweep (up to 2 dB at eR/w0 ~ 0.44), slightly conservative. NOT a blind spot.
+  So the one fidelity-1 blind spot is the SCINTILLATION: the coupled-flux kernel reads only w0, so its sigma2_I stays flat while the true index rises with the obscuration. Trust the fidelity-1 FADE only for a small obscuration relative to the beam (eR/w0 well below 1).
+
+record -> D:\repos\optical_link_budget\validation\uplink_obscuration_results_filled.json
+figure -> D:\repos\optical_link_budget\validation\uplink_obscuration_filled.png
+(elapsed 306.2 s)

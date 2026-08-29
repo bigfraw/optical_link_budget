@@ -1,0 +1,30 @@
+
+=== case underfilled_hv: w0 = 0.06 m, Cn2 scale = 1.0 ===
+  fid1: sigma2_I = 0.342  (wander-only 0.054, on-axis 0.015, sigma2_x = 0.071, weak_valid = True)
+  fid2: sigma2_I on-axis = 0.255, tracked = 0.032  (1024 px, 9 screens, 687 s)
+  wander <beta^2>: sim 13.165  Dios 6.506  Andrews 23.042095187287977
+  widths: w_free 5.62  vac meas 5.61  w_st Dios 6.68 / sim 6.52  w_lt Dios 7.59 / sim 8.17
+  andrews: untracked 0.09467591422966071, tracked 0.018495434407951535
+
+=== case filled_hv: w0 = 0.18 m, Cn2 scale = 1.0 ===
+  fid1: sigma2_I = 9.017  (wander-only 0.096, on-axis 0.012, sigma2_x = 0.639, weak_valid = False)
+  fid2: sigma2_I on-axis = 1.245, tracked = 0.097  (1024 px, 9 screens, 714 s)
+  wander <beta^2>: sim 8.827  Dios 4.562  Andrews 15.97649648276662
+  widths: w_free 1.88  vac meas 1.87  w_st Dios 4.67 / sim 3.05  w_lt Dios 5.56 / sim 4.08
+  andrews: untracked 0.3736965742837871, tracked 0.012574202124413798
+
+=== case underfilled_0p3: w0 = 0.06 m, Cn2 scale = 0.3 ===
+  fid1: sigma2_I = 0.052  (wander-only 0.011, on-axis 0.004, sigma2_x = 0.011, weak_valid = True)
+  fid2: sigma2_I on-axis = 0.042, tracked = 0.008  (1024 px, 9 screens, 727 s)
+  wander <beta^2>: sim 3.895  Dios 1.952  Andrews 6.912628556186394
+  widths: w_free 5.62  vac meas 5.61  w_st Dios 5.81 / sim 5.92  w_lt Dios 6.13 / sim 6.54
+  andrews: untracked 0.027573009664549127, tracked 0.005548630322385461
+
+=== case filled_0p3: w0 = 0.18 m, Cn2 scale = 0.3 ===
+  fid1: sigma2_I = 0.938  (wander-only 0.085, on-axis 0.004, sigma2_x = 0.167, weak_valid = True)
+  fid2: sigma2_I on-axis = 0.412, tracked = 0.018  (1024 px, 9 screens, 705 s)
+  wander <beta^2>: sim 2.479  Dios 1.369  Andrews 4.792948944829986
+  widths: w_free 1.88  vac meas 1.87  w_st Dios 2.66 / sim 2.40  w_lt Dios 3.13 / sim 3.12
+  andrews: untracked 0.13587611160809523, tracked 0.0037722606373241396
+
+=== variants on filled_0p3 ===

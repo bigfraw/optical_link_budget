@@ -118,7 +118,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
-        validity="Rytov weak fluctuation: sigma2_x < 0.6 (WEAK_FLUCTUATION_LIMIT). "
+        validity="Rytov weak fluctuation: sigma2_x < 0.25 (WEAK_FLUCTUATION_LIMIT). "
                  "Divergence enters the beam broadening AND the scintillation "
                  "index (through the diverged receiver-plane Lambda and Theta). "
                  "Mechanical pointing jitter folds into the beam-wander "
@@ -126,7 +126,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
                  "fade too (no separate uplink pointing Term). "
                  "The Dios coupled-flux analysis assumes an untruncated Gaussian "
                  "launch beam, so it does not model a central obscuration on the "
-                 "launch aperture.",
+                 "launch aperture. The obscuration MEAN loss is carried elsewhere "
+                 "(tx_gaussian_efficiency_term). The size of the obscuration effect "
+                 "on this fade is UNRESOLVED (see the investigation note).",
     )
     if not np.all(valid):
         worst = float(sigma2_x[~valid].max())

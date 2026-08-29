@@ -475,8 +475,18 @@ so the result is additive with the geometric Term.
 
 - The Rytov model is a weak-fluctuation model.
 - When the mean log-amplitude variance `sigma2_x` exceeds
-  `WEAK_FLUCTUATION_LIMIT = 0.6`, the scintillation approaches saturation and the
+  `WEAK_FLUCTUATION_LIMIT = 0.25`, the scintillation approaches saturation and the
   numbers are not trustworthy. The code carries the flag and warns.
+- The launch beam is an untruncated Gaussian of waist `w0`. The code models no
+  launch aperture and no central obscuration, so the fade does not change with an
+  obscured pupil. `uplink_turbulence_term` flags a set obscuration in
+  `budget.check()`. The MEAN loss from a central obscuration is separate and IS
+  carried: the launch-truncation Term (`tx_gaussian_efficiency_term`, Section 2a)
+  reads the obscuration and matches the wave-optics far-field to about 2 dB. The
+  size of the obscuration effect on the FADE is UNRESOLVED: an earlier validation
+  compared this index against the fidelity-2 reciprocity overlap, but those two do
+  not agree even with no obscuration, so that comparison is void. See the
+  investigation note.
 - The coupled-flux MC needs the `fast` package to build the HV57 Cn2 profile, or
   an explicit `cn2_profile`.
 
