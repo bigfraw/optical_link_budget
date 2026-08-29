@@ -24,10 +24,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 def _default_workers():
     """Give a sensible default worker count for a CPU-bound load.
 
-    One worker for each core, capped at 32. The FFT is single-threaded
-    (pocketfft), so one thread for each core does not over-subscribe.
+    One worker for each core, capped at 16. The FFT is single-threaded
+    (pocketfft) and it releases the GIL, but the rest of a trial (the screen
+    exp, the mask, the clip) holds the GIL, and the FFT itself is
+    memory-bandwidth bound past a few threads. So the thread rate saturates
+    well below the core count. THE CAP IS AN olb MEASUREMENT, not a hardware
+    number: the scaling study of validation/waveoptics_speed/scaling_study.py
+    finds the thread rate peaks at 8 to 16 workers on every case (parallel
+    efficiency about 0.35 at 16 workers and about 0.15 at 32), so 16 reaches
+    near the peak rate without over-subscribing. A caller that measures a
+    higher optimum on its own machine passes max_workers.
     """
-    return min(32, os.cpu_count() or 1)
+    return min(16, os.cpu_count() or 1)
 
 
 class Threader:
@@ -42,8 +50,8 @@ class Threader:
 
         Args:
             max_workers: the number of worker threads. None takes one for each
-                core, capped at 32. A value of 1 runs the callables one by one
-                in the calling thread, with no pool at all.
+                core, capped at 16 (see _default_workers). A value of 1 runs the
+                callables one by one in the calling thread, with no pool at all.
         """
         self.max_workers = max_workers if max_workers else _default_workers()
 

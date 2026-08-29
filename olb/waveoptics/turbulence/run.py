@@ -153,14 +153,17 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics):
 
     The two generators give DIFFERENT random draws for the same integer seed.
     Both draw the same random field, so the statistics agree, but a screen is
-    not bit-identical between them. The default is "aotools", so an old run
-    stays reproducible.
+    not bit-identical between them. The default is "olb", the fast cached
+    generator. Pass "aotools" to reproduce an old aotools run bit-identically.
 
-    - "aotools": one aotools call for each screen. It is the model of record.
     - "olb":     a cached ScreenFactory (screens.py). It builds the filter and
                  the separable subharmonic basis one time for the grid, then it
                  scales them for each screen. It is faster; the subharmonic sum
-                 is a matrix product, not 27 full-grid exponentials.
+                 is a matrix product, not 27 full-grid exponentials. The broad
+                 validity pass validated it against "aotools" and the analytic
+                 index (validation/waveoptics_speed/generator_validation.py).
+    - "aotools": one aotools call for each screen. It is the reference path, and
+                 it keeps an old aotools run bit-identical.
 
     Args:
         screen_generator: "aotools" or "olb".
@@ -249,7 +252,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  hs=None, cn2_profile=None, L0_m=np.inf,
                                  subharmonics=True, threader=None,
-                                 screen_generator="aotools"):
+                                 screen_generator="olb"):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -289,9 +292,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         threader:     an optional olb.waveoptics.Threader. None runs the trials
                       one by one. A Threader runs them across threads, and it
                       keeps the trial order.
-        screen_generator: "aotools" (the default) or "olb". The default keeps
-                      an old run bit-identical. "olb" uses the fast cached
-                      ScreenFactory of screens.py. The two generators give
+        screen_generator: "olb" (the default) or "aotools". The default is the
+                      fast cached ScreenFactory of screens.py. "aotools" keeps
+                      an old aotools run bit-identical. The two generators give
                       DIFFERENT random draws for the same seed; the statistics
                       agree, so use "olb" for speed.
 
@@ -430,7 +433,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               preset="standard", grid=None, plan=None,
                               hs=None, cn2_profile=None, L0_m=np.inf,
-                              subharmonics=True, screen_generator="aotools"):
+                              subharmonics=True, screen_generator="olb"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -457,7 +460,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         L0_m:         the outer scale of the screens, in m.
         subharmonics: True adds the three subharmonic levels to each screen.
-        screen_generator: "aotools" (the default) or "olb". See
+        screen_generator: "olb" (the default) or "aotools". See
                       propagate_turbulent_scenario. The two give different draws
                       for the same seed.
 
@@ -700,19 +703,20 @@ if __name__ == '__main__':
     assert abs(field_power / mc.trials[0].collected_power - 1.0) < 1e-9, \
         (field_power, mc.trials[0].collected_power)
 
-    # ---- 4c. the opt-in "olb" screen generator runs and agrees ----
-    # The fast ScreenFactory path must give the SAME loose scintillation band.
-    # It draws a DIFFERENT atmosphere from aotools for the same seed, so the
-    # two are not bit-identical; the statistics agree.
+    # ---- 4c. the opt-in "aotools" screen generator runs and agrees ----
+    # The default is "olb" now (the `mc` run above). The reference "aotools"
+    # path must give the SAME loose scintillation band. It draws a DIFFERENT
+    # atmosphere from olb for the same seed, so the two are not bit-identical;
+    # the statistics agree.
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
-        mc_olb = propagate_turbulent_scenario(
+        mc_aot = propagate_turbulent_scenario(
             down_scn, orbit30, n_trials=n_mc, seed=2024, preset="rapid",
-            screen_generator="olb")
-    power_olb = np.array([tr.collected_power for tr in mc_olb.trials])
-    sigma2_olb = float(power_olb.var() / power_olb.mean() ** 2)
-    assert 0.5 < sigma2_olb / sigma2_theory < 2.0, (sigma2_olb, sigma2_theory)
-    assert not np.array_equal(power_olb, power), 'olb must draw a new screen'
+            screen_generator="aotools")
+    power_aot = np.array([tr.collected_power for tr in mc_aot.trials])
+    sigma2_aot = float(power_aot.var() / power_aot.mean() ** 2)
+    assert 0.5 < sigma2_aot / sigma2_theory < 2.0, (sigma2_aot, sigma2_theory)
+    assert not np.array_equal(power_aot, power), 'aotools must draw a new screen'
     try:
         propagate_turbulent_scenario(down_scn, orbit30, n_trials=1,
                                      preset="rapid", screen_generator="bogus")
@@ -751,8 +755,8 @@ if __name__ == '__main__':
     print(f"  sigma2_I, wave optics   {sigma2_meas:11.5f}")
     print(f"  sigma2_I, analytic      {sigma2_theory:11.5f}")
     print(f"  ratio                   {sigma2_meas / sigma2_theory:11.3f}")
-    print(f"  sigma2_I, olb generator {sigma2_olb:11.5f}  "
-          f"(mean power {power_olb.mean():.5f})")
+    print(f"  sigma2_I, aotools gen   {sigma2_aot:11.5f}  "
+          f"(mean power {power_aot.mean():.5f})")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")
