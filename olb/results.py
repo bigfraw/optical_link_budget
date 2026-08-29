@@ -216,8 +216,11 @@ class Budget:
         Table of the model assumptions, one row per Term.
 
         Each row states the beam type, the turbulence regime, the spectrum, and
-        the validity limit. The `ok` column is False when the scenario breaks an
-        assumption. The `violations` column gives the reasons.
+        the validity limit. The `provenance` column lists the traced physics
+        source names (empty for a hand-built or untraced record), and
+        `n_constraints` counts the function-owned constraints. The `ok` column is
+        False when the scenario breaks an assumption. The `violations` column
+        gives the reasons.
 
         Returns:
             pandas.DataFrame
@@ -227,8 +230,8 @@ class Budget:
             a = t.assumptions
             if a is None:
                 rows.append({"name": t.name, "beam_type": "", "regime": "",
-                             "spectrum": "", "validity": "", "ok": True,
-                             "violations": ""})
+                             "spectrum": "", "validity": "", "provenance": "",
+                             "n_constraints": 0, "ok": True, "violations": ""})
             else:
                 rows.append({
                     "name": t.name,
@@ -236,12 +239,43 @@ class Budget:
                     "regime": a.turbulence_regime,
                     "spectrum": a.spectrum,
                     "validity": a.validity,
+                    "provenance": "; ".join(a.provenance),
+                    "n_constraints": len(a.constraints),
                     "ok": a.ok,
                     "violations": "; ".join(a.violations),
                 })
         return pd.DataFrame(rows, columns=["name", "beam_type", "regime",
-                                           "spectrum", "validity", "ok",
-                                           "violations"])
+                                           "spectrum", "validity", "provenance",
+                                           "n_constraints", "ok", "violations"])
+
+    def constraints_frame(self):
+        '''
+        Table of the function-owned constraints, one row per (Term, constraint).
+
+        Each traced Term carries the union of the constraints of the physics
+        functions that ran (the `(source, Constraint)` pairs on its Assumptions
+        record). This table unfolds them, so a reader sees which function owns
+        each validity limit, its kind, its ASD-STE100 statement, and the source.
+
+        Returns:
+            pandas.DataFrame
+        '''
+        rows = []
+        for t in self.terms:
+            a = t.assumptions
+            if a is None:
+                continue
+            for source, c in a.constraints:
+                rows.append({
+                    "name": t.name,
+                    "source": source,
+                    "kind": c.kind,
+                    "statement": c.statement,
+                    "doi": c.doi,
+                    "where": c.where,
+                })
+        return pd.DataFrame(rows, columns=["name", "source", "kind", "statement",
+                                           "doi", "where"])
 
     def check(self, warn=True):
         '''
@@ -261,6 +295,19 @@ class Budget:
             a = t.assumptions
             if a is None:
                 continue
+            # Untraced-Term guard. A turbulence or coupling Term reads physics
+            # functions that now own their assumptions, so its record must carry
+            # traced provenance. An EMPTY provenance means the factory did not
+            # open the collection context, so its assumptions are unverified. A
+            # legitimately untraced Term (wave-optics simulation, external FAST)
+            # self-declares a "untraced: ..." provenance, so it passes.
+            if t.category in ("turbulence", "coupling") and not a.provenance:
+                reason = ("the factory did not open the assumption collection "
+                          "context (no traced provenance); the term's assumptions "
+                          "are unverified.")
+                found.append((t.name, reason))
+                if warn:
+                    warnings.warn(f"{t.name}: {reason}")
             for reason in a.violations:
                 found.append((t.name, reason))
                 if warn:
@@ -388,3 +435,72 @@ class Budget:
             "received_dbm": received,
             "margin_db": margin,
         }
+
+
+if __name__ == '__main__':
+    from .assumptions import (Assumptions, Constraint, BEAM_PLANE_WAVE,
+                              REGIME_WEAK, SPECTRUM_KOLMOGOROV, BEAM_NA,
+                              REGIME_NA, SPECTRUM_NA)
+
+    # A hand-built traced record: one constraint, one provenance source.
+    traced = Assumptions(
+        beam_type=BEAM_PLANE_WAVE, turbulence_regime=REGIME_WEAK,
+        spectrum=SPECTRUM_KOLMOGOROV, validity="demo",
+        constraints=[("olb.demo.phys", Constraint(
+            "regime", "Weak fluctuation: sigma_R^2 < 1.", "10.1117/3.626196",
+            "Ch. 8, printed p. 264"))],
+        provenance=["olb.demo.phys"])
+    term_ok = Term("scint", "turbulence", mean_db=1.0, assumptions=traced)
+
+    # A deterministic term with no assumptions record.
+    term_bare = Term("geometric", "geometric", mean_db=30.0)
+
+    # The two new assumptions_frame columns.
+    frame = Budget([term_ok, term_bare]).assumptions_frame()
+    assert "provenance" in frame.columns and "n_constraints" in frame.columns
+    row = frame[frame["name"] == "scint"].iloc[0]
+    assert row["provenance"] == "olb.demo.phys" and row["n_constraints"] == 1
+    bare = frame[frame["name"] == "geometric"].iloc[0]
+    assert bare["provenance"] == "" and bare["n_constraints"] == 0
+
+    # constraints_frame unfolds the (source, Constraint) pairs.
+    cframe = Budget([term_ok, term_bare]).constraints_frame()
+    assert list(cframe.columns) == ["name", "source", "kind", "statement",
+                                    "doi", "where"]
+    assert len(cframe) == 1
+    only = cframe.iloc[0]
+    assert only["name"] == "scint" and only["source"] == "olb.demo.phys"
+    assert only["kind"] == "regime" and only["doi"] == "10.1117/3.626196"
+
+    # The untraced guard: a turbulence/coupling Term with EMPTY provenance is
+    # reported, and it warns.
+    untraced = Assumptions(BEAM_NA, REGIME_NA, SPECTRUM_NA)   # provenance = []
+    term_untraced = Term("fake turbulence", "turbulence", mean_db=2.0,
+                         assumptions=untraced)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        found = Budget([term_untraced]).check(warn=True)
+    assert any(name == "fake turbulence" and "did not open" in reason
+               for name, reason in found), "the untraced guard must report it"
+    assert any("did not open" in str(w.message) for w in caught), \
+        "the untraced guard must warn"
+
+    # A legitimately untraced Term self-declares provenance, so it passes the
+    # guard (no untraced-guard entry).
+    declared = Assumptions(BEAM_NA, REGIME_NA, SPECTRUM_NA,
+                           provenance=["untraced: wave-optics simulation"])
+    term_declared = Term("wave optics", "turbulence", mean_db=2.0,
+                        assumptions=declared)
+    found = Budget([term_declared]).check(warn=False)
+    assert not any("did not open" in reason for _, reason in found), \
+        "a self-declared untraced Term must pass the guard"
+
+    # A traced Term (non-empty provenance) also passes the guard.
+    found = Budget([term_ok]).check(warn=False)
+    assert not any("did not open" in reason for _, reason in found)
+
+    # A geometric (non-turbulence, non-coupling) Term with no record is exempt.
+    found = Budget([term_bare]).check(warn=False)
+    assert found == []
+
+    print("results.py self-check passed.")
