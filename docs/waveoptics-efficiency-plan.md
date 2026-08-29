@@ -1,6 +1,8 @@
 # The fidelity-2 speed plan
 
-Status: PLANNED, not started. Written 2026-08-29.
+Status: DONE, 2026-08-29. P0 to P4 all ran; see Section 8 for the findings and
+the execution design. The evidence lives in `validation/waveoptics_speed/`.
+Sections 1 to 7 below are the original work plan, kept as written.
 
 This document is a work plan. It holds two work packages and five
 ready-to-paste subagent prompts (Section 7). Each prompt is self-contained:

@@ -86,17 +86,20 @@ imports nothing from the rest of olb. Only `grid.py` and `run.py` read a
 scenario.
 
 The turbulent split-step layer now EXISTS at `olb/waveoptics/turbulence/`, and it
-uses those same propagators. It holds `screens.py` (the random phase screens,
-from `aotools`), `splitstep.py` (the propagate-screen-propagate loop and the
-absorbing boundary mask), `sampling.py` (the turbulent grid sizer and the
-screen-placement planner), `run.py` (`propagate_turbulent_scenario`, one
-atmosphere snapshot for each seed), and `temporal.py` (the frozen-flow time axis,
-PLANNED, NOT BUILT). The sub-package keeps the same import tiers: `screens.py`
-and `splitstep.py` read the wave-optics core only, `sampling.py` and `run.py`
-read the rest of olb (a scenario, the Cn2 profiles, the Andrews layer), and
-`temporal.py` imports numpy only. A space scenario always propagates the DOWNLINK
-slab; an uplink reads the same field through the Shapiro reciprocity overlap,
-DOI 10.1364/JOSA.61.000492.
+uses those same propagators. It holds `screens.py` (the random phase screens: the
+DEFAULT fast `ScreenFactory`, a self-contained generator that imports numpy and
+scipy only, plus the opt-in `aotools` reference path), `splitstep.py` (the
+propagate-screen-propagate loop and the absorbing boundary mask), `sampling.py`
+(the turbulent grid sizer and the screen-placement planner), `run.py`
+(`propagate_turbulent_scenario`, one atmosphere snapshot for each seed, with the
+`screen_generator="olb"` default and an optional `Threader`), `cache.py` (an
+opt-in, off-by-default disk cache of whole runs), and `temporal.py` (the
+frozen-flow time axis, PLANNED, NOT BUILT). The sub-package keeps the same import
+tiers: `screens.py` and `splitstep.py` read the wave-optics core only,
+`sampling.py`, `run.py` and `cache.py` read the rest of olb (a scenario, the Cn2
+profiles, the Andrews layer), and `temporal.py` imports numpy only. A space
+scenario always propagates the DOWNLINK slab; an uplink reads the same field
+through the Shapiro reciprocity overlap, DOI 10.1364/JOSA.61.000492.
 
 Both parts are built and each module holds a self-check, but neither builds a
 Term and neither changes a budget. The vacuum core is the no-turbulence validator

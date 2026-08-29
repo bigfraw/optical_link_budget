@@ -1334,8 +1334,13 @@ anti-pattern.
   screens, so they are correlated, and that correlation needs its own design.
 - The split step runs on a FLAT grid only. `Screen()` and `split_step()` raise on
   a spherical (co-moving) field.
-- The random draw comes from `aotools` (LGPL-3.0). `olb` imports it as the
-  optional extra `screens`. `olb` does not copy it.
+- The DEFAULT random draw comes from the self-contained `ScreenFactory`
+  (`screen_generator="olb"`), which imports numpy and scipy only. It derives
+  from Schmidt, DOI 10.1117/3.866274, Ch. 9, and the subharmonics from Lane,
+  Glindemann and Dainty, DOI 10.1088/0959-7174/2/3/003. The opt-in `aotools`
+  generator (`screen_generator="aotools"`, LGPL-3.0, the optional extra
+  `screens`) is the reference path; `olb` imports it lazily and does not copy it.
+  The two give different draws for the same seed; the statistics agree.
 
 ### Source
 

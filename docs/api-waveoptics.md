@@ -400,17 +400,23 @@ The five modules are:
 
 | Module | What it holds |
 |---|---|
-| `screens.py` | One phase screen, and how to put it into a field. |
+| `screens.py` | The phase screens: the fast `ScreenFactory` and the `aotools` wrapper. |
 | `splitstep.py` | The propagate-screen-propagate loop, and the boundary mask. |
 | `sampling.py` | The turbulent grid sizer, and the screen-placement planner. |
 | `run.py` | The trial runner: one snapshot for each seed. |
+| `cache.py` | An opt-in, off-by-default disk cache of whole runs. |
 | `temporal.py` | The frozen-flow time axis. PLANNED, NOT BUILT. |
 
-The random draw comes from `aotools`. The package is a DEPENDENCY, and
-`screens.py` imports it lazily. `olb` does not copy it, because `aotools` is
-LGPL-3.0. Install it with `pip install aotools`, or with the extra
-`pip install olb[screens]`. An absent `aotools` raises `ImportError` with that
-text, and only when a screen is drawn.
+**Two screen generators.** The DEFAULT is the `olb` generator, the fast
+`ScreenFactory` of Section 9a. It imports numpy and scipy only, so a default
+turbulent run needs NO `aotools`. The opt-in `aotools` generator is the
+reference path; the caller selects it with `screen_generator="aotools"`.
+`aotools` is a DEPENDENCY for that path only, and `screens.py` imports it
+lazily. `olb` does not copy it, because `aotools` is LGPL-3.0. Install it with
+`pip install aotools`, or with the extra `pip install olb[screens]`. An absent
+`aotools` raises `ImportError` with that text, and only when the aotools path
+draws a screen. The two generators give DIFFERENT random draws for the same
+seed; the statistics agree (Section 9a).
 
 The import tiers follow the tiers of the vacuum package. `screens.py` and
 `splitstep.py` read the wave-optics core only. `sampling.py` and `run.py` read
@@ -437,6 +443,21 @@ the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
 - `Screen(Fin, phase_rad)` — a new `Field` with `E_out = E_in * exp(i*phi)`. The
   screen is a thin, pure phase element, so the power does not change. It raises
   `ValueError` on a spherical field and on a wrong-shape phase array.
+- `ScreenFactory(n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
+  n_sub_levels=3, dtype=np.float64)` — the FAST screen generator, and the
+  DEFAULT of the runner (`screen_generator="olb"`). It caches the sqrt-PSD
+  filter and the separable subharmonic basis ONE time for the grid, then it
+  scales them for each screen by the scalar `r0^(-5/6)`. `make(r0_m, rng)` gives
+  one screen; `make_stack(r0_m_array, rng)` gives a whole stack and it takes two
+  independent screens from one complex FFT. It imports numpy and scipy only (the
+  modified von Karman spectrum is Schmidt, DOI 10.1117/3.866274, Ch. 9,
+  Eqs. (9.51) and (9.52); the Fourier-series screen is Eqs. (9.78) to (9.80);
+  the subharmonics are Eq. (9.81), from Lane, Glindemann and Dainty,
+  DOI 10.1088/0959-7174/2/3/003). It is 8 to 14 times faster per screen than the
+  `aotools` path. It draws a DIFFERENT random atmosphere from `aotools` for the
+  same seed. The broad validity pass shows the two agree in the mean collected
+  power, the aperture `sigma2_I`, and the fade tail; see
+  `validation/waveoptics_speed/generator_validation.py`.
 
 **Make the screen AT the propagation pitch.** `phase_screen` takes the pitch and
 the pixel count of the propagation grid. Do not make a coarse screen and
@@ -627,7 +648,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb")`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -640,6 +661,17 @@ it. The trials are independent snapshots.
 - A `"retro"` direction raises `NotImplementedError`.
 - `subharmonics=True` is the value to keep: the tilt content drives the beam
   wander, and the uplink overlap reads that wander.
+- `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`) or
+  `"aotools"` (the reference path). The two give DIFFERENT draws for the same
+  seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
+  unknown name raises `ValueError`. `propagate_turbulent_field()` takes the same
+  argument, with the same default.
+- `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one
+  by one. A `Threader` runs them across threads and it keeps the trial order; the
+  FFT releases the GIL, so it gives a real speed-up. `Threader()` with no
+  argument takes `min(16, cores)` workers: the scaling study
+  (`validation/waveoptics_speed/scaling_study.py`) finds the thread rate
+  saturates at 8 to 16 workers.
 
 **THE BOUNDARY MASK IS ALWAYS ON.** The runner builds
 `super_gaussian_boundary(grid.n, preset.boundary_width_frac)` and it gives that
@@ -687,9 +719,11 @@ screens.
 **THE SEED CONTRACT.** `seed` takes an int, a numpy `Generator`, or `None` for a
 fresh entropy, and the runner resolves it to ONE integer. Each screen then draws
 from `SeedSequence(entropy, spawn_key=(trial, screen))`. So trial `k` is
-bit-identical for one entropy, and the trial count does not change it: a longer
-run repeats the trials of a shorter run. `TurbWaveResult.seed_entropy` gives the
-integer back, and each trial records its own `seed_key`.
+bit-identical for one entropy AND one `screen_generator`, and the trial count
+does not change it: a longer run repeats the trials of a shorter run.
+`TurbWaveResult.seed_entropy` gives the integer back, and each trial records its
+own `seed_key`. A change of `screen_generator` keeps the same integer seeds but
+gives a different screen, so the two generators are not bit-identical.
 
 #### `TurbTrial`
 
@@ -750,6 +784,28 @@ that the budgets already use. Each one runs for about four to five minutes.
 See [examples.md](examples.md) and
 [examples/waveoptics/README.md](../examples/waveoptics/README.md) for what each
 one prints and what it shows.
+
+### 9g. The run cache (`olb/waveoptics/turbulence/cache.py`)
+
+`cached_propagate_turbulent_scenario(scenario, geometry, *, n_trials, seed, preset="standard", cache_dir=None, block_size=50, screen_generator="olb", ...)`
+is an OPT-IN, off-by-default load-or-run wrapper around
+`propagate_turbulent_scenario()`. It edits no runner and it changes no budget.
+It stores a whole run on disk as a small JSON of the per-trial SCALARS (about
+10 KB for 150 trials), which is all that the empirical reducer reads. The key is
+a SHA-256 of the scenario, a canonical geometry signature, the preset, the seed,
+the `screen_generator`, a `CACHE_VERSION` and the turbulence options; a change to
+any input gives a new file. A disk hit skips the whole call (about 400 times
+faster than a cold run in the measured case).
+
+**Extendable, by blocks.** A run is stored in fixed BLOCKS of `block_size`
+trials, each block a self-contained runner call. So a stored N-trial run serves
+any smaller request by a slice, and a grow computes ONLY the missing blocks (a
+grow from 100 to 150 computes 50 new trials). NOTE: the blocks use spawned
+sub-seeds, so a cached run is statistically valid for the empirical reducer but
+NOT the bit-identical trials of a native single-seed
+`propagate_turbulent_scenario()` run. A true single-seed tail extension needs a
+start-index argument inside the runner, which is owner-gated. No budget calls the
+cache; any wiring is an owner decision.
 
 ---
 

@@ -29,10 +29,12 @@ Without `fast-aosim`, pass an explicit `cn2_profile`, or use the built-in
 gives the mean coupling loss only. It gives no fade.
 
 `aotools` is a second optional extra (`pip install aotools`, or
-`pip install -e .[screens]`). It draws the random phase screens of the fidelity-2
-turbulent split-step layer, `olb.waveoptics.turbulence`. `olb` imports it. `olb`
-does not copy it, because `aotools` is LGPL-3.0. No budget needs it: the layer
-builds no Term.
+`pip install -e .[screens]`). The fidelity-2 turbulent split-step layer,
+`olb.waveoptics.turbulence`, draws its random phase screens with a self-contained
+DEFAULT generator (`ScreenFactory`) that imports numpy and scipy only, so a
+default turbulent run needs NO `aotools`. `aotools` is the OPT-IN reference
+generator, selected with `screen_generator="aotools"`; `olb` imports it lazily
+for that path only and it does not copy it, because `aotools` is LGPL-3.0.
 
 ## 2. The mental model
 

@@ -154,23 +154,30 @@ README fidelity ladder.
   (Lens -> LensFresnel -> Convert) on a scaled grid. The core is
   pure numpy and scipy. It imports nothing from the rest of olb, so the turbulent
   split-step layer uses the same propagators. That layer is the sub-package
-  `olb/waveoptics/turbulence/`: `screens.py` (aotools-backed phase screens, a
-  lazy LGPL import, `screen_r0`, `phase_screen`, `Screen`), `splitstep.py`
-  (`super_gaussian_boundary`, `split_step`), `sampling.py` (the turbulent grid
-  sizer and screen planner: `QualityPreset`, `PRESETS`
+  `olb/waveoptics/turbulence/`: `screens.py` (the phase screens: `screen_r0`,
+  `phase_screen`, `Screen`, and TWO generators — the DEFAULT `ScreenFactory`, a
+  fast self-contained generator (cached sqrt-PSD filter, separable
+  outer-product subharmonics, two screens per FFT; numpy and scipy only), and
+  the opt-in `aotools` wrapper as the reference path, a lazy LGPL import),
+  `splitstep.py` (`super_gaussian_boundary`, `split_step`), `sampling.py` (the
+  turbulent grid sizer and screen planner: `QualityPreset`, `PRESETS`
   reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`),
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
-  for a plot; it does NOT extend the scalar record), the
-  `folded_terrestrial` stub), and `temporal.py` (the `TemporalScreens`
+  for a plot; it does NOT extend the scalar record); both take
+  `screen_generator="olb"` (the default) | "aotools"; the two draw DIFFERENT
+  atmospheres for the same seed, and the statistics agree; the
+  `folded_terrestrial` stub), `cache.py` (`cached_propagate_turbulent_scenario`,
+  an opt-in, off-by-default disk cache of whole runs, extendable by block; no
+  budget calls it), and `temporal.py` (the `TemporalScreens`
   NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
   axis. The trials are independent, so `propagate_turbulent_scenario` takes an
   optional `threader` (`olb.waveoptics.Threader`, a general thread pool in
-  `threader.py`) that runs them across threads; the FFT releases the GIL, so the
-  threads give a real speed-up. A space scenario always propagates the DOWNLINK
-  slab, and an uplink reads the same field through the Shapiro reciprocity
-  overlap (DOI 10.1364/JOSA.61.000492). Neither part builds a Term, and neither
-  changes a budget.
+  `threader.py`, default `min(16, cores)` workers) that runs them across threads;
+  the FFT releases the GIL, so the threads give a real speed-up. A space scenario
+  always propagates the DOWNLINK slab, and an uplink reads the same field through
+  the Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492). Neither part
+  builds a Term, and neither changes a budget.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
@@ -354,10 +361,11 @@ Open items:
   to 3 dB LESS coupling loss than FAST/analytic). OWNER FOLLOW-UP (2026-08-28):
   an AUTOMATIC fidelity selector, the way `model="auto"` picks a distribution.
   The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
-  stub). It imports `aotools` for the screens (LGPL-3.0, the optional `screens`
-  extra). Deliberately deferred: the results record is minimal scalars (do NOT
-  extend `TurbWaveResult` piece by piece), the temporal frozen-flow axis, a
-  co-moving (spherical) screen, and the folded/retro double pass (correlated
+  stub). Its DEFAULT screen generator is self-contained (numpy and scipy only);
+  `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
+  `screens` extra). Deliberately deferred: the results record is minimal scalars
+  (do NOT extend `TurbWaveResult` piece by piece), the temporal frozen-flow axis,
+  a co-moving (spherical) screen, and the folded/retro double pass (correlated
   screens). `examples/waveoptics/` demonstrates the layer with seven scripts
   (three vacuum, three turbulent, and the budget-wiring demo).
 - **The coupled-flux kernels are VENDORED (2026-08-28).** olb copied them into
@@ -365,5 +373,23 @@ Open items:
   `my_analysis_modules` working tree (which held the Dios-verified fixes). So
   olb now carries the fixed version regardless of whether the kernel repo ever
   commits them, and olb no longer depends on `my_analysis_modules` at all.
+- **The fidelity-2 speed campaign is DONE (2026-08-29; P0 to P4, see
+  `docs/waveoptics-efficiency-plan.md` Section 8 and `validation/waveoptics_speed/`).**
+  P0 found screen generation was ~80% of a trial. P1 added the fast
+  `ScreenFactory`. TWO owner-decided DEFAULTS then changed (commit e8c7f77):
+  `screen_generator` defaults to `"olb"` (the fast generator; `"aotools"` is the
+  opt-in reference), and `Threader` caps at `min(16, cores)`. The olb default
+  changes the random draws of a seeded fidelity-2 run, so it changes the
+  fidelity-2 budget numbers that read `run_fidelity2`; pass
+  `screen_generator="aotools"` to reproduce an old aotools run bit-identically.
+  The broad validity pass (`generator_validation.py`) shows the olb generator
+  agrees with aotools and the analytic index across geometries, presets, the
+  outer scale, and the FADE TAIL. P2 measured and BURIED two grid ideas (coarse
+  screens, beam-following grid). P3 measured the parallel scaling (processes beat
+  threads; threads saturate at 8 to 16 workers). P4 added an opt-in, off-by-
+  default disk cache (`olb/waveoptics/turbulence/cache.py`), extendable by block.
+  OWNER FOLLOW-UP: a true single-seed tail extension needs a start-index argument
+  in the runner (the cache uses block sub-seeds, so a cached run is not the
+  bit-identical trials of a native run).
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.
