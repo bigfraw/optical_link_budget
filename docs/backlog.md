@@ -422,22 +422,43 @@ The path forward for each is a second reference or a derivation.
 
 ## Documentation debt
 
-- **DD-1. Three docs still call the aperture angle-of-arrival function a
-  raising stub** — the code now delegates (docs/architecture.md:44,
-  docs/physics.md:1152, docs/andrews-crosscheck.md:53). Fix the three.
-- **DD-2. README node NT5 still shows the diverged-feed check as planned**
-  — it is measured and closed (README.md:211).
+- **DD-1. DONE (2026-08-28).** The docs no longer call the aperture
+  angle-of-arrival function a raising stub. `aperture_arrival_angle_variance`
+  delegates to `andrews.structure.angle_of_arrival_variance`; the docs now say
+  so and point to 0-W3 (no Term consumes it). Fixed in docs/architecture.md,
+  docs/physics.md, and docs/andrews-crosscheck.md (the batch-2 note, the Table 2
+  legend, the G-34 row, and the 2.91 constants-ledger row).
+- **DD-2. DONE (2026-08-28).** The README "Next / planned" graph dropped the
+  two closed nodes NT5 (validate the diverged coupled-flux feed; measured and
+  closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2), and
+  corrected NT1, which flatly said "DTHETA = 0 today" although the uplink now
+  computes the point-ahead offset (1-2). STILL to sweep (found while fixing this,
+  NOT yet done, owner presentation choice): the fidelity-ladder diagram node F2
+  reads "NO Term yet", but 2-W1 wired `waveoptics_turbulence_term`; and NP2
+  frames pre-comp uplink scintillation as a "MAJOR GAP" to fill, although Gap 2
+  is DECIDED (no analytic Term; FAST is the model of record).
 - **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
   caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
   `QualityPreset` table.
 - **DD-4. Crosscheck Table 3 is partly stale** — the "not found in olb"
   spectra rows predate WP3's andrews/spectra.py.
-- **DD-5. Citation faults:** ao.py:151 credits "Andrews Ch. 3" for a Noll
-  1976 result (AO-07); the aperture-averaged integral cites Ch. 12 where
-  Ch. 9 Eq. (25) / Ch. 10 Eq. (59) are closer (PW-05); the C-02 reference-
-  plane docstring note is still owed.
-- **DD-6. The point-ahead decorrelation framing is fixed in code, not in
-  the docs** (memory `pointahead-decorrelation-framing`).
+- **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
+  AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
+  (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on
+  the genuine Kolmogorov phase PSD, which is a correct attribution). The Noll
+  residual-coefficient citations (`ao.py` module docstring and the constants
+  block) were missing the required DOI; added `10.1364/JOSA.66.000207`
+  (already used elsewhere). STILL OPEN, need owner physics judgment: the
+  aperture-averaged integral cites Ch. 12 where Ch. 9 Eq. (25) / Ch. 10 Eq. (59)
+  may be closer (PW-05); and the C-02 reference-plane docstring note is still
+  owed.
+- **DD-6. DONE (verified 2026-08-28).** The point-ahead decorrelation framing
+  is fixed in BOTH the code and the docs (committed ee23223, 2026-08-24). This
+  backlog entry was stale: physics.md 5g (the "NOT a penalty for correcting"
+  paragraph), api-budget.md, and the `uplink.py` docstrings all describe the
+  per-order decorrelation residual 2 sigma_n^2 (1 - rho_n). The old "correcting
+  more modes injects error" wording is present nowhere. Memory
+  `pointahead-decorrelation-framing` already reads RESOLVED.
 - **DD-7. The wired-versus-available status lives in three places**
   (CLAUDE.md, examples/andrews/README.md, the crosscheck). Each change
   needs three edits; consider one home.

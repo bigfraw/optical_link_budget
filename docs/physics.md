@@ -1173,10 +1173,11 @@ focal spot (that would need a re-truncated aperture).
   value uses the more exact Airy-to-Gaussian overlap. The two spot models differ,
   which is standard practice near the peak.
 - Contribution B of the received tip-tilt is the beam-wander tilt (A) only. The
-  aperture angle-of-arrival "corrugation" tilt is DEFERRED. The stub
-  `aperture_arrival_angle_variance` in `olb/turbulence/angle_of_arrival.py` raises
-  `NotImplementedError`. So the received tip-tilt is a lower bound. See
-  `docs/andrews-crosscheck.md` batch 2.
+  aperture angle-of-arrival "corrugation" tilt is available but feeds no Term:
+  `aperture_arrival_angle_variance` in `olb/turbulence/angle_of_arrival.py` now
+  delegates to `andrews.structure.angle_of_arrival_variance` (the gradient-tilt
+  form, C-04), but no coupling Term adds contribution B. So the received tip-tilt
+  is a lower bound. See `docs/andrews-crosscheck.md` batch 2 and backlog 0-W3.
 - The beam-wander tilt is a weak-fluctuation model, so `sigma2_theta` is valid in
   weak turbulence only. The walk-off mapping itself has no upper limit.
 - The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap

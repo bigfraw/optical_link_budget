@@ -33,8 +33,8 @@ Residual phase variance (Noll 1976):
         first 3 Zernikes removed     c = 0.134     (tip-tilt correction)
         first J Zernikes removed     c = 0.2944 * J^(-sqrt(3)/2)   (large-J AO)
     Source: R. J. Noll, "Zernike polynomials and atmospheric turbulence,"
-    J. Opt. Soc. Am. 66(3), 207-211 (1976). The AO form is the large-order
-    asymptotic of Noll's residual series.
+    J. Opt. Soc. Am. 66(3), 207-211 (1976), DOI 10.1364/JOSA.66.000207. The AO
+    form is the large-order asymptotic of Noll's residual series.
 '''
 
 from dataclasses import dataclass, field
@@ -45,7 +45,8 @@ import numpy as np
 from .andrews.structure import coherence_radius as _andrews_coherence_radius
 from .andrews.structure import fried_parameter as _andrews_fried_parameter
 
-# Noll residual coefficients c for sigma^2 = c * (D/r0)^(5/3). Source: Noll 1976.
+# Noll residual coefficients c for sigma^2 = c * (D/r0)^(5/3).
+# Source: Noll 1976, DOI 10.1364/JOSA.66.000207.
 NOLL_PISTON = 1.0299          # piston removed only (no correction)
 NOLL_TIPTILT = 0.134          # first 3 Zernikes removed (tip-tilt)
 _NOLL_AO_CONST = 0.2944       # large-J asymptotic prefactor

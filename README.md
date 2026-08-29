@@ -235,14 +235,12 @@ flowchart LR
   N["Next / planned"]
 
   N --> NT["Turbulence & coupling"]
-  NT --> NT1["Point-ahead in FAST ⬚<br/>DTHETA = 0 today"]:::planned
+  NT --> NT1["Point-ahead in FAST ◑<br/>uplink DTHETA done · downlink<br/>DTHETA = 0 by design"]:::partial
   NT --> NT2["Elevation-array FAST ⬚<br/>scalar only today"]:::planned
   NT --> NT3["Obscuration in coupled-flux<br/>& mean-only fibre ⬚"]:::planned
   NT --> NT4["Tip-tilt wander removal ⬚"]:::planned
-  NT --> NT5["Validate diverged<br/>coupled-flux feed ⬚"]:::planned
   NT --> NT6["Temporal statistics side-step ⬚<br/>FAST TEMPORAL flag · frozen flow<br/>applies to F1/F2 · the analytic<br/>fade rate &amp; duration are done"]:::planned
   NT --> NT7["Tracking-bandwidth / servo-lag Term ⬚<br/>Greenwood frequency is available,<br/>no Term reads it"]:::planned
-  NT --> NT8["Thread f0 into the terrestrial<br/>fibre-coupling Fried call ⬚"]:::planned
 
   N --> NC["Channels"]
   NC --> NC2["Short terrestrial retro module ⬚"]:::planned

@@ -51,9 +51,11 @@ not valid, and the budget must fall back to a numerical path. See also
   "radial (2-axis)" docstring is CONFIRMED correct on 2026-08-25 by Dios
   Eqs. (9) and (10), printed p. 3868. See Conflicts C-03.
 - The aperture angle-of-arrival "corrugation" term is a separate, smaller
-  contribution. It is DEFERRED. The stub `aperture_arrival_angle_variance` in
-  `olb/turbulence/angle_of_arrival.py` raises NotImplementedError. Fill it with
-  the explicit Andrews and Phillips coefficient when the owner specifies it.
+  contribution. `aperture_arrival_angle_variance` in
+  `olb/turbulence/angle_of_arrival.py` now delegates to
+  `andrews.structure.angle_of_arrival_variance` (the gradient-tilt form, C-04),
+  so it no longer raises. It still feeds NO coupling Term (backlog 0-W3), so the
+  received tip-tilt stays a lower bound.
 
 ### Notes for batch 1
 
@@ -366,7 +368,7 @@ One row per equation. Sorted by olb file path, then by line number.
 ## Table 2 — reverse map
 
 Book capabilities that olb lacks. Sorted by book section. `closes olb gap` uses
-the numbered list: 1 aperture angle-of-arrival tilt stub; 2 NO-SCINTILLATION
+the numbered list: 1 aperture angle-of-arrival tilt feeds no Term (0-W3); 2 NO-SCINTILLATION
 pre-compensated uplink; 3 collimated-only Fried parameter; 4 unused
 strong-regime effective beam parameters; 5 missing gamma-gamma; 6 no inner or
 outer scale; 7 no temporal statistics; 8 annular aperture unmodelled; 9 Dios
@@ -408,7 +410,7 @@ copies. `target module` names the planned home in `olb/turbulence/andrews/`.
 | G-31 | 6.4.2 | Ch. 6, Eqs. (69) and (70); App. III Table II | 195 (765) | 220 (790) | Spherical-wave wave structure function with an inner scale, Kolmogorov row D = 1.093 Cn2 k^2 L r^(5/3). Needed for a short terrestrial link fed by a point source. | structure.py | 6 | P2 |
 | G-32 | 6.4.3 | Ch. 6, Eqs. (75), (76), (77); App. III Table III | 196-197 (766) | 221-222 (791) | Gaussian-beam wave structure function, general, with the inner-scale and outer-scale factor. The Kolmogorov row carries a = (1 - Theta^(8/3))/(1 - Theta), which is the general-curvature result olb needs. | structure.py | 3, 6 | P1 |
 | G-33 | 6.4.3 | Ch. 6, Eq. (78) upper; App. III Table IV | 198 (767) | 223 (792) | Coherence radius when r0 is much less than l0, and the plane-wave inner-scale branches rho_pl = (1.64 Cn2 k^2 L l0^(-1/3))^(-1/2) (von Karman) and 1.87 (modified). olb has only the Kolmogorov branch, so it overestimates rho_pl in strong turbulence with a real inner scale. | structure.py | 6 | P1 |
-| G-34 | 6.5 | Ch. 6, Eq. (84); definition Eq. (82) | 201 (200) | 226 (225) | Aperture angle-of-arrival variance, <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3), one axis, plane wave, Kolmogorov. The exact form the deferred stub AA-02 needs. The slant-path version is Ch. 12, Eq. (28) printed 492, repeated as Eq. (90) printed 522: 2.91 mu0 sec(zeta)(2 W_G)^(-1/3), uplink and downlink. | structure.py, aperture.py | 1 | P1 |
+| G-34 | 6.5 | Ch. 6, Eq. (84); definition Eq. (82) | 201 (200) | 226 (225) | Aperture angle-of-arrival variance, <beta_a^2> = 2.91 Cn2 L (2 W_G)^(-1/3), one axis, plane wave, Kolmogorov. NOW IMPLEMENTED in `structure.angle_of_arrival_variance`; `angle_of_arrival.aperture_arrival_angle_variance` delegates to it (AA-02 closed at module level; no Term consumes it yet, 0-W3). The slant-path version is Ch. 12, Eq. (28) printed 492, repeated as Eq. (90) printed 522: 2.91 mu0 sec(zeta)(2 W_G)^(-1/3), uplink and downlink. | structure.py, aperture.py | 1 | P1 |
 | G-35 | 6.5 | Ch. 6, Eq. (83) | 200 | 225 | Angle of arrival with an inner and an outer scale: 1.64 Cn2 L l0^(-1/3)[1 - 0.72(kappa0 l0)^(1/3)] for a small aperture, and the [1 - 0.81(2 kappa0 W_G)^(1/3)] outer-scale reduction for a large one. | structure.py | 1, 6 | P2 |
 | G-36 | 6.5 | Ch. 6, Eq. (85) | 201 | 226 | Rms image jitter equals the focal length times the rms angle of arrival. This is the focal-spot displacement that the fibre-coupling Terms need. | structure.py | 1 | P1 |
 | G-37 | 6.6.1 | Ch. 6, Eqs. (86) and (87) | 202 | 227 | Partition of the spreading integral into a small-scale and a large-scale part, which separates diffraction, beam breathing and beam wander. It is the derivation that justifies not counting tip-tilt two times. | beam.py | 10 | P3 |
@@ -710,7 +712,7 @@ is the numeric face of Table 2.
 | 7.25 | ABSENT from olb | beam-wander displacement variance coefficient | Ch. 6, Eqs. (93) and (117); App. III Table IX(b) footer | 203, 209, 772 | 228, 234, 797 | not found in olb; the kernel uses 2.07. See Conflicts C-01. |
 | 2.42, 2.72 | ABSENT from olb | collimated and focused beam-wander closed forms | Ch. 6, Eqs. (95), (96), (127), (128) | 204, 212 | 229, 237 | not found in olb |
 | 0.66 | ABSENT from olb | wander-removal factor of the book short-term radius | Ch. 6, Eq. (101) | 206 | 231 | not found in olb; the kernel uses the Dios 4.2/0.26 form instead |
-| 2.91 | ABSENT from olb (target for angle_of_arrival.py:75) | one-axis aperture angle-of-arrival variance | Ch. 6, Eqs. (84) and (133); Ch. 12, Eqs. (28) and (90) | 201, 213, 492, 522 | 226, 238, 517, 547 | not found in olb; the stub raises |
+| 2.91 | `structure.angle_of_arrival_variance` | one-axis aperture angle-of-arrival variance | Ch. 6, Eqs. (84) and (133); Ch. 12, Eqs. (28) and (90) | 201, 213, 492, 522 | 226, 238, 517, 547 | IMPLEMENTED; `angle_of_arrival.aperture_arrival_angle_variance` delegates to it (no Term reads it yet, 0-W3) |
 | 0.182 | ABSENT from olb; named in the batch-2 flag as the target | one-axis tilt variance as 0.182 (D/r0)^(5/3)(lambda/D)^2 | none in Andrews | - | - | NO. The Andrews Eq. (84) route converts to 0.174: 2.91/(0.423 x 4 pi^2) = 0.1743. Andrews gives the GRADIENT tilt; 0.182 is the ZERNIKE tilt from Noll. R3 searched Ch. 6 and Ch. 7 (printed 179-255) and found no 0.182. See Conflicts C-04. |
 | 0.81 (angle of arrival) | ABSENT from olb | outer-scale reduction of the angle of arrival | Ch. 6, Eqs. (83) and (133) | 200, 213 | 225, 238 | not found in olb |
 | 1.062 | ABSENT from olb | the book's own weak aperture-averaging constant | Ch. 10, Eq. (61) | 412 | 437 | not found in olb; olb ships the Churnside 1.07 fit instead |
