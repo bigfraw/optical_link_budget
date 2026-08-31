@@ -9,7 +9,10 @@ The modules are named for the LINK, because the coupling physics is
 link-specific: downlink.py (downlink_coupling_term) reads the plane-wave slant
 physics, and terrestrial.py (the terrestrial_* Terms) reads the horizontal
 Gaussian-beam physics. The shared, link-independent single-mode-fibre coupling
-physics lives in _common.py, and both link modules import it.
+physics lives in _common.py, and both link modules import it. _common.py also
+holds the defocus-aberrated closed form smf_eta_defocused(a, c), and
+terrestrial.py exports curvature_focus_shift(scenario), the received-curvature
+focus shift dz_curv of a terrestrial receiver (see that module).
 
 WHY THERE IS NO uplink.py. A coupling Term needs a fibre (or a mode-matched
 detector) at the receiver. The downlink and terrestrial receivers are on the
@@ -37,11 +40,12 @@ Sources:
   Opt. 44(23), 4946-4952 (2005), DOI 10.1364/AO.44.004946.
 '''
 
-from ._common import smf_eta_max_from_a
+from ._common import smf_eta_max_from_a, smf_eta_defocused
 from .downlink import downlink_coupling_term
 from .terrestrial import (terrestrial_smf_coupling_term,
                           terrestrial_smf_walkoff_term,
-                          terrestrial_mmf_coupling_term)
+                          terrestrial_mmf_coupling_term,
+                          curvature_focus_shift)
 # smf_fast_term and waveoptics_smf_coupling_term are coupling Terms, but their
 # implementations live in the fidelity-named modules (olb.models.fast,
 # olb.models.waveoptics) beside their non-coupling siblings. The coupling package
@@ -60,4 +64,6 @@ __all__ = [
     "waveoptics_smf_coupling_term",
     "waveoptics_mmf_coupling_term",
     "smf_eta_max_from_a",
+    "smf_eta_defocused",
+    "curvature_focus_shift",
 ]

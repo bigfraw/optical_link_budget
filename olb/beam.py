@@ -129,6 +129,45 @@ def launch_curvature(w0, divergence_rad=None, wavelength=1550e-9):
     return -(d + zR(w_v, wavelength) ** 2 / d)
 
 
+def phase_front_radius(w0, z, divergence_rad=None, wavelength=1550e-9):
+    '''
+    Gaussian phase-front radius of curvature R at range z from the aperture [m].
+
+    A deliberately diverged beam is a Gaussian beam from a virtual waist at the
+    distance d behind the aperture. The Gaussian phase-front radius at the
+    distance z from a waist is R(z) = z + zR^2 / z. So at the range z from the
+    aperture the beam has travelled (d + z) from its waist:
+
+        R = (d + z) + zR(w_v)^2 / (d + z).
+
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4,
+    Eqs. (7) and (8), printed p. 87.
+
+    The SIGN convention here is the plain Gaussian one, NOT the Theta0 = 1 - L/f0
+    convention of launch_curvature: POSITIVE means a DIVERGING phase front. So
+    this function mirrors free_space_radius, which gives the beam radius on the
+    same axis. R -> infinity at the waist, and R -> z in the far field.
+
+    Parameters:
+        w0 : float
+            Beam radius at the transmit aperture [m].
+        z : float or numpy.ndarray
+            Range from the aperture [m].
+        divergence_rad : float, optional
+            Far-field half-angle divergence [rad]. None = collimated.
+        wavelength : float
+            Wavelength [m].
+
+    Returns:
+        float or numpy.ndarray
+            Phase-front radius of curvature [m]. Positive = diverging.
+    '''
+    w_v, d = virtual_waist(w0, divergence_rad, wavelength)
+    s = d + np.asarray(z, dtype=float)
+    with np.errstate(divide='ignore'):
+        return s + zR(w_v, wavelength) ** 2 / s
+
+
 def free_space_radius(w0, z, divergence_rad=None, wavelength=1550e-9):
     '''
     Turbulence-free beam radius at range z, for a transmitter of aperture radius
@@ -195,6 +234,25 @@ if __name__ == '__main__':
     # R(d) = d + zR^2/d of the virtual waist.
     w_v, d = virtual_waist(w0, 2 * theta_min, lam)
     assert np.isclose(-f0_2, d + zR(w_v, lam) ** 2 / d)
+
+    # Phase-front radius of curvature. A collimated beam at z = zR has R = 2*zR
+    # (the minimum of R(z)); R tends to z in the far field; and a diverged beam
+    # matches the virtual-waist recast exactly.
+    zr = zR(w0, lam)
+    assert np.isclose(phase_front_radius(w0, zr, None, lam), 2.0 * zr)
+    z_far = 1e4 * zr
+    assert np.isclose(phase_front_radius(w0, z_far, None, lam) / z_far, 1.0,
+                      rtol=1e-6)
+    w_v3, d3 = virtual_waist(w0, 3 * theta_min, lam)
+    assert np.isclose(phase_front_radius(w0, 1e3, 3 * theta_min, lam),
+                      (d3 + 1e3) + zR(w_v3, lam) ** 2 / (d3 + 1e3))
+    # A diverged beam has a TIGHTER phase front (a smaller R) at the same range.
+    assert (phase_front_radius(w0, 1e3, 3 * theta_min, lam)
+            < phase_front_radius(w0, 1e3, None, lam))
+    # The sign convention is the plain Gaussian one: at the aperture a diverged
+    # beam gives R = -f0 of launch_curvature (which uses the Theta0 sign).
+    assert np.isclose(phase_front_radius(w0, 0.0, 3 * theta_min, lam),
+                      -launch_curvature(w0, 3 * theta_min, lam))
 
     print(f"diffraction limit for w0={w0} m: {theta_min * 1e6:.2f} urad")
     print(f"collimated w at 600 km: {free_space_radius(w0, 600e3, None, lam):.2f} m")

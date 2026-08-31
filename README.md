@@ -109,9 +109,14 @@ The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
   plane-wave (downlink) and beam-wave (uplink) scintillation indices, aperture
   averaging, the uplink coupled-flux Monte Carlo.
 - `olb/models/` — Term factories: geometric spreading, atmospheric extinction
-  (slant and horizontal), pointing jitter, receive coupling.
+  (slant and horizontal), pointing jitter, receive coupling. The terrestrial
+  coupling Terms always charge the received-beam curvature: a horizontal received
+  beam diverges, so the true focus sits BEYOND the focal plane and a fibre at the
+  focal plane pays a real defocus loss.
 - `olb/links/` — per-direction Terms and budget assembly: `uplink_budget`,
-  `downlink_budget`, `retro_budget`, `terrestrial_budget`.
+  `downlink_budget`, `retro_budget`, `terrestrial_budget`, and the
+  `bidirectional_terrestrial` wrapper (one monostatic defocus drives the launch
+  divergence and the receive coupling together).
 - `olb/results.py` — `Term` (mean / analytic quantile / sampler) and `Budget`.
   Monte Carlo is not a separate path. The Budget asks each Term for samples.
 - `olb/assumptions.py` — the model constraints (beam type, turbulence regime,
@@ -203,7 +208,8 @@ for samples.
 
 Fidelity 2 is WIRED (`fidelity=2`, 2026-08-28). The `olb/waveoptics/` package
 propagates a real complex field on a square grid, and `olb/waveoptics/turbulence/`
-adds the turbulent split-step: aotools phase screens, snapshot statistics, seeded
+adds the turbulent split-step: the fast olb phase-screen generator (`aotools` is
+the opt-in reference), snapshot statistics, seeded
 repeatable trials. A space link always simulates the downlink slab; the uplink
 number comes from the Shapiro reciprocity overlap. A fidelity-2 budget shows two
 Terms: a deterministic vacuum-optics Term (the full no-turbulence loss, which also
@@ -224,7 +230,7 @@ flowchart LR
   FL["Fibre-coupling fidelity"]
   FL --> F0["Fidelity 0 · Analytic ✅<br/>mean-only · NO fade<br/>Marechal / Dikmelik"]:::done
   FL --> F1["Fidelity 1 · Statistical ◑<br/>FAST · PSD phase screens<br/>+ log-normal amplitude<br/>true LP01 overlap · the fade"]:::partial
-  FL --> F2["Fidelity 2 · End-to-end ◑<br/>olb/waveoptics · field propagation<br/>+ turbulent split-step · snapshot<br/>|∫ E·M*fibre|² per draw · NO Term yet ⬚"]:::partial
+  FL --> F2["Fidelity 2 · End-to-end ◑<br/>olb/waveoptics · field propagation<br/>+ turbulent split-step · snapshot<br/>|∫ E·M*fibre|² per draw · SMF and MMF Terms ✅"]:::partial
 
   classDef done fill:#14532d,color:#d1fae5,stroke:#22c55e;
   classDef partial fill:#78350f,color:#fde68a,stroke:#f59e0b;

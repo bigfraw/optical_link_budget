@@ -134,12 +134,19 @@ class SMF:
             None, it uses the SMF-28 value (5.2e-6 m). Set focal_length_m to
             override the derived value. A bare SMF() (this flag False) is
             unchanged: it stays mean-only, with no walk-off Term.
+        defocus_m : float
+            Detector offset from the design focus [m]. The detector sits at
+            z = f + defocus_m, so 0.0 puts it at focus. A nonzero value moves the
+            detector off the focal plane, so the spot on the fibre grows. 0.0
+            reproduces the focal-plane behaviour exactly. See
+            olb.models.coupling.terrestrial.
     '''
     eta_max: float = 0.8145
     sensitivity_dbm: Optional[float] = None
     focal_length_m: Optional[float] = None
     mode_field_radius_m: Optional[float] = None
     optimal_focus: bool = False
+    defocus_m: float = 0.0
 
 
 @dataclass
@@ -191,12 +198,19 @@ class MMF:
             optimum: a shorter focal length captures more, but the angular limit
             (numerical_aperture) then gates the extra capture. Set focal_length_m
             to override the derived value.
+        defocus_m : float
+            Detector offset from the design focus [m]. The detector sits at
+            z = f + defocus_m, so 0.0 puts it at focus. A nonzero value moves the
+            detector off the focal plane, so the focal spot grows (more spill from
+            the core). 0.0 reproduces the focal-plane behaviour exactly. See
+            olb.models.coupling.terrestrial.
     '''
     core_radius_m: float
     focal_length_m: Optional[float] = None
     numerical_aperture: Optional[float] = None
     sensitivity_dbm: Optional[float] = None
     optimal_focus: bool = False
+    defocus_m: float = 0.0
 
 
 # --- Wavefront compensation stages ------------------------------------------
@@ -303,6 +317,8 @@ if __name__ == '__main__':
     # The SMF optics fields default to None, so today's behaviour is unchanged.
     assert smf.detector.focal_length_m is None
     assert smf.detector.mode_field_radius_m is None
+    # The detector defocus defaults to 0.0 (at focus), so a bare SMF is unchanged.
+    assert smf.detector.defocus_m == 0.0 and SMF().defocus_m == 0.0
     # A focal length and a mode field radius set the coupling optics.
     smf_opt = SMF(focal_length_m=0.02, mode_field_radius_m=5.2e-6)
     assert smf_opt.focal_length_m == 0.02 and smf_opt.mode_field_radius_m == 5.2e-6
@@ -317,6 +333,7 @@ if __name__ == '__main__':
     assert mmf.detector.sensitivity_dbm == -38.0
     assert mmf.detector.optimal_focus is False   # bare MMF is unchanged
     assert mmf.detector.numerical_aperture is None   # angular gate off by default
+    assert mmf.detector.defocus_m == 0.0 and MMF(core_radius_m=25e-6).defocus_m == 0.0
     # A numerical aperture turns on the angular acceptance gate.
     mmf_na = MMF(core_radius_m=25e-6, focal_length_m=0.05, numerical_aperture=0.2)
     assert mmf_na.numerical_aperture == 0.2

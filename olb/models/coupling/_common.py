@@ -146,6 +146,44 @@ def smf_eta_max_from_a(a):
     return 2.0 * ((1.0 - np.exp(-a ** 2)) / a) ** 2
 
 
+def smf_eta_defocused(a, c):
+    '''
+    Return the single-mode-fibre coupling eta with a DEFOCUS aberration.
+
+    smf_eta_max_from_a assumes a FLAT (best-focus) wavefront. Put the fibre tip a
+    distance dz_eff away from the true focus and the uniformly illuminated pupil
+    carries a quadratic (defocus) phase. The mode-overlap integral of that pupil
+    with the Gaussian fibre mode stays closed form: the a^2 of the Gaussian
+    weight becomes the COMPLEX a^2 - i*c, so
+
+        eta(a, c) = 2 a^2 | (1 - exp(-(a^2 - i c))) / (a^2 - i c) |^2,
+        c = pi * dz_eff * (D/2)^2 / (lambda * f^2)   [rad, the edge defocus
+                                                      aberration coefficient].
+
+    At c = 0 this reduces EXACTLY to eta_max(a) = 2*((1-exp(-a^2))/a)^2. The
+    result depends on |c| only, so the direction of the defocus does not matter.
+
+    Sources: Shaklan and Roddier, Appl. Opt. 27, 2334 (1988), DOI
+    10.1364/AO.27.002334 (the a parameter and the flat-wavefront overlap);
+    Ruilier and Cassaing, JOSA A 18, 143 (2001), DOI 10.1364/JOSAA.18.000143
+    (single-mode coupling with an aberrated pupil).
+
+    Parameters:
+        a : float or numpy.ndarray
+            The coupling parameter a = pi*(D/2)*w_m/(lambda*f).
+        c : float or numpy.ndarray
+            The defocus aberration coefficient [rad] (see above). 0.0 is the
+            flat-wavefront case.
+
+    Returns:
+        float or numpy.ndarray
+            The coupling efficiency in (0, 0.8145].
+    '''
+    a = np.asarray(a, dtype=float)
+    z = a ** 2 - 1j * np.asarray(c, dtype=float)
+    return 2.0 * a ** 2 * np.abs((1.0 - np.exp(-z)) / z) ** 2
+
+
 def _smf_eta_max(detector, D, wavelength):
     '''
     Return the flat-wavefront eta_max for a single-mode-fibre detector.
@@ -233,6 +271,23 @@ if __name__ == '__main__':
     assert smf_eta_max_from_a(0.5) < 0.8145 and smf_eta_max_from_a(2.5) < 0.8145
     a_peak = np.linspace(0.9, 1.4, 51)
     assert np.isclose(a_peak[np.argmax(smf_eta_max_from_a(a_peak))], 1.12, atol=0.03)
+
+    # --- the defocus-aberrated closed form ----------------------------------
+    # c = 0 reduces EXACTLY to the flat-wavefront eta_max(a).
+    for a_t in (0.5, 1.12, 2.5):
+        assert np.isclose(smf_eta_defocused(a_t, 0.0), smf_eta_max_from_a(a_t),
+                          rtol=1e-12), a_t
+    # A defocus can only lose power, and more defocus loses more.
+    cs = np.array([0.0, 1.0, 2.0, 4.0, 8.0])
+    etas_c = smf_eta_defocused(1.12, cs)
+    assert np.all(np.diff(etas_c) < 0.0), etas_c
+    # The sign of c does not matter (|...|^2 of a conjugate pair).
+    assert np.isclose(smf_eta_defocused(1.12, 3.95),
+                      smf_eta_defocused(1.12, -3.95))
+    # The report scenario (validation/defocus): a = 1.12, c = -3.95 rad from the
+    # received-curvature defocus of a 5 km collimated terrestrial link.
+    assert np.isclose(float(smf_eta_defocused(1.12, -3.95)), 0.215, atol=5e-4), \
+        float(smf_eta_defocused(1.12, -3.95))
 
     # --- _smf_eta_max from the detector optics ------------------------------
     # f=None keeps the eta_max field exactly (today's behaviour).

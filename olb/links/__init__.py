@@ -11,10 +11,13 @@ from .retro_space import retro_space_budget
 # Old name kept for backward compatibility. See retro_space.retro_space_budget.
 retro_budget = retro_space_budget
 from .terrestrial import terrestrial_scintillation_term, terrestrial_budget
+from .bidirectional import (defocused_terminal, bidirectional_terrestrial,
+                           BidirectionalBudget)
 
 __all__ = [
     "uplink_turbulence_term", "uplink_budget",
     "downlink_scintillation_term", "downlink_budget",
     "retro_space_budget", "retro_budget",
     "terrestrial_scintillation_term", "terrestrial_budget",
+    "defocused_terminal", "bidirectional_terrestrial", "BidirectionalBudget",
 ]

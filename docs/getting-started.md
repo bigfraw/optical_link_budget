@@ -43,8 +43,9 @@ operating wavelength, a tracking jitter, and up to three optional parts:
 
 - a `Transmitter` (it launches a beam; it carries the waist and the launch
   power),
-- a `Detector` (an `Aperture` bucket, or an `SMF` single-mode fibre; it carries
-  the sensitivity),
+- a `Detector` (an `Aperture` bucket, an `SMF` single-mode fibre, or an `MMF`
+  light bucket; it carries the sensitivity, the coupling optics, and the
+  `defocus_m` offset of the detector from the design focus),
 - a `compensation` stack (receive-side wavefront correction: `TipTilt`, `AO`).
 
 A scenario pairs two terminals with a channel. There are two scenario families:
@@ -172,6 +173,12 @@ Build a near terminal and a far terminal. Use a `TerrestrialChannel` and a
 `Aperture` receiver gives the horizontal Gaussian-beam scintillation fade. An
 `SMF` receiver gives the fidelity-0 mean-only coupling loss instead. See
 [../examples/terrestrial_link.py](../examples/terrestrial_link.py).
+
+A terrestrial received beam is a diverging Gaussian, so the true focus of the
+receive coupling optic sits BEYOND its focal plane. The coupling Terms always
+charge that defocus. To model a coupler that is aligned on the true focus, set
+`detector.defocus_m = curvature_focus_shift(scenario)` (from
+`olb.models.coupling`). See [physics.md](physics.md) section 6a.
 
 For a bistatic station with different transmit and receive apertures on the
 one-way links, see [../examples/build_a_link.py](../examples/build_a_link.py).

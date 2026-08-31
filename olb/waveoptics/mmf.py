@@ -33,21 +33,38 @@ import warnings
 import numpy as np
 
 
-def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None):
-    """Focus a pupil field to the focal plane and give the focal intensity.
+def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
+                    defocus_m=0.0):
+    """Focus a pupil field to the detector plane and give the intensity.
 
     The focal-plane amplitude is the 2-D Fourier transform of the pupil field
-    (Fraunhofer diffraction, Goodman, ISBN 978-0974707723). This helper does the
-    focus alone: it applies the optional mask, it applies the optional
-    numerical-aperture pupil gate, it focuses, and it returns the focal intensity
-    with the focal pixel size. mmf_coupling_efficiency uses it, and a caller that
-    wants the focal-plane image (for a picture) uses the same helper, so the FFT
-    focus lives in one place.
+    (Fraunhofer diffraction, Goodman, ISBN 978-0974707723). A thin lens makes
+    that transform, so this single FFT IS the physical propagation to the focal
+    plane of an ideal lens. This helper does the focus alone: it applies the
+    optional mask, it applies the optional numerical-aperture pupil gate, it
+    applies the optional defocus, it focuses, and it returns the intensity with
+    the focal pixel size. mmf_coupling_efficiency uses it, and a caller that
+    wants the detector-plane image (for a picture) uses the same helper, so the
+    FFT focus lives in one place.
 
     The numerical-aperture gate is a PUPIL amplitude mask. A ray from the pupil
     radius rho focuses at the angle rho/focal_length_m. So the fibre guides only
     the rays with rho <= focal_length_m*numerical_aperture. See Snyder and Love,
     DOI 10.1007/978-1-4613-2813-1. None applies no gate.
+
+    A non-zero defocus moves the observation plane to z = f + defocus_m. A
+    displaced plane is a QUADRATIC PHASE across the pupil,
+    W(rho) = -pi*defocus_m*rho^2/(lambda*f^2) rad. The Fraunhofer transform of the
+    pupil field times this phase is the physical field at the displaced plane
+    (Goodman, ISBN 978-0974707723, defocus as a quadratic pupil aberration). The
+    MINUS sign follows the phase convention of this port: a DIVERGING beam carries
+    exp(+i*k*r^2/2R) (see olb.waveoptics.propagators.GForvard) and a lens applies
+    exp(-i*k*r^2/2f) (see olb.waveoptics.lenses.Lens). So a plane BEYOND the focus
+    (defocus_m > 0) needs a weaker lens, that is a positive residual pupil
+    curvature radius, which is the minus sign here. So
+    the spot grows. This route holds while the defocused spot stays inside the FFT
+    window N*lambda*f/siz; the caller (mmf_coupling_efficiency) warns near that
+    limit. defocus_m=0.0 is the focal plane (unchanged).
 
     Args:
         field:              the PUPIL-plane Field. The grid, the wavelength and
@@ -58,14 +75,16 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None):
         mask:               an optional N x N array. The function multiplies the
                             field with the mask before the focus. None applies no
                             mask.
+        defocus_m:          the detector offset from the focal plane, in m
+                            (z = f + defocus_m). 0.0 is the focal plane.
 
     Returns:
-        A tuple (If, dx_focal). If is the N x N focal intensity |A|^2. dx_focal
-        is the focal pixel size, in m.
+        A tuple (If, dx_focal). If is the N x N intensity |A|^2 at the detector
+        plane. dx_focal is the focal pixel size, in m.
 
     Note:
         norm='ortho' keeps Parseval exact, so sum(If) equals the summed power of
-        the gated pupil field.
+        the gated pupil field. The defocus phase keeps the power.
     """
     E = field.field
     if mask is not None:
@@ -79,6 +98,17 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None):
         rho = np.sqrt(field.mgrid_Rsquared)
         rho_max = focal_length_m * numerical_aperture
         Eg = np.where(rho <= rho_max, E, 0.0)
+
+    # Defocus. The detector plane is z = f + defocus_m. A displaced plane is a
+    # quadratic pupil phase W(rho) = -pi*defocus_m*rho^2/(lambda*f^2) rad, and the
+    # Fraunhofer transform then gives the physical field at that plane. Goodman,
+    # ISBN 978-0974707723. The MINUS sign is the phase convention of this port
+    # (diverging = +i*k*r^2/2R, lens = -i*k*r^2/2f; see propagators.GForvard and
+    # lenses.Lens). defocus_m=0.0 leaves the focal-plane field unchanged.
+    if defocus_m != 0.0:
+        rho2 = field.mgrid_Rsquared
+        Eg = Eg * np.exp(-1j * np.pi * defocus_m * rho2
+                         / (field.lam * focal_length_m ** 2))
 
     # Focus the pupil field to the focal plane. The focal-plane amplitude is the
     # 2-D Fourier transform of the pupil field (Fraunhofer diffraction, Goodman,
@@ -95,19 +125,23 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None):
 
 
 def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
-                            numerical_aperture=None, mask=None):
+                            numerical_aperture=None, mask=None, defocus_m=0.0):
     """Calculate the power fraction that couples into a multimode fibre.
 
     eta = P_core / P_total. P_total is the collected pupil power. P_core is the
-    focal power inside the hard core disk, after the numerical-aperture gate.
-    The focus is a Fraunhofer FFT (Goodman, ISBN 978-0974707723). So this is a
-    light bucket: it sums the encircled energy inside the core, NOT a mode
+    detector-plane power inside the hard core disk, after the numerical-aperture
+    gate. The focus is a Fraunhofer FFT (Goodman, ISBN 978-0974707723). So this
+    is a light bucket: it sums the encircled energy inside the core, NOT a mode
     overlap.
 
-    The core is FIXED on the axis. The turbulent field carries the tilt, so the
-    spot walks off the core on its own. The receive mechanical jitter is NOT
-    here; it is a separate analytic Term in the budget. So this eta is
-    turbulence-only.
+    The turbulent field carries the tilt, so the spot walks off the core on its
+    own. The receive mechanical jitter is NOT in the field; it is a separate
+    analytic Term in the budget.
+
+    defocus_m models a non-focal-plane detector (see the module and
+    olb.models.coupling.terrestrial): it grows the spot. The detector plane is
+    z = f + defocus_m, so the spot has the field-computed defocused shape (the
+    AXIAL effect). See focal_intensity. It defaults to 0.0 (the focal plane).
 
     The numerical-aperture gate is a PUPIL amplitude mask. A ray from the pupil
     radius rho focuses at the angle rho/focal_length_m. So the fibre guides only
@@ -123,8 +157,7 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                             wavelength and the pixel count come from this field.
         aperture_m:         the pupil DIAMETER, in m. Kept for the signature of
                             the coupling calls, and to match olb.waveoptics.smf.
-                            The field is already clipped to the aperture, so the
-                            value is not used in the integral.
+                            It sets the defocused-spot window guard only.
         core_radius_m:      the fibre core radius, in m.
         focal_length_m:     the focal length of the coupling optic, in m.
         numerical_aperture: the fibre numerical aperture. None applies no
@@ -133,6 +166,10 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                             field with the mask before the focus (the same mask
                             convention as olb.waveoptics.smf). None applies no
                             mask.
+        defocus_m:          the detector offset from the focal plane, in m
+                            (z = f + defocus_m). 0.0 is the focal plane. A
+                            non-zero value grows the spot, so a fixed core
+                            captures less.
 
     Returns:
         The coupling efficiency, a float between 0 and 1. It is the fraction of
@@ -157,11 +194,12 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
     if p_total == 0.0:
         raise ValueError('mmf_coupling_efficiency: the field carries no power')
 
-    # Focus the pupil field with the shared helper: it applies the mask and the
-    # numerical-aperture gate, and it gives the focal intensity and pixel size.
+    # Focus the pupil field with the shared helper: it applies the mask, the
+    # numerical-aperture gate, and the defocus, and it gives the intensity and
+    # pixel size at the detector plane.
     If, dx_focal = focal_intensity(field, focal_length_m,
                                    numerical_aperture=numerical_aperture,
-                                   mask=mask)
+                                   mask=mask, defocus_m=defocus_m)
 
     # The sampling guard. The core is resolved by core_radius_m/dx_focal focal
     # pixels along the radius. Below about 3 the disk integral is coarse.
@@ -172,13 +210,31 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
             f"focal pixels (dx_focal={dx_focal:.3e} m). The core disk integral "
             f"is coarse below about 3 pixels. Use a wider grid.")
 
-    # The on-axis core disk. The FFT with fftshift puts the axis at pixel N//2,
-    # so the focal grid is zero-centred on that pixel with the spacing dx_focal.
+    # The defocus window guard. The defocused spot has the geometric radius
+    # (aperture_m/2)*|defocus_m|/focal_length_m. The FFT window half-width is
+    # (N//2)*dx_focal. When the spot fills the window the FFT aliases, so the core
+    # power is not trustworthy. This is the pupil-limit regime; use a physical
+    # co-moving propagation there. Warn, do not raise.
     N = field.N
+    if defocus_m != 0.0:
+        reach = (aperture_m / 2.0) * abs(defocus_m) / focal_length_m
+        half_window = (N // 2) * dx_focal
+        if reach > 0.5 * half_window:
+            warnings.warn(
+                f"mmf_coupling_efficiency: the defocused spot reaches "
+                f"{reach:.3e} m, more than half the focal window "
+                f"{half_window:.3e} m; the FFT may alias. Use a wider grid, a "
+                f"smaller defocus, or a physical co-moving propagation.")
+
+    # The core disk, on the axis. The FFT with fftshift puts the axis at pixel
+    # N//2, so the detector grid is zero-centred on that pixel with the spacing
+    # dx_focal.
     c = N // 2
     idx = np.arange(N) - c
     XX, YY = np.meshgrid(idx, idx)
-    r2_focal = (XX ** 2 + YY ** 2) * dx_focal ** 2
+    x = XX * dx_focal
+    y = YY * dx_focal
+    r2_focal = x ** 2 + y ** 2
     p_core = float(If[r2_focal <= core_radius_m ** 2].sum())
 
     return float(p_core / p_total)
@@ -242,6 +298,42 @@ if __name__ == '__main__':
     tilted.field = flat.field * np.exp(1j * 2 * np.pi * X / scale)
     eta_tilt = mmf_coupling_efficiency(tilted, D, a_tilt, f)
     assert eta_tilt < eta_untilt, (eta_tilt, eta_untilt)
+
+    # --- defocus (axial displacement) grows the spot ------------------------
+    # Keep the defocused spot inside the FFT window: the geometric spot radius
+    # (D/2)*dz/f must stay well below the window half-width. Here f=0.5, D=0.1,
+    # so dz=1 mm gives a 100 um spot inside the 248 um half-window.
+    a_def = 40e-6
+    eta_focus = mmf_coupling_efficiency(flat, D, a_def, f)
+    eta_defocus = mmf_coupling_efficiency(flat, D, a_def, f, defocus_m=0.5e-3)
+    eta_more = mmf_coupling_efficiency(flat, D, a_def, f, defocus_m=1.0e-3)
+    assert eta_defocus < eta_focus, (eta_defocus, eta_focus)
+    assert eta_more < eta_defocus, (eta_more, eta_defocus)   # monotone spot growth
+    # defocus_m=0.0 is exactly the focal-plane result (unchanged path).
+    assert mmf_coupling_efficiency(flat, D, a_def, f, defocus_m=0.0) == eta_focus
+    # The defocus phase keeps the total focal power (Parseval).
+    If_def, _ = focal_intensity(flat, f, defocus_m=0.5e-3)
+    assert np.isclose(If_def.sum(), (np.abs(flat.field) ** 2).sum(), rtol=1e-9)
+
+    # The SIGN of defocus_m. A DIVERGING input (phase-front radius R > 0, so the
+    # pupil carries exp(+i*k*rho^2/2R); see olb.waveoptics.propagators.GForvard)
+    # focuses BEYOND the lens focal length, at z = f + f^2/(R-f) (thin-lens image
+    # of a spherical input; S. A. Self, Appl. Opt. 22, 658 (1983),
+    # DOI 10.1364/AO.22.000658). So the best coupling must sit at a POSITIVE
+    # defocus_m. A flat pupil is symmetric in dz, so it cannot test the sign.
+    k_test = 2.0 * np.pi / lam
+    R_test = 200.0                                  # a diverging pupil, R > 0
+    dz_true = f ** 2 / (R_test - f)
+    curved = Field.copy(flat)
+    curved.field = flat.field * np.exp(1j * k_test * flat.mgrid_Rsquared
+                                       / (2.0 * R_test))
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        eta_true = mmf_coupling_efficiency(curved, D, a_def, f, defocus_m=dz_true)
+        eta_at_f = mmf_coupling_efficiency(curved, D, a_def, f)
+        eta_mirror = mmf_coupling_efficiency(curved, D, a_def, f,
+                                             defocus_m=-dz_true)
+    assert eta_true > eta_at_f > eta_mirror, (eta_true, eta_at_f, eta_mirror)
 
     # focal_intensity gives the same focal plane the efficiency uses. By Parseval
     # (norm='ortho') the summed focal intensity equals the gated pupil power, and

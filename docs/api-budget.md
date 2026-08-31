@@ -301,7 +301,8 @@ turbulence physics for the whole link. It replaces the old per-component knobs
   appears as TWO Terms: a deterministic vacuum-optics Term (the full
   no-turbulence loss from launch to detector, from `propagate_scenario`) and a
   stochastic turbulence Term. Only the analytic extinction and pointing Terms
-  stay at fidelity 2. Fidelity 2 needs a precomputed `wave` bundle (a
+  stay at fidelity 2. A terrestrial `MMF` receiver adds ONE more Term, the
+  light-bucket core coupling (see below). Fidelity 2 needs a precomputed `wave` bundle (a
   `Fidelity2Bundle` from `olb.models.waveoptics.run_fidelity2`); the budget never
   runs the simulation itself.
 
@@ -324,6 +325,11 @@ static mode-match floor, and `mmf_eta` holds the static encircled-energy floor.
 No extra floor is added. Both Terms carry a real fade (the turbulent tilt walks
 the focused spot off the fixed on-axis core). The receive mechanical jitter is
 not in these Terms; it is a separate analytic Term in the budget.
+
+`mmf_eta` also holds the NON-FOCAL-PLANE detector. The runner reads
+`MMF.defocus_m`, so the field is focused to the plane `z = f + defocus_m`
+(a quadratic pupil phase; see `api-waveoptics.md` section 4a). At the focal plane
+(`defocus_m = 0`) this is the plain focal-plane coupling.
 
 `waveoptics_smf_coupling_term` is the fidelity-2 companion of the fidelity-1
 FAST `smf_fast_term`. `waveoptics_mmf_coupling_term` is the fidelity-2 companion
@@ -586,12 +592,18 @@ The `fidelity` maps to the turbulence model:
 - `fidelity=1`: raises `ValueError`. It is unavailable for a terrestrial link.
   FAST is a far-field plane-wave-source model; a near-field finite Gaussian beam
   needs the split-step model of fidelity 2 (backlog 1-1).
-- `fidelity=2`: two wave-optics Terms. A deterministic vacuum-optics Term (launch
+- `fidelity=2`: the wave-optics Terms. A deterministic vacuum-optics Term (launch
   truncation plus geometric spread plus aperture capture plus vacuum fibre
   coupling) and a stochastic turbulence Term (the fade). They replace the
   geometric, launch-truncation, scintillation, and coupling Terms. Only the
-  analytic extinction and pointing Terms stay. It needs the precomputed `wave`
-  bundle. A `fidelity` other than 0, 1, or 2 raises `ValueError`.
+  analytic extinction and pointing Terms stay. An `MMF` receiver gets ONE more
+  Term, the light-bucket core coupling
+  (`waveoptics_mmf_coupling_term`): it is the ABSOLUTE core capture relative to
+  the COLLECTED power, so it does not double-count the aperture capture, and it
+  already holds the detector defocus. An
+  `Aperture` receiver gets the aperture-power penalty only. It needs the
+  precomputed `wave` bundle. A `fidelity` other than 0, 1, or 2 raises
+  `ValueError`.
 
 At fidelity 0 the Terms are the geometric spreading, the horizontal
 Beer-Lambert extinction, the pointing jitter, an opt-in launch truncation, and
@@ -612,9 +624,21 @@ far-terminal detector:
   Term carries a real fade, but the mean-only lock still holds.
 - An `MMF` (light-bucket) detector: the multimode-fibre coupling Term
   (`terrestrial_mmf_coupling_term`) replaces the scintillation Term. It is the encircled
-  energy of the focal spot inside the hard core, offset by the received tip-tilt
+  energy of the spot inside the hard core, displaced by the received tip-tilt
   (a flat-top acceptance, not a mode overlap). It is not mean-only, so an MMF
   budget keeps its fade.
+
+The received CURVATURE is always charged. A terrestrial received beam is a
+diverging Gaussian, so the true focus of the coupling optic is BEYOND its focal
+plane, at `z = f + dz_curv` (`dz_curv = f^2/(R_rx - f)`, S. A. Self, Appl. Opt.
+22, 658 (1983), DOI 10.1364/AO.22.000658). Every fidelity-0 terrestrial coupling
+Term evaluates the detector at `dz_eff = defocus_m - dz_curv`, in both the
+turbulent and the `turbulence=False` branch, because the curvature is static
+optics. `optimal_focus` stays a focal-LENGTH rule and never moves the detector.
+`olb.models.coupling.curvature_focus_shift(scenario)` returns `dz_curv`, so a
+tracked (aligned) coupler is `detector.defocus_m = curvature_focus_shift(...)`.
+A scenario with no launch beam charges no curvature and flags itself OPTIMISTIC.
+See `physics.md` section 6a.
 
 Flags:
 
@@ -643,16 +667,57 @@ The receive-side Terms:
   coupling loss for a horizontal Gaussian beam. `drop_tiptilt=True` removes the
   tip-tilt from the residual, so the walk-off Term can own it. See `physics.md`
   section 6c.
+  The mean coupling of the Term is the defocus-aberrated closed form
+  `smf_eta_defocused(a, c)` (`olb/models/coupling/_common.py`), so the mean
+  received-curvature penalty is MODELLED, not only flagged.
 - `terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
   receive tip-tilt walk-off fade. The received tip-tilt (beam wander plus the
-  receive mechanical jitter) moves the focal spot on the fibre tip by `f*theta`.
-  The fade is exponential in dB. It needs the coupling optics
+  receive mechanical jitter) moves the spot on the fibre tip by
+  `(f + defocus_m)*theta`. The spot radius is `gaussz(w_s, dz_eff)`. The fade is
+  exponential in dB. It needs the coupling optics
   (`focal_length_m` and `mode_field_radius_m`, or `optimal_focus=True`), else it
-  raises `ValueError`. See `physics.md` section 6c.
+  raises `ValueError`. The walk-off DISPLACEMENT response is GEOMETRIC ONLY, so
+  the Term flags itself when `defocus_m` is not zero. See `physics.md` section 6c.
 - `terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=True)` builds the
   multimode-fibre coupling Term: the static spot-in-core overfill loss plus the
   walk-off fade. It needs a focal length (`focal_length_m` or
   `optimal_focus=True`), else it raises `ValueError`. See `physics.md` section 6c.
+- `curvature_focus_shift(scenario)` (in `olb.models.coupling`) returns the
+  received-curvature focus shift `dz_curv` in m of the receive optics. It raises
+  `ValueError` when the receive detector is not a fibre, or when the focal length
+  cannot be resolved.
 
 Examples: `examples/terrestrial_link.py`,
 `validation/terrestrial_coupling_jitter.py`.
+
+### The bidirectional terrestrial wrapper (`olb/links/bidirectional.py`)
+
+A monostatic terminal uses ONE collimator to transmit and to receive, so ONE
+fibre-plane defocus `dz` drives both sides: it diverges the launched beam AND it
+moves the detector off the focal plane. This wrapper ties the two to one `dz`.
+
+- `defocused_terminal(terminal, dz_m, *, focal_length_m=None)` returns a NEW
+  `Terminal` (the input is not mutated). An `SMF` or `MMF` detector gets
+  `defocus_m = dz_m`. A `Transmitter` gets the divergence
+  `theta(dz) = sqrt(theta_diff^2 + (W0*|dz|/f^2)^2)`, with
+  `theta_diff = lambda/(pi*W0)` and `f` the collimator focal length (Andrews and
+  Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4). `dz = 0` keeps the beam
+  collimated. `focal_length_m` None reads `f` from the detector optics; a
+  transmit terminal with no resolvable `f` raises `ValueError`.
+- `bidirectional_terrestrial(near, far, channel, geometry, *,
+  near_defocus_m=0.0, far_defocus_m=0.0, **budget_kwargs)` returns the
+  `BidirectionalBudget` namedtuple `(forward, reverse)`: the near->far budget and
+  the far->near budget, each from `terrestrial_budget`. The two share the one
+  `TerrestrialChannel`. The extra keywords go straight to `terrestrial_budget`.
+
+TWO LIMITS of this fidelity-0 wrapper:
+
+1. Only the DIVERGING side is modelled. `theta(dz)` reads `|dz|` only, and a
+   `Transmitter` cannot hold a converging beam. So `dz > 0` (a converging launch)
+   is OUTSIDE the model: the wrapper gives it the divergence of the mirror-image
+   diverging launch. Use `dz < 0`, or a fidelity-2 field model.
+2. One `dz` drives BOTH directions. The received beam is itself a diverging
+   Gaussian, so its true focus is already `dz_curv` beyond the focal plane. A
+   deliberately diverged monostatic terminal therefore pays `|dz| + dz_curv` of
+   receive defocus, and the coupling Terms now CHARGE it. There is no free best
+   focus for a monostatic terminal.

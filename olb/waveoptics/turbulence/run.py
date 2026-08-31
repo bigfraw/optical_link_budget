@@ -406,9 +406,16 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                     "the MMF detector needs a focal length to focus the field. "
                     "Set MMF.focal_length_m, or set MMF.optimal_focus=True to "
                     "match the spot to the core.")
+            # A non-focal-plane detector (z = f + defocus_m). The AXIAL
+            # displacement grows the spot (defocus_m); the field already carries
+            # the turbulent tilt. At the focal plane (defocus_m=0) this is the
+            # plain focal-plane coupling. See olb.waveoptics.mmf and
+            # olb.models.coupling.terrestrial.
+            dz = det.defocus_m
             mmf_eta = float(mmf_coupling_efficiency(
                 collected, rx.aperture_m, det.core_radius_m, f_mmf,
-                numerical_aperture=det.numerical_aperture))
+                numerical_aperture=det.numerical_aperture,
+                defocus_m=dz))
         eta_turb = None
         if is_space and scenario.direction == "uplink":
             # The reciprocity overlap. See Shapiro,

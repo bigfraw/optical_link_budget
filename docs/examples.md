@@ -211,6 +211,23 @@ tolerates more walk-off but pays a larger gate.
   sweep that shows the etendue trade and a best focal length.
 - Run: `python -m validation.terrestrial_mmf_na`
 
+## [defocus/defocus_sensing.py](../validation/defocus/defocus_sensing.py)
+
+A non-focal-plane (defocused) detector on a terrestrial link. The detector sits
+at `z = f + defocus_m`, and the received diverging beam puts the TRUE focus at
+`dz_curv` BEYOND the focal plane, so the coupling reads
+`dz_eff = defocus_m - dz_curv`.
+
+- API: `terrestrial_mmf_coupling_term`, `terrestrial_smf_walkoff_term`,
+  `olb.models.coupling.curvature_focus_shift`, and the
+  `olb.links.bidirectional` wrapper.
+- Output: a `dz` sweep for a multimode receiver, the spot radius against
+  `gaussz` and the geometric blur, the chief-ray tilt lever, and the
+  bidirectional demonstration. One fidelity-2 cross-check is guarded, so a
+  missing `aotools` does not fail it.
+- Run: `python validation/defocus/defocus_sensing.py`
+- Write-up: `validation/defocus/fidelity2_mmf_coupling_gap.md`.
+
 ---
 
 ## The Andrews foundation suite ([examples/andrews/](../examples/andrews/))
@@ -268,16 +285,22 @@ blocking window would hold the terminal for minutes.
 
 - `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`
   (`sigma2_R = 0.21`, firmly weak; the script ASSERTS that, because every
-  analytic target here is a weak-fluctuation form). It runs 120 snapshots THREE
+  analytic target here is a weak-fluctuation form). It runs 300 snapshots THREE
   times on the same grid, the same screens and the same seeds, and it changes
   only the receive aperture: a 3-pixel pinhole, a 30 mm sampling bucket, and the
   100 mm budget aperture with its single-mode fibre. Headline: the pinhole index
   and the 30 mm bucket index agree with the Dios on-axis form and the Andrews
   weak aperture-averaging factor; the 100 mm bucket does NOT, because it holds 78
   percent of the beam and the split step conserves power; and the fidelity-0
-  fibre-coupling Term reads about 2.3 dB MORE loss than the field (4.61 dB
-  against 2.32 dB). The horizontal planner takes no `Cn2` layer list, so work
-  package 7 did not move this script: it keeps its 9 screens.
+  fibre-coupling Term reads about 2.4 dB MORE loss than the field (4.61 dB
+  against 2.25 dB). The fidelity-0 Term keeps the printed 4.61 dB. This script
+  uses a bare `SMF()` with no coupling optics, so the received-curvature defocus
+  charge (see `physics.md` section 6a) does NOT fire, and the Term flags the
+  curvature as NOT modelled. That charge applies only to an `SMF` with a focal
+  length or `optimal_focus`. The 2.25 dB field value is the Monte Carlo result
+  of the default `olb` screen generator and 300 snapshots; the earlier 2.32 dB
+  record used 120 snapshots. The horizontal planner takes no `Cn2` layer list,
+  so work package 7 did not move this script: it keeps its 9 screens.
 - `turbulent_downlink.py` — a 600 km downlink into a 500 mm obscured fibre
   receiver, at 30, 60 and 90 degrees, 70 snapshots each, `rapid` preset, 5
   screens. Headline: the aperture scintillation index agrees with the fidelity-0

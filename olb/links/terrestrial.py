@@ -287,7 +287,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
 
 def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     '''
-    The two fidelity-2 wave-optics Terms of a terrestrial link.
+    The fidelity-2 wave-optics Terms of a terrestrial link.
 
     A terrestrial link is fully simulated end to end on ONE flat grid, so the
     FULL launch-to-detector loss splits cleanly into:
@@ -301,16 +301,23 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     olb.models.waveoptics.run_fidelity2.
 
     An SMF receiver gets the composite fibre penalty (aperture capture x fibre
-    coupling); an Aperture or MMF receiver gets the aperture-power penalty (the
-    MMF core coupling is not modelled separately at fidelity 2).
+    coupling). An MMF receiver gets the aperture-power penalty PLUS the
+    light-bucket core-coupling Term (waveoptics_mmf_coupling_term). That coupling
+    is the ABSOLUTE core capture (relative to the COLLECTED power), so it does not
+    double-count the aperture capture, and it already holds the detector defocus,
+    because the run folds it into mmf_eta (see olb.waveoptics.mmf and
+    olb.waveoptics.turbulence.run). An Aperture (bucket) receiver gets the
+    aperture-power penalty only.
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
-                                     waveoptics_turbulence_term)
+                                     waveoptics_turbulence_term,
+                                     waveoptics_mmf_coupling_term)
     from ..waveoptics.field import Power
-    from ..terminal import SMF
+    from ..terminal import SMF, MMF
     tx = scenario.tx_terminal
     rx = scenario.rx_terminal
     is_smf = isinstance(rx.detector, SMF)
+    is_mmf = isinstance(rx.detector, MMF)
 
     vac = waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf)
 
@@ -341,7 +348,20 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     pen = waveoptics_turbulence_term(
         wave.turbulent, loss_db=loss_db, beam_type=BEAM_GAUSSIAN,
         sigma2_I=sigma2_I, note=note)
-    return [vac, pen]
+    terms = [vac, pen]
+    if is_mmf:
+        # The light-bucket core coupling (absolute, with fade). It is the fraction
+        # of the COLLECTED power that enters the core, so it composes with the
+        # vacuum and aperture-penalty Terms (launch -> collected) without a
+        # double-count. It already carries the detector defocus (spot growth),
+        # because the run folds it into mmf_eta.
+        mmf_term = waveoptics_mmf_coupling_term(
+            wave.turbulent, beam_type=BEAM_GAUSSIAN, sigma2_I=sigma2_I,
+            note="terrestrial MMF light-bucket coupling (wave optics): absolute "
+                 "core capture relative to the collected power, with the detector "
+                 "defocus.")
+        terms.append(mmf_term)
+    return terms
 
 
 def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
@@ -748,6 +768,48 @@ if __name__ == '__main__':
         print(f"terrestrial fidelity 2 (3 km, rapid, 16 trials): vacuum "
               f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB, "
               f"total {f2.total_loss_db():.2f} dB")
+
+    # --- fidelity-2 MMF light bucket, and the non-focal-plane detector -------
+    # The MMF core coupling is now routed into the fidelity-2 budget. The
+    # detector defocus grows the spot, which folds into the per-trial mmf_eta in
+    # the run, so the coupling loss grows off the true focus.
+    def _f2_mmf(defocus_m=0.0):
+        s = TerrestrialScenario(
+            near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                          transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+            far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
+                         pointing_jitter_rad=5e-6,
+                         detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                                      defocus_m=defocus_m, sensitivity_dbm=-38)),
+            channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
+                                       cn2=1e-14))
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            wave = run_fidelity2(s, HorizontalPath(3e3), preset="rapid",
+                                 n_trials=24, seed=3)
+            bud = terrestrial_budget(s, HorizontalPath(3e3), fidelity=2, wave=wave)
+        mmf = next(t for t in bud.terms if t.name == "receive coupling (MMF)")
+        return bud, mmf
+
+    try:
+        b_focus, m_focus = _f2_mmf(defocus_m=0.0)
+        # A NEGATIVE defocus moves the detector AWAY from the true focus. The
+        # received beam is a diverging Gaussian, so its true focus sits BEYOND the
+        # focal plane (at +dz_curv, some 6 mm here). So a positive defocus of a few
+        # mm moves TOWARD the true focus and wins power back. See
+        # olb.models.coupling.terrestrial and validation/defocus.
+        b_defoc, m_defoc = _f2_mmf(defocus_m=-2e-3)
+    except ImportError:
+        b_focus = None
+    if b_focus is not None:
+        # The MMF coupling Term is now in the fidelity-2 budget, with a real fade.
+        assert m_focus.category == "coupling" and m_focus.stochastic
+        assert b_focus.provides_fade
+        # A defocus away from the true focus grows the spot, so the core captures
+        # less (more loss).
+        assert m_defoc.mean_db > m_focus.mean_db, (m_defoc.mean_db, m_focus.mean_db)
+        print(f"terrestrial fidelity 2 MMF (25 um core): focus {m_focus.mean_db:.2f} "
+              f"dB -> defocus -2 mm {m_defoc.mean_db:.2f} dB")
 
     # --- MMF (multimode-fibre light bucket) ---------------------------------
     def _mmf(core_radius=25e-6, focal=None, jitter=5e-6, far_aperture=0.2,

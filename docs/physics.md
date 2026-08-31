@@ -1000,6 +1000,58 @@ For a terrestrial link the code evaluates the same forms at the horizontal
 Gaussian-beam r0 (Section 5e). This is the effective-r0 weak-turbulence
 approximation.
 
+#### The received curvature and the defocus penalty (terrestrial)
+
+The factor `eta_max` above is the FLAT-wavefront mode match. A terrestrial
+received beam is not flat: it is a diverging Gaussian, with the phase-front
+radius `R_rx` at the receive aperture (`olb.beam.phase_front_radius`; Andrews and
+Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eqs. (7) and (8), printed
+p. 87). A thin lens of focal length `f` images that diverging input BEYOND its
+focal plane:
+
+    dz_curv = f^2 / (R_rx - f)   > 0
+
+S. A. Self, "Focusing of spherical Gaussian beams," Appl. Opt. 22, 658 (1983),
+DOI 10.1364/AO.22.000658. So the TRUE focus of a terrestrial received beam sits
+at `z = f + dz_curv`, beyond the nominal focal plane, and NOT at `z = f`.
+
+The olb convention: the terrestrial coupling Terms ALWAYS charge that curvature
+defocus, at the ACTUAL fibre plane. The detector sits at `z = f + defocus_m`, so
+its distance from the true focus is
+
+    dz_eff = defocus_m - dz_curv
+
+and every spot-size and aberration quantity uses `dz_eff`. `optimal_focus` keeps
+its meaning: it is a focal-LENGTH rule (`a = 1.12`), and it never moves the
+detector. To model a tracked (aligned) coupler, read `dz_curv` from the public
+helper `olb.models.coupling.curvature_focus_shift(scenario)` and set
+`detector.defocus_m` to it.
+
+A fibre `dz_eff` from the true focus sees a quadratic (defocus) phase across the
+pupil. The mode-overlap integral stays closed form: the `a^2` of the Gaussian
+weight becomes the complex `a^2 - i*c`, so
+
+    eta(a, c) = 2 a^2 | (1 - exp(-(a^2 - i c))) / (a^2 - i c) |^2
+    c = pi * dz_eff * (D/2)^2 / (lambda * f^2)     [rad]
+
+`smf_eta_defocused(a, c)` in `olb/models/coupling/_common.py` holds this. It
+reduces EXACTLY to `eta_max(a)` at `c = 0`, and it depends on `|c|` only.
+Sources: Shaklan and Roddier, Appl. Opt. 27, 2334 (1988),
+DOI 10.1364/AO.27.002334 (the `a` parameter and the flat-wavefront overlap);
+Ruilier and Cassaing, JOSA A 18, 143 (2001), DOI 10.1364/JOSAA.18.000143
+(single-mode coupling with an aberrated pupil).
+
+Both terrestrial branches use it, the turbulent one and the `turbulence=False`
+one, because the curvature is STATIC optics, not turbulence. For a space link
+`R_rx` is enormous, so `dz_curv` is about zero: the downlink Terms are unchanged.
+
+Example (1550 nm, `L = 5 km`, collimated `w0 = 0.02 m`, `D = 0.2 m`,
+`w_m = 25 um`, `f = 4.524 m`): `R_rx = 5131.5 m`, `dz_curv = +3.99 mm`. A fibre at
+the focal plane has `c = -3.95 rad`, so `eta = 0.215` (6.68 dB), of which 5.79 dB
+is the curvature penalty on the 0.8145 flat-wavefront value. A fibre moved to the
+true focus pays no curvature penalty. See
+`validation/defocus/fidelity2_mmf_coupling_gap.md`.
+
 #### How the code avoids double-counting
 
 The geometric Term already carries the free-space spread and the aperture
@@ -1023,14 +1075,22 @@ standalone scintillation Term.
 - The Dikmelik-Davidson coupling assumes a uniform circular aperture with no
   central obscuration. The code flags an obscured receive aperture.
 - The static factor `eta_max(a) = 2*[(1 - exp(-a^2))/a]^2` (Section 6c) assumes a
-  UNIFORMLY illuminated aperture and a FLAT (best-focus) wavefront. It holds when
-  the received spot overfills the aperture and the receiver focuses for the
-  incoming curvature. A near-field terrestrial link inside the Rayleigh range can
-  break both: the received Gaussian tapers across the aperture, and the wavefront
-  is curved. A refocus removes the curvature. The residual taper error runs SAFE,
-  because a Gaussian-into-Gaussian overlap can pass the 0.8145 top-hat value, so
-  the constant is then CONSERVATIVE. A curvature-aware, illumination-aware
-  `eta_max` is the open Gap-3 upgrade. See `olb/models/coupling/_common.py`.
+  UNIFORMLY illuminated aperture and a FLAT wavefront. The CURVATURE half of that
+  limit is now MODELLED for a terrestrial link: the Term charges the received
+  curvature through the defocus-aberrated form `eta(a, c)` above, always, at the
+  actual fibre plane. What stays is the ILLUMINATION half: a near-field
+  terrestrial link inside the Rayleigh range tapers the received Gaussian across
+  the aperture. That residual taper error runs SAFE, because a
+  Gaussian-into-Gaussian overlap can pass the 0.8145 top-hat value, so the
+  constant is then CONSERVATIVE. An illumination-aware `eta_max` stays open (see
+  backlog 0-P11). See `olb/models/coupling/_common.py`.
+- An SMF detector with NO resolvable coupling optics (no `focal_length_m` and no
+  `optimal_focus`) has no `a` and no `c`. It keeps the plain `eta_max` field, and
+  the Term flags that the curvature penalty is NOT modelled there.
+- A terrestrial scenario whose transmit terminal carries no `Transmitter` gives
+  no received curvature, so the Term charges none and flags itself OPTIMISTIC.
+- The thin-lens focus shift is a SMALL-shift geometry. The Term flags
+  `R_rx <= 2*f`, where the image runs away, and it still computes the value.
 - The code flags an effective D/r0 above `SMF_DEEP_TURBULENCE_DR0 = 10`, where the
   practical coupling curve is extrapolated.
 - The terrestrial form adds the effective-r0 weak-turbulence caveat: it evaluates
@@ -1046,6 +1106,12 @@ standalone scintillation Term.
   limit. Derivation and validity: T. S. Ross, Appl. Opt. 48(10), 1812 (2009),
   DOI 10.1364/AO.48.001812.
 - Noll 1976, for the residual variance (Section 5f).
+- S. A. Self, "Focusing of spherical Gaussian beams," Appl. Opt. 22, 658 (1983),
+  DOI 10.1364/AO.22.000658, for the focus shift of a curved input.
+- C. Ruilier and F. Cassaing, JOSA A 18, 143 (2001), DOI 10.1364/JOSAA.18.000143,
+  for single-mode coupling through an aberrated pupil.
+- Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 4, Eqs. (7) and
+  (8), printed p. 87, for the received phase-front radius.
 
 ### 6b. FAST statistical coupling (fidelity 1)
 
@@ -1123,7 +1189,8 @@ mean-only coupling Term (Section 6a) cannot carry.
 
 #### Governing relations
 
-The static mode match sets the flat-wavefront coupling `eta_max`. For a
+The static mode match sets the coupling `eta_max`, which the coupling Term of
+Section 6a then corrects for the received curvature. For a
 single-mode fibre with a mode field radius `w_m`, a spot radius
 `w_s = lambda*f/(pi*(D/2))`, and a coupling parameter `a = w_m/w_s`:
 
@@ -1144,17 +1211,51 @@ The received tip-tilt has two contributions:
   `2*sigma^2` to the radial variance.
 
 The captured power under a lateral offset is the overlap of two Gaussians, the
-focal spot (`w_s`) and the fibre mode (`w_m`):
+spot at the detector (`w_det`) and the fibre mode (`w_m`):
 
-    eta(dx)/eta_max = exp( -2 * dx^2 / w_eff^2 ),   w_eff^2 = w_s^2 + w_m^2
+    eta(dx)/eta_max = exp( -2 * dx^2 / w_eff^2 ),   w_eff^2 = w_det^2 + w_m^2
 
 The two axes of the offset are i.i.d. Gaussian, so the loss in dB is exponential
-with mean `(20/ln10) * f^2 * sigma2_theta / w_eff^2`. The loss grows without a
-limit as the tilt grows.
+with mean `(20/ln10) * 2 * sigma_d^2 / w_eff^2`, with `sigma_d` the per-axis
+spot offset below. The loss grows without a limit as the tilt grows. At the true
+focus `w_det = w_s` and `sigma_d = f*sqrt(sigma2_theta/2)`, which is the
+focal-plane case.
 
 A single-mode-fibre subtlety: at a fixed `a` the focal length cancels in this
 mean, because `w_s` scales with `f`. So `f` sets `eta_max` through `a`, but it
 does not change the angular sensitivity on its own.
+
+#### The detector plane: defocus and the chief-ray levers
+
+The detector does not have to sit at the focal plane. It sits at
+`z = f + defocus_m` (`SMF.defocus_m`, `MMF.defocus_m`; `0.0` is the focal plane).
+The received beam is a diverging Gaussian, so the TRUE focus is at
+`z = f + dz_curv` with `dz_curv = f^2/(R_rx - f) > 0` (Section 6a; S. A. Self,
+Appl. Opt. 22, 658 (1983), DOI 10.1364/AO.22.000658). So the detector is
+
+    dz_eff = defocus_m - dz_curv
+
+from the true focus. Two effects follow, and the Terms separate them:
+
+- SPOT GROWTH (axial). The spot grows away from the TRUE focus:
+  `w_det = gaussz(w_s, dz_eff)`, the Gaussian beam radius against the distance
+  from a waist (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196,
+  Ch. 4). At large `|dz_eff|` it tends to the geometric blur
+  `(D/2)*|dz_eff|/f`. The coupling scale uses `w_det`, so a spot away from the
+  true focus spills more from the MMF core and matches the SMF mode less well.
+- SPOT DISPLACEMENT (lateral). The spot centre moves by the ray-optics chief-ray
+  geometry of a thin lens, with the PHYSICAL `defocus_m` (the detector position,
+  not the focus position, sets the lever):
+
+      d_spot = (f + dz)*theta,    dz = defocus_m
+
+  `theta` is the received arrival tilt (beam wander plus receive mechanical
+  jitter), a radial 2-axis Gaussian, so the per-axis variance is:
+
+      sigma_d^2 = (f + dz)^2 * sigma2_theta/2
+
+  At the focal plane (`dz = 0`) the lever is `f`; off focus the longer lever arm
+  `(f + dz)` moves the spot more.
 
 No double-count with the mean coupling Term: the tip-tilt appears once. When the
 walk-off Term is active, the mean coupling Term (Section 6a) keeps the
@@ -1163,12 +1264,12 @@ residual (`drop_tiptilt=True`). The walk-off Term owns the tip-tilt.
 
 A multimode fibre is a light bucket: the core is a HARD disk of radius `a_core`.
 It collects ALL the spot power inside the core, so the coupling is the encircled
-energy of the displaced Gaussian spot, NOT a mode overlap. With the spot centre
-at offset `dx = f*theta`:
+energy of the displaced Gaussian spot, NOT a mode overlap. With the spot of
+radius `w_det` at the offset `dx`:
 
-    eta(dx) = 1 - Q1( 2*dx/w_s ,  2*a_core/w_s )       (Marcum Q-function)
+    eta(dx) = 1 - Q1( 2*dx/w_det ,  2*a_core/w_det )   (Marcum Q-function)
 
-At `dx = 0` this reduces to `eta_static = 1 - exp(-2*a_core^2/w_s^2)`. A small
+At `dx = 0` this reduces to `eta_static = 1 - exp(-2*a_core^2/w_det^2)`. A small
 spot deep inside the core loses nothing until it nears the edge (a flat-top
 acceptance); at the core edge it collects about half the power (about 3 dB). The
 Term averages the loss over the Rayleigh offset. This differs from a single-mode
@@ -1176,7 +1277,11 @@ fibre, whose acceptance is a Gaussian mode, not a hard disk.
 
 `optimal_focus` derives the focal length. For a single-mode fibre it picks `f` so
 `a = 1.12` (the eta_max peak). For a multimode fibre it matches the spot to the
-core, `a_core/w_s = 1.12`, which gives about 92% static capture.
+core, `a_core/w_s = 1.12`, which gives about 92% static capture. It is a
+focal-LENGTH rule ONLY: it never moves the detector, so it does not cancel the
+curvature defocus. A fibre at the focal plane of a 5 km horizontal link keeps the
+full `dz_curv` offset, and reads about 8.5 dB static MMF loss for the example
+optics of Section 6a; the same fibre at the true focus reads 0.37 dB.
 
 A multimode fibre also has an ANGULAR acceptance. The numerical aperture
 `NA = n*sin(theta_a)` sets the largest ray angle the fibre guides. The focusing
@@ -1198,16 +1303,27 @@ focal spot (that would need a re-truncated aperture).
 #### Inputs and outputs
 
 - Inputs: the receive terminal (aperture, wavelength, fibre optics,
-  `pointing_jitter_rad`, compensation stack), the transmit waist, the path length,
-  and the constant Cn2.
+  `defocus_m`, `pointing_jitter_rad`, compensation stack),
+  the transmit waist and divergence, the path length, and the constant Cn2.
 - Output: an SMF walk-off Term (category `pointing`), or an MMF coupling Term
   (category `coupling`). Both carry a real fade.
 
 #### Assumptions and limits
 
-- The walk-off falloff uses a Gaussian fit to the focal spot, and the eta_max
-  value uses the more exact Airy-to-Gaussian overlap. The two spot models differ,
-  which is standard practice near the peak.
+- The walk-off falloff uses a Gaussian fit to the spot, and the eta_max value
+  uses the more exact Airy-to-Gaussian overlap. The two spot models differ, which
+  is standard practice near the peak. Against the fidelity-2 field the Gaussian
+  spot model is the residual light-bucket gap of about 1 dB (backlog 2-W1).
+- The MEAN modal penalty of a defocused single-mode fibre IS modelled, in the
+  coupling Term of Section 6a (the closed form `eta(a, c)`). What stays geometric
+  is the walk-off DISPLACEMENT response of `terrestrial_smf_walkoff_term`: it
+  overlaps the defocused spot with the fibre mode, so it does not model how the
+  defocus phase reshapes the modal overlap against a displacement. That walk-off
+  fade is therefore OPTIMISTIC off focus, and the Term flags it loudly whenever
+  `defocus_m` is not zero. Use an MMF (a light bucket), fidelity 2, or the full
+  modal treatment of Ruilier and Cassaing (DOI 10.1364/JOSAA.18.000143).
+- The defocus model is geometric: the spot keeps its Gaussian shape and only
+  grows and moves. The chief-ray levers are ray optics.
 - Contribution B of the received tip-tilt is the beam-wander tilt (A) only. The
   aperture angle-of-arrival "corrugation" tilt is available but feeds no Term:
   `aperture_arrival_angle_variance` in `olb/turbulence/angle_of_arrival.py` now
@@ -1242,6 +1358,10 @@ focal spot (that would need a re-truncated aperture).
 - Snyder and Love, Optical Waveguide Theory (1983), DOI 10.1007/978-1-4613-2813-1,
   for the numerical aperture, the acceptance cone, and the V-number that set the
   multimode-fibre angular gate.
+- S. A. Self, Appl. Opt. 22, 658 (1983), DOI 10.1364/AO.22.000658, for the focus
+  shift `dz_curv` of the received curved wavefront.
+- C. Ruilier and F. Cassaing, JOSA A 18, 143 (2001), DOI 10.1364/JOSAA.18.000143,
+  for the aberrated single-mode coupling that the walk-off response omits.
 
 ---
 

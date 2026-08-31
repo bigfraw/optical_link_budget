@@ -111,6 +111,7 @@ through `a`. It does not change the angular sensitivity on its own.
 | `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic. None keeps the `eta_max` field. A value needs `mode_field_radius_m`. |
 | `mode_field_radius_m` | float or None | m | `None` | Fibre mode field RADIUS (about 5.2e-6 m for SMF-28 at 1550 nm). It sets the fibre mode size for `a` and for the walk-off Term. |
 | `optimal_focus` | bool | — | `False` | Design the coupling optic for the best coupling (see below). |
+| `defocus_m` | float | m | `0.0` | Detector offset from the design focus. The fibre tip sits at `z = f + defocus_m`. `0.0` puts it at the nominal focal plane. |
 
 `optimal_focus=True` assumes the optimal coupling parameter `a=1.12`, so
 `eta_max=0.8145`, and derives the focal length from the mode field radius and the
@@ -118,6 +119,20 @@ aperture: `f = pi*(D/2)*w_m/(lambda*1.12)`. A None `mode_field_radius_m` uses th
 SMF-28 value (5.2e-6 m). An explicit `focal_length_m` overrides the derived
 value. A bare `SMF()` (this flag False) does not change: it stays mean-only, with
 no walk-off Term.
+
+`optimal_focus` is a focal-LENGTH rule only. It never moves the detector, so it
+does not put the fibre at the true focus of a curved received beam. A terrestrial
+received beam diverges, so its true focus is BEYOND the focal plane, at
+`z = f + dz_curv` (see `physics.md` section 6a). The terrestrial coupling Terms
+ALWAYS charge that curvature defocus at the actual fibre plane. To model a
+TRACKED (aligned) coupler, set
+
+```python
+from olb.models.coupling import curvature_focus_shift
+detector.defocus_m = curvature_focus_shift(scenario)
+```
+
+A space link has an enormous `R_rx`, so its `dz_curv` is about zero.
 
 #### `MMF`
 
@@ -145,13 +160,18 @@ etendue penalty a core-radius-only bucket misses (see `physics.md` section 6c).
 | `numerical_aperture` | float or None | — | `None` | Fibre NA. None turns the angular gate OFF (spatial encircled energy only). A value gates the focusing cone by `min(1, (NA/NA_optic)^2)`. |
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
 | `optimal_focus` | bool | — | `False` | Match the spot to the core (see below). |
+| `defocus_m` | float | m | `0.0` | Detector offset from the design focus. The core sits at `z = f + defocus_m`. `0.0` puts it at the nominal focal plane. A detector away from the TRUE focus sees a larger spot, so the core captures less. |
 
 `optimal_focus=True` derives the focal length so the spot radius is the core
 radius over 1.12 (the same `a=1.12` that a single-mode fibre uses):
 `f = pi*(D/2)*core_radius_m/(lambda*1.12)`. This gives about 92% static capture.
 It is a geometric spot-to-core match, NOT a mode-overlap optimum: a shorter focal
 length captures more, but the angular limit (`numerical_aperture`) then gates the
-extra capture. Set `focal_length_m` to override the derived value.
+extra capture. Set `focal_length_m` to override the derived value. As for an
+`SMF`, `optimal_focus` never moves the detector: the received-curvature focus
+shift is charged at the actual fibre plane, and
+`curvature_focus_shift(scenario)` gives the `defocus_m` of an aligned coupler
+(see `physics.md` section 6a).
 
 `MMF` lives in `olb.terminal`. It is not in the top-level `olb` exports yet.
 Import it as `from olb.terminal import MMF`.

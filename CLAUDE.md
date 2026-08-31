@@ -27,12 +27,14 @@ README fidelity ladder.
   holds `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`,
   an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`), an
   optional `Detector` (`Aperture`, `SMF`, or `MMF`, each with `sensitivity_dbm`;
-  `SMF` also carries `focal_length_m`, `mode_field_radius_m`, and `optimal_focus`;
+  `SMF` also carries `focal_length_m`, `mode_field_radius_m`, `optimal_focus`, and
+  `defocus_m`;
   `MMF` is a light bucket with `core_radius_m`, `focal_length_m`, an optional
   `numerical_aperture` (the angular acceptance gate; None keeps the old
-  spatial-only coupling), and `optimal_focus`), and a
-  `compensation` stack (`TipTilt`, `AO`). A terminal parameter can only be set
-  through a Terminal.
+  spatial-only coupling), `optimal_focus`, and `defocus_m`), and a
+  `compensation` stack (`TipTilt`, `AO`). `defocus_m` puts the detector at
+  z = f + defocus_m; 0.0 is the nominal focal plane. A terminal parameter can only
+  be set through a Terminal.
 - `olb/scenario.py` — pure data. Two scenario families, one interface. A
   `SpaceScenario` holds two terminals (`ground`, `space`), a `Channel`, the
   `direction` ("uplink" | "downlink" | "retro"), and `availability_target`. A
@@ -87,10 +89,22 @@ README fidelity ladder.
   `waveoptics_turbulence_term` (the fade), `waveoptics_smf_coupling_term` (the
   turbulent single-mode fibre-coupling face), and `waveoptics_mmf_coupling_term`
   (the turbulent multimode light-bucket coupling face)). The `coupling/` package holds the
-  category-native coupling Terms (`_common.py` holds the shared SMF physics;
+  category-native coupling Terms (`_common.py` holds the shared SMF physics: the
+  flat-wavefront `smf_eta_max_from_a(a)` AND the defocus-aberrated closed form
+  `smf_eta_defocused(a, c) = 2 a^2 |(1-e^-(a^2-ic))/(a^2-ic)|^2` (Shaklan and
+  Roddier DOI 10.1364/AO.27.002334; Ruilier and Cassaing
+  DOI 10.1364/JOSAA.18.000143);
   `downlink.py` holds `downlink_coupling_term`; `terrestrial.py` holds
-  `terrestrial_smf_coupling_term`, `terrestrial_smf_walkoff_term`, and
-  `terrestrial_mmf_coupling_term`), and it RE-EXPORTS the coupling-category Terms
+  `terrestrial_smf_coupling_term`, `terrestrial_smf_walkoff_term`,
+  `terrestrial_mmf_coupling_term`, and the public
+  `curvature_focus_shift(scenario)`). The terrestrial Terms ALWAYS charge the
+  RECEIVED CURVATURE: a horizontal received beam is a diverging Gaussian of
+  phase-front radius R_rx (`olb.beam.phase_front_radius`), so its true focus sits
+  at dz_curv = f^2/(R_rx - f) BEYOND the focal plane (S. A. Self, Appl. Opt. 22,
+  658 (1983), DOI 10.1364/AO.22.000658), and the Terms evaluate the detector at
+  dz_eff = defocus_m - dz_curv. `optimal_focus` is a focal-LENGTH rule and NEVER
+  moves the detector; set `detector.defocus_m = curvature_focus_shift(scenario)`
+  for a tracked (aligned) coupler. The package RE-EXPORTS the coupling-category Terms
   that a fidelity module owns (`smf_fast_term` from `fast.py`,
   `waveoptics_smf_coupling_term` and `waveoptics_mmf_coupling_term` from
   `waveoptics.py`), so a coupling Term is
@@ -130,7 +144,17 @@ README fidelity ladder.
   `olb.turbulence.angle_of_arrival` (beam wander) plus the receive jitter; the
   coupling Term keeps the higher-order residual only, so the tip-tilt is not
   counted two times. `terrestrial_budget` also takes a master `turbulence` switch
-  that drops every turbulence quantity but keeps the static and jitter parts).
+  that drops every turbulence quantity but keeps the static and jitter parts.
+  Every terrestrial coupling Term charges the received-curvature defocus, in BOTH
+  branches, because that curvature is static optics, not turbulence. At
+  `fidelity=2` an MMF receiver gets one more Term, the wave-optics light-bucket
+  core coupling, which already holds the detector defocus).
+  `bidirectional.py` (`defocused_terminal`, `bidirectional_terrestrial`,
+  `BidirectionalBudget`; a monostatic collimator has ONE defocus dz that drives
+  BOTH the transmit divergence and the receive coupling, so the wrapper returns
+  the forward and the reverse budget of one horizontal path. Two fidelity-0
+  limits: dz > 0 (a converging launch) is outside the divergence model, and a
+  diverged monostatic terminal pays |dz| + dz_curv of receive defocus).
 - `olb/waveoptics/` — the fidelity-2 field propagation layer. The CORE carries no
   turbulence. A trimmed port of LightPipes (BSD-3-Clause, see `LIGHTPIPES_LICENSE.txt` in the
   package) that keeps the LightPipes names and call order: `field.py` (Field,
@@ -141,8 +165,12 @@ README fidelity ladder.
   and the spherical (co-moving) coordinate route, which moves the grid with the
   beam so a long space link stays sampled on a small pixel count). Four
   olb-native modules sit on that core: `smf.py` (the fibre mode
-  and the overlap coupling efficiency), `mmf.py` (the multimode light-bucket
-  coupling: `focal_intensity` and `mmf_coupling_efficiency`), `grid.py`
+  and the overlap coupling efficiency; it takes NO defocus, see backlog 2-W2),
+  `mmf.py` (the multimode light-bucket
+  coupling: `focal_intensity` and `mmf_coupling_efficiency`, both of which take a
+  `defocus_m` (the plane z = f + defocus_m, a quadratic pupil phase of SIGN
+  `exp(-i*pi*defocus_m*rho^2/(lam*f^2))`, so a DIVERGING received beam couples
+  best at a POSITIVE defocus_m)), `grid.py`
   (`GridSpec.for_scenario`, the
   automatic grid sizer with a manual override, `beam_magnification`, and
   `forvard_max_z`), and `run.py`
@@ -405,7 +433,11 @@ Open items:
   (`olb.results.EmpiricalSampler`). `examples/waveoptics/budget_wiring.py`
   demonstrates all three. STILL owner-gated: whether wave optics ever becomes a
   DEFAULT (the 2-W1 fibre-coupling reference gap stays open — the field reads 1
-  to 3 dB LESS coupling loss than FAST/analytic). OWNER FOLLOW-UP (2026-08-28):
+  to 3 dB LESS coupling loss than FAST/analytic. The TERRESTRIAL MMF half of that
+  gap is now QUANTIFIED and mostly explained: with the received curvature charged
+  (2026-08-31) it falls from about 7 dB to about 1.2 dB, and the residual is the
+  Airy-versus-Gaussian spot shape. The SPACE half is untested against that
+  correction, so the gap is NOT closed). OWNER FOLLOW-UP (2026-08-28):
   an AUTOMATIC fidelity selector, the way `model="auto"` picks a distribution.
   The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
   stub). Its DEFAULT screen generator is self-contained (numpy and scipy only);
@@ -438,5 +470,16 @@ Open items:
   OWNER FOLLOW-UP: a true single-seed tail extension needs a start-index argument
   in the runner (the cache uses block sub-seeds, so a cached run is not the
   bit-identical trials of a native run).
+- **The non-focal-plane (defocus) sensing and the received curvature are WIRED
+  (2026-08-31, see `validation/defocus/`).** `SMF`/`MMF` carry `defocus_m`; the
+  terrestrial coupling Terms grow the spot over `dz_eff = defocus_m - dz_curv`
+  and displace it with the ray-optics chief-ray tilt lever `(f+dz)*theta`, which
+  keeps the PHYSICAL dz.
+  The fidelity-2 `defocus_m` SIGN was inverted and is FIXED. The SMF MEAN defocus
+  penalty is now MODELLED (`smf_eta_defocused`), so only the SMF walk-off
+  DISPLACEMENT response stays geometric (a loud flag, backlog 0-P15). OPEN: the
+  fidelity-2 SMF leg reads no defocus (backlog 2-W2); a converging monostatic
+  launch is outside the bidirectional model (backlog 0-P16); the deterministic
+  (non-jitter) pointing offset is still not modelled.
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.

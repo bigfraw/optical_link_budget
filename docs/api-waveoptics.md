@@ -187,27 +187,54 @@ inside that disk. So the coupled fraction is the ENCIRCLED ENERGY of the focal
 spot inside the core.
 
 - `mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
-  numerical_aperture=None, mask=None)` — the power fraction that couples into a
+  numerical_aperture=None, mask=None, defocus_m=0.0)` — the
+  power fraction that couples into a
   multimode fibre, a float between 0 and 1. It is `eta = P_core / P_total`.
-  `P_total` is the total collected pupil power. `P_core` is the focal power
-  inside the on-axis core disk of the radius `core_radius_m`, after the
+  `P_total` is the total collected pupil power. `P_core` is the detector-plane
+  power inside the core disk of the radius `core_radius_m`, after the
   numerical-aperture gate. It focuses the pupil field with a Fraunhofer FFT
-  (Goodman, ISBN 978-0974707723). The core is FIXED on the axis, so the
+  (Goodman, ISBN 978-0974707723). The
   turbulent tilt walks the focused spot off the core on its own; the fade is
   intrinsic. The receive MECHANICAL jitter is NOT in this efficiency (it is a
   separate analytic Term), so this eta is a turbulence-only quantity.
-  `aperture_m` is the pupil DIAMETER, kept for the signature; the field is
-  already clipped to the aperture, so the value is not used in the integral. An
+  `aperture_m` is the pupil DIAMETER; it sets the defocused-spot window guard
+  only. An
   optional `mask` multiplies the field first. A field with no power raises
   `ValueError`. The function WARNS when the core spans fewer than about 3 focal
   pixels.
-- `focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None)` —
+- `focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
+  defocus_m=0.0)` —
   the shared helper that both `mmf_coupling_efficiency` and the example scripts
-  use. It returns the tuple `(If, dx_focal)`. `If` is the focal-plane intensity,
+  use. It returns the tuple `(If, dx_focal)`. `If` is the detector-plane
+  intensity,
   `|fftshift(fft2(ifftshift(Eg), norm='ortho'))|^2`, and `norm='ortho'` keeps
   Parseval exact. `dx_focal = field.lam * focal_length_m / field.siz` is the
-  focal pixel size, in m. It applies the mask and the numerical-aperture pupil
-  gate before the focus.
+  focal pixel size, in m. It applies the mask, the numerical-aperture pupil
+  gate, and the defocus before the focus.
+
+#### The non-focal-plane detector: `defocus_m`
+
+`defocus_m` moves the detector off the focal plane. It defaults to the
+focal-plane behaviour, so an old call is unchanged.
+
+- `defocus_m` puts the observation plane at `z = f + defocus_m`. A displaced
+  plane is a QUADRATIC PHASE across the pupil,
+  `W(rho) = -pi*defocus_m*rho^2/(lambda*f^2)` rad, and the Fraunhofer transform
+  of the phased pupil is the physical field at that plane (Goodman,
+  ISBN 978-0974707723; defocus as a quadratic pupil aberration). The MINUS sign
+  is the phase convention of this port: a diverging beam carries
+  `exp(+i*k*r^2/2R)` (`propagators.GForvard`) and a lens applies
+  `exp(-i*k*r^2/2f)` (`lenses.Lens`). So the sign is now RIGHT-WAY-ROUND: a
+  DIVERGING received beam couples best at a POSITIVE `defocus_m`, because a thin
+  lens images a diverging input BEYOND its focal plane, at
+  `z = f + f^2/(R - f)` (S. A. Self, Appl. Opt. 22, 658 (1983),
+  DOI 10.1364/AO.22.000658). The module self-check asserts that sign. The phase
+  keeps the power (Parseval).
+
+The FFT route holds while the defocused spot stays inside the window
+`N*lambda*f/siz`. `mmf_coupling_efficiency` WARNS when the geometric spot radius
+passes half the window half-width, where the FFT can alias. Use a wider grid, a
+smaller defocus, or a physical co-moving propagation there.
 
 The numerical-aperture gate is a PUPIL amplitude mask. A ray from the pupil
 radius `rho` focuses at the angle `rho/focal_length_m`, so the fibre guides only
@@ -734,7 +761,7 @@ A frozen dataclass. One atmosphere snapshot.
 | `collected_power` | float | The power inside the receive aperture, as a fraction of the input power. The terrestrial case divides by the launched power AFTER the transmit clip, so it holds the geometric spread too. The space case divides by the VACUUM baseline on the same grid, so it holds the turbulence penalty only, and its vacuum limit is 1.0. |
 | `smf_eta` | float or None | The single-mode-fibre coupling efficiency, from `olb.waveoptics.smf.coupling_efficiency`. `None` when the receive terminal has no `SMF` detector. |
 | `eta_turb` | float or None | The uplink reciprocity overlap ratio, against the free-space baseline. `None` for a downlink and for a terrestrial case. |
-| `mmf_eta` | float or None | The multimode-fibre (light-bucket) coupling efficiency, from `olb.waveoptics.mmf`. It is the encircled energy of the focused spot inside the on-axis core; the turbulent tilt walks the spot off the core. `None` when the receive terminal has no `MMF` detector. |
+| `mmf_eta` | float or None | The multimode-fibre (light-bucket) coupling efficiency, from `olb.waveoptics.mmf`. It is the encircled energy of the focused spot inside the core; the turbulent tilt walks the spot off the core. It also holds the NON-FOCAL-PLANE detector: the runner reads `MMF.defocus_m` for the plane `z = f + defocus_m`. At the focal plane (`defocus_m = 0`) this is the plain focal-plane coupling. `None` when the receive terminal has no `MMF` detector. |
 | `seed_key` | tuple | The pair `(seed_entropy, trial_index)`. |
 | `wall_time_s` | float | The time of the trial, in s. It holds the screen generation and the propagation. |
 

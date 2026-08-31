@@ -154,9 +154,33 @@ are from 2026-08-26 and can drift.
 - **0-P10. Only one Gaussian transmit beam; `Transmitter.m2` is dead.** No
   model reads m2. Flat-top beams and incoherent aperture diversity stay
   planned (README TB3, TB4).
-- **0-P11. `eta_max(a)` assumes a uniform, flat-wavefront aperture.** A
-  near-field terrestrial link breaks both; the error runs safe. The docs
-  call this the open Gap-3 upgrade (docs/physics.md:969).
+- **0-P11. `eta_max(a)` assumes a uniform, flat-wavefront aperture — the
+  CURVATURE half is CLOSED (2026-08-31), the ILLUMINATION half stays open.**
+  The terrestrial coupling Terms now charge the received-beam curvature always:
+  the true focus of a diverging received beam sits at `dz_curv = f^2/(R_rx - f)`
+  BEYOND the focal plane (S. A. Self, DOI 10.1364/AO.22.000658), the detector is
+  `dz_eff = defocus_m - dz_curv` from it, and the SMF mean penalty uses the
+  defocus-aberrated closed form `smf_eta_defocused(a, c)` (Ruilier and Cassaing,
+  DOI 10.1364/JOSAA.18.000143). What STAYS open is the ILLUMINATION half: a
+  near-field received Gaussian tapers across the aperture, and `eta_max` assumes
+  a uniform one. That error runs SAFE (the constant is then conservative). See
+  docs/physics.md section 6a and validation/defocus/.
+- **0-P15. The terrestrial SMF walk-off DISPLACEMENT response stays
+  geometric.** The MEAN modal defocus penalty is modelled (0-P11), but
+  `terrestrial_smf_walkoff_term` still answers a displacement with a
+  two-Gaussian overlap of the defocused spot and the fibre mode. It does not
+  model how the defocus phase reshapes the modal overlap against a
+  displacement, so the walk-off fade is OPTIMISTIC off focus. The Term flags
+  itself loudly when `defocus_m` is not zero. The full treatment is Ruilier and
+  Cassaing, DOI 10.1364/JOSAA.18.000143; an MMF or fidelity 2 sidesteps it.
+- **0-P16. The bidirectional wrapper models the DIVERGING launch only.**
+  `olb/links/bidirectional.py` maps the collimator defocus to a transmit
+  divergence through `|dz|`, and a `Transmitter` cannot hold a converging beam.
+  So `dz > 0` (a converging launch) is outside the fidelity-0 model, and the
+  wrapper gives it the mirror-image diverging divergence. One `dz` also drives
+  BOTH sides of a monostatic terminal, so a deliberately diverged terminal pays
+  `|dz| + dz_curv` of receive defocus. Both limits are in the module docstrings;
+  a converging launch needs fidelity 2.
 - **0-P12. The MMF NA gate is a flat factor.** No turbulence re-broadening
   of the focal spot, no mode-count saturation; `optimal_focus` is geometric
   (docs/physics.md:1134).
@@ -226,7 +250,9 @@ The path forward for each is a second reference or a derivation.
   beam needs the split-step model, which is what fidelity 2 uses. Fidelity 1 is
   UNAVAILABLE for a terrestrial link and raises.) STILL default fidelity 0 by
   owner decision (the field reads less coupling loss than the incumbent; the
-  reference-model gap of 2-W1 stays open).
+  reference-model gap of 2-W1 stays open, although the terrestrial MMF part of
+  that gap fell to about 1.2 dB once the received curvature was charged, see
+  0-P11 and 2-W1).
 - **1-2. FAST limits NT1–NT4 — CARRIES GAP 2 (see 0-W1); the uplink entry
   point is DONE (2026-08-27).** `uplink_fast_term` in
   olb/models/fast.py is the pre-compensated uplink model of record:
@@ -321,6 +347,26 @@ The path forward for each is a second reference or a derivation.
   ~2.5 dB less than the terrestrial analytic Term). FOLLOW-UP
   (owner-requested 2026-08-28): an AUTOMATIC fidelity selector, the way
   `model="auto"` picks a distribution.
+
+  QUANTIFIED for the TERRESTRIAL MMF leg (2026-08-31, validation/defocus/). Most
+  of the old terrestrial disagreement was the missing received-curvature defocus,
+  not a wave-optics gap: with the curvature charged (0-P11) the fidelity-0
+  against fidelity-2 MMF coupling gap of the report scenario falls from about
+  7 dB to about 1.2 dB (8.54 dB analytic against 7.08 dB field, at 1550 nm,
+  L = 5 km, w0 = 0.02 m, D = 0.2 m, 25 um core, f = 4.524 m). The residual is the
+  Airy-versus-Gaussian SPOT SHAPE: the truncated pupil makes an Airy pattern
+  whose slow rings a Gaussian spot model omits. The gap is NOT closed: the SPACE
+  half (downlink SMF against FAST, the 0.7–2.9 dB rows above) is untested against
+  this correction, and the residual ~1 dB spot-shape term is not chased.
+- **2-W2. The fidelity-2 SMF path ignores `defocus_m` (2026-08-31).** The
+  fidelity-2 MMF leg now reads `MMF.defocus_m` (the plane `z = f + defocus_m`, a
+  quadratic pupil phase), so a non-focal-plane light bucket is
+  simulated. The single-mode leg (`olb/waveoptics/smf.py`, the pupil-mode
+  overlap) takes no defocus, so a fidelity-2 SMF budget always reads the
+  focal-plane coupling. A fidelity-2 cross-check of the analytic
+  `smf_eta_defocused(a, c)` therefore has no field reference yet. The fix is a
+  defocus phase on the back-projected fibre mode, the same quadratic factor the
+  MMF path uses.
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.
@@ -361,7 +407,8 @@ The path forward for each is a second reference or a derivation.
   (slant extinction and scintillation, uplink flux, FAST) move to callables;
   that step is wide, mechanical, and must move no numbers. The owner decided
   on 2026-08-27 to flag this here and NOT build it yet.
-- **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27).**
+- **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27;
+  scope widened 2026-08-29).**
   One preset table serves two channel families that measure differently, and
   the convergence data says they deserve different numbers. The evidence, all
   in the WP7 and post-WP7 notes of docs/schmidt-crosscheck.md: the
@@ -377,6 +424,26 @@ The path forward for each is a second reference or a derivation.
   receiver kind; source every number from the existing sweep data or a new
   sweep, and record it in the tracker. Owner decision on the shape; flagged,
   not built.
+
+  THE GOAL, RESTATED (2026-08-29). The presets are chiefly an INTERNAL
+  VALIDATION tool. An end user wants ONE accurate simulation, not a quality
+  knob to turn for accuracy. So the deliverable is not only a re-tiered table.
+  It is three settings, each sourced from data: (1) a validated MINIMUM per
+  channel family, the floor that still hits the reference; (2) a probably-safe
+  INTERIM default to ship until the sweep is complete; and (3) the well-sampled
+  REFERENCE itself. The knob stays for validation, but the shipped default must
+  not ask the user to trade accuracy.
+
+  THE TEST CATALOGUE (2026-08-29). The current floors rest on a NARROW sweep: a
+  30 deg slab and a 2 km horizontal path (docs/schmidt-crosscheck.md WP7). That
+  is too thin to certify a minimum. Build a bigger catalogue of conditions and
+  verify the minimum against ALL of them, especially the EXTREME links: a low
+  elevation / high airmass slant, a strong Cn2, a long or turbulent terrestrial
+  path, a small and a large aperture, and the three receiver kinds (point,
+  aperture, fibre) across uplink and downlink. The fast `ScreenFactory` (about
+  10x per screen, validated in validation/waveoptics_speed/) makes the broad
+  sweep cheap, so the reason for the narrow one is gone. Source every floor from
+  this catalogue and record it in the tracker.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
@@ -421,6 +488,47 @@ The path forward for each is a second reference or a derivation.
 - **2-N3. Speed: tune the grid size and resolution along the path**,
   validated against the well-sampled reference runs (memory
   `waveoptics-speed-exploration`).
+- **2-N5. Investigate the auto grid sizer — does it discriminate elevation?
+  (owner-flagged 2026-08-29).** In `presentation/gen_data.py` the two hero
+  elevations, 90 deg (zenith) and 30 deg, produce the IDENTICAL grid under the
+  standard preset: N = 512 pixels and 9 screens for BOTH, although 30 deg is the
+  harder path (slant 40 vs 20 km, sigma2_R 0.231 vs 0.065, r0 12.4 vs 18.8 cm).
+  The 30 deg side is wider (3.54 vs 2.78 m) and its pixel coarser (6.92 vs
+  5.42 mm), but the power-of-two rounding lands both on N = 512, and the screen
+  count is pinned at `min_screens = 9` for both because the per-screen Rytov cap
+  never binds at these geometries. So the sizer is FLOOR-limited and
+  ROUNDING-limited here, not physics-limited, and it gives the harder path no
+  finer sampling. QUESTION to settle: is that correct (the zenith case is simply
+  over-sampled, so 30 deg needs nothing more), or is the min_screens floor plus
+  the next-power-of-two step MASKING a real sampling difference that the 30 deg
+  case should pay? Check the achieved `pixels_per_r0` and `fresnel_pixels_min`
+  for both against a converged reference. NOTE: the timing puzzle that raised
+  this (30 deg ran FASTER than 90 deg in gen_data) is a WARM-UP / run-order
+  artefact, NOT sampling — a matched-seed re-run gives round 0 (cold) 90 deg
+  1452 ms/trial and 30 deg 1443 ms/trial (equal, as the equal grids predict),
+  and only the warm round 1 diverges (90 deg 689, 30 deg 1041 ms) as FFT plans
+  and screen caches settle. Per-trial cost tracks the grid, and the grids are
+  equal; the presentation numbers reflect which elevation ran first. Pairs with
+  2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
+  screen placement). olb/waveoptics/turbulence/sampling.py:494.
+- **2-N4. Run WHOLE fidelity-2 sims in parallel (owner-flagged 2026-08-29).**
+  The current campaign parallelises the trials WITHIN one run (the `Threader`
+  thread pool, P3 measured that processes beat threads and threads saturate at 8
+  to 16 workers). But the observed CPU AND memory load stays far below the
+  machine capacity, so a whole sim (a full `propagate_turbulent_scenario` call)
+  can run in parallel with other whole sims to fill the machine. Two cases:
+  1. NON-TEMPORAL (the snapshot layer of today): the trials are independent, so
+     there is NO limit. Run many whole sims side by side (different scenarios,
+     seeds, or blocks), across processes.
+  2. TEMPORAL (2-P1, still a stub): a frozen-flow time axis needs the screen
+     arrays in a fixed order, so a naive whole-sim parallel split breaks the time
+     correlation. Two ways out: (a) build the screen arrays BEFORE the parallel
+     fan-out, then hand each worker its ready arrays; or (b) the leaning choice —
+     simulate about 1 second of link time per worker (this holds MANY coherence
+     times), and still multiprocess across the 1-second blocks. Decide the block
+     length from the coherence time and the wind, and record the choice.
+  Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
+  needs the temporal axis (2-P1) before case 2 is real.
 
 ---
 
@@ -442,6 +550,16 @@ The path forward for each is a second reference or a derivation.
   terrestrial Term (kept for the signature); `precompensation` is silently
   ignored on a downlink or retro link (olb/scenario.py:165) — refuse it or
   document it as uplink-only.
+- **I-5. A `TerrestrialScenario` is one direction only, with no good reason.**
+  It fixes tx=near, rx=far (olb/scenario.py). A horizontal path is reciprocal,
+  and a real link often measures BOTH directions (near->far and far->near) with
+  different terminals at each end. A `SpaceScenario` selects the tx/rx roles from
+  its `direction`; the terrestrial family has no equivalent. Give it a way to run
+  the reverse direction — a `direction` field ("forward" | "reverse"), or a
+  helper that swaps `near`/`far` — so a caller can budget both ends without
+  building a second scenario by hand. Keep the SAME model interface
+  (`tx_terminal`, `rx_terminal`, `channel`); the channel is symmetric, so only
+  the role mapping changes.
 
 ---
 

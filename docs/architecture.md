@@ -67,7 +67,7 @@ keeps the LightPipes names and call order:
 - `propagators.py` — `Forvard`, `Fresnel`, `GForvard`. The three work on a flat grid only. Each one raises `ValueError` on a spherical field.
 - `lenses.py` — `Lens`, `LensForvard`, `LensFresnel`, `Convert`. The thin lens, and the spherical (co-moving) coordinate route. `LensFresnel` moves the grid with the beam, so a beam that grows by a factor of 100 stays sampled on a small pixel count. `Convert` comes back to a flat grid.
 - `smf.py` — the single-mode-fibre pupil mode and the overlap coupling efficiency.
-- `mmf.py` — the multimode-fibre light-bucket coupling. `focal_intensity` focuses the pupil field to the focal plane, and `mmf_coupling_efficiency` sums the encircled energy inside the hard core disk.
+- `mmf.py` — the multimode-fibre light-bucket coupling. `focal_intensity` focuses the pupil field to the detector plane `z = f + defocus_m` (a quadratic pupil phase), and `mmf_coupling_efficiency` sums the encircled energy inside the hard core disk on the axis.
 - `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, `beam_magnification`, and `forvard_max_z`.
 - `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
 
@@ -121,7 +121,7 @@ A [`Terminal`](../olb/terminal.py) is a plain dataclass. ALL terminal hardware
 lives on a Terminal. A Terminal holds:
 - `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`;
 - an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`, and an optional bistatic `aperture_m`);
-- an optional `Detector` (an `Aperture` bucket or an `SMF` fibre, each with a `sensitivity_dbm`);
+- an optional `Detector` (an `Aperture` bucket, an `SMF` fibre, or an `MMF` light bucket, each with a `sensitivity_dbm`; a fibre detector also carries `defocus_m`, the detector offset from the design focus);
 - an ordered `compensation` stack (`TipTilt`, `AO`).
 
 A terminal parameter can only be set through a Terminal. One Terminal serves
@@ -196,12 +196,22 @@ The model files are:
 - [`extinction.py`](../olb/models/extinction.py) — `slant_extinction_term` (slant airmass extinction) AND `terrestrial_extinction_term` (horizontal Beer-Lambert extinction).
 - [`pointing.py`](../olb/models/pointing.py) — pointing-jitter fade.
 - [`gaussian_efficiency.py`](../olb/models/gaussian_efficiency.py) — transmit truncation loss at the launch aperture.
-- [`coupling/`](../olb/models/coupling) — the receive-coupling Terms, split by link. `_common.py` holds the shared SMF physics. `downlink.py` holds the downlink SMF and aperture coupling. `terrestrial.py` holds the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade. `fast.py` holds the FAST fibre coupling and `uplink_fast_term`, the fidelity-1 pre-compensated uplink Term.
+- [`coupling/`](../olb/models/coupling) — the receive-coupling Terms, split by link. `_common.py` holds the shared SMF physics, which is the flat-wavefront `smf_eta_max_from_a(a)` and the defocus-aberrated `smf_eta_defocused(a, c)`. `downlink.py` holds the downlink SMF and aperture coupling. `terrestrial.py` holds the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade, and the public `curvature_focus_shift(scenario)`. `fast.py` holds the FAST fibre coupling and `uplink_fast_term`, the fidelity-1 pre-compensated uplink Term.
+
+The terrestrial coupling Terms ALWAYS charge the received-beam curvature. A
+terrestrial received beam is a diverging Gaussian, so the true focus of the
+coupling optic sits BEYOND its focal plane, and the Terms evaluate the detector
+at `dz_eff = defocus_m - dz_curv`. `optimal_focus` stays a focal-LENGTH rule and
+never moves the detector. See `docs/physics.md` section 6a.
 
 The [`links/`](../olb/links) package assembles the per-link budget. It composes
 the model factories and the turbulence physics: [`uplink.py`](../olb/links/uplink.py),
 [`downlink.py`](../olb/links/downlink.py), [`retro_space.py`](../olb/links/retro_space.py),
 and [`terrestrial.py`](../olb/links/terrestrial.py).
+[`bidirectional.py`](../olb/links/bidirectional.py) is a thin wrapper on the
+terrestrial budget: one monostatic collimator defocus `dz` drives BOTH the
+transmit divergence and the receive coupling, and the wrapper returns the forward
+and the reverse budget of one horizontal path.
 
 ## 4. The result layer
 
