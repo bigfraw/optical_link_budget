@@ -405,11 +405,16 @@ The path forward for each is a second reference or a derivation.
   aperture, the diverged launch approximately 39 %), so the aperture holds the
   beam. That is the known failure of the analytic averaging factor (2-N2), and
   that column therefore does NOT test the averaging filter.
-  GATES before this becomes a default: (a) the `--full` certification run of 1-6;
-  (b) at least two more scenarios (a stronger `Cn2`, a longer path); (c) the
-  2-W1 owner reference-model decision. This is a PROPOSED design, approved for
-  the backlog only. It is NOT built, and it must not be started yet. See the
-  memory `terrestrial-calibrated-draw-plan`.
+  GATES before this becomes a default: (a) the `--full` certification run of 1-6
+  (DONE 2026-09-01, PASS to the 1 % fade; see 1-6 and physics.md 9e); (b) at
+  least two more scenarios (a stronger `Cn2`, a longer path); (c) the 2-W1 owner
+  reference-model decision. NOTE on gate (b): the lognormal SHAPE is certified
+  in the WEAK band only. In strong fluctuation even the REFIT lognormal can
+  fail (the fade PDF moves toward gamma-gamma), so the stronger-Cn2 case of
+  gate (b) must certify the SHAPE again, not only the index — a draw from a
+  wrong family stays wrong at any calibration. This is a PROPOSED design,
+  approved for the backlog only. It is NOT built, and it must not be started
+  yet. See the memory `terrestrial-calibrated-draw-plan`.
 - **1-7. REFERENCE for the residual scintillation of a pre-compensated
   uplink.** Gap 2 (0-W1) decided that NO trustworthy analytic scintillation
   form exists for a beacon + AO pre-compensated ground-to-space beam, so the
