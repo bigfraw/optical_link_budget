@@ -56,7 +56,8 @@ A scenario pairs two terminals with a channel. There are two scenario families:
   and which receives.
 - A `TerrestrialScenario` holds a `near` terminal, a `far` terminal, and a
   `TerrestrialChannel` (a `Site`, a `path_length_m`, an extinction, and a Cn2).
-  The link is one-way: `near` transmits, `far` receives.
+  It also holds a `direction`, `"forward"` (the default: `near` transmits,
+  `far` receives) or `"reverse"` (the two roles swap).
 
 Both families expose the same interface: `scenario.tx_terminal`,
 `scenario.rx_terminal`, and `scenario.channel`. So the models read one interface
@@ -131,7 +132,7 @@ Loss is positive dB. Gain is negative dB.
 
 The uplink budget folds the tracking jitter into the coupled-flux turbulence
 Term. So it does not add a separate pointing Term when turbulence is on. For the
-full runnable script, see [../validation/uplink_divergence.py](../validation/uplink_divergence.py).
+full runnable script, see [../validation/coupling_checks/uplink_divergence.py](../validation/coupling_checks/uplink_divergence.py).
 
 ## 4. The four link families
 
@@ -141,7 +142,7 @@ Build a ground transmit terminal and a space receive terminal. Set the direction
 to `"uplink"`. Call `uplink_budget(scenario, geometry)`. Pass a diverged beam with
 `Transmitter(divergence_rad=...)`; a wider beam scintillates less and points more
 easily, but spreads more. See
-[../validation/uplink_divergence.py](../validation/uplink_divergence.py).
+[../validation/coupling_checks/uplink_divergence.py](../validation/coupling_checks/uplink_divergence.py).
 
 ### Downlink (space to ground)
 

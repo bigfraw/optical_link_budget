@@ -248,7 +248,7 @@ A space link case: a ground terminal, a space terminal, and a direction.
 | `direction` | `"uplink"` or `"downlink"` or `"retro"` | — | `"uplink"` | The link direction. It sets the tx / rx roles. |
 | `channel` | `Channel` | — | `Channel()` | The space propagation channel (site plus orbit altitude). |
 | `availability_target` | float | — | `0.99` | Target link availability (0-1). |
-| `precompensation` | `DownlinkBeacon` or `LaserGuideStar` or None | — | `None` | The uplink pre-compensation source. None means the uplink is uncorrected. The models ignore this field on a downlink or a retro link. |
+| `precompensation` | `DownlinkBeacon` or `LaserGuideStar` or None | — | `None` | The uplink pre-compensation source. None means the uplink is uncorrected. A downlink or a retro scenario refuses the field at construction (`ValueError`). |
 
 The `direction` sets the roles:
 
@@ -280,20 +280,29 @@ reads it (see `api-budget.md`).
 
 A terrestrial (horizontal-path) link case: a near terminal and a far terminal.
 Both ends are on the ground, so the terminals are named for the path ends. The
-link is one-way: tx = near (the local end), rx = far (the remote end).
+link is one-way, but the path is reciprocal, so `direction` selects which end
+transmits.
 
-There is no `direction`. "Terrestrial" is a channel family, not a tx/rx
-geometry.
+The terrestrial `direction` is a different type from the space `direction`,
+because "terrestrial" is a channel family, not a tx/rx geometry.
 
 | Field | Type | Unit | Default | Meaning |
 |---|---|---|---|---|
-| `near` | `Terminal` | — | (required) | The local (transmit) end of the path. |
-| `far` | `Terminal` | — | (required) | The remote (receive) end of the path. |
+| `near` | `Terminal` | — | (required) | The local end of the path. |
+| `far` | `Terminal` | — | (required) | The remote end of the path. |
+| `direction` | `"forward"` \| `"reverse"` | — | `"forward"` | The transmit end of the path. |
 | `channel` | `TerrestrialChannel` | — | `TerrestrialChannel()` | The horizontal propagation channel. |
 | `availability_target` | float | — | `0.99` | Target link availability (0-1). |
 
-Role mapping: `tx_terminal` is `near`, `rx_terminal` is `far`. The scenario has
-no `direction` attribute.
+Role mapping:
+
+| direction | `tx_terminal` | `rx_terminal` |
+|---|---|---|
+| `forward` | `near` | `far` |
+| `reverse` | `far` | `near` |
+
+The channel does not change with the direction, because a horizontal path is
+the same in the two directions.
 
 ---
 

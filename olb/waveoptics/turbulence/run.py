@@ -337,7 +337,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                             of grid and plan is given.
         NotImplementedError: the scenario direction is "retro".
     """
-    is_space = hasattr(scenario, "direction")
+    is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
         raise NotImplementedError(
             "the retro direction is not built. A retroreflected link goes "
@@ -520,7 +520,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                              one of grid and plan is given.
         NotImplementedError: the scenario direction is "retro".
     """
-    is_space = hasattr(scenario, "direction")
+    is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
         raise NotImplementedError(
             "the retro direction is not built. See "

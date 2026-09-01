@@ -29,9 +29,17 @@ roles from its `direction`:
     downlink    space         ground
     retro       ground        ground
 
-A TerrestrialScenario is one-way along the path: tx = near (the local end),
-rx = far (the remote end). It has no `direction`, because "terrestrial" is a
-channel family, not a tx/rx geometry. All terminal hardware lives on a Terminal
+A TerrestrialScenario resolves its two roles from its own `direction`. A
+horizontal path is reciprocal, so the channel is the same in the two
+directions and only the role mapping changes:
+
+    direction   tx_terminal   rx_terminal
+    forward     near          far
+    reverse     far           near
+
+The terrestrial `direction` is a DIFFERENT type from the space `Direction`:
+"terrestrial" is a channel family, not a tx/rx geometry, so the two families
+do not share their direction names. All terminal hardware lives on a Terminal
 (see olb.terminal); a channel holds no hardware.
 
 A SpaceScenario also carries an optional pre-compensation source for the uplink
@@ -46,6 +54,7 @@ from typing import Literal, Optional, Union
 from .terminal import Terminal
 
 Direction = Literal["uplink", "downlink", "retro"]
+TerrestrialDirection = Literal["forward", "reverse"]
 
 
 # --- Pre-compensation source (uplink only) ----------------------------------
@@ -162,15 +171,24 @@ class SpaceScenario:
     pre-compensation. It applies to the UPLINK direction only. None means the
     uplink is uncorrected. A DownlinkBeacon senses the downlink beam, so it drives
     the point-ahead anisoplanatism (see olb.links.uplink). A LaserGuideStar is a
-    placeholder for a later task. The models ignore this field on a downlink or a
-    retro link.
+    placeholder for a later task. A downlink or a retro scenario refuses the
+    field at construction, because no model reads it there and a silent ignore
+    hides a user error.
     '''
     ground: Terminal
     space: Terminal
     direction: Direction = "uplink"
     channel: Channel = field(default_factory=Channel)
     availability_target: float = 0.99
-    precompensation: Optional[PreCompensationSource] = None   # target link availability (0-1)
+    precompensation: Optional[PreCompensationSource] = None   # uplink only
+
+    def __post_init__(self):
+        # Refuse a pre-compensation source on a non-uplink link. No model reads
+        # the field there, so a silent ignore hides a user error (backlog I-4).
+        if self.precompensation is not None and self.direction != "uplink":
+            raise ValueError(
+                f"precompensation applies to the uplink direction only; "
+                f"this scenario has direction={self.direction!r}")
 
     @property
     def tx_terminal(self) -> Terminal:
@@ -189,16 +207,20 @@ class TerrestrialScenario:
     A terrestrial (horizontal-path) link case: a near terminal + a far terminal.
 
     Both ends are on the ground, so the terminals are named for the path ends,
-    not ground/space. The link is one-way: tx = near (the local end), rx = far
-    (the remote end). There is no `direction`; "terrestrial" is the channel
-    family. The models read tx_terminal / rx_terminal / channel, exactly as for
-    a SpaceScenario.
+    not ground/space. The link is one-way, but the path is reciprocal, so
+    `direction` selects which end transmits: "forward" (the default) gives
+    tx = near (the local end) and rx = far (the remote end); "reverse" swaps
+    the two. The channel does not change, because a horizontal path is the same
+    in the two directions. The models read tx_terminal / rx_terminal / channel,
+    exactly as for a SpaceScenario.
 
     Parameters:
         near : Terminal
-            The local (transmit) end of the path.
+            The local end of the path.
         far : Terminal
-            The remote (receive) end of the path.
+            The remote end of the path.
+        direction : "forward" | "reverse"
+            The transmit end. "forward" transmits from near, "reverse" from far.
         channel : TerrestrialChannel
             The horizontal propagation channel (path length, attenuation, Cn2).
         availability_target : float
@@ -206,18 +228,19 @@ class TerrestrialScenario:
     '''
     near: Terminal
     far: Terminal
+    direction: TerrestrialDirection = "forward"
     channel: TerrestrialChannel = field(default_factory=TerrestrialChannel)
     availability_target: float = 0.99
 
     @property
     def tx_terminal(self) -> Terminal:
-        '''The transmit terminal: the near (local) end.'''
-        return self.near
+        '''The transmit terminal: near on a forward link, far on a reverse link.'''
+        return self.far if self.direction == "reverse" else self.near
 
     @property
     def rx_terminal(self) -> Terminal:
-        '''The receive terminal: the far (remote) end.'''
-        return self.far
+        '''The receive terminal: far on a forward link, near on a reverse link.'''
+        return self.near if self.direction == "reverse" else self.far
 
 
 if __name__ == '__main__':
@@ -250,6 +273,17 @@ if __name__ == '__main__':
     assert isinstance(lgs_up.precompensation, LaserGuideStar)
     assert lgs_up.precompensation.altitude_m == 90e3
 
+    # A non-uplink scenario refuses a pre-compensation source (backlog I-4).
+    for bad_direction in ("downlink", "retro"):
+        try:
+            SpaceScenario(ground=ground, space=space, direction=bad_direction,
+                          precompensation=DownlinkBeacon())
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(
+                f"precompensation on {bad_direction} did not raise")
+
     # --- terrestrial family -------------------------------------------------
     near = Terminal(aperture_m=0.1, transmitter=Transmitter(waist_m=0.02))
     far = Terminal(aperture_m=0.1, detector=Aperture())
@@ -260,8 +294,13 @@ if __name__ == '__main__':
     assert terr.tx_terminal is near and terr.rx_terminal is far
     assert terr.channel.path_length_m == 5e3 and terr.channel.cn2 == 1e-14
     assert terr.channel.attenuation_db_per_km == 0.5
-    # No direction on a terrestrial scenario; both families share the interface.
-    assert not hasattr(terr, "direction")
+    # The default direction is forward: tx = near, rx = far.
+    assert terr.direction == "forward"
+    # The reverse direction swaps the two roles and keeps the same channel.
+    rev = TerrestrialScenario(near=near, far=far, direction="reverse",
+                              channel=terr.channel)
+    assert rev.tx_terminal is far and rev.rx_terminal is near
+    assert rev.channel is terr.channel
     for scn in (up, terr):
         assert isinstance(scn.tx_terminal, Terminal)
         assert isinstance(scn.rx_terminal, Terminal)

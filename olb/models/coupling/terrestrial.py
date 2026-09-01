@@ -390,8 +390,10 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
 
     Parameters:
         scenario : TerrestrialScenario
-            tx = near (its Transmitter waist launches the beam); rx = far (its
-            SMF detector, aperture, obscuration, and compensation stack).
+            The tx terminal's Transmitter waist launches the beam; the rx
+            terminal supplies the SMF detector, aperture, obscuration, and
+            compensation stack. The scenario `direction` maps the roles
+            (forward: tx = near, rx = far; reverse swaps them).
         geometry : HorizontalPath
             Unused here (path length and Cn2 come from the channel). Kept for the
             f(scenario, geometry) -> Term signature.
@@ -643,9 +645,11 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
 
     Parameters:
         scenario : TerrestrialScenario
-            tx = near (its Transmitter launches the beam); rx = far (its SMF
-            detector with focal_length_m and mode_field_radius_m, its
-            pointing_jitter_rad, and its compensation stack).
+            The tx terminal's Transmitter launches the beam; the rx terminal
+            supplies the SMF detector with focal_length_m and
+            mode_field_radius_m, its pointing_jitter_rad, and its compensation
+            stack. The scenario `direction` maps the roles (forward: tx = near,
+            rx = far; reverse swaps them).
         geometry : HorizontalPath
             Unused (the path length and Cn2 come from the channel). Kept for the
             f(scenario, geometry) -> Term signature.
@@ -871,8 +875,10 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
 
     Parameters:
         scenario : TerrestrialScenario
-            tx = near (its Transmitter launches the beam); rx = far (its MMF
-            detector, aperture, pointing_jitter_rad, and compensation stack).
+            The tx terminal's Transmitter launches the beam; the rx terminal
+            supplies the MMF detector, aperture, pointing_jitter_rad, and
+            compensation stack. The scenario `direction` maps the roles
+            (forward: tx = near, rx = far; reverse swaps them).
         geometry : HorizontalPath
             Unused (the path length and Cn2 come from the channel). Kept for the
             f(scenario, geometry) -> Term signature.

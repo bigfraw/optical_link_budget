@@ -156,9 +156,11 @@ two roles from its `direction`:
 | downlink | space | ground |
 | retro | ground | ground |
 
-A `TerrestrialScenario` is one-way along the path: tx = near, rx = far. It has
-NO `direction`, because "terrestrial" is a channel family, not a tx/rx
-geometry.
+A `TerrestrialScenario` has its own `direction`, because a horizontal path is
+reciprocal: `"forward"` (the default) gives tx = near, rx = far, and
+`"reverse"` swaps the two. The channel does not change. That direction is a
+DIFFERENT type from the space `direction`, because "terrestrial" is a channel
+family, not a tx/rx geometry.
 
 A `SpaceScenario` also carries an optional `precompensation` source for the
 uplink: a `DownlinkBeacon`, a `LaserGuideStar` (a placeholder), or None. The

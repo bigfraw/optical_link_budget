@@ -44,14 +44,16 @@ README fidelity ladder.
   `Channel` is the space propagation channel: `site` plus the orbit
   `altitude_m`. A `TerrestrialScenario` is the horizontal (ground-to-ground)
   family. It holds two terminals (`near`, `far`) and a `TerrestrialChannel`
-  (`site`, `path_length_m`, `attenuation_db_per_km`, `cn2`). It has NO
-  `direction`, because "terrestrial" is a channel family, not a tx/rx geometry.
-  A channel holds NO hardware. Both families expose the SAME interface that the
+  (`site`, `path_length_m`, `attenuation_db_per_km`, `cn2`). It holds its OWN
+  `direction` (`TerrestrialDirection`, "forward" | "reverse"), a DIFFERENT type
+  from the space `Direction`, because "terrestrial" is a channel family, not a
+  tx/rx geometry. A channel holds NO hardware. Both families expose the SAME interface that the
   models read: `scenario.tx_terminal`, `scenario.rx_terminal`,
   `scenario.channel`. So no model changes between the families. A SpaceScenario
   sets the roles from the direction: uplink -> tx=ground, rx=space; downlink ->
-  tx=space, rx=ground; retro -> tx=rx=ground. A TerrestrialScenario is one-way:
-  tx=near, rx=far. There is NO `Scenario` alias and NO `Link` dataclass. `Site`
+  tx=space, rx=ground; retro -> tx=rx=ground. A TerrestrialScenario sets the
+  roles the same way: forward (the default) -> tx=near, rx=far; reverse ->
+  tx=far, rx=near. The channel is symmetric, so only the roles change. There is NO `Scenario` alias and NO `Link` dataclass. `Site`
   stays. A SpaceScenario also holds an optional uplink `precompensation` source
   (`DownlinkBeacon`, `LaserGuideStar` (a placeholder), or None); the uplink
   budget reads it to select the turbulence physics.

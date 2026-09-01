@@ -572,7 +572,7 @@ def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
     lam = scenario.tx_terminal.wavelength_m
     warns = []
 
-    if hasattr(scenario, "direction"):
+    if hasattr(scenario, "ground"):          # a space scenario; terrestrial has near/far
         plan, r_beam, feature = _plan_space(
             scenario, geometry, p, lam, hs, cn2_profile, warns)
     else:

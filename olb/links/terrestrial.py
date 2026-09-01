@@ -98,9 +98,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
 
     Parameters:
         scenario : TerrestrialScenario
-            tx = near (its Transmitter waist launches the beam); rx = far (its
-            aperture diameter D and wavelength set the averaging). Reads the
-            channel path length L and the constant Cn2.
+            The tx terminal's Transmitter waist launches the beam; the rx
+            terminal's aperture diameter D and wavelength set the averaging.
+            The scenario `direction` maps the roles (forward: tx = near,
+            rx = far; reverse swaps them). Reads the channel path length L and
+            the constant Cn2.
         geometry : HorizontalPath
             Unused here (the path length and Cn2 come from the channel). Kept for
             the f(scenario, geometry) -> Term signature.
@@ -404,8 +406,9 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
 
     Parameters:
         scenario : TerrestrialScenario
-            A terrestrial link case. tx = near end, rx = far end. Its
-            TerrestrialChannel carries path_length_m, attenuation_db_per_km, cn2.
+            A terrestrial link case. The `direction` maps the roles (forward:
+            tx = near, rx = far; reverse swaps them). Its TerrestrialChannel
+            carries path_length_m, attenuation_db_per_km, cn2.
         geometry : HorizontalPath
             The horizontal path (reads slant_range_m = path length).
         fidelity : int

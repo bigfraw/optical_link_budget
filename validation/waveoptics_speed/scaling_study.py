@@ -214,7 +214,7 @@ def build_setup(name, generator):
     """
     scn, geom, hs, cn2, preset_name = _build_case(name)
     p = PRESETS[preset_name]
-    is_space = hasattr(scn, "direction")
+    is_space = hasattr(scn, "ground")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         grid, plan, report = turbulent_grid(scn, geom, preset=p, hs=hs,

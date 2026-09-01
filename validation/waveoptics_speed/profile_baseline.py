@@ -234,7 +234,7 @@ def run_case(name, preset_name, builder):
     """Profile one case. Return a result dict."""
     scn, geom, hs, cn2 = builder()
     p = PRESETS[preset_name]
-    is_space = hasattr(scn, "direction")
+    is_space = hasattr(scn, "ground")
 
     warns = []
     with warnings.catch_warnings(record=True) as caught:

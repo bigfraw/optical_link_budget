@@ -510,7 +510,9 @@ def _recap(scenario, geometry, grid, plan, report, n_trials, preset):
     shows what the sizer picked, so a caller sees the run before it starts. It
     reads only; it changes nothing. See turbulent_grid and SamplingReport.
     '''
-    direction = getattr(scenario, "direction", "terrestrial")
+    # A space scenario has a `ground` terminal; a terrestrial one does not.
+    direction = (scenario.direction if hasattr(scenario, "ground")
+                 else f"terrestrial ({scenario.direction})")
     range_m = float(np.ravel(geometry.slant_range_m)[0])
     elev = getattr(geometry, "elevation_deg", None)
     route = "scaled (co-moving)" if grid.scaled else "flat"
@@ -605,7 +607,7 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
     from ..waveoptics.run import propagate_scenario
-    is_space = hasattr(scenario, "direction")
+    is_space = hasattr(scenario, "ground")   # a terrestrial scenario has near/far
     if vacuum is None:
         vacuum = "analytic" if is_space else "wave"
     if vacuum not in ("analytic", "wave"):
