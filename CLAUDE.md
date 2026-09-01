@@ -13,9 +13,12 @@ argument per budget. **Fidelity 0** is analytic (closed-form, the most
 assumptions). **Fidelity 1** is statistical (a distribution or Monte Carlo — FAST
 coupling, coupled-flux uplink — a real fade, some assumptions). **Fidelity 2** is
 wave optics (a split-step field solve, assumption-free, the most expensive); it
-appears as TWO Terms, a deterministic vacuum-optics Term (the full no-turbulence
-loss launch to detector) and a stochastic turbulence Term, with only the analytic
-extinction and pointing Terms alongside. Fidelity 1 does not exist for a
+appears as a stochastic turbulence Term plus a deterministic geometric loss, with
+only the analytic extinction and pointing Terms alongside. The geometric loss is
+the wave-optics vacuum Term for a TERRESTRIAL link, but the ANALYTIC geometric
+Term for a SPACE link (the default; a ground-space link is far field, so the
+full-path wave vacuum run is skipped — it is slow and grid-noise-limited;
+`run_fidelity2(vacuum="wave")` opts back in). Fidelity 1 does not exist for a
 terrestrial link (FAST is far-field; a near-field Gaussian beam needs fidelity 2).
 Fidelity 2 needs a precomputed `wave` bundle from
 `olb.models.waveoptics.run_fidelity2`; the budget never runs the sim itself. See the
@@ -420,11 +423,25 @@ Open items:
   the budget never runs the sim. TERRESTRIAL is simulated end to end on one flat
   grid (the vacuum run shares that grid, so the turbulence penalty = turbulent /
   vacuum is exact); SPACE cannot be (the turbulent runner does only the ~20 km
-  slab with a plane-wave input), so the vacuum run uses its own co-moving grid
-  over the full slant range and the two Terms add (the slab outputs are
-  vacuum-limit-1.0 penalties). The vacuum-optics Term matches the analytic
-  geometric closely (uplink 33.67 vs 33.63 dB). All default budgets are UNCHANGED
-  (terrestrial fidelity=0, downlink/uplink fidelity=1). Fidelity 1 is
+  slab with a plane-wave input), so the slab outputs are vacuum-limit-1.0
+  penalties and the geometric loss is a SEPARATE additive Term. **The SPACE
+  geometric loss is ANALYTIC by default (2026-08-31, `run_fidelity2` default
+  `vacuum="analytic"`).** A ground-space link is far field, so the analytic
+  geometric Term (`geometric_loss_term` + the opt-in `tx_gaussian_efficiency_term`
+  truncation) is exact AND cheap, and the budget uses it (`wave.vacuum` is None).
+  The wave-optics vacuum run over the full slant range is SKIPPED: it costs ~14 s
+  and is grid-noise-limited (it cannot resolve the mm-scale aperture edges over a
+  ~2000 km path, so the loss scatters +/- 1 to 4 dB and does not converge at a
+  practical grid size — this ALSO removes the coarse-grid `GridSpec` warning that
+  full-path run emitted). `run_fidelity2(vacuum="wave")` opts a space link back
+  into the wave-optics vacuum Term (research / cross-check). A TERRESTRIAL link
+  keeps the wave vacuum (its penalty is turbulent / vacuum on the SAME grid, an
+  exact baseline; `vacuum="analytic"` raises for terrestrial). The analytic
+  geometric Term matches the fidelity-0/1 geometric exactly (uplink 33.63 dB),
+  and `validation/vacuum_loss/vacuum_loss_validation.py` cross-checks it against a
+  well-resolved wave solve (terrestrial far field agrees to ~0.15 dB) and shows
+  the space full-path scatter. All default budgets are UNCHANGED (terrestrial
+  fidelity=0, downlink/uplink fidelity=1). Fidelity 1 is
   UNAVAILABLE for terrestrial (raises, backlog 1-1); fidelity 0 is unavailable
   for an uncorrected uplink (raises); fidelity 2 is unavailable for a
   pre-compensated uplink and for retro (raises — the folded double pass shares

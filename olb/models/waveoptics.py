@@ -78,7 +78,10 @@ class Fidelity2Bundle:
         vacuum    : the WaveResult of one no-turbulence propagation
                     (olb.waveoptics.run.propagate_scenario). It gives the full
                     geometric spread, the launch truncation, the aperture
-                    capture, and the vacuum fibre coupling.
+                    capture, and the vacuum fibre coupling. It is None when the
+                    geometric loss is analytic (the default for a space link;
+                    see run_fidelity2 vacuum="analytic"): the budget then uses
+                    the analytic geometric Term, not a wave-optics vacuum Term.
         turbulent : the TurbWaveResult of the split-step Monte Carlo
                     (olb.waveoptics.turbulence.propagate_turbulent_scenario). It
                     gives the turbulence penalty.
@@ -498,26 +501,83 @@ def waveoptics_vacuum_term(result, *, include_smf=None, name=None,
                 meta=meta, assumptions=assumptions)
 
 
+def _recap(scenario, geometry, grid, plan, report, n_trials, preset):
+    '''
+    Format the auto-chosen fidelity-2 run parameters as a text block.
+
+    The grid, the screen plan, and the sampling quality are ALL chosen by
+    turbulent_grid from the scenario, the geometry, and the preset. This block
+    shows what the sizer picked, so a caller sees the run before it starts. It
+    reads only; it changes nothing. See turbulent_grid and SamplingReport.
+    '''
+    direction = getattr(scenario, "direction", "terrestrial")
+    range_m = float(np.ravel(geometry.slant_range_m)[0])
+    elev = getattr(geometry, "elevation_deg", None)
+    route = "scaled (co-moving)" if grid.scaled else "flat"
+    n_screens = int(np.asarray(plan.z_m).size)
+
+    lines = ["=" * 62,
+             "run_fidelity2: auto-chosen parameters",
+             "-" * 62,
+             f"  link          {direction}"
+             + (f", {elev:.1f} deg elevation" if elev is not None else ""),
+             f"  range         {range_m / 1e3:.3f} km",
+             f"  trials        {n_trials}   preset {preset!r}",
+             f"  grid          {grid.n} x {grid.n} px, {grid.size_m:.4g} m side, "
+             f"{grid.pixel_m * 1e3:.4g} mm/px, {route}",
+             f"  screens       {n_screens}   path {plan.z_total_m / 1e3:.3f} km   "
+             f"r0(path) {plan.r0_total_m * 1e2:.3f} cm"]
+    if report is not None:
+        lines += [
+            f"  pixels/r0     {report.pixels_per_r0:.2f}   "
+            f"(target from the preset)",
+            f"  grid margin   {report.grid_margin:.2f}   "
+            f"(>= 1.0 fits the light)",
+            f"  Fresnel px    {report.fresnel_pixels_min:.2f}   "
+            f"(>= 2 is good)",
+            f"  step/limit    {report.step_over_limit_max:.2f}   "
+            f"(<= 1.0 needs no sub-step)",
+            f"  sigma2_r/scr  {report.sigma2_r_screen_max:.3f}   "
+            f"(plane-wave Rytov, per screen)"]
+        if report.n_clamped:
+            lines.append("  NOTE          pixel count hit n_max; the grid is "
+                         "coarser than the preset asks.")
+        for w in report.warnings:
+            lines.append(f"  WARNING       {w}")
+    lines.append("=" * 62)
+    return "\n".join(lines)
+
+
 def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, hs=None, cn2_profile=None,
-                  L0_m=np.inf, subharmonics=True):
+                  L0_m=np.inf, subharmonics=True, progress=True, vacuum=None):
     '''
-    Run BOTH wave-optics propagations a fidelity-2 budget needs, ONE time each.
+    Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
-    A fidelity-2 budget shows two Terms, from two runs:
-      - the TURBULENT split-step Monte Carlo (the fade), sized by turbulent_grid;
-      - the VACUUM no-turbulence propagation (the full geometric loss).
+    A fidelity-2 budget shows a TURBULENT split-step Monte Carlo (the fade,
+    sized by turbulent_grid) plus a no-turbulence GEOMETRIC loss. The geometric
+    loss has two sources, and `vacuum` selects it:
 
-    The grids differ by direction, and getting them right is the whole point:
-      - SPACE: the turbulent runner propagates only the ~20 km atmosphere slab
-        with a plane-wave input on a flat grid; it holds NONE of the full-path
-        (600 km) diffraction, and its outputs are vacuum-limit-1.0 penalties. So
-        the vacuum run uses its OWN co-moving grid over the full slant range, and
-        the two Terms add cleanly.
-      - TERRESTRIAL: the turbulent runner propagates the real launch beam over
-        the full path, so its collected power holds the geometric spread. The
-        vacuum run therefore uses the SAME flat grid, so the turbulence penalty
-        (turbulent / vacuum on that grid) is exact.
+      - SPACE ("analytic", the default). A ground-space link is ALWAYS far field
+        (the Fraunhofer distance of a 0.1 m aperture at 1550 nm is about 6 km,
+        far shorter than any orbit range), so the analytic geometric Term is
+        exact, and the budget uses it. The wave-optics vacuum run is NOT made.
+        This is faster (it skips a ~14 s full-path field solve) AND more
+        trustworthy: the full-path grid cannot resolve the mm-scale aperture
+        edges over a ~2000 km path, so its vacuum loss scatters by +/- 1 to 4 dB
+        and does not converge at a practical grid size (validation/vacuum_loss).
+        The turbulent slab outputs are vacuum-limit-1.0 penalties, so they add to
+        the analytic geometric loss with no double-count.
+      - TERRESTRIAL ("wave", forced). A short horizontal path is NEAR field, so
+        the analytic far-field truncation breaks. The turbulent runner
+        propagates the real launch beam over the full path, and the vacuum run
+        shares the SAME flat grid, so the turbulence penalty (turbulent / vacuum
+        on that grid) is exact. So a terrestrial link MUST keep the wave vacuum.
+
+    `vacuum="wave"` opts a SPACE link back into the wave vacuum run (for
+    research or a cross-check); the budget then shows the wave-optics vacuum
+    Term. `vacuum="analytic"` is not available for a terrestrial link (it
+    raises), because the near-field penalty needs the vacuum baseline.
 
     The budget never runs a simulation; it consumes the Fidelity2Bundle this
     returns. Give the same seed to repeat the atmosphere.
@@ -526,28 +586,57 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         scenario, geometry : the link case and geometry (one range only).
         n_trials, preset, seed, threader, hs, cn2_profile, L0_m, subharmonics :
             passed to the turbulent run (see run_waveoptics).
+        progress : True (the default) prints a recap of the auto-chosen grid,
+            screen plan, and sampling quality, then shows a tqdm bar over the
+            turbulent trials. The bar needs the optional tqdm package; without
+            tqdm the run goes on with no bar (the recap still prints). The
+            one-time vacuum run has no bar. Pass progress=False for a quiet run
+            (a script, a test).
+        vacuum : "analytic", "wave", or None. None (the default) picks
+            "analytic" for a space link and "wave" for a terrestrial link.
+            "analytic" skips the wave vacuum run (the bundle vacuum is None);
+            "wave" runs it. "analytic" raises for a terrestrial link.
 
     Returns:
         Fidelity2Bundle
-            The vacuum WaveResult and the turbulent TurbWaveResult.
+            The turbulent TurbWaveResult, and the vacuum WaveResult ("wave") or
+            None ("analytic", a space link uses the analytic geometric Term).
     '''
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
     from ..waveoptics.run import propagate_scenario
-    grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
-                                   cn2_profile=cn2_profile, L0_m=L0_m)
+    is_space = hasattr(scenario, "direction")
+    if vacuum is None:
+        vacuum = "analytic" if is_space else "wave"
+    if vacuum not in ("analytic", "wave"):
+        raise ValueError(
+            f"vacuum must be 'analytic', 'wave', or None, got {vacuum!r}.")
+    if vacuum == "analytic" and not is_space:
+        raise ValueError(
+            "vacuum='analytic' is not available for a terrestrial link. The "
+            "near-field turbulence penalty is turbulent / vacuum on the SAME "
+            "flat grid, so the wave vacuum run is required. Use vacuum='wave'.")
+    grid, plan, report = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
+                                        cn2_profile=cn2_profile, L0_m=L0_m)
+    if progress:
+        print(_recap(scenario, geometry, grid, plan, report, n_trials, preset))
     turbulent = propagate_turbulent_scenario(
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, hs=hs, cn2_profile=cn2_profile, L0_m=L0_m,
-        subharmonics=subharmonics, threader=threader)
-    if hasattr(scenario, "direction"):
-        # SPACE: the vacuum run needs its own co-moving grid over the full path.
-        vacuum = propagate_scenario(scenario, geometry)
+        subharmonics=subharmonics, threader=threader, progress=progress)
+    if vacuum == "analytic":
+        # SPACE far field: the budget uses the analytic geometric Term. No
+        # full-path field solve (it is slow and grid-noise-limited here).
+        vac = None
+    elif is_space:
+        # SPACE, opted in: the vacuum run needs its own co-moving grid over the
+        # full slant range.
+        vac = propagate_scenario(scenario, geometry)
     else:
         # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
         # turbulence penalty (turbulent / vacuum) is exact.
-        vacuum = propagate_scenario(scenario, geometry, grid=grid)
-    return Fidelity2Bundle(vacuum=vacuum, turbulent=turbulent)
+        vac = propagate_scenario(scenario, geometry, grid=grid)
+    return Fidelity2Bundle(vacuum=vac, turbulent=turbulent)
 
 
 if __name__ == '__main__':

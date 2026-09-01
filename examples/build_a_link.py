@@ -36,6 +36,8 @@ import numpy as np
 
 from olb import (SpaceScenario, Channel, Site, CircularOrbit, Terminal, Transmitter,
                  Aperture, SMF, TipTilt, AO, uplink_budget, downlink_budget)
+from olb.models.waveoptics import run_fidelity2
+from olb.waveoptics.threader import Threader
 
 
 def main():
@@ -100,25 +102,64 @@ def main():
     assert uplink.tx_terminal is ground_tx and uplink.rx_terminal is space_rx
     assert downlink.tx_terminal is space_tx and downlink.rx_terminal is ground_rx
 
-    # --- 4. Run the link both ways ----------------------------------------
-    # Uplink: the ground beam director transmits, the satellite receiver reads
-    # the bucket. The beam fights the ground turbulence right at launch (wander
-    # + scintillation).
-    up = uplink_budget(uplink, geom, n_samples=4000)  # no FAST needed for bucket
-
-    # Downlink: the satellite transmits, the large ground telescope receives
-    # with AO + fibre.
-    down = downlink_budget(downlink, geom, fidelity=1)
-
+    # A small helper: print each direction's Term table and a Monte Carlo
+    # summary. Both budget families read the SAME interface, so one reporter
+    # serves fidelity 0/1 and fidelity 2 with no change.
     rng = np.random.default_rng(0)
-    for name, budget in (("UPLINK  (ground beam director -> satellite)", up),
-                        ("DOWNLINK (satellite -> ground telescope)", down)):
-        print("=" * 62)
-        print(f'{geom.elevation_deg:5.0f} deg elevation | {name}')
-        print(budget.to_frame()[["name", "mean_db"]].to_string(index=False))
-        mc = budget.monte_carlo(8000, rng=rng, availabilities=(0.99,))
-        print(f"mean loss {float(mc['mean_loss_db']):6.2f} dB   "
-            f"fade 99% {float(mc['fade_db'][0.99]):6.2f} dB\n")
+
+    def report(title, up, down):
+        print("#" * 62)
+        print(f"# {title}")
+        for name, budget in (("UPLINK  (ground beam director -> satellite)", up),
+                             ("DOWNLINK (satellite -> ground telescope)", down)):
+            print("=" * 62)
+            print(f'{geom.elevation_deg:5.0f} deg elevation | {name}')
+            print(budget.to_frame()[["name", "mean_db"]].to_string(index=False))
+            print(budget.assumptions_frame())
+            mc = budget.monte_carlo(8000, rng=rng, availabilities=(0.99,))
+            # A mean-only (fidelity-0) coupling Term, for example the analytic
+            # single-mode fibre coupling, models the expected loss but not the
+            # fade. The budget then suppresses the fade rather than understate the
+            # tail. monte_carlo reports this with the fade_available flag
+            # (Budget.provides_fade), so read the flag, not fade_db is None.
+            if not mc["fade_available"]:
+                print(f"mean loss {float(mc['mean_loss_db']):6.2f} dB   "
+                      f"fade 99% N/A -- mean-only fidelity-0 coupling, no fade\n")
+            else:
+                print(f"mean loss {float(mc['mean_loss_db']):6.2f} dB   "
+                      f"fade 99% {float(mc['fade_db'][0.99]):6.2f} dB\n")
+
+    # --- 4. The DEFAULT budgets (fidelity 0/1) ----------------------------
+    # The everyday path: no wave-optics simulation. The uplink is the
+    # coupled-flux Monte Carlo (fidelity 1, a real fade for the satellite
+    # bucket, no FAST needed). The downlink is the FAST modal-overlap fibre
+    # coupling (fidelity 1); if fast-aosim is not installed it falls back to the
+    # analytic mean-only coupling (fidelity 0).
+    up1 = uplink_budget(uplink, geom, fidelity=1, n_samples=4000)
+    try:
+        down1 = downlink_budget(downlink, geom, fidelity=1)
+    except ImportError:
+        print("fast-aosim not installed; the downlink uses fidelity 0 "
+              "(analytic mean-only coupling).")
+        down1 = downlink_budget(downlink, geom, fidelity=0)
+    report("fidelity 0/1  (analytic / statistical, no wave optics)", up1, down1)
+
+    # --- 5. The WAVE-OPTICS budgets (fidelity 2) --------------------------
+    # fidelity=2 does NOT run the split-step sim implicitly. Precompute the wave
+    # bundle ONCE per direction, then pass it as wave=. For a SPACE link the
+    # geometric loss is ANALYTIC by default (a ground-space link is far field),
+    # so run_fidelity2 SKIPS the vacuum propagation and only the turbulent Monte
+    # Carlo runs. Pass vacuum="wave" to opt back into the wave-optics vacuum Term.
+    # print('running fidelity=2 waveoptics for uplink...')
+
+    # th = Threader(max_workers=8)
+    # up2_wave = run_fidelity2(uplink, geom, n_trials=200, seed=0, threader=th)
+    # up2 = uplink_budget(uplink, geom, fidelity=2, wave=up2_wave)
+
+    # print('running fidelity=2 waveoptics for downlink...')
+    # down2_wave = run_fidelity2(downlink, geom, n_trials=200, seed=0, threader=th)
+    # down2 = downlink_budget(downlink, geom, fidelity=2, wave=down2_wave)
+    # report("fidelity 2  (wave optics)", up2, down2)
 
     print("=" * 62)
     print("A bistatic station transmits and receives through DIFFERENT "

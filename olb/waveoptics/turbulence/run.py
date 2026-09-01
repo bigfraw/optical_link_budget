@@ -52,6 +52,31 @@ from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
 
 
+def _progress_bar(progress, total, desc):
+    """Make a tqdm bar over the trials, or None.
+
+    tqdm is an OPTIONAL import. progress=True with no tqdm gives no bar and a
+    warning, so a progress request never stops a run.
+
+    Args:
+        progress: True for a bar, False (or None) for no bar.
+        total:    the number of trials, the bar length.
+        desc:     the bar label.
+
+    Returns:
+        A tqdm instance, or None.
+    """
+    if not progress:
+        return None
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        warnings.warn("progress=True needs the tqdm package. Install tqdm, or "
+                      "pass progress=False. The run goes on with no bar.")
+        return None
+    return tqdm(total=total, desc=desc)
+
+
 @dataclass(frozen=True)
 class TurbTrial:
     """One atmosphere snapshot.
@@ -252,7 +277,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  hs=None, cn2_profile=None, L0_m=np.inf,
                                  subharmonics=True, threader=None,
-                                 screen_generator="olb"):
+                                 screen_generator="olb", progress=False):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -297,6 +322,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       an old aotools run bit-identical. The two generators give
                       DIFFERENT random draws for the same seed; the statistics
                       agree, so use "olb" for speed.
+        progress:     True shows a tqdm bar that advances one step for each
+                      finished trial. It needs the optional tqdm package; if
+                      tqdm is not installed, the run goes on with no bar and a
+                      warning. False (the default) shows no bar. With a threader
+                      the bar advances in the finishing order, not the trial
+                      order, but the returned trials keep the trial order.
 
     Returns:
         A TurbWaveResult.
@@ -428,10 +459,20 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                          wall_time_s=time.perf_counter() - t0,
                          mmf_eta=mmf_eta)
 
-    if threader is None:
-        trials = [run_one(k) for k in range(n_trials)]
-    else:
-        trials = threader.map(run_one, range(n_trials))
+    bar = _progress_bar(progress, n_trials, "turbulent trials")
+    try:
+        if threader is None:
+            trials = []
+            for k in range(n_trials):
+                trials.append(run_one(k))
+                if bar is not None:
+                    bar.update(1)
+        else:
+            cb = (lambda done, total: bar.update(1)) if bar is not None else None
+            trials = threader.map(run_one, range(n_trials), progress=cb)
+    finally:
+        if bar is not None:
+            bar.close()
 
     return TurbWaveResult(trials=trials, grid=grid, plan=plan, report=report,
                           preset=p.name, seed_entropy=seed_entropy)

@@ -481,14 +481,17 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     A space uplink cannot be simulated end to end (the turbulent runner
     propagates only the ~20 km slab as a downlink and reads the uplink through
     reciprocity; the full slant range is absent), so the loss splits into:
-      - a DETERMINISTIC vacuum-optics Term (the full no-turbulence loss over the
-        slant range: launch truncation + geometric spread + satellite-aperture
-        capture, from the co-moving-grid vacuum run);
+      - a DETERMINISTIC geometric-loss Term (launch truncation + geometric
+        spread + satellite-aperture capture). By default this is the ANALYTIC
+        far-field Term (wave.vacuum is None), because a space link is far field
+        and the wave vacuum run is slow and grid-noise-limited over the full
+        slant range (see run_fidelity2). With vacuum="wave" it is the
+        wave-optics vacuum-optics Term from the co-moving-grid vacuum run.
       - a STOCHASTIC turbulence Term from the reciprocity overlap eta_turb
         (Shapiro, DOI 10.1364/JOSA.61.000492), the pure turbulence penalty.
-    Together they replace the analytic geometric, launch-truncation, and
-    coupled-flux Terms. The tracking jitter stays in the standalone pointing Term
-    (the reciprocity overlap holds no jitter). `wave` is a Fidelity2Bundle from
+    Together they replace the analytic coupled-flux Term. The tracking jitter
+    stays in the standalone pointing Term (the reciprocity overlap holds no
+    jitter). `wave` is a Fidelity2Bundle from
     olb.models.waveoptics.run_fidelity2.
 
     The reciprocity route reads the SAME screens up and down, so it does NOT model
@@ -505,8 +508,20 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
         )
     sigma2_I = float(plane_wave_scintillation_index(
         float(elev), scenario.tx_terminal.wavelength_m, hs, cn2_profile))
-    vac = waveoptics_vacuum_term(wave.vacuum, include_smf=False,
-                                 beam_type=BEAM_GAUSSIAN)
+    if wave.vacuum is None:
+        # ANALYTIC geometric loss (the default for a space link). The link is far
+        # field, so the analytic Term is exact and the wave vacuum run is skipped
+        # (it is slow and grid-noise-limited over the full slant range; see
+        # olb.models.waveoptics.run_fidelity2 and validation/vacuum_loss). The
+        # launch-truncation Term is opt-in, the same rule as the analytic budget.
+        geo = [geometric_loss_term(scenario, geometry)]
+        eff = tx_gaussian_efficiency_term(scenario, geometry)
+        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+            geo.append(eff)
+    else:
+        # The wave-optics vacuum Term (opt-in for space, vacuum="wave").
+        geo = [waveoptics_vacuum_term(wave.vacuum, include_smf=False,
+                                      beam_type=BEAM_GAUSSIAN)]
     pen = waveoptics_turbulence_term(
         wave.turbulent, quantity="eta_turb", beam_type=BEAM_GAUSSIAN,
         sigma2_I=sigma2_I,
@@ -514,7 +529,7 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
              "turbulence penalty: the free-space spread, the launch truncation, "
              "and the satellite-aperture capture are in the vacuum-optics Term, "
              "and the tracking jitter is in the pointing Term.")
-    return [vac, pen]
+    return geo + [pen]
 
 
 def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
@@ -1042,12 +1057,15 @@ if __name__ == '__main__':
     assert default_turb.meta.get("model") != "waveoptics"
     assert default_turb.name == "turbulence (coupled-flux)"
 
-    # A real fidelity-2 uncorrected uplink (skip if aotools absent): vacuum +
-    # reciprocity Terms, the standalone pointing Term kept, a real fade.
+    # A real fidelity-2 uncorrected uplink (skip if aotools absent). The DEFAULT
+    # geometric loss is ANALYTIC (a space link is far field, so wave.vacuum is
+    # None): the analytic "geometric spreading" Term plus the reciprocity
+    # turbulence Term, the standalone pointing Term kept, a real fade.
     from ..models.waveoptics import run_fidelity2
     try:
         wo_bundle = run_fidelity2(
             budget_scn, budget_geom, preset="rapid", n_trials=16, seed=9,
+            progress=False,
             cn2_profile=default_cn2_profile(budget_scn.channel.site))
         wo_up = uplink_budget(
             budget_scn, budget_geom, fidelity=2, wave=wo_bundle,
@@ -1056,15 +1074,17 @@ if __name__ == '__main__':
         wo_up = None
         print("aotools not installed; skipping the uplink fidelity-2 run.")
     if wo_up is not None:
-        vac = next(t for t in wo_up.terms if t.meta.get("model") == "waveoptics-vacuum")
+        assert wo_bundle.vacuum is None, "space defaults to the analytic vacuum"
+        geo = next(t for t in wo_up.terms if t.name == "geometric spreading")
         turb = next(t for t in wo_up.terms if t.meta.get("model") == "waveoptics")
-        assert not vac.stochastic and turb.stochastic
-        assert "geometric spreading" not in [t.name for t in wo_up.terms]
+        assert geo.category == "geometric" and not geo.stochastic and turb.stochastic
+        assert not any(t.meta.get("model") == "waveoptics-vacuum"
+                       for t in wo_up.terms)
         # The reciprocity Term holds no jitter, so the pointing Term fires.
         assert any(t.category == "pointing" for t in wo_up.terms)
         assert wo_up.provides_fade and np.isfinite(wo_up.fade_margin_db(0.9))
-        print(f"uplink fidelity 2 (600 km, 60 deg, rapid, 16 trials): vacuum "
-              f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB")
+        print(f"uplink fidelity 2 (600 km, 60 deg, rapid, 16 trials): analytic "
+              f"geometry {geo.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB")
 
     print('\n' + '=' * 40)
     print(f"point-ahead angle: {pa_term.meta['theta_paa_rad'] * 1e6:.2f} urad, "

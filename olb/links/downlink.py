@@ -35,6 +35,8 @@ from ..assumptions import (trace_assumptions, BEAM_PLANE_WAVE, REGIME_STRONG,
                           REGIME_WEAK, SPECTRUM_KOLMOGOROV)
 from ..models.fade import irradiance_fade_term
 from ..models.geometric import geometric_loss_term
+from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
+from .uplink import TX_TRUNCATION_MIN_DB
 from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..turbulence.andrews.distributions import (gamma_gamma_mean_log,
@@ -279,22 +281,26 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     A space link cannot be simulated end to end (the sim propagates only the
     ~20 km atmosphere slab with a plane-wave input; the full slant path is
     absent), so the loss splits into:
-      - a DETERMINISTIC vacuum-optics Term (the full no-turbulence loss over the
-        slant range, from the co-moving-grid vacuum run: geometric spread +
-        aperture capture + vacuum fibre coupling);
+      - a DETERMINISTIC geometric-loss Term (geometric spread + aperture capture
+        + launch truncation). By default this is the ANALYTIC far-field Term
+        (wave.vacuum is None), because a space link is far field and the wave
+        vacuum run is slow and grid-noise-limited over the full slant range (see
+        run_fidelity2). With vacuum="wave" it is the wave-optics vacuum Term
+        (which also carries the vacuum fibre coupling for an SMF receiver).
       - one or two STOCHASTIC Terms (the slab turbulence penalty, vacuum-limit
-        1.0), which multiply the vacuum loss.
+        1.0).
     Together they replace the analytic geometric and scintillation/coupling Terms.
     `wave` is a Fidelity2Bundle from olb.models.waveoptics.run_fidelity2.
 
     An SMF receiver gets the composite fibre penalty (aperture-power penalty x
-    fibre coupling, with the static co-moving coupling cancelled against the
-    vacuum Term). An MMF (light-bucket) receiver gets TWO stochastic Terms: the
-    aperture-power penalty, and one MMF coupling Term. The MMF coupling reads the
-    ABSOLUTE core-capture (mmf_eta), so it holds the static encircled-energy
-    floor, and NO vacuum baseline is subtracted (the vacuum Term carries no
-    coupling for an MMF receiver). An Aperture / no-detector receiver gets the
-    aperture-power penalty alone.
+    ABSOLUTE slab fibre coupling smf_eta). In the wave-vacuum branch the static
+    co-moving coupling is cancelled against the vacuum Term (vac_smf_db); in the
+    analytic branch the analytic geometric Term carries no coupling, so the
+    absolute smf_eta stands alone. An MMF (light-bucket) receiver gets TWO
+    stochastic Terms: the aperture-power penalty, and one MMF coupling Term. The
+    MMF coupling reads the ABSOLUTE core-capture (mmf_eta), so it holds the
+    static encircled-energy floor, and NO vacuum baseline is subtracted. An
+    Aperture / no-detector receiver gets the aperture-power penalty alone.
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
                                      waveoptics_turbulence_term,
@@ -312,24 +318,41 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     sigma2_I = float(plane_wave_scintillation_index(
         float(elev), rx.wavelength_m, hs, cn2_profile))
 
-    vac = waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf,
-                                 beam_type=BEAM_PLANE_WAVE)
+    if wave.vacuum is None:
+        # ANALYTIC geometric loss (the default for a space link). The link is far
+        # field, so the analytic Term is exact and the wave vacuum run is skipped
+        # (it is slow and grid-noise-limited over the full slant range; see
+        # olb.models.waveoptics.run_fidelity2 and validation/vacuum_loss). The
+        # launch-truncation Term is opt-in, the same rule as the analytic budget.
+        geo = [geometric_loss_term(scenario, geometry)]
+        eff = tx_gaussian_efficiency_term(scenario, geometry)
+        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+            geo.append(eff)
+        # No wave coupling baseline to cancel: the slab smf_eta is the ABSOLUTE
+        # fibre coupling, so it stands alone in the SMF penalty below.
+        vac_smf_db = 0.0
+    else:
+        # The wave-optics vacuum Term (opt-in for space, vacuum="wave").
+        geo = [waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf,
+                                      beam_type=BEAM_PLANE_WAVE)]
+        vac_smf_db = wave.vacuum.smf_coupling_db if is_smf else 0.0
     trials = wave.turbulent.trials
     if is_smf:
         coll = np.array([t.collected_power for t in trials], dtype=float)
         eta = np.array([t.smf_eta for t in trials], dtype=float)
-        # The vacuum Term charges +smf_coupling_db; this -smf_coupling_db cancels
-        # it, so the static coupling is counted once (the turbulent slab smf_eta
-        # is the fibre coupling). collected_power is the aperture-power penalty
-        # (vacuum-limit 1.0).
-        loss_db = (-10.0 * np.log10(coll) - 10.0 * np.log10(eta)
-                   - wave.vacuum.smf_coupling_db)
+        # collected_power is the aperture-power penalty (vacuum-limit 1.0), and
+        # the slab smf_eta is the ABSOLUTE fibre coupling. In the wave-vacuum
+        # branch the vacuum Term charges +smf_coupling_db, so -vac_smf_db cancels
+        # it and the static coupling is counted once. In the analytic branch
+        # vac_smf_db is 0 (the analytic geometric Term carries no coupling), so
+        # the absolute smf_eta stands alone.
+        loss_db = (-10.0 * np.log10(coll) - 10.0 * np.log10(eta) - vac_smf_db)
         pen = waveoptics_turbulence_term(
             wave.turbulent, loss_db=loss_db, beam_type=BEAM_PLANE_WAVE,
             sigma2_I=sigma2_I,
             note="downlink turbulence penalty (wave optics): aperture-power and "
                  "fibre-coupling loss relative to the vacuum baseline.")
-        return [vac, pen]
+        return geo + [pen]
     if is_mmf:
         # The light bucket: the aperture-power penalty (the bucket scintillation)
         # plus ONE MMF coupling evaluation on the turbulent field. mmf_eta is the
@@ -345,14 +368,14 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
             wave.turbulent, beam_type=BEAM_PLANE_WAVE, sigma2_I=sigma2_I,
             note="downlink MMF coupling (wave optics): core-capture of the "
                  "turbulent focused spot, absolute (holds the static floor).")
-        return [vac, pen, cpl]
+        return geo + [pen, cpl]
     # An Aperture / no-detector receiver: the aperture-power penalty alone.
     pen = waveoptics_turbulence_term(
         wave.turbulent, quantity="collected_power", beam_type=BEAM_PLANE_WAVE,
         sigma2_I=sigma2_I,
         note="downlink scintillation (wave optics): aperture-power penalty, "
              "vacuum-normalised.")
-    return [vac, pen]
+    return geo + [pen]
 
 
 def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
@@ -659,8 +682,10 @@ if __name__ == '__main__':
                      if t.category == "turbulence")
     assert def_scint.meta["model"] == "lognormal"
 
-    # A real fidelity-2 aperture downlink (skip if aotools absent). It gives the
-    # vacuum-optics + turbulence Terms, and a real fade.
+    # A real fidelity-2 aperture downlink (skip if aotools absent). The DEFAULT
+    # geometric loss is ANALYTIC (a space link is far field, so wave.vacuum is
+    # None), so the budget shows the analytic "geometric spreading" Term plus the
+    # wave-optics turbulence Term, and a real fade.
     from ..models.waveoptics import run_fidelity2
     try:
         import warnings as _w2
@@ -668,27 +693,46 @@ if __name__ == '__main__':
             _w2.simplefilter("ignore")
             f2_bundle = run_fidelity2(scenario, CircularOrbit(600e3, 30.0),
                                       preset="rapid", n_trials=16, seed=5,
-                                      hs=hs, cn2_profile=cn2)
+                                      hs=hs, cn2_profile=cn2, progress=False)
             f2 = downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
                                  wave=f2_bundle)
     except ImportError:
         print("aotools not installed; skipping the downlink fidelity-2 run.")
         f2 = None
     if f2 is not None:
-        vac = next(t for t in f2.terms if t.meta.get("model") == "waveoptics-vacuum")
+        assert f2_bundle.vacuum is None, "space defaults to the analytic vacuum"
+        geo = next(t for t in f2.terms if t.name == "geometric spreading")
         turb = next(t for t in f2.terms if t.meta.get("model") == "waveoptics")
-        assert not vac.stochastic and turb.stochastic
-        assert "geometric spreading" not in [t.name for t in f2.terms]
+        assert geo.category == "geometric" and not geo.stochastic and turb.stochastic
+        assert not any(t.meta.get("model") == "waveoptics-vacuum" for t in f2.terms)
         with _w2.catch_warnings():
             _w2.simplefilter("ignore")
             assert f2.provides_fade and np.isfinite(f2.fade_margin_db(0.9))
-        print(f"downlink fidelity 2 (600 km, 30 deg, rapid, 16 trials): vacuum "
-              f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.3f} dB")
+        print(f"downlink fidelity 2 (600 km, 30 deg, rapid, 16 trials): analytic "
+              f"geometry {geo.mean_db:.2f} dB + turbulence {turb.mean_db:.3f} dB")
 
-    # A fidelity-2 MMF (light-bucket) downlink gives THREE Terms: the vacuum
-    # optics (geometry only, no coupling), the aperture-power scintillation, and
-    # the MMF coupling. The MMF coupling reads the ABSOLUTE mmf_eta, so it holds
-    # the static floor and no vacuum baseline is subtracted.
+        # The wave vacuum stays available as an OPT-IN (vacuum="wave"): the
+        # budget then shows the wave-optics vacuum Term instead of the analytic
+        # geometric Term.
+        with _w2.catch_warnings():
+            _w2.simplefilter("ignore")
+            w_bundle = run_fidelity2(scenario, CircularOrbit(600e3, 30.0),
+                                     preset="rapid", n_trials=16, seed=5, hs=hs,
+                                     cn2_profile=cn2, progress=False, vacuum="wave")
+            fw = downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
+                                 wave=w_bundle)
+        assert w_bundle.vacuum is not None
+        vacw = next(t for t in fw.terms
+                    if t.meta.get("model") == "waveoptics-vacuum")
+        assert not vacw.stochastic
+        print(f"  opt-in wave vacuum: {vacw.mean_db:.2f} dB "
+              f"(vs analytic {geo.mean_db:.2f} dB)")
+
+    # A fidelity-2 MMF (light-bucket) downlink gives THREE loss Terms beside the
+    # extinction and pointing Terms: the DEFAULT analytic geometric spreading,
+    # the aperture-power scintillation, and the MMF coupling. The MMF coupling
+    # reads the ABSOLUTE mmf_eta, so it holds the static floor and no vacuum
+    # baseline is subtracted.
     from ..terminal import MMF
     scn_mmf = _dl(Terminal(aperture_m=0.5, wavelength_m=lam,
                            detector=MMF(core_radius_m=25e-6, optimal_focus=True,
@@ -700,7 +744,7 @@ if __name__ == '__main__':
             warnings.simplefilter("ignore")
             mmf_bundle = run_fidelity2(
                 scn_mmf, CircularOrbit(600e3, 30.0), preset="rapid", n_trials=16,
-                seed=5, hs=hs,
+                seed=5, hs=hs, progress=False,
                 cn2_profile=default_cn2_profile(scn_mmf.channel.site, hs))
             f2_mmf = downlink_budget(scn_mmf, CircularOrbit(600e3, 30.0),
                                      fidelity=2, wave=mmf_bundle)
@@ -708,17 +752,17 @@ if __name__ == '__main__':
         f2_mmf = None
     if f2_mmf is not None:
         cpl_m = next(t for t in f2_mmf.terms if t.name == "receive coupling (MMF)")
-        vac_m = next(t for t in f2_mmf.terms
-                     if t.meta.get("model") == "waveoptics-vacuum")
-        # The vacuum Term carries NO coupling for an MMF receiver (no baseline).
-        assert vac_m.meta["include_smf"] is False
-        assert vac_m.meta["smf_coupling_db"] is None
+        geo_m = next(t for t in f2_mmf.terms if t.name == "geometric spreading")
+        # The analytic geometric Term carries NO coupling; no vacuum baseline.
+        assert mmf_bundle.vacuum is None and geo_m.category == "geometric"
+        assert not any(t.meta.get("model") == "waveoptics-vacuum"
+                       for t in f2_mmf.terms)
         assert cpl_m.category == "coupling" and cpl_m.stochastic and not cpl_m.mean_only
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             assert f2_mmf.provides_fade and np.isfinite(f2_mmf.fade_margin_db(0.9))
-        print(f"downlink fidelity 2 MMF (600 km, 30 deg): vacuum "
-              f"{vac_m.mean_db:.2f} dB + MMF coupling {cpl_m.mean_db:.2f} dB")
+        print(f"downlink fidelity 2 MMF (600 km, 30 deg): analytic geometry "
+              f"{geo_m.mean_db:.2f} dB + MMF coupling {cpl_m.mean_db:.2f} dB")
 
     # --- gamma-gamma Term ---------------------------------------------------
     # A 15 deg elevation is a strong case: the point index passes the house
