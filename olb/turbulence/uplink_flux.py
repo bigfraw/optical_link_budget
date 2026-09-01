@@ -145,13 +145,10 @@ def _scintillation_beam(w0, L, wavelength, divergence_rad):
             (wL, Z0) : free-space width at the receiver [m] and the effective
             Rayleigh range [m] that carry the receiver-plane Lambda and Theta.
     '''
-    # ponytail: TODO validate this diverged (Theta, Lambda) feed against the
-    # Andrews & Phillips closed-form on-axis Gaussian-beam scintillation index
-    # (weak fluctuation, constant Cn2). Feed the Dios integrator a constant Cn2
-    # over a horizontal-equivalent path and assert on_axis_scintillation_index
-    # matches 3.86*sigma_R^2*{0.40[(1+2Theta)^2+4Lambda^2]^(5/12)*
-    # cos[(5/6)atan((1+2Theta)/(2Lambda))] - (11/16)Lambda^(5/6)} to a few
-    # percent, for the collimated AND the diverged beam. Not added yet.
+    # The diverged (Theta, Lambda) feed is cross-checked against the closed-form
+    # beam_wave_scintillation.on_axis_scintillation_index in the module
+    # self-check, to a few percent, for the collimated AND the diverged beam
+    # (weak fluctuation, constant Cn2). Dios et al. 2004, DOI 10.1364/AO.43.003866.
     k = 2 * np.pi / wavelength
     lambda0 = 2 * L / (k * w0 ** 2)
     # launch_curvature gives f0 = inf (collimated) or f0 < 0 (diverging), in
@@ -182,6 +179,12 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     turbulence broadening and does not double-count the divergence. The
     scintillation index also reads the diverged beam, through its receiver-plane
     Lambda and Theta (see ``_scintillation_beam``).
+
+    Slant geometry: ``hs`` is the VERTICAL height grid and ``cn2_profile`` is
+    the ZENITH profile on it. The function maps the path coordinate to
+    z = h * airmass and integrates the unscaled zenith profile over it, so the
+    path-length factor and the Dios path weights are both exact (see the
+    comment at the mapping).
 
     The launch is a pure Gaussian of waist w0, with no launch aperture and no
     central obscuration, so ``Is_summed`` does not change with an obscured pupil.
@@ -216,21 +219,34 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     k = 2 * np.pi / wavelength
     Z0 = zR(w0, wavelength)
     airmass = 1.0 / np.sin(np.radians(elevation_deg))
-    cn2_slant = np.asarray(cn2_profile, dtype=float) * airmass
+    # Slant path mapping. The Dios kernels integrate over the PATH coordinate
+    # z, so the trapz coordinate must be the slant position z = h * airmass,
+    # with the UNSCALED zenith profile Cn2(h). The trapz over z then carries
+    # the ds = airmass * dh path-length factor, AND the A(z), B(z) path
+    # weights of Dios et al. 2004, Eqs. (16)-(20) (DOI 10.1364/AO.43.003866)
+    # read the true slant position. Before 2026-08-28 the wrapper scaled Cn2
+    # by the airmass and kept the vertical grid; that kept ds but read the
+    # weights at z = h, which cut the on-axis index below its slant scaling
+    # (approximately -40 percent at 30 deg elevation for a small waist). The
+    # fix reproduces Dios et al. 2004 Fig. 5 at 30 deg; the old call does not
+    # (see validation/dios_fig5_replication.py).
+    zs = np.asarray(hs, dtype=float) * airmass
+    cn2_zen = np.asarray(cn2_profile, dtype=float)
 
     # Diverged free-space beam: the broadening baseline. w_free_div at the
-    # receiver, and the profile ws_div along the path for the wander integral.
+    # receiver, and the profile ws_div along the slant path for the wander
+    # integral.
     w_free_div = float(free_space_radius(w0, L, divergence_rad, wavelength))
-    ws_div = free_space_radius(w0, hs, divergence_rad, wavelength)
+    ws_div = free_space_radius(w0, zs, divergence_rad, wavelength)
     # Receiver-plane beam that the scintillation index reads: the DIVERGED
     # free-space width and an effective Rayleigh range that carry the diverged
     # Lambda and Theta. The collimated case reduces to gaussz(w0, L) and zR(w0).
     wL_scint, Z0_scint = _scintillation_beam(w0, L, wavelength, divergence_rad)
 
-    r0s = spherical_wave_coherence_diameter(k, L, cn2_slant, hs)
+    r0s = spherical_wave_coherence_diameter(k, L, cn2_zen, zs)
     # w_free override -> waists broaden relative to the DIVERGED free-space beam.
     w_st = short_term_beam_waist(w0, L, Z0, k, r0s, w_free=w_free_div)
-    beta2 = beam_wander_variance(L, cn2_slant, ws_div, hs)
+    beta2 = beam_wander_variance(L, cn2_zen, ws_div, zs)
     # Mechanical pointing jitter shares the receiver-plane displacement with the
     # turbulence beam wander, as an independent 2-D Gaussian offset. So sum the
     # displacement variances here: the combined per-sample offset then feeds BOTH
@@ -257,7 +273,7 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
         # A diverged beam is larger and more spherical-wave-like, so it
         # scintillates less. The collimated case reduces to the ordinary values.
         xi, _, s2x, _, _, _ = coupled_flux_sample(
-            beta, cn2_slant, Z0_scint, hs, L, k, wL_scint, w_lt)
+            beta, cn2_zen, Z0_scint, zs, L, k, wL_scint, w_lt)
         betas[i] = np.squeeze(beta)
         xis[i] = np.squeeze(xi)
         sigma2_xs[i] = np.squeeze(s2x)
@@ -377,6 +393,34 @@ if __name__ == '__main__':
     assert np.isclose(wL_c, gaussz(w0, range_m, lam))
     assert np.isclose(Z0_c, zR(w0, lam))
 
+    # Cross-check the diverged (Theta, Lambda) feed. Two independent paths must
+    # agree on the on-axis scintillation index sigma2_I(0, L) of a weak,
+    # homogeneous, horizontal-equivalent path. Path A: the feed under test drives
+    # the coupled-flux kernel. Path B: the closed-form Dios beam-wave index. Both
+    # read the same launch curvature f0, so their Theta and Lambda match. Dios et
+    # al. 2004, DOI 10.1364/AO.43.003866. The two agree to ~0.01 percent below;
+    # the 15 percent gate matches the andrews scintillation crosscheck.
+    from .coupled_flux import on_axis_scintillation_index as cf_on_axis
+    from .beam_wave_scintillation import on_axis_scintillation_index as bw_on_axis
+    L_x = 2000.0
+    hs_x = np.linspace(0.0, L_x, 400)
+    cn2_x = np.full_like(hs_x, 3e-16)          # weak: sigma2_R stays below 1
+    k_x = 2 * np.pi / lam
+    for name, div_x in (("collimated", None),
+                        ("diverged", 5 * w0_to_div(w0, lam))):
+        wL_x, Z0_x = _scintillation_beam(w0, L_x, lam, div_x)
+        # Path A: the coupled-flux kernel A(z) and B(z) both vanish at z = L, so
+        # the integrand endpoint is a removable 0/0. Drop that single node.
+        sig2_A = cf_on_axis(L_x, k_x, wL_x, Z0_x, cn2_x[:-1], hs_x[:-1])
+        # Path B: the closed-form index reads the same launch curvature.
+        f0_x = launch_curvature(w0, div_x, lam)
+        sig2_B = bw_on_axis(hs_x, cn2_x, w0, lam, elevation_deg=90.0,
+                            f0=f0_x, path_length_m=L_x)
+        pct = 100.0 * abs(sig2_A - sig2_B) / sig2_B
+        assert np.isclose(sig2_A, sig2_B, rtol=0.15), (name, sig2_A, sig2_B)
+        print(f"{name:10s} scint feed -> coupled-flux {sig2_A:.6e} vs "
+              f"closed-form {sig2_B:.6e}  ({pct:.2f}%)")
+
     # Pointing jitter: it folds into the wander displacement, so a larger jitter
     # widens the offset distribution -> a deeper mean loss AND a deeper fade,
     # with no separate pointing term. Zero jitter reproduces the no-jitter run.
@@ -401,6 +445,37 @@ if __name__ == '__main__':
     assert np.allclose(r_a["Is_summed"], r_b["Is_summed"])
     print(f"no jitter   -> loss {loss_nojit:.3f} dB, 99% fade {fade99_nojit:.3f} dB")
     print(f"5 urad jit  -> loss {loss_jit:.3f} dB, 99% fade {fade99_jit:.3f} dB")
+
+    # Slant mapping: the function maps the path coordinate to z = h * airmass
+    # and keeps the zenith profile. So a run at elevation E must equal (same
+    # seed) a run at 90 deg with the pre-mapped grid hs * airmass. This form
+    # reproduces Dios et al. 2004 Fig. 5 (DOI 10.1364/AO.43.003866); see
+    # validation/dios_fig5_replication.py.
+    sec30 = 1.0 / np.sin(np.radians(30.0))
+    np.random.seed(4)
+    s_elev = _flux_result(w0, 30.0, range_m, lam, hs, moderate_cn2, 1.7e-14,
+                          2000, 1)
+    np.random.seed(4)
+    s_map = _flux_result(w0, 90.0, range_m, lam, hs * sec30, moderate_cn2,
+                         1.7e-14, 2000, 1)
+    assert np.allclose(s_elev["Is_summed"], s_map["Is_summed"])
+    assert np.isclose(s_elev["r0s"], s_map["r0s"])
+
+    # The small-waist on-axis index must scale FASTER than the airmass with
+    # the elevation (the slant limit is near airmass^(11/6) = 3.56 at 30 deg;
+    # the old vertical-grid call gave airmass^1 = 2.0). Use a weak profile so
+    # the log1p compression stays small.
+    weak_scint_cn2 = 1e-17 * np.ones_like(hs)
+    np.random.seed(5)
+    p30 = _flux_result(0.005, 30.0, range_m, lam, hs, weak_scint_cn2,
+                       1.7e-14, 500, 1)
+    np.random.seed(5)
+    p90 = _flux_result(0.005, 90.0, range_m, lam, hs, weak_scint_cn2,
+                       1.7e-14, 500, 1)
+    ratio = p30["sigma2_x_mean"] / p90["sigma2_x_mean"]
+    assert 2.5 < ratio < 3.6, ratio
+    print(f"small-w0 sigma2_x 30/90 ratio {ratio:.2f} "
+          f"(airmass^(11/6) = {sec30 ** (11 / 6):.2f})")
 
     print(f"collimated -> w_free={r_coll['w_diffraction_limited']:.2f} m, "
           f"turbulence loss {loss_coll:.3f} dB, sigma2_x={m_coll['sigma2_x_mean']:.4f}")
