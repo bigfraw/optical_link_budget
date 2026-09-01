@@ -62,6 +62,9 @@ transmit divergence widens the beam and adds loss.
 - Far-field Gaussian beam into a circular aperture.
 - Paraxial beam.
 - No turbulence.
+- Measured validity: see Section 9f. A fidelity-2 space budget takes THIS
+  analytic Term, because the wave-optics vacuum solve is grid-noise-limited over
+  a slant path.
 
 ### Source
 
@@ -140,6 +143,8 @@ For an unobscured corner-cube (Cr = 0) the correction is +3.01 dB.
   every range through `gaussz`) this Term does not self-correct, and unlike the
   single-mode-fibre `eta_max` of Section 6a the true value can sit above OR below
   it. Verify a flagged link with a fidelity-2 no-turbulence field propagation.
+- Measured validity: see Sections 9c (the obscured launch pupil) and 9f (the
+  vacuum geometric loss).
 
 #### Source
 
@@ -421,6 +426,9 @@ factors.
 - The aperture filter `(2*J1(x)/x)^2` assumes a uniform circular aperture with no
   central obscuration. An annular aperture is not modelled yet.
 - The Kolmogorov spectrum has no inner scale and no outer scale.
+- Measured validity: see Section 9e. The lognormal SHAPE is certified in the weak
+  band, and the weak aperture-averaging factor `A` over-averages by 1.4 to 2.9
+  times over `1 <= D/rho_0 <= 8`.
 
 #### Source
 
@@ -485,10 +493,10 @@ so the result is additive with the geometric Term.
   `budget.check()`. The MEAN loss from a central obscuration is separate and IS
   carried: the launch-truncation Term (`tx_gaussian_efficiency_term`, Section 2a)
   reads the obscuration and matches the wave-optics far-field to about 2 dB. The
-  size of the obscuration effect on the FADE is UNRESOLVED: an earlier validation
-  compared this index against the fidelity-2 reciprocity overlap, but those two do
-  not agree even with no obscuration, so that comparison is void. See the
-  investigation note.
+  size of the obscuration effect on the FADE is now MEASURED against fidelity 2
+  alone: measured validity, see Section 9c.
+- Measured validity of the fade itself: see Section 9a (a filled launch) and
+  Section 9b (the vendored kernels and a slant-coordinate defect).
 - The coupled-flux MC needs the `fast` package to build the HV57 Cn2 profile, or
   an explicit `cn2_profile`.
 
@@ -542,7 +550,9 @@ thin turbulence layer (the far-field limit).
 
 #### Assumptions and limits
 
-- Weak-to-moderate turbulence. The model has no saturation.
+- Weak-to-moderate turbulence. The model has no saturation. Measured validity:
+  see Sections 9a (the unsaturated off-axis term at a filled launch) and 9e (the
+  on-axis index against the field).
 - Dios reports good agreement with a split-step reference up to
   `sigma2_chi ~ 0.6`. Above that the true index saturates and the model overshoots.
 - `on_axis_scintillation_index` now OWNS this limit through a runtime check
@@ -1096,6 +1106,9 @@ standalone scintillation Term.
 - The terrestrial form adds the effective-r0 weak-turbulence caveat: it evaluates
   plane-wave, Kolmogorov, phase-only forms at the Gaussian-beam r0. It ignores
   beam-wave amplitude scintillation, beam wander, and near-field curvature.
+- Measured validity: see Section 9d. With the received curvature charged, the
+  terrestrial multimode Term reads about 1 to 1.5 dB more loss than the field, and
+  that residual is the Airy-versus-Gaussian spot shape.
 
 #### Source
 
@@ -1503,6 +1516,9 @@ anti-pattern.
   generator (`screen_generator="aotools"`, LGPL-3.0, the optional extra
   `screens`) is the reference path; `olb` imports it lazily and does not copy it.
   The two give different draws for the same seed; the statistics agree.
+- Measured validity: see Sections 9g (how much tilt a screen holds), 9h (the two
+  generators against each other, the analytic index and the fade tail) and 9i
+  (the screen-count floor).
 
 ### Source
 
@@ -1630,6 +1646,329 @@ recorded, not filled with a guess.
 - The equation-by-equation forward map, the 28 gaps, the constants ledger and
   the work-package notes are in
   [schmidt-crosscheck.md](schmidt-crosscheck.md).
+
+---
+
+## 9. Measured validity: what the validation scripts certify
+
+Sections 1 to 8 give what each model COMPUTES. This section gives where each
+model HOLDS. Every entry below is a MEASUREMENT, not a derivation.
+
+The reference is the fidelity-2 field solve of Section 7. It solves the field on
+a grid, and it makes no beam assumption, no regime assumption and no
+distribution assumption. So it is the in-repo reference for the analytic
+(fidelity-0) and statistical (fidelity-1) models, in the band where the grid
+itself is trustworthy. Entry 9f gives one case where it is NOT trustworthy, and
+where the analytic Term is the reference instead.
+
+Each entry gives the physics QUESTION, the model under test, the reference, the
+measured outcome with its date and its script, and a one-line VERDICT. The
+scripts live in [validation/](../validation/), and
+[validation/README.md](../validation/README.md) indexes them.
+
+**The standing rule.** A validation script that reaches a verdict adds an entry
+here, or it updates the entry that it supersedes. A result that lives only in a
+run log, a memory note or a backlog aside is not documented.
+
+### 9a. Where does the Dios uplink scintillation index apply?
+
+- **Question.** Does the fidelity-1 coupled-flux uplink give the correct
+  irradiance fluctuation of an uncorrected ground-to-space beam?
+- **Model under test.** Section 5c, the coupled-flux Monte Carlo, and its
+  off-axis term of Section 5d. Dios et al., Applied Optics 43 (2004) 3866,
+  DOI 10.1364/AO.43.003866, Eq. (20).
+- **Reference.** The fidelity-2 split step read through the Shapiro reciprocity
+  overlap, DOI 10.1364/JOSA.61.000492. One zoom transform gives the uplink flux
+  at every satellite offset, so each INGREDIENT of the analytic model (the
+  on-axis index, the wander, the short-term waist, the beam-frame index) is
+  measured on its own.
+- **Measured (2026-08-28).** 600 km, 60 deg elevation, 1550 nm, HV57 site
+  profile. For an UNDERFILLED launch (`w0 = 0.06 m`) fidelity 1 sits 1.2 to 1.3
+  times above fidelity 2, inside the joint error bars. For a FILLED launch
+  (`w0 = 0.18 m`, the wander comparable with the far-field spot) fidelity 1
+  reads 2.3 times high at 0.3 times the profile strength, and 7.2 times high at
+  the full profile. The cause is measured, not guessed: the analytic beam-frame
+  index at the same point is 0.018, against the 0.85 of the fidelity-1 total
+  that its unsaturated off-axis Rytov term contributes. The short-term waist is
+  correct to a few percent. The fidelity-2 answer is CONVERGED: the reference
+  preset, a doubled grid side and the standard plan agree inside the 15 percent
+  Monte-Carlo noise. The measured wander variance is 1.8 to 2.0 times the
+  Dios/Belmonte 2.07 form and 0.55 times the Andrews 7.25 form, at every case.
+  The current fidelity-1 validity flag is a MEAN over the samples, so it can
+  read "valid" (0.167 against the 0.25 limit) while the model reads 2.3 times
+  high.
+- **VERDICT.** Use fidelity 1 for an uncorrected uplink with an UNDERFILLED
+  launch (`beta_rms / w_L` well below about 0.5). Do not use it for a filled
+  launch: it is pessimistic there by 2 to 7 times on `sigma2_I`, and its
+  weak-fluctuation flag does not catch the case. Use fidelity 2 instead.
+- **Script.** `validation/uplink_sigma2i/uplink_farfield_reciprocity.py`;
+  write-up
+  [validation/uplink_sigma2i/UPLINK_SIGMA2I_INVESTIGATION.md](../validation/uplink_sigma2i/UPLINK_SIGMA2I_INVESTIGATION.md).
+
+### 9b. Are the vendored coupled-flux kernels faithful to the paper?
+
+- **Question.** Did the vendored copy of the Dios kernels
+  (`olb/turbulence/coupled_flux.py`) keep the published behaviour?
+- **Model under test.** The fidelity-1 uplink kernels, on the exact published
+  case: a GEO uplink at 0.84 um, the log-amplitude variance against the
+  transmit waist, at 90 and 30 deg elevation.
+- **Reference.** Dios et al., DOI 10.1364/AO.43.003866, Fig. 5, and its own
+  FFT-BPM points. The fidelity-2 leg runs the same case.
+- **Measured (2026-08-28).** The fidelity-1 curve overlays the figure: the
+  90 deg plateau reads 0.0298 against the printed 0.028, and the 30 deg plateau
+  reads 0.0938 against the printed 0.095. The fidelity-2 points reproduce the
+  paper's FFT-BPM behaviour at every station. They sit on the reference at a
+  small waist (0.109 against about 0.105), they overshoot the weak-theory curve
+  in the focusing range, and they SATURATE near 0.65 at `W0 = 0.10 m` while the
+  fidelity-1 curve climbs to 0.96 (90 deg) and 2.46 (30 deg). The run also found
+  a real DEFECT in the olb wrapper `olb.turbulence.uplink_flux._flux_result`: it
+  puts the airmass on `Cn2` but it keeps the vertical height grid as the path
+  coordinate, so the on-axis index scales as `sec(zeta)` and not as
+  `sec(zeta)^(11/6)`. That is 40 percent low at 30 deg elevation and 13 percent
+  low at 60 deg. The exact fix, validated against the figure, is to give the
+  kernels the slant-mapped grid with the zenith profile.
+- **VERDICT.** The vendored kernels are faithful. Trust the fidelity-1 uplink
+  ONLY where the analytic curve has not left its weak band (see 9a). Read the
+  on-axis index at a low elevation with the slant-coordinate defect in mind,
+  until that fix lands.
+- **Script.** `validation/uplink_sigma2i/dios_fig5_replication.py`.
+
+### 9c. Does the uplink model see a central obscuration?
+
+- **Question.** A launch telescope carries a secondary mirror. Does the
+  fidelity-1 uplink read the obscuration, in the MEAN and in the FADE?
+- **Model under test.** The transmit truncation Term of Section 2a
+  (`tx_gaussian_efficiency_term`), and the coupled-flux index of Section 5c.
+- **Reference.** The fidelity-2 far-field map of 9a, with an annular launch
+  pupil. The obscuration ratio `eps` sweeps from 0 to 0.8.
+- **Measured (2026-08-28).** 600 km, 60 deg, 1550 nm. The MEAN is NOT a blind
+  spot: the analytic truncation Term tracks the wave-optics far-field mean
+  inside 2.4 dB over a 60 dB sweep, and it is slightly conservative. The FADE
+  is a blind spot. The coupled-flux kernel reads the launch through ONE number,
+  the waist `w0`, so its `sigma2_I` is flat in `eps` by construction. The true
+  index RISES: 1.5 times the unobscured value at an obscuration radius of
+  0.44 waists (a filled launch), and 4.6 times at 2.33 waists (a small launch
+  beam, where the obscuration blocks the core).
+- **VERDICT.** Use the analytic MEAN loss at any obscuration. Trust the
+  fidelity-1 FADE only when the obscuration radius stays well below one transmit
+  waist. Past that, the fidelity-1 index is optimistic, and only fidelity 2
+  gives the rise.
+- **Script.**
+  `validation/uplink_sigma2i/uplink_obscuration_dios_vs_waveoptics.py`.
+
+### 9d. Does the terrestrial coupling Term agree with the field?
+
+- **Question.** A terrestrial fidelity-2 run read about 7 dB more multimode
+  coupling loss than the analytic Term of Section 6a. Which model is wrong?
+- **Model under test.** `terrestrial_mmf_coupling_term` and
+  `terrestrial_smf_coupling_term` of Section 6a, against the fidelity-2
+  focal-plane coupling of `olb/waveoptics/mmf.py`.
+- **Reference.** The fidelity-2 VACUUM field (no turbulence), plus an
+  independent one-dimensional Fresnel (Hankel) quadrature of the truncated
+  curved pupil that runs with no olb code in the loop.
+- **Measured (2026-08-31).** 1550 nm, 5 km path, collimated `w0 = 0.02 m`,
+  `D = 0.2 m`, core 25 um, `f = 4.5242 m`. NEITHER model was wrong. The received
+  beam is a diverging Gaussian of `R_rx = 5131 m`, so the true focus sits
+  `dz_curv = f^2/(R_rx - f) = +3.99 mm` BEYOND the focal plane (S. A. Self,
+  Appl. Opt. 22, 658 (1983), DOI 10.1364/AO.22.000658). The analytic Term
+  assumed best focus and the field observed at `f`. A defocus scan on the same
+  vacuum field peaks at `+4 mm`, exactly the predicted shift, and the quadrature
+  confirms it to better than 0.1 dB over a +/-8 mm sweep. The scan also found a
+  SIGN fault: `olb.waveoptics.mmf.focal_intensity` applied the pupil phase with
+  the wrong sign, so every earlier `defocus_m` scan came out mirrored. With the
+  curvature charged in the analytic Terms, the gap falls from about 7 dB to
+  about 1 to 1.5 dB (analytic 8.54 dB against the field 7.08 dB at the focal
+  plane; about 1 dB at the true focus).
+  The residual is the Airy-versus-Gaussian spot shape: the truncated pupil makes
+  an Airy pattern whose slow rings a Gaussian spot model omits.
+- **VERDICT.** Use the terrestrial coupling Terms for a finite-path link only
+  with the received curvature charged, which they now do. Expect them to read
+  about 1 to 1.5 dB MORE loss than the field, because of the spot shape. A space link
+  is unaffected: `R_rx` is enormous there, so `dz_curv` is about zero. The
+  fidelity-2 single-mode leg still takes no defocus, so the aberrated
+  single-mode closed form has no field reference yet (backlog 2-W2).
+- **Script.** `validation/defocus/defocus_sensing.py`; write-up
+  [validation/defocus/fidelity2_mmf_coupling_gap.md](../validation/defocus/fidelity2_mmf_coupling_gap.md).
+
+### 9e. Is the aperture-averaged lognormal power draw trustworthy?
+
+- **Question.** In weak turbulence, does the cheap analytic route
+  `sigma2_P = A sigma2_I` plus a lognormal draw give a trustworthy received-power
+  distribution? An aperture integrates a CORRELATED field, and a sum of
+  lognormals is not a lognormal.
+- **Model under test.** The three legs apart: the point index of Section 5d
+  (the Dios on-axis Gaussian beam-wave form), the weak aperture-averaging factor
+  `A` of Section 5b (the Churnside plane-wave fit,
+  DOI 10.1364/AO.30.001982), and the lognormal SHAPE.
+- **Reference.** The fidelity-2 split step. Fidelity 2 models no tip-tilt
+  correction, so it holds the FULL beam wander.
+- **Measured (2026-09-01, FULL run: 1500 trials for each launch on the
+  `standard` preset).** One horizontal path (2 km, `Cn2 = 3e-15`, 1550 nm) that
+  stays firmly weak (`sigma_R^2 = 0.21`), two launches, and four receive
+  diameters, so `D/rho_0` runs from 0.20 to 7.89.
+  - The lognormal FAMILY holds, to the deep tail. With the index refit to the
+    MEASURED value, every case agrees inside 0.13 dB at the 5 percent fade, and
+    inside 0.21 dB at the 1 percent fade. The skew of `ln P` sits near -0.2 in
+    every case with no trend against the diameter. So the drift to a Gaussian
+    power is not visible in this band, and the full beam wander of the sim
+    builds no pointing tail that the lognormal cannot hold.
+  - The FILTER is the fault, not the point index. The analytic point `sigma2_I`
+    reads 3 to 4 percent HIGH only (the 10 to 20 percent bias of the quick run
+    was a `rapid`-preset artifact). The Churnside factor OVER-AVERAGES by about
+    1.2 times at `D/rho_0 = 1`, and by 1.8 (collimated) to 2.5 (diverged)
+    times at `D/rho_0 = 3`.
+  - One column is BEAM-FILLING-LIMITED, and it is not a filter error. The
+    collimated 40 cm case catches `eta_fill = 0.87` of the beam, so it measures
+    almost the total power, and `A_eff` falls BELOW the analytic `A` (ratio
+    0.40). The diverged launch at the same diameter has `eta_fill = 0.39` and
+    it behaves like every other unfilled case. The reversal is the fill
+    fraction, not the diameter (backlog 2-N2).
+  - The ABSOLUTE impact is small in this band. The fade spread falls from
+    1.15 dB at `D = 1 cm` to 0.05 to 0.13 dB at `D = 40 cm`, so the worst
+    relative index error (2.5 times) moves the 5 percent fade by 0.29 dB.
+    The worst disagreement of the whole analytic route is 0.29 dB at the
+    5 percent fade and 0.41 dB at the 1 percent fade (both the diverged
+    15 cm case).
+- **VERDICT.** Use the analytic lognormal draw for a weak horizontal path with
+  a receive aperture that holds much less than half of the beam. The
+  DISTRIBUTION SHAPE is certified there, to the 1 percent fade. Read the
+  aperture-averaged INDEX as approximate over `1 <= D/rho_0 <= 8`: it is
+  over-averaged, and only the small absolute fade spread keeps the budget error
+  under about 0.3 dB at the 5 percent fade (0.41 dB at 1 percent). Do not read
+  the analytic `A` at all when the aperture holds most of the beam. Still
+  untested: a focused launch, a stronger `Cn2`, and a longer path (the 1-8
+  gates).
+- **Script.**
+  `validation/lognormal_certification/lognormal_certification.py`; write-up
+  [validation/lognormal_certification/README.md](../validation/lognormal_certification/README.md).
+  See backlog 1-6.
+
+### 9f. Which model gives the fidelity-2 geometric loss?
+
+- **Question.** A fidelity-2 budget can take its no-turbulence geometric loss
+  from the analytic Terms of Sections 1 and 2a, or from a wave-optics vacuum
+  field solve. Which one is correct?
+- **Model under test.** The wave-optics vacuum loss (`_full_vacuum_loss_db`)
+  against the analytic pair `geometric_loss_term + tx_gaussian_efficiency_term`.
+  The comparison is apples to apples: both sum the same two parts, and both use
+  an aperture receiver.
+- **Reference.** Each model is the reference of the other, on the path where it
+  is trustworthy.
+- **Measured (2026-08-31).** TERRESTRIAL, where the grid is small and well
+  resolved: the two agree inside about 0.15 dB over 0.3 to 10 km collimated, and
+  inside 0.002 dB on a tightly focused short path. This VALIDATES the analytic
+  geometric Term against wave optics. SPACE: the wave vacuum loss of one 600 km
+  case was measured as the grid refined from 4096 to 7168 pixels. It SCATTERS
+  around the stable analytic 52.24 dB by +4.27, -1.10, +0.45 and -0.77 dB, a
+  spread of 5.4 dB, and it does not converge. The cause is resolution: a
+  practical grid cannot resolve the mm-scale aperture edges over a 2000 km path.
+  That run also costs about 14 s.
+- **VERDICT.** Use the ANALYTIC geometric Term for a space fidelity-2 budget. A
+  ground-space link is always far field (the Fraunhofer distance of a 0.1 m
+  aperture at 1550 nm is about 6 km), so the analytic form is exact, and it is
+  both cheaper and more trustworthy than the field solve. `run_fidelity2` does
+  this by default (`vacuum="analytic"`). Keep the WAVE vacuum for a terrestrial
+  link, because the terrestrial turbulence penalty is turbulent / vacuum on the
+  SAME grid, so the wave vacuum is the exact baseline that cancels the grid.
+- **Script.** `validation/vacuum_loss/vacuum_loss_validation.py`.
+
+### 9g. How much of the low-frequency (tilt) band does a phase screen hold?
+
+- **Question.** A screen on a finite grid holds no power below its grid
+  fundamental. That missing band is the tip and the tilt. How much does each
+  screen route lose?
+- **Model under test.** The screen routes of Section 7: the plain Fourier
+  screen, the subharmonic screen (the production route), an oversized-and-cropped
+  screen, and the extruded (infinite) screen of the planned temporal layer.
+- **Reference.** The Noll per-axis Z-tilt filter integral,
+  DOI 10.1364/JOSA.66.000207; the Andrews G-tilt filter,
+  DOI 10.1117/3.626196, Ch. 6, Eq. (84), printed p. 201; the von Karman
+  covariance of Assemat and Wilson, DOI 10.1364/OE.14.000988, Eq. (5); and the
+  structure function `D(r) = 6.88 (r/r0)^(5/3)`, DOI 10.1117/3.866274, Ch. 9.
+- **Measured (2026-08-28).** 1550 nm, `r0 = 0.10 m`, `D/r0 = 10`. With a PURE
+  Kolmogorov spectrum no practical screen holds the tilt: the subharmonic route
+  reaches 0.75 to 0.78 of the Noll value, and an oversize factor of 8 reaches
+  0.84 with a wide error bar. With a finite outer scale (`L0 = 25 m`) both cures
+  reach the analytic value: the subharmonic route reads 0.92 to 1.04, and the
+  oversize route converges from a screen side of about `L0/2`. The infinite-screen
+  covariance FORMULA is correct (it matches a float64 closed form to 3.9e-7). The
+  screen variance is spin-up limited: 512 rows cover 2.0 outer scales at
+  `L0 = 2.56 m` and land inside 0.08 percent, but they cover 0.2 outer scales at
+  `L0 = 25 m` and read 12 percent low at every lag. The EXTRUSION AXIS is
+  genuinely defective: the two-column Markov recursion over-correlates its own
+  direction (1.498 rad^2 at a 2.56 m lag, against a theory of 0.085 rad^2), and
+  the anisotropy of `D(r)` reaches 20 to 30 percent. The bias is stationary and
+  it does not drift.
+- **VERDICT.** The production SNAPSHOT route needs no change: the subharmonic
+  screen matches the oversized screen on every measured metric. Select a finite
+  outer scale from the physics, then size the screen side to one or two outer
+  scales. Do NOT build the temporal layer on the extruded screen: under frozen
+  flow (Taylor, DOI 10.1098/rspa.1938.0032) a row lag IS a time lag, so the
+  extrusion defect smooths the temporal axis exactly, and a fade duration reads
+  too benign. Prefer a shifted large screen.
+- **Script.** `validation/screens/oversize_crop.py`,
+  `infinite_screen_stats.py`, `extrusion_stationarity.py`; write-up
+  [validation/screens/FINDINGS.md](../validation/screens/FINDINGS.md).
+
+### 9h. Is the fast olb screen generator equal to the aotools reference?
+
+- **Question.** The default screen generator is now the self-contained olb
+  `ScreenFactory`. It draws a DIFFERENT random atmosphere from the `aotools`
+  reference for the same seed. Do the two give the same statistics, and the same
+  FADE TAIL?
+- **Model under test.** `ScreenFactory` (`screen_generator="olb"`) against
+  `aotools` (`screen_generator="aotools"`).
+- **Reference.** The `aotools` generator, plus the analytic aperture-averaged
+  index of Section 5b and the structure function
+  `D_phi(r) = 6.88 (r/r0)^(5/3)`, DOI 10.1364/JOSA.56.001372.
+- **Measured (2026-08-29).** Four cases (terrestrial 2 km, space downlink at
+  30 deg on two presets, space uplink at 30 deg) agree on the mean collected
+  power and on the aperture `sigma2_I` inside the combined Monte-Carlo bars; the
+  largest gap is 0.76 sigma. The single-mode coupling and the uplink reciprocity
+  `eta_turb` agree too (0.02 to 0.34 sigma). Converged over 2000 downlink trials
+  the olb index is 0.01522, which is 1.012 times the analytic 0.01505, against
+  0.994 for `aotools`. The tail number is the deciding one: the 1 percent fade
+  quantile differs by 0.014 dB against a 0.067 dB bootstrap bar, and every
+  quantile from 0.1 to 90 percent agrees inside 2 sigma. ONE caveat is common to
+  both generators and is not a generator difference: the phase structure function
+  sits 10 to 25 percent below the pure Kolmogorov value, which is the finite-grid
+  low-frequency deficit of 9g. The two generators stay inside 5 percent of each
+  other under `L0 = 25 m`.
+- **VERDICT.** Use the olb generator. It is a trustworthy drop-in, and it is 7.6
+  to 14 times faster per screen. Use `screen_generator="aotools"` to reproduce an
+  older run bit for bit, because the seeded draws differ.
+- **Script.** `validation/waveoptics_speed/generator_validation.py`.
+
+### 9i. How many phase screens does a turbulent run need?
+
+- **Question.** `QualityPreset.min_screens` is 15 / 9 / 5 for the reference,
+  standard and rapid presets. Where do those integers come from?
+- **Model under test.** The screen planner of Section 7,
+  `olb/waveoptics/turbulence/sampling.py`.
+- **Reference.** An olb convergence sweep. Schmidt gives NO screen-count floor:
+  Eq. (9.90), printed p. 174, is a sampling floor of the FFT method, and the
+  worked example of Sec. 9.5.2, printed p. 177, gives 11 planes with no
+  criterion. The only book bound is the layer MOMENT rule, Ch. 9, Eq. (9.65),
+  printed p. 164, which gives 8 equations against 2 free numbers for each screen,
+  so 4 screens is the absolute lower bound.
+- **Measured (2026-08-27).** The sweep holds the GRID fixed, it moves the screen
+  count only, and it runs 200 snapshots for each count. The tolerance is 0.1 dB
+  on the mean power and 5 percent on the index. The mean power meets it at every
+  count of every case. The BINDING case is the 600 km downlink slab at 30 deg:
+  the aperture index reads 19 percent low at 3 screens, 10 percent low at 5, and
+  it stays flat from 7 up. A zenith slab and a 2 km horizontal path meet the
+  tolerance at every count, because both are weak and homogeneous. Separately,
+  the production grouping matches all 8 moments of the default profile inside
+  0.15 percent, so the `Cn2`-weighted centroid satisfies Eq. (9.65) in practice
+  without a solve.
+- **VERDICT.** Use `standard` (9) or `reference` (15): both sit on the converged
+  plateau. `rapid` (5) is a stated compromise, one step below the converged
+  count of 7: its slant index runs about 10 percent low, and its mean power holds
+  inside 0.11 dB. No preset may go under 4. The screen count follows the PRESET
+  and not the layer count, so a 20-layer and a 200-layer profile of the same
+  atmosphere give the same plan.
+- **Script.** The sweep tables are in
+  [schmidt-crosscheck.md](schmidt-crosscheck.md), the WP7 note.
 
 ---
 

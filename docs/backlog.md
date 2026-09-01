@@ -252,7 +252,8 @@ The path forward for each is a second reference or a derivation.
   owner decision (the field reads less coupling loss than the incumbent; the
   reference-model gap of 2-W1 stays open, although the terrestrial MMF part of
   that gap fell to about 1.2 dB once the received curvature was charged, see
-  0-P11 and 2-W1).
+  0-P11 and 2-W1). A PROPOSED way to fill the empty fidelity-1 rung for a
+  terrestrial link, without FAST, is the calibrated lognormal draw of 1-8.
 - **1-2. FAST limits NT1–NT4 — CARRIES GAP 2 (see 0-W1); the uplink entry
   point is DONE (2026-08-27).** `uplink_fast_term` in
   olb/models/fast.py is the pre-compensated uplink model of record:
@@ -323,11 +324,132 @@ The path forward for each is a second reference or a derivation.
   reference that certifies the fidelity-1 draw; it is not a new budget path.
   See the memory `aperture-averaged-lognormal-certification` and the discussion
   of aperture averaging and beam wander in the C-05 / TL-05 thread.
+  UPDATE (2026-09-01): the certification script EXISTS at
+  `validation/lognormal_certification/`. It sweeps `D/rho_0` from 0.20 to 7.89 on
+  one firmly weak 2 km horizontal path (`sigma_R^2 = 0.21`), for a collimated and
+  a diverged launch, and it reports the index, the fade quantiles and the skew of
+  `ln P` apart, so an INDEX error and a SHAPE error do not mix. QUICK-MODE first
+  reading (150 trials, `rapid` preset): the lognormal FAMILY HOLDS -- with the
+  index refit to the measured value every case agrees inside 0.12 dB at the 5 %
+  fade, and the skew of `ln P` stays in [-0.38, +0.19] with no trend against D,
+  so no drift to a Gaussian power and no pointing tail is visible in this band.
+  The fault is the INDEX: near `D/rho_0 = 3` the analytic `sigma2_P` reads 2.1x
+  (collimated) to 2.7x (diverged) LOW, so the analytic fade is optimistic by 0.24
+  to 0.26 dB at the 5 % fade. The analytic on-axis index also takes the waist
+  only, so it gives the collimated and the diverged launch the SAME number while
+  the field does not. The item stays OPEN: the `--full` deep-tail run (1500
+  trials, `standard` preset) is still to run, and the aperture-averaging factor A
+  is the quantity to look at next.
+  UPDATE (2026-09-01, second pass): the script now SPLITS that index error in
+  two, and the answer is the FILTER. One propagation for each trial
+  (`propagate_turbulent_field`) now serves the whole aperture sweep, so the point
+  estimator and every diameter read the SAME atmosphere; a matched-seed check
+  against `propagate_turbulent_scenario` on the shared grid agrees BIT FOR BIT,
+  and the quick run fell from about 9 minutes to about 2.5 minutes. The POINT
+  index (the mean irradiance in an 8 mm on-axis disc, 0.14 of the Fresnel scale)
+  reads `sigma2_I` = 0.0615 collimated and 0.0676 diverged against the analytic
+  0.0744, so the Dios on-axis form is 10 to 20 % HIGH -- a modest error. The
+  Churnside filter is the fault: `A_eff = sigma2_P_sim / sigma2_I_sim` runs 1.4x
+  the analytic A at `D/rho_0` = 1, 2.6x to 2.9x at `D/rho_0` = 3, and 2.5x at
+  `D/rho_0` = 7.9. So A OVER-AVERAGES across the whole band, and the point index
+  partly HIDES it (the two errors pull in opposite directions). Two more
+  findings. (a) The D = 40 cm COLLIMATED column of the first reading was a
+  BEAM-FILLING artifact, not physics: `w(L)` = 19.7 cm there, so the aperture
+  catches `eta_fill` = 0.87 of the beam and measures near-total power, which
+  fluctuates little (A ratio 0.53). The diverged launch at the same diameter has
+  `w(L)` = 40.4 cm, `eta_fill` = 0.39, and it behaves like every other unfilled
+  case (A ratio 2.54). The script now computes `eta_fill` for every case and
+  FLAGS a case past 0.5 as BEAM-FILLING-LIMITED, in the log, the JSON and the
+  figure. That is backlog 2-N2 measured. (b) The ABSOLUTE impact is small: the
+  fade spread falls from 1.07 dB (D = 1 cm) to 0.06 to 0.13 dB (D = 40 cm), so
+  the WORST relative index error (2.9x) moves the 5 % fade by 0.26 dB only. The
+  item stays OPEN on the `--full` deep-tail run; the named target is now the weak
+  aperture-averaging factor A over `1 <= D/rho_0 <= 8`, BELOW the beam-filling
+  limit.
+  DONE for this path (2026-09-01, the `--full` run: 1500 trials for each
+  launch, `standard` preset, about 2.8 hours). VERDICT PASS to the 1 % fade:
+  the refit lognormal agrees inside 0.128 dB at the 5 % fade and 0.210 dB at
+  the 1 % fade in every case; the whole analytic route inside 0.289 dB and
+  0.413 dB (both worst cases the diverged 15 cm receiver); the skew of `ln P`
+  sits near -0.2 with no trend. The full run also RETIRES one quick-mode
+  finding: the 10 to 20 % point-index bias was a `rapid`-preset artifact -- at
+  `standard` the analytic `sigma2_I` reads only 3 to 4 % high. The filter
+  fault stands, milder: `A_eff/A` about 1.2 at `D/rho_0 = 1`, 1.8 to 2.5 at 3,
+  2.4 at 7.9 (unfilled). The certification of record is in the folder README
+  and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
+  item: a focused launch, a stronger Cn2, and a longer path.
+- **1-8. Terrestrial fidelity 1 = the calibrated lognormal draw (PROPOSED
+  2026-09-01).** A terrestrial link has NO fidelity-1 rung: FAST is far-field
+  only, so `terrestrial_budget(fidelity=1)` raises (1-1). The proposal fills that
+  rung with a CALIBRATED DRAW instead of a new analytic model:
+  1. Run a SHORT fidelity-2 batch for the scenario (approximately 100 to 200
+     trials, minutes on the fast `ScreenFactory`) and measure the received-power
+     mean and the aperture-averaged index `sigma2_P` empirically.
+  2. Draw the fade from the lognormal REFIT to those two measured moments.
+  3. Cache the calibration (the P4 disk cache,
+     `olb/waveoptics/turbulence/cache.py`, exists), so a sweep or an optimiser
+     pays the simulation one time and the draw after that.
+  The exact static Terms (extinction, geometric, pointing) STAY analytic, and the
+  analytic scintillation Term stays as the free sanity anchor and the regime gate.
+  RATIONALE: the quick-mode run of `validation/lognormal_certification/`
+  (2026-09-01, see 1-6) certified the lognormal FAMILY in the weak regime. With
+  the index refit to the measured value, every case agrees inside 0.12 dB at the
+  5 % fade and 0.30 dB at the 1 % fade out to `D/rho_0 = 7.9`, with no skew trend,
+  even with the beam wander fully uncorrected. So the weak link is the analytic
+  FEED, not the distribution: the Churnside plane-wave `A` and the waist-only
+  Dios point index misread the index by 2.1x to 2.7x near `D/rho_0 = 3`, and the
+  analytic chain cannot tell a collimated launch from a diverged one. A measured
+  mean and index remove that feed.
+  BEAM-FILLING CAVEAT: the `D = 40 cm` column of the quick-mode sweep is
+  BEAM-FILLING-limited (the collimated launch fills approximately 87 % of the
+  aperture, the diverged launch approximately 39 %), so the aperture holds the
+  beam. That is the known failure of the analytic averaging factor (2-N2), and
+  that column therefore does NOT test the averaging filter.
+  GATES before this becomes a default: (a) the `--full` certification run of 1-6;
+  (b) at least two more scenarios (a stronger `Cn2`, a longer path); (c) the
+  2-W1 owner reference-model decision. This is a PROPOSED design, approved for
+  the backlog only. It is NOT built, and it must not be started yet. See the
+  memory `terrestrial-calibrated-draw-plan`.
+- **1-7. REFERENCE for the residual scintillation of a pre-compensated
+  uplink.** Gap 2 (0-W1) decided that NO trustworthy analytic scintillation
+  form exists for a beacon + AO pre-compensated ground-to-space beam, so the
+  budget stays mean-only there and the fade comes from the fidelity-1 FAST
+  Monte Carlo. Look at 'Phase estimation at the point-ahead angle for AO
+  pre-compensated ground to GEO satellite telecoms' for a treatment of the
+  RESIDUAL scintillation fluctuations that survive the pre-compensation. It
+  can inform a future residual-scintillation model or a cross-check of the
+  FAST point-ahead residual (see 1-5). A reading task, not a build task.
 
 ---
 
 ## Fidelity 2 — wave optics
 
+- **2-AO. VERY IMPORTANT — the fidelity-2 sims model NO adaptive optics. This
+  includes tip-tilt correction (2026-08-31).** The split-step layer
+  (`olb/waveoptics/turbulence/`) propagates the field through the raw phase
+  screens and reads the receive plane with NO wavefront correction applied. So a
+  fidelity-2 budget shows the UNCORRECTED atmosphere on EVERY link:
+  - No tip-tilt (beam-wander / angle-of-arrival) removal. A tracked terminal
+    removes the received tilt in the real system; the sim does not, so the
+    fidelity-2 fade and the coupling loss are PESSIMISTIC for a tracked link,
+    and the walk-off is fully counted.
+  - No higher-order AO (the deformable-mirror correction of the residual phase).
+  - No uplink pre-compensation. A beacon + AO uplink (the fidelity-1 model of
+    record, `uplink_fast_term`) has NO fidelity-2 equivalent: `uplink_budget`
+    RAISES at `fidelity=2` for a pre-compensated scenario, and the reciprocity
+    route carries no point-ahead correction either (see 2-P4).
+  This means a fidelity-2 result is directly comparable to the fidelity-0/1
+  UNCORRECTED case only. It is NOT a like-for-like reference for the
+  AO-corrected fidelity-1 terms (`smf_fast_term`, `uplink_fast_term`) or for any
+  tracked terrestrial coupling Term until AO is modelled in the field solve.
+  The fix is a correction stage in the split-step receive path: at minimum a
+  tip-tilt removal (subtract the measured wavefront tilt, or the centroid shift),
+  then a modal / zonal higher-order correction, and for the uplink a
+  pre-compensation phase applied at the launch plane crossed with the point-ahead
+  decorrelation. Each stage changes budget numbers, so each is an owner-gated
+  step. Pairs with 2-P4 (point-ahead anisoplanatism in the reciprocity route) and
+  the reference-model gap of 2-W1 (the field reads less coupling loss than FAST —
+  part of that gap is this missing correction, so the two are NOT yet comparable).
 - **2-W1. Fidelity-2 is WIRED whole-path via `fidelity=0|1|2` (2026-08-28,
   branch `fidelity2-budget-wiring`). BOTH the turbulent split step AND the
   vacuum core are now consumed.** A fidelity-2 budget shows TWO Terms: a
@@ -542,24 +664,35 @@ The path forward for each is a second reference or a derivation.
   the plane-wave coherence radius, and the Fried parameter each exist in
   three places; the lognormal dB faces exist twice (crosscheck TL-01..04,
   GF-05, GF-10, KR-23, KR-25). Converge.
-- **I-3. The diverged (Theta, Lambda) coupled-flux feed has no cross-check
-  test** against the closed-form on-axis index (TODO at
-  olb/turbulence/uplink_flux.py:94). The measurement exists in the
-  crosscheck (+3.06 % / −1.57 % / −0.02 %); turn it into a test.
-- **I-4. Dead or decorative parameters.** `geometry` is unused in every
-  terrestrial Term (kept for the signature); `precompensation` is silently
-  ignored on a downlink or retro link (olb/scenario.py:165) — refuse it or
-  document it as uplink-only.
-- **I-5. A `TerrestrialScenario` is one direction only, with no good reason.**
-  It fixes tx=near, rx=far (olb/scenario.py). A horizontal path is reciprocal,
-  and a real link often measures BOTH directions (near->far and far->near) with
-  different terminals at each end. A `SpaceScenario` selects the tx/rx roles from
-  its `direction`; the terrestrial family has no equivalent. Give it a way to run
-  the reverse direction — a `direction` field ("forward" | "reverse"), or a
-  helper that swaps `near`/`far` — so a caller can budget both ends without
-  building a second scenario by hand. Keep the SAME model interface
-  (`tx_terminal`, `rx_terminal`, `channel`); the channel is symmetric, so only
-  the role mapping changes.
+- **I-3. The diverged (Theta, Lambda) coupled-flux feed cross-check test —
+  DONE (2026-09-01).** The `uplink_flux.py` module self-check now drives the
+  `_scintillation_beam` diverged feed through the coupled-flux on-axis kernel
+  (Path A) and compares it against the closed-form Dios beam-wave index
+  `beam_wave_scintillation.on_axis_scintillation_index` (Path B), on a weak,
+  homogeneous 2 km horizontal-equivalent path. Both read the same launch
+  curvature `f0`, so their Theta and Lambda match. The two agree to ~0.002 %
+  for the collimated AND the diverged (5x) beam, far inside the 15 % gate. The
+  old `ponytail: TODO` in `_scintillation_beam` is retired. (Path A trims the
+  single z = L integrand node, a removable 0/0 the coupled-flux kernel makes
+  there; production grids never reach it.)
+- **I-4. Dead or decorative parameters — DONE (2026-09-01).** The
+  `precompensation` half is REFUSED: `SpaceScenario.__post_init__` raises a
+  `ValueError` when the field is set on a downlink or a retro link, so a user
+  error no longer passes silently; the self-check asserts both refusals. The
+  `geometry` half is DOCUMENTED as deliberate: every terrestrial Term keeps the
+  unused parameter for the uniform `f(scenario, geometry) -> Term` signature,
+  and each docstring says so.
+- **I-5. A `TerrestrialScenario` is one direction only — DONE (2026-09-01).**
+  `TerrestrialScenario` now holds a `direction` field
+  (`TerrestrialDirection`, "forward" | "reverse", default "forward"), and
+  `tx_terminal` / `rx_terminal` read it: forward gives tx=near, rx=far (the old
+  behaviour, so no caller changes), reverse swaps the two. The channel is
+  symmetric, so only the role mapping changes, and the model interface stays
+  the same. The terrestrial direction is a DIFFERENT Literal from the space
+  `Direction`. The wave-optics layer told the two families apart with
+  `hasattr(scenario, "direction")`; that test now reads `"ground"`, because a
+  terrestrial scenario also has a direction. Docs updated: CLAUDE.md, docs/architecture.md,
+  docs/api-terminal-scenario.md, docs/getting-started.md.
 
 ---
 
@@ -607,6 +740,15 @@ The path forward for each is a second reference or a derivation.
   needs three edits; consider one home.
 - **DD-8. Crosscheck batch 2 waits on owner input** (the "(owner to
   specify)" columns).
+- **DD-9. The measured-validity home EXISTS (2026-09-01).** docs/physics.md
+  Section 9, "Measured validity: what the validation scripts certify", collects
+  where the fidelity-0 and fidelity-1 models HOLD. It has one entry for each
+  physics question (9a to 9i), and each entry gives the model, the reference,
+  the measured numbers with a date, the verdict, and the script.
+  STANDING RULE: a validation script that reaches a verdict adds an entry there,
+  or it updates the entry that it supersedes. A result that lives only in a run
+  log, a memory note or a backlog aside is not documented. Entry 9e holds the
+  FULL-run numbers of 1-6 (updated 2026-09-01, same day).
 
 ---
 
