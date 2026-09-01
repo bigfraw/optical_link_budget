@@ -19,7 +19,7 @@ Two sweeps:
      loses to the gate, so a best focal length exists.
 
 Run from the repo root:
-    python -m validation.terrestrial_mmf_na
+    python -m validation.coupling_checks.terrestrial_mmf_na
 '''
 
 import warnings

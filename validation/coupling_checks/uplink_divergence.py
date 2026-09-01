@@ -18,7 +18,7 @@ The transmit divergence is the far-field 1/e^2 HALF-angle. It cannot be smaller
 than the diffraction limit lambda / (pi * w0). None means collimated.
 
 Run from the repo root:
-    python -m validation.uplink_divergence
+    python -m validation.coupling_checks.uplink_divergence
 '''
 
 import warnings

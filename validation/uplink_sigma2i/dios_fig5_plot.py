@@ -1,7 +1,7 @@
 '''Plot the Dios Fig. 5 replication: fidelity 1 curves, fidelity 2 points.
 
 Run from the repo root, after dios_fig5_replication.py:
-    python -m validation.dios_fig5_plot
+    python -m validation.uplink_sigma2i.dios_fig5_plot
 '''
 
 import json
@@ -42,6 +42,8 @@ ax.set_title("Dios 2004 Fig. 5 replication (GEO, 0.84 um, HV57)\n"
 ax.grid(True, which="both", alpha=0.3)
 ax.legend(fontsize=8, loc="upper left")
 fig.tight_layout()
-out = os.path.join(HERE, "dios_fig5_replication.png")
+FIGURES = os.path.join(HERE, "figures")
+os.makedirs(FIGURES, exist_ok=True)
+out = os.path.join(FIGURES, "dios_fig5_replication.png")
 fig.savefig(out, dpi=150)
 print(f"wrote {out}")

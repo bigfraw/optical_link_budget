@@ -12,7 +12,7 @@ exact case:
     (olb.turbulence.uplink_flux._flux_result). If this curve overlays the
     paper's solid line, the vendored implementation is faithful.
   - fidelity 2: the split-step reciprocity far field
-    (validation.uplink_farfield_reciprocity.run_fid2). If this leg matches
+    (validation.uplink_sigma2i.uplink_farfield_reciprocity.run_fid2). If this leg matches
     fidelity 1 at small W0 (the regime the paper validates) and departs
     BELOW it at large W0 (where the paper's own FFT-BPM departs), then the
     fidelity-2 method is consistent with the paper's reference simulation,
@@ -27,8 +27,8 @@ point (wavelength, geometry, launch aperture, far-field window). That keeps
 one validated far-field code path instead of a second copy.
 
 Run from the repo root (the fidelity-2 sweep is the slow part):
-    python -m validation.dios_fig5_replication            # both legs
-    python -m validation.dios_fig5_replication --fid1     # analytic leg only
+    python -m validation.uplink_sigma2i.dios_fig5_replication            # both legs
+    python -m validation.uplink_sigma2i.dios_fig5_replication --fid1     # analytic leg only
 '''
 
 import json
@@ -39,7 +39,7 @@ import warnings
 
 import numpy as np
 
-import validation.uplink_farfield_reciprocity as R
+import validation.uplink_sigma2i.uplink_farfield_reciprocity as R
 from olb.beam import gaussz
 from olb.geometry import CircularOrbit
 from olb.turbulence.coupled_flux import (beam_wander_variance,

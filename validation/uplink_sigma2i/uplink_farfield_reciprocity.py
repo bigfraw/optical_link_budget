@@ -38,7 +38,7 @@ Shapiro 1971, DOI 10.1364/JOSA.61.000492 (reciprocity); Andrews and Phillips
 2nd ed., DOI 10.1117/3.626196, Ch. 12 (the analytic third leg).
 
 Run from the repo root:
-    python -m validation.uplink_farfield_reciprocity
+    python -m validation.uplink_sigma2i.uplink_farfield_reciprocity
 '''
 
 import json

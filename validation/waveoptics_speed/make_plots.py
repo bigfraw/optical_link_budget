@@ -44,7 +44,9 @@ def _load(name):
 
 def _save(fig, name):
     """Save a figure and report the path."""
-    path = os.path.join(HERE, name)
+    figures = os.path.join(HERE, "figures")
+    os.makedirs(figures, exist_ok=True)
+    path = os.path.join(figures, name)
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {os.path.relpath(path)}")

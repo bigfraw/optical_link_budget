@@ -15,7 +15,7 @@ obscuration); the on-axis loss relative to the unobscured spot is in the title,
 because the absolute peak falls by tens of dB across the sweep.
 
 Run from the repo root:
-    python -m validation.uplink_obscuration_farfield
+    python -m validation.uplink_sigma2i.uplink_obscuration_farfield
 '''
 
 import os
@@ -109,7 +109,9 @@ def main():
         f"lambda={LAM * 1e9:.0f} nm  (each panel normalised to its own peak)",
         fontsize=12)
     here = os.path.dirname(os.path.abspath(__file__))
-    png = os.path.join(here, "uplink_obscuration_farfield.png")
+    figures = os.path.join(here, "figures")
+    os.makedirs(figures, exist_ok=True)
+    png = os.path.join(figures, "uplink_obscuration_farfield.png")
     fig.savefig(png, dpi=120, bbox_inches="tight")
     print(f"figure -> {png}")
 

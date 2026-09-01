@@ -45,10 +45,10 @@ HONESTY GUARDS. This is a validation, not a demo.
   as they fall.
 
 Run from the repo root:
-    python -m validation.uplink_obscuration_dios_vs_waveoptics
+    python -m validation.uplink_sigma2i.uplink_obscuration_dios_vs_waveoptics
 
 Optional environment overrides (for a quick smoke run):
-    OBSC_TRIALS=8 OBSC_EPS=0,0.3,0.6 python -m validation.uplink_obscuration_dios_vs_waveoptics
+    OBSC_TRIALS=8 OBSC_EPS=0,0.3,0.6 python -m validation.uplink_sigma2i.uplink_obscuration_dios_vs_waveoptics
 '''
 
 import json
@@ -368,7 +368,9 @@ def _plot(rows, dios, cfg, here):
     fig.suptitle(f"Obscured uplink at the satellite, {cfg['elevation_deg']:.0f} deg, "
                  f"Cn2={cfg['cn2_ground']:.1e}, w0={cfg['w0']} m, R={cfg['aperture_m'] / 2} m")
     fig.tight_layout()
-    png = os.path.join(here, f"uplink_obscuration{cfg.get('tag', '')}.png")
+    figures = os.path.join(here, "figures")
+    os.makedirs(figures, exist_ok=True)
+    png = os.path.join(figures, f"uplink_obscuration{cfg.get('tag', '')}.png")
     fig.savefig(png, dpi=130)
     print(f"figure -> {png}")
 

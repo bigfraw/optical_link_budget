@@ -451,7 +451,7 @@ The budget-building Terms:
   non-uplink scenario.
 
 Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
-`validation/uplink_divergence.py`.
+`validation/coupling_checks/uplink_divergence.py`.
 
 ### `downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, fast_params=None, scint_model="lognormal", wave=None)`
 
@@ -688,7 +688,7 @@ The receive-side Terms:
   cannot be resolved.
 
 Examples: `examples/terrestrial_link.py`,
-`validation/terrestrial_coupling_jitter.py`.
+`validation/coupling_checks/terrestrial_coupling_jitter.py`.
 
 ### The bidirectional terrestrial wrapper (`olb/links/bidirectional.py`)
 

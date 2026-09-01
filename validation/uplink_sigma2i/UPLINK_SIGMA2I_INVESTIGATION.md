@@ -26,7 +26,7 @@ replaces the 2026-08-28 unresolved handoff.
 
 ## 2. The experiment
 
-`validation/uplink_farfield_reciprocity.py`. Three upgrades over the earlier
+`validation/uplink_sigma2i/uplink_farfield_reciprocity.py`. Three upgrades over the earlier
 (void) comparison:
 
 1. **Mode-matched.** The launch aperture is 1.0 m, so the clip on the
@@ -103,7 +103,7 @@ small, and the off-axis Rytov term inflates it by an order of magnitude.
 
 ## 5. The Fig. 5 replication, and a slant-geometry defect
 
-`validation/dios_fig5_replication.py` replicates Dios et al. 2004, Fig. 5
+`validation/uplink_sigma2i/dios_fig5_replication.py` replicates Dios et al. 2004, Fig. 5
 (GEO uplink, 0.84 um, sigma2_chi against W0, elevations 90 and 30 deg) with
 the vendored kernels. Estimator: sigma2_chi = var(ln I)/4 on the raw
 samples, both legs.
@@ -148,7 +148,7 @@ mid range (the focusing regime, visible in the figure as asterisks above
 the solid line), and they SATURATE near sigma2_chi ~ 0.65 at large W0
 while the fidelity-1 curve climbs without limit (0.96 / 2.46). The GEO
 wander ratio repeats the LEO finding: sim <beta^2> = 1.8x to 2.3x the Dios
-form at every point. Plot: `dios_fig5_replication.png`. So the fidelity-2
+form at every point. Plot: `figures/dios_fig5_replication.png`. So the fidelity-2
 method is CONSISTENT with the exact published simulation that Dios
 validated against, and Section 1 stands confirmed.
 
@@ -178,13 +178,13 @@ vacuum far field).
 
 ## 9. Files
 
-- `validation/uplink_farfield_reciprocity.py` -- the main experiment
+- `validation/uplink_sigma2i/uplink_farfield_reciprocity.py` -- the main experiment
   (four cases + variants; `--variants` reruns the key case lean).
-- `validation/uplink_farfield_reciprocity_run.log` -- all four cases.
-- `validation/uplink_farfield_variants_run.log`,
+- `validation/uplink_sigma2i/uplink_farfield_reciprocity_run.log` -- all four cases.
+- `validation/uplink_sigma2i/uplink_farfield_variants_run.log`,
   `uplink_farfield_reciprocity_results_variants.json` -- key case +
   variants (full JSON incl. the sigma2_I(r) profiles and eta samples).
-- `validation/dios_fig5_replication.py`, `dios_fig5_replication_run.log`,
+- `validation/uplink_sigma2i/dios_fig5_replication.py`, `dios_fig5_replication_run.log`,
   `dios_fig5_replication_results.json` -- the Fig. 5 replication.
 - Earlier artifacts: `uplink_obscuration_dios_vs_waveoptics.py` (the MEAN
   panel stands; the scintillation panel remains void),
