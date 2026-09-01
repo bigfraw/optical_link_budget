@@ -216,7 +216,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
 
 if __name__ == '__main__':
     from ..scenario import SpaceScenario, Channel
-    from ..terminal import Terminal, Transmitter, Aperture
+    from ..terminal import Terminal, Transmitter, Aperture, SMF
     from ..geometry import CircularOrbit
 
     # The ground terminal transmits up and receives the return. The space
@@ -227,12 +227,13 @@ if __name__ == '__main__':
         ground=Terminal(aperture_m=0.7, obscuration_ratio=0.3, wavelength_m=1550e-9,
                         pointing_jitter_rad=0e-6,
                         transmitter=Transmitter(waist_m=0.06, power_dbm=40,
-                                                aperture_m=0.15, obscuration_ratio=0.0),
+                                                aperture_m=0.15, obscuration_ratio=0.3),
                         detector=Aperture(sensitivity_dbm=-50)),
         space=Terminal(aperture_m=0.05, wavelength_m=1550e-9),
         direction="retro", channel=Channel(altitude_m=1500e3),
     )
-    retro_geom = CircularOrbit(altitude_m=1500e3, elevation_deg=45.0)
+    elevation = 30.0
+    retro_geom = CircularOrbit(altitude_m=1500e3, elevation_deg=elevation)
 
     retro = retro_space_budget(retro_scn, retro_geom)
     # 9 terms: the up-leg carries the opt-in launch-truncation term because the
@@ -261,8 +262,9 @@ if __name__ == '__main__':
         [t.name for t in retro.terms]
     retro_mc = retro.monte_carlo(2000, rng=np.random.default_rng(0),
                                  availabilities=(0.99,))
-    retro_margin = retro_mc["margin_db"][0.99]
-    assert np.isfinite(retro_margin), retro_margin
+    retro_fade = retro_mc["fade_db"][0.99]
+    retro_mean = retro_mc["mean_loss_db"]
+    assert np.isfinite(retro_fade), retro_fade
     af = retro.assumptions_frame()
     retro_row = af[af["name"] == "retro reflection"]
     assert not retro_row.empty, "retro reflection row missing"
@@ -290,7 +292,10 @@ if __name__ == '__main__':
     folded = merge_assumptions(up_turb.assumptions, down_cpl.assumptions)
     assert set(up_turb.assumptions.provenance) <= set(folded.provenance)
 
+    print("retro (space) assumptions:")
+    retro.check()
     print("retro (space) budget terms:")
     print(retro.to_frame().to_string(index=False))
-    print(f"\nretro 45 deg 99% margin: {retro_margin:.2f} dB")
+    print(f"\nretro {elevation} deg 99% fade: {retro_fade:.2f} dB")
+    print(f"retro {elevation} deg mean: {retro_mean:.2f} dB")
     print("self-check passed")
