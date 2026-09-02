@@ -1,0 +1,113 @@
+FAST against Stone: the point-ahead anisoplanatism residual (backlog 1-5)
+mode          : FULL
+grid          : NPXLS = 1024, DX = 0.01 m  (df = 0.614 rad/m, kappa_max = 314 rad/m)
+link          : D = 1.5 m, lambda = 1550 nm, orbit 600 km, HV5/7 (Cn2_0 = 1.7e-14)
+gates         : quadrature 1%, closure 0.5%, convergence 1%, zero point-ahead 1e-06 rad^2
+outer scale   : Kolmogorov (L0 = infinite) everywhere, except the GATED legs, which use L0 = 5 m
+
+STAGE A0. One turbulence layer at the zenith.
+  a Gaussian Cn2 bump at 10 km, sigma = 250 m, INT Cn2 dh = 1e-13 m^(1/3), theta = 9.0 arcsec, ZMAX = 55
+  A0 always runs on the 512 / 0.02 m grid. Its profile holds 81 layers, and FAST holds one spectrum for each layer, so a finer grid needs several gigabytes.
+
+  THE 1 % GATE, with the outer scale L0 = 5 m, over the square support 157 rad/m:
+    FAST grid, clean split : 0.41091 rad^2
+    independent quadrature : 0.40876 rad^2
+    relative difference    : +0.0053
+    kernel identity |G_ao - rebuilt| : 8.88e-16
+    closure, raw / clean   : +1.31e-16 / -1.31e-16
+
+  THE KOLMOGOROV LEG (L0 = infinite), which is what Stone integrates:
+    FAST raw aniso_servo_error : 0.74090 rad^2
+    FAST clean split aniso_corr: 0.74259 rad^2
+    FAST fitting raw / clean   : 0.01395 / 0.01225 rad^2
+    quadrature, whole plane    : 1.16786 rad^2
+    the FAST grid MISSES       : 36.0% of it (it has no support below df = 0.614 rad/m, and the integral converges only as kappa^(1/3))
+    Stone, no mode removed     : 1.17845 rad^2   (band 0..9)
+    Stone, piston removed      : 0.41238 rad^2
+    Stone, piston and tilt     : 0.25161 rad^2
+    quadrature / Stone none    : 0.9910   (the clean soft filter against the Stone projection)
+
+STAGE A1. The HV5/7 profile at the production point.
+  theta = 9.011 arcsec (43.69 urad), r0 line of sight = 17.3 cm
+  FAST raw aniso_servo_error   : 1.98779 rad^2
+  FAST clean split aniso_corr  : 1.94313 rad^2
+  closure, raw / clean         : -1.95e-16 / -3.90e-16
+  quadrature, whole plane      : 3.18892 rad^2   (the FAST grid misses 38.6%)
+  Stone none / piston / piston+tilt : 3.04697 / 0.96793 / 0.56083 rad^2
+  the isolated piston term     : 2.07904 rad^2
+  the isolated tilt term       : 0.40710 rad^2
+  FAST fitting raw / clean     : 0.28873 / 0.33339 rad^2
+  Noll fitting, 55 / 60 modes  : 0.33535 / 0.31101 rad^2
+  THE PAIRINGS:
+    mode matched, no grid truncation (quadrature / Stone none) : 1.047
+    mode matched, on the FAST grid   (FAST / Stone none)       : 0.638   (the grid misses 38.6%)
+    production pairing               (FAST / Stone piston+tilt): 3.465   (the FAST modal mask KEEPS the piston and the tilt, and uplink_point_ahead_term removes them, so this pair is NOT mode matched)
+
+STAGE B. The sweeps.
+case                  theta[as] ZMAX  FASTraw FASTcorr    quad LFtrunc  Stone_n Stone_pt  Q/S_n  F/S_n  F/S_pt
+theta x 0                  0.00   55   0.0608   0.0000  0.0000     nan   0.0000   0.0000    nan    nan     nan
+theta x 0.25               2.25   55   0.2441   0.1907  0.2683   0.287   0.2543   0.0910  1.055  0.750   2.097
+theta x 0.5                4.51   55   0.6966   0.6476  0.9585   0.321   0.9132   0.2675  1.050  0.709   2.421
+theta x 1                  9.01   55   1.9878   1.9431  3.1889   0.386   3.0470   0.5608  1.047  0.638   3.465
+theta x 1.5               13.52   55   3.5895   3.5482  6.3524   0.436   6.0779   0.7475  1.045  0.584   4.747
+theta x 2                 18.02   55   5.3768   5.3385 10.3227   0.476   9.8854   0.8774  1.044  0.540   6.084
+  theta = 0: FAST corrected 0.000e+00 rad^2, Stone piston+tilt 0.000e+00 rad^2, FAST RAW 0.06083 rad^2 (the soft-mask leakage)
+
+case                  theta[as] ZMAX  FASTraw FASTcorr    quad LFtrunc  Stone_n Stone_pt  Q/S_n  F/S_n  F/S_pt
+ZMAX 0 (uncorrected)       9.01    0   0.0000   0.0000  0.0000     nan   0.0000   0.0000    nan    nan     nan
+ZMAX 1                     9.01    1  12.6806   0.9431  2.1917   0.560   2.0790   0.0000  1.054  0.454     nan
+ZMAX 3                     9.01    3   3.1463   1.3699  2.6174   0.470   2.4861   0.0000  1.053  0.551     nan
+ZMAX 6                     9.01    6   2.1982   1.5931  2.8398   0.433   2.7024   0.2162  1.051  0.590   7.367
+ZMAX 10                    9.01   10   2.0276   1.7230  2.9693   0.415   2.8298   0.3436  1.049  0.609   5.014
+ZMAX 21                    9.01   21   1.9794   1.8519  3.0979   0.397   2.9569   0.4707  1.048  0.626   3.934
+ZMAX 36                    9.01   36   1.9803   1.9094  3.1553   0.390   3.0136   0.5274  1.047  0.634   3.620
+ZMAX 55                    9.01   55   1.9878   1.9431  3.1889   0.386   3.0470   0.5608  1.047  0.638   3.465
+ZMAX 66                    9.01   66   1.9925   1.9557  3.2014   0.385   3.0594   0.5732  1.046  0.639   3.412
+ZMAX 60 (production)       9.01   60   1.9914   1.9488  3.1946   0.385   3.0470   0.5608  1.048  0.640   3.475
+  the production point corrects 60 Noll modes. olb reads it as radial order 9, because order 9 is complete at 55 modes.
+
+case                  theta[as] ZMAX  FASTraw FASTcorr    quad LFtrunc  Stone_n Stone_pt  Q/S_n  F/S_n  F/S_pt
+elev 30 deg                5.20   55   3.4430   3.3656  5.5234   0.386   5.2775   0.9714  1.047  0.638   3.465
+elev 60 deg                9.01   55   1.9878   1.9431  3.1889   0.386   3.0470   0.5608  1.047  0.638   3.465
+elev 90 deg               10.40   55   1.7215   1.6828  2.7617   0.386   2.6388   0.4857  1.047  0.638   3.465
+
+CONVERGENCE. The A1 case on three grids.
+  The GATED rows carry the outer scale L0 = 5 m, because the Kolmogorov integral has no low-frequency floor and a grid cannot converge on it. The Kolmogorov rows sit below, and they are NOT gated.
+grid                    df kappa_max  aniso_corr  quadrature   fit_corr
+N=1024 dx=0.01       0.614       314     1.00708     1.00139    0.33146
+N=1024 dx=0.02       0.307       157     1.00555     1.00221    0.32709
+N=512 dx=0.01        1.227       314     1.02250     0.99142    0.33145
+  movement of aniso_corr, refined df         : 0.15%
+  movement of aniso_corr, HALF-domain grid   : 1.53%   (NOT gated: its df sits at the outer-scale knee, so it under-resolves the low band; the base grid holds it)
+  movement of fit_corr, same kappa_max       : 0.00%
+  movement of fit_corr, kappa_max is DOUBLED : 1.32%   (NOT gated: a finer pixel opens a higher frequency band, and the Kolmogorov fitting tail there is real variance)
+  the same three grids in the KOLMOGOROV limit (not gated):
+grid                    df kappa_max  aniso_corr  whole plane  LFtrunc
+N=1024 dx=0.01       0.614       314     1.94313      3.18892    0.386
+N=1024 dx=0.02       0.307       157     2.20582      3.18892    0.305
+N=512 dx=0.01        1.227       314     1.61422      3.18892    0.487
+  A finer df ADDS real variance, because it opens a lower frequency band. That movement is the low-frequency truncation, not a numerical error.
+
+STAGE C. The full Term comparison in dB (NITER = 3000).
+point               theta[as]  Stone_pt   FASToff  FASTservo ->dB Stone  ->dB off ->dB servo  fid0 dB  fid1 dB
+AO(60) @ 60 deg          9.01    0.5608    1.9488     0.8307      2.436     8.464      3.608    3.786    3.049
+AO(60) @ 30 deg          5.20    0.9714    3.3755     1.4389      4.219    14.659      6.249    6.558    5.301
+AO(21) @ 60 deg          9.01    0.4707    1.8519     0.8198      2.044     8.043      3.560    5.397    4.535
+AO(60) @ 90 deg         10.40    0.4857    1.6877     0.7194      2.109     7.330      3.124    3.279    2.623
+AO(10) @ 60 deg          9.01    0.3436    1.7230     0.8932      1.492     7.483      3.879    7.867    6.032
+  fid0 dB = uplink_point_ahead_term + uplink_fitting_term (mean only). fid1 dB = uplink_fast_term Monte Carlo mean.
+  AO(60) @ 60 deg: point-ahead 2.436 dB + fitting 1.351 dB = 3.786 dB   against the Monte Carlo 3.049 dB   (the servo sim grid: NPXLS = 202, df = 3.11 rad/m)
+  AO(60) @ 30 deg: point-ahead 4.219 dB + fitting 2.340 dB = 6.558 dB   against the Monte Carlo 5.301 dB   (the servo sim grid: NPXLS = 202, df = 3.11 rad/m)
+  AO(21) @ 60 deg: point-ahead 2.044 dB + fitting 3.353 dB = 5.397 dB   against the Monte Carlo 4.535 dB   (the servo sim grid: NPXLS = 202, df = 3.11 rad/m)
+  AO(60) @ 90 deg: point-ahead 2.109 dB + fitting 1.170 dB = 3.279 dB   against the Monte Carlo 2.623 dB   (the servo sim grid: NPXLS = 202, df = 3.11 rad/m)
+  AO(10) @ 60 deg: point-ahead 1.492 dB + fitting 6.375 dB = 7.867 dB   against the Monte Carlo 6.032 dB   (the servo sim grid: NPXLS = 202, df = 3.11 rad/m)
+
+VERDICTS. The rule reads the MODE-MATCHED ratio Q/S_n: the whole-plane quadrature of the FAST filter against the Stone band 0..max_order with no mode removed. Both sets then hold the SAME modes, and the quadrature carries no grid truncation. The rule takes the worst case: within 10% MATCH, to 40% MEASURED DIFFERENCE, else INVESTIGATE.
+  A0       MATCH                worst |Q/S_n - 1| = 0.009   (on the FAST GRID, worst |F/S_n - 1| = 0.370)
+  A1       MATCH                worst |Q/S_n - 1| = 0.047   (on the FAST GRID, worst |F/S_n - 1| = 0.362)
+  B-theta  MATCH                worst |Q/S_n - 1| = 0.055   (on the FAST GRID, worst |F/S_n - 1| = 0.460)
+  B-order  MATCH                worst |Q/S_n - 1| = 0.054   (on the FAST GRID, worst |F/S_n - 1| = nan)
+  B-elev   MATCH                worst |Q/S_n - 1| = 0.047   (on the FAST GRID, worst |F/S_n - 1| = 0.362)
+  C        MEASURED DIFFERENCE  worst |fidelity1/fidelity0 - 1| = 0.233
+
+runtime: 883.5 s
