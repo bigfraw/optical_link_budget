@@ -302,7 +302,7 @@ def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0):
     airmass = 1.0 / np.sin(np.radians(elevation_deg))
     # S^(5/3) = (h * airmass)^(5/3). The path element adds one more airmass, so
     # the total slant factor is airmass^(8/3).
-    integral = np.trapz(cn2 * hs ** (5.0 / 3.0), hs) * airmass ** (8.0 / 3.0)
+    integral = np.trapezoid(cn2 * hs ** (5.0 / 3.0), hs) * airmass ** (8.0 / 3.0)
     c1 = 2.0 * _TWO_PI_83 * C_A * HJ1_8_3
     return float((c1 * k0 ** 2 * integral) ** (-3.0 / 5.0))
 
@@ -396,7 +396,7 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
     inner = np.array([_inner_integral(b, n_lo, max_order) for b in betas])
 
     prefactor = 2.0 * _TWO_PI_83 * C_A * k0 ** 2 * R ** (5.0 / 3.0) * airmass
-    return float(prefactor * np.trapz(cn2 * inner, hs))
+    return float(prefactor * np.trapezoid(cn2 * inner, hs))
 
 
 @assumes(_ISOPLANATISM, _PLANE_PARALLEL, _ZERO_APERTURE,

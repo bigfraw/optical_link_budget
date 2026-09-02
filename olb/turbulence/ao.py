@@ -139,7 +139,7 @@ def plane_wave_fried_parameter_profile(cn2_profile, hs, wavelength, elevation_de
             r0 [m], broadcast over the elevation shape.
     '''
     airmass = 1.0 / np.sin(np.radians(np.asarray(elevation_deg, dtype=float)))
-    integral = np.trapz(np.asarray(cn2_profile, dtype=float), hs)
+    integral = np.trapezoid(np.asarray(cn2_profile, dtype=float), hs)
     # The Andrews chain takes one path length and one Cn2. The path moment
     # airmass * INT Cn2 dh already carries both, so pass z = 1 m.
     r0 = _andrews_fried_parameter(

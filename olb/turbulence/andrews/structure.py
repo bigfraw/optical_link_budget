@@ -755,7 +755,7 @@ if __name__ == '__main__':
     hs = DEFAULT_HS
     cn2_prof = get_c2n(hs, 21.0, 1.7e-14)
     airmass = 1.0 / np.sin(np.radians(60.0))
-    moment = float(np.trapz(cn2_prof, hs)) * airmass
+    moment = float(np.trapezoid(cn2_prof, hs)) * airmass
     mine_prof = fried_parameter(coherence_radius(lam_m, 1.0, moment))
     old_prof = ao.plane_wave_fried_parameter_profile(cn2_prof, hs, lam_m, 60.0)
     pct_prof = (mine_prof - old_prof) / old_prof * 100.0

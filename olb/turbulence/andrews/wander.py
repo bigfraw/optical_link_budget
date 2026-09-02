@@ -512,7 +512,7 @@ def _slant_variance(w0, wavelength, hs, cn2_profile, range_m, f0,
     bracket = np.where(kappa > 0.0, 1.0 - (x / (1.0 + x)) ** (1.0 / 6.0), 1.0)
 
     shape = np.where(a > 0.0, xi ** 2 * a ** (-1.0 / 3.0) * bracket, 0.0)
-    integral = np.trapz(cn2 * shape, hs)
+    integral = np.trapezoid(cn2 * shape, hs)
     return (WANDER_CONSTANT * float(range_m) ** 2 * airmass
             * float(w0) ** (-1.0 / 3.0) * integral)
 
@@ -577,7 +577,7 @@ def plane_fried_parameter_slant(wavelength, hs, cn2_profile,
     cn2 = np.asarray(cn2_profile, dtype=float)
     k = wavenumber(wavelength)
     airmass = 1.0 / np.sin(np.radians(float(elevation_deg)))
-    mu0 = np.trapz(cn2, hs)
+    mu0 = np.trapezoid(cn2, hs)
     return (0.42 * airmass * k ** 2 * mu0) ** (-3.0 / 5.0)
 
 
@@ -756,7 +756,7 @@ if __name__ == '__main__':
     airmass_up = 1.0
     ws_free_up = gaussz(w0_up, hs_grid, lam_m)
     k_up = kernel_wander(L_up, cn2_hv * airmass_up, ws_free_up, hs_grid)
-    mu0_up = np.trapz(cn2_hv, hs_grid)
+    mu0_up = np.trapezoid(cn2_hv, hs_grid)
     red_up = WANDER_CONSTANT_COLLIMATED * (mu0_up / L_up) * L_up ** 3 * w0_up ** (-1 / 3)
 
     rows = [

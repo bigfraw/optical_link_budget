@@ -203,7 +203,7 @@ def plane_wave_scintillation_index(elevation_deg, wavelength, hs, cn2_profile):
         p. 495. DOI 10.1117/3.626196.
     '''
     k = 2.0 * np.pi / wavelength
-    integral = np.trapz(np.asarray(cn2_profile) * hs ** (5.0 / 6.0), hs)
+    integral = np.trapezoid(np.asarray(cn2_profile) * hs ** (5.0 / 6.0), hs)
     return 2.25 * k ** (7.0 / 6.0) * _sec_zeta(elevation_deg) ** (11.0 / 6.0) * integral
 
 
@@ -271,9 +271,9 @@ def _scintillation_integral(rx_diameter_m, elevation_deg, wavelength, hs,
     for i, h in enumerate(hs):
         z = h * sec_arr / k                                   # shape (E,)
         fresnel = 1.0 - np.cos(_KAPPA2[:, None] * z[None, :])  # shape (K, E)
-        inner = np.trapz(base[:, None] * fresnel, _KAPPA, axis=0)
+        inner = np.trapezoid(base[:, None] * fresnel, _KAPPA, axis=0)
         h_integrand[i] = cn2[i] * inner
-    h_int = np.trapz(h_integrand, hs, axis=0)                 # shape (E,)
+    h_int = np.trapezoid(h_integrand, hs, axis=0)                 # shape (E,)
     result = 8.0 * np.pi ** 2 * k ** 2 * sec_arr * h_int
 
     if np.ndim(sec) == 0:

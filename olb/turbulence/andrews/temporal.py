@@ -626,8 +626,8 @@ def quasi_frequency(freq, spectrum):
     '''
     f = np.asarray(freq, dtype=float)
     s = np.asarray(spectrum, dtype=float)
-    b0 = np.trapz(s, f)
-    b2 = np.trapz(f ** 2 * s, f)
+    b0 = np.trapezoid(s, f)
+    b2 = np.trapezoid(f ** 2 * s, f)
     return float(np.sqrt(b2 / b0))
 
 
@@ -678,7 +678,7 @@ def greenwood_frequency(hs, cn2_profile, wavelength, elevation_deg=90.0,
                                                               dtype=float)
     k = wavenumber(wavelength)
     airmass = 1.0 / np.sin(np.radians(elevation_deg))
-    integral = np.trapz(cn2 * wind ** (5.0 / 3.0), hs) * airmass
+    integral = np.trapezoid(cn2 * wind ** (5.0 / 3.0), hs) * airmass
     tau0 = (GREENWOOD_CONSTANT * k ** 2 * integral) ** (-3.0 / 5.0)
     return float(1.0 / tau0)
 
@@ -727,7 +727,7 @@ if __name__ == '__main__':
         Eq. (57), printed 283), so the head below the first grid point is the
         rectangle values[0] * grid[0].
         '''
-        return float(np.trapz(values, grid) + values[0] * grid[0])
+        return float(np.trapezoid(values, grid) + values[0] * grid[0])
 
     # === physics ============================================================
 
