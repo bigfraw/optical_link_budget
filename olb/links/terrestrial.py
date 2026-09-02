@@ -27,9 +27,8 @@ olb.links.downlink._lognormal_term).
 import warnings
 
 import numpy as np
-from scipy.stats import norm
 
-from ..results import Budget, Term
+from ..results import Budget
 from ..assumptions import (trace_assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
                            SPECTRUM_KOLMOGOROV)
 from ..models.geometric import geometric_loss_term
@@ -41,13 +40,15 @@ from ..turbulence.plane_wave_scintillation import aperture_averaging_factor_weak
 from ..turbulence.andrews.beam import beam_params
 from ..turbulence.andrews.scintillation import (rytov_weak, LOGNORMAL_PDF_LIMIT,
                                         RYTOV_CONFIDENT_WEAK, WEAK_REGIME_LIMIT)
+from ..turbulence.andrews.distributions import (lognormal_params,
+                                                lognormal_mean_log,
+                                                lognormal_quantile,
+                                                lognormal_rvs)
+from ..models.fade import irradiance_fade_term
 
 # Below this launch-truncation loss the beam is an untruncated Gaussian, so the
 # transmit Gaussian-efficiency term is skipped [dB]. Matches olb.links.uplink.
 TX_TRUNCATION_MIN_DB = 1e-2
-
-# Natural log of ten, for the dB conversions in the lognormal faces.
-_LN10 = np.log(10.0)
 
 # Points on the constant-Cn2 horizontal grid for the scintillation integral. The
 # on-axis index integrates over the path, so a few hundred points converge it.
@@ -168,19 +169,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
 
     sigma2_P = A * sigma2_I
 
-    sigma_l2 = np.log(1.0 + sigma2_P)
-    sigma_l = np.sqrt(sigma_l2)
-
-    mean_db = (5.0 / _LN10) * sigma_l2
-
-    def quantile(p):
-        # Loss exceeded a fraction (1 - p) of the time. Phi_inv = norm.ppf.
-        z = norm.ppf(1.0 - p)
-        return -10.0 / _LN10 * (-sigma_l2 / 2.0 + sigma_l * z)
-
-    def sampler(n, rng):
-        P = rng.lognormal(mean=-sigma_l2 / 2.0, sigma=sigma_l, size=n)
-        return -10.0 * np.log10(P)
+    # The lognormal irradiance model. lognormal_params turns the aperture-averaged
+    # index into the log-irradiance variance; the three dB faces come from the ONE
+    # shared adapter (olb.models.fade.irradiance_fade_term), the SAME path the
+    # downlink and gamma-gamma Terms use (backlog I-2 / crosscheck TL-01..04).
+    sigma_l2 = lognormal_params(sigma2_P)
 
     # TWO separate weak-fluctuation tests (see olb.turbulence.andrews.scintillation
     # and Conflict C-05 / TL-05 in docs/andrews-crosscheck.md):
@@ -261,12 +254,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
             "Use a gamma-gamma or a Monte Carlo model."
         )
 
-    return Term(
-        name="scintillation",
-        category="turbulence",
-        mean_db=float(mean_db),
-        sampler=sampler,
-        quantile=quantile,
+    return irradiance_fade_term(
+        "scintillation", "turbulence",
+        mean_log=lognormal_mean_log(sigma_l2),
+        quantile=lambda p: lognormal_quantile(p, sigma_l2),
+        rvs=lambda n, rng: lognormal_rvs(n, sigma_l2, rng),
         note="horizontal Gaussian-beam lognormal scintillation, aperture-averaged",
         meta={
             "model": "lognormal",
@@ -594,6 +586,29 @@ if __name__ == '__main__':
     q99_scint = scint.quantile_db(0.99)
     assert q99_scint is not None and np.isfinite(q99_scint) and q99_scint > scint.mean_db, \
         (q99_scint, scint.mean_db)
+
+    # --- parity with the retired inline lognormal faces (backlog I-2) --------
+    # The three dB faces now come from olb.models.fade.irradiance_fade_term, not
+    # the old inline formula. Rebuild the retired faces and assert a match, so a
+    # future change to the shared adapter cannot silently move the numbers. The
+    # mean and the sampler are BYTE identical; the quantile matches to machine
+    # precision (the adapter takes -10 log10(exp(x)), the retired code took
+    # -10 x / ln10 directly).
+    from scipy.stats import norm as _norm
+    _ln10 = np.log(10.0)
+    _sl2 = np.log(1.0 + scint.meta["sigma2_P"])
+    _sl = np.sqrt(_sl2)
+    assert scint.mean_db == (5.0 / _ln10) * _sl2, scint.mean_db
+    for _p in (0.01, 0.5, 0.99):
+        _old_q = -10.0 / _ln10 * (-_sl2 / 2.0 + _sl * _norm.ppf(1.0 - _p))
+        assert abs(scint.quantile_db(_p) - _old_q) < 1e-12, \
+            (_p, scint.quantile_db(_p), _old_q)
+    _a = scint.sample_db(20_000, np.random.default_rng(4321))
+    _b = -10.0 * np.log10(np.random.default_rng(4321).lognormal(
+        mean=-_sl2 / 2.0, sigma=_sl, size=20_000))
+    assert np.max(np.abs(_a - _b)) == 0.0
+    print(f"[parity] terrestrial lognormal faces match retired inline "
+          f"(mean {scint.mean_db:.6f} dB, byte-identical sampler)")
 
     # The aperture-averaging win: a larger receive aperture shrinks the flux index
     # and the fade. Sweep D and check both fall monotonically.
