@@ -178,12 +178,13 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         tophat_term,
     ]
     # The return-leg receive term follows the ground receiver, exactly as
-    # downlink_budget does: when the ground has a detector, the receive-coupling
-    # Term owns the receive-side physics (SMF adds the fibre-coupling loss; an
-    # Aperture reproduces the plain scintillation). Without a detector, fall back
-    # to the standalone plane-wave scintillation.
+    # downlink_budget does: a bucket receiver (no detector or a plain Aperture) is
+    # phase-insensitive and gets the standalone plane-wave scintillation. None and
+    # Aperture() are the SAME bucket. An SMF detector adds the fibre-coupling loss.
     rx = down_scn.rx_terminal
-    if rx is not None and rx.detector is not None:
+    detector = rx.detector if rx is not None else None
+    from ..terminal import Aperture
+    if detector is not None and not isinstance(detector, Aperture):
         # Import here to break the downlink <-> coupling import cycle.
         from ..models.coupling import downlink_coupling_term
         down_terms.append(downlink_coupling_term(down_scn, geometry, n_samples=n_samples,
@@ -256,9 +257,9 @@ if __name__ == '__main__':
     assert "downlink top-hat correction" in names, names
     tophat = next(t for t in retro.terms if t.name == "downlink top-hat correction")
     assert abs(tophat.mean_db - 3.0103) < 1e-3, tophat.mean_db
-    # The ground has an Aperture detector, so the return leg carries the
-    # receive-coupling Term (leg-prefixed), not the standalone scintillation.
-    assert "downlink receive coupling (aperture)" in [t.name for t in retro.terms], \
+    # The ground has an Aperture detector, a bucket, so the return leg carries the
+    # leg-prefixed scintillation Term (a bucket is the SAME as no detector).
+    assert "downlink scintillation" in [t.name for t in retro.terms], \
         [t.name for t in retro.terms]
     retro_mc = retro.monte_carlo(2000, rng=np.random.default_rng(0),
                                  availabilities=(0.99,))
@@ -282,13 +283,13 @@ if __name__ == '__main__':
                for s in up_turb.assumptions.provenance), up_turb.assumptions.provenance
     guard = [name for name, reason in retro.check(warn=False)
              if "did not open" in reason]
-    # This WP owns the up-leg turbulence Term. (The down-leg receive-coupling Term
+    # This WP owns the up-leg turbulence Term. (The down-leg scintillation Term
     # is a sibling WP, so do not assert on it here.)
     assert "uplink turbulence (coupled-flux)" not in guard, guard
     # merge_assumptions recomposes finished records with NO trace of its own: the
     # folded up+down record carries the union of the two provenances.
     down_cpl = next(t for t in retro.terms
-                    if t.name == "downlink receive coupling (aperture)")
+                    if t.name == "downlink scintillation")
     folded = merge_assumptions(up_turb.assumptions, down_cpl.assumptions)
     assert set(up_turb.assumptions.provenance) <= set(folded.provenance)
 

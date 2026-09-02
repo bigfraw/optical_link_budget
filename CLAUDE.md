@@ -366,6 +366,16 @@ sigma2_I = 0.25 and the gamma-gamma Term at or above it. The gamma-gamma Term is
 valid at every fluctuation strength, but it models a POINT receiver, because the
 book gives no aperture-averaged downlink index in that regime.
 
+A downlink or retro BUCKET receiver -- no detector or a plain `Aperture()` -- is
+ONE case (2026-09-02): `Aperture()` defaults to `sensitivity_dbm=None`, so it
+holds no receiver, exactly like None, and there is NO "no detector" special case.
+`downlink_budget` and `retro_space_budget` route BOTH to the aperture-averaged
+scintillation Term (category `turbulence`, honouring `scint_model`), so a bucket's
+row is `scintillation`, NOT `receive coupling (aperture)`. An SMF detector still
+takes the receive-coupling Term; MMF and Camera raise at fidelity 0/1. Terrestrial
+already treated the two the same. A tx-only terminal keeps `detector=None` (no
+meaningless receiver).
+
 The Schmidt foundation layer EXISTS on the branch `schmidt`.
 `olb/waveoptics/schmidt/` holds four modules of pure book physics:
 `fourier.py` (Chs. 2 and 3), `fresnel.py` (Chs. 6 and 8), `sampling.py`
