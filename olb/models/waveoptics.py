@@ -84,7 +84,9 @@ class Fidelity2Bundle:
                     the analytic geometric Term, not a wave-optics vacuum Term.
         turbulent : the TurbWaveResult of the split-step Monte Carlo
                     (olb.waveoptics.turbulence.propagate_turbulent_scenario). It
-                    gives the turbulence penalty.
+                    gives the turbulence penalty. It is None for a VACUUM-ONLY
+                    bundle from run_fidelity2(turbulence=False): the budget then
+                    shows the deterministic Terms alone.
 
     Build one with run_fidelity2, which runs both on the correct grids.
     '''
@@ -501,6 +503,101 @@ def waveoptics_vacuum_term(result, *, include_smf=None, name=None,
                 meta=meta, assumptions=assumptions)
 
 
+def waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *,
+                               beam_type=BEAM_GAUSSIAN, name=None, note=None,
+                               meta_extra=None):
+    '''
+    Build the DETERMINISTIC vacuum MMF core-capture Term (category "coupling").
+
+    A vacuum-only bundle (run_fidelity2(turbulence=False)) has no per-trial
+    mmf_eta, because it makes no trials. But it holds the receive-clipped field,
+    so the light-bucket core capture is a direct calculation on that field. This
+    Term is that calculation: the fraction of the COLLECTED power that enters the
+    fibre core, with no fade.
+
+    It is the vacuum companion of waveoptics_mmf_coupling_term. It composes with
+    the vacuum-optics Term (launch to collected power) with no double-count,
+    because it is relative to the collected power.
+
+    The focal length follows the SAME rule as the turbulent runner
+    (olb.waveoptics.turbulence.run): an explicit MMF.focal_length_m wins; else
+    MMF.optimal_focus matches the spot to the core through the a=1.12
+    spot-to-core parameter (Shaklan and Roddier, Appl. Opt. 27 (1988) 2334,
+    DOI 10.1364/AO.27.002334); else it raises.
+
+    Parameters:
+        vacuum_result : WaveResult
+            The record of one no-turbulence propagation (Fidelity2Bundle.vacuum).
+            The Term reads its receive-clipped field, stage 3 ("after rx clip").
+        detector : MMF
+            The receive multimode-fibre detector (core radius, focal length,
+            numerical aperture, defocus).
+        aperture_m : float
+            The receive aperture diameter [m].
+        beam_type : str
+            The launch beam type for the assumptions.
+        name, note : str, optional
+            Override the default Term name and note.
+        meta_extra : dict, optional
+            Extra meta merged into the Term meta.
+
+    Returns:
+        Term
+            A deterministic coupling-category Term (mean_db only).
+
+    Raises:
+        ValueError
+            If the detector sets no focal length and no optimal_focus.
+    '''
+    from ..waveoptics.mmf import mmf_coupling_efficiency
+    collected = vacuum_result.stages[3][1]      # "after rx clip"
+    lam = collected.lam
+    if detector.focal_length_m is not None:
+        f_mmf = float(detector.focal_length_m)
+    elif detector.optimal_focus:
+        f_mmf = (np.pi * (aperture_m / 2.0) * detector.core_radius_m
+                 / (lam * 1.12))
+    else:
+        raise ValueError(
+            "the MMF detector needs a focal length to focus the field. Set "
+            "MMF.focal_length_m, or set MMF.optimal_focus=True to match the "
+            "spot to the core.")
+    eta = float(mmf_coupling_efficiency(
+        collected, aperture_m, detector.core_radius_m, f_mmf,
+        numerical_aperture=detector.numerical_aperture,
+        defocus_m=detector.defocus_m))
+    mean_db = -10.0 * np.log10(eta)
+
+    if name is None:
+        name = "receive coupling (MMF)"
+    if note is None:
+        note = (f"vacuum MMF light-bucket coupling, f={f_mmf:.4g} m, "
+                f"eta={eta:.4f}")
+    assumptions = Assumptions(
+        beam_type=beam_type,
+        turbulence_regime=REGIME_NA,
+        spectrum=SPECTRUM_NA,
+        validity="Fidelity-2 vacuum optics, no turbulence: the core capture of "
+                 "the focused NO-TURBULENCE spot, from one field propagation "
+                 "(olb.waveoptics.run.propagate_scenario). It is the fraction of "
+                 "the COLLECTED power inside the fibre core, so it composes with "
+                 "the vacuum-optics Term with no double-count. It holds the "
+                 "detector defocus. It carries no fade.",
+        provenance=["untraced: wave-optics simulation"],
+    )
+    meta = {
+        "model": "waveoptics-vacuum",
+        "quantity": "mmf_eta",
+        "mmf_eta": eta,
+        "focal_length_m": f_mmf,
+        "defocus_m": float(detector.defocus_m),
+    }
+    if meta_extra:
+        meta.update(meta_extra)
+    return Term(name=name, category="coupling", mean_db=mean_db, note=note,
+                meta=meta, assumptions=assumptions)
+
+
 def _recap(scenario, geometry, grid, plan, report, n_trials, preset):
     '''
     Format the auto-chosen fidelity-2 run parameters as a text block.
@@ -550,9 +647,48 @@ def _recap(scenario, geometry, grid, plan, report, n_trials, preset):
     return "\n".join(lines)
 
 
+def _arm_turbulent(result, index, detector):
+    '''
+    Re-key ONE beamsplitter arm of a multi-detector record onto the Term faces.
+
+    A multi-detector run (propagate_turbulent_scenario(detectors=...)) puts the
+    efficiency of every arm in TurbTrial.detector_etas. The Term factories above
+    read the smf_eta and the mmf_eta faces, so this copies the arm's efficiency
+    onto the face that matches its detector type. Nothing else changes, so the
+    per-arm record IS the shared run.
+
+    An arm that has no coupling model (an Aperture bucket, a Camera) leaves both
+    faces None; its loss is the collected_power of the shared run.
+
+    Parameters:
+        result : TurbWaveResult or None
+            The shared multi-detector record. None gives None.
+        index : int
+            The position of the arm in the `detectors` sequence.
+        detector : Aperture, SMF, MMF, or Camera
+            The detector of this arm.
+
+    Returns:
+        TurbWaveResult or None
+            A copy whose trials carry this arm's efficiency.
+    '''
+    if result is None:
+        return None
+    from dataclasses import replace
+    from ..terminal import SMF, MMF
+    trials = []
+    for t in result.trials:
+        eta = None if t.detector_etas is None else t.detector_etas[index]
+        smf = eta if isinstance(detector, SMF) else None
+        mmf = eta if isinstance(detector, MMF) else None
+        trials.append(replace(t, smf_eta=smf, mmf_eta=mmf))
+    return replace(result, trials=trials)
+
+
 def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, hs=None, cn2_profile=None,
-                  L0_m=np.inf, subharmonics=True, progress=True, vacuum=None):
+                  L0_m=np.inf, subharmonics=True, progress=True, vacuum=None,
+                  turbulence=True, detectors=None):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -598,11 +734,47 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             "analytic" for a space link and "wave" for a terrestrial link.
             "analytic" skips the wave vacuum run (the bundle vacuum is None);
             "wave" runs it. "analytic" raises for a terrestrial link.
+        turbulence : True (the default) runs the split-step Monte Carlo. False
+            SKIPS it fully (no screens, no trials) and gives a VACUUM-ONLY
+            bundle, with turbulent=None. This switch MIRRORS the fidelity-0
+            master `turbulence` switch of olb.links.terrestrial
+            .terrestrial_budget, so the fidelity ladder reads the same at every
+            rung. Pass turbulence=False to the budget too.
+
+            A TERRESTRIAL vacuum-only run still sizes the grid with
+            turbulent_grid and propagates on that SAME grid. So the vacuum Term
+            does not move when the caller toggles the switch: the grid is
+            identical to the turbulent run's grid.
+
+            A SPACE vacuum-only run skips the grid sizing too (nothing needs
+            it). With the default vacuum="analytic" the bundle is then EMPTY
+            (vacuum=None, turbulent=None), which is VALID: the budget shows the
+            analytic deterministic Terms alone. Use vacuum="wave" to get the
+            receive-plane field of the co-moving vacuum solve.
+
+        detectors : sequence, optional
+            The detector arms behind a receive beamsplitter. When given, the
+            split-step Monte Carlo runs ONE time and every arm reads the SAME
+            field, so N arms cost one run, not N. This is EXACT: a beamsplitter
+            scales the field of an arm by a constant, and every coupling
+            efficiency is power-normalised, so the split ratio does not change
+            it (see olb.models.splitter). The function then returns a LIST of
+            Fidelity2Bundle, one for each arm, in the `detectors` order.
+
+            The VACUUM run is per arm, because a vacuum record holds the fibre
+            coupling of its own detector. It is one deterministic propagation,
+            so it is cheap for a terrestrial link. A SPACE link uses the
+            analytic geometric Term by default (vacuum=None), so it makes NO
+            vacuum run at all; vacuum="wave" makes one full-path solve for each
+            arm, which is slow (about 14 s each).
 
     Returns:
-        Fidelity2Bundle
-            The turbulent TurbWaveResult, and the vacuum WaveResult ("wave") or
-            None ("analytic", a space link uses the analytic geometric Term).
+        Fidelity2Bundle, or list of Fidelity2Bundle
+            With detectors=None (the default), ONE bundle: the turbulent
+            TurbWaveResult (None with turbulence=False), and the vacuum
+            WaveResult ("wave") or None ("analytic", a space link uses the
+            analytic geometric Term). With `detectors`, one bundle for each arm,
+            in the `detectors` order.
     '''
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
@@ -618,6 +790,41 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             "vacuum='analytic' is not available for a terrestrial link. The "
             "near-field turbulence penalty is turbulent / vacuum on the SAME "
             "flat grid, so the wave vacuum run is required. Use vacuum='wave'.")
+    from .splitter import arm_scenario
+
+    def vacuum_run(scn, grid):
+        '''The no-turbulence propagation of one scenario, or None.'''
+        if vacuum == "analytic":
+            # SPACE far field: the budget uses the analytic geometric Term. No
+            # full-path field solve (it is slow and grid-noise-limited here).
+            return None
+        if is_space:
+            # SPACE, opted in: the vacuum run needs its own co-moving grid over
+            # the full slant range.
+            return propagate_scenario(scn, geometry)
+        # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
+        # turbulence penalty (turbulent / vacuum) is exact.
+        return propagate_scenario(scn, geometry, grid=grid)
+
+    if not turbulence:
+        # VACUUM-ONLY: make no screens and no trials. A terrestrial link still
+        # sizes the turbulent grid and propagates on it, so the vacuum Term is
+        # IDENTICAL to the vacuum Term of a turbulence=True bundle. A space link
+        # needs no grid sizing at all.
+        grid = None
+        if not is_space:
+            grid, _, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
+                                        cn2_profile=cn2_profile, L0_m=L0_m)
+        if progress:
+            print(f"run_fidelity2: turbulence=False, vacuum-only bundle "
+                  f"(vacuum={vacuum!r}, no screens and no trials).")
+        if detectors is None:
+            return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
+                                   turbulent=None)
+        return [Fidelity2Bundle(vacuum=vacuum_run(arm_scenario(scenario, d), grid),
+                                turbulent=None)
+                for d in detectors]
+
     grid, plan, report = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
                                         cn2_profile=cn2_profile, L0_m=L0_m)
     if progress:
@@ -625,20 +832,16 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
     turbulent = propagate_turbulent_scenario(
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, hs=hs, cn2_profile=cn2_profile, L0_m=L0_m,
-        subharmonics=subharmonics, threader=threader, progress=progress)
-    if vacuum == "analytic":
-        # SPACE far field: the budget uses the analytic geometric Term. No
-        # full-path field solve (it is slow and grid-noise-limited here).
-        vac = None
-    elif is_space:
-        # SPACE, opted in: the vacuum run needs its own co-moving grid over the
-        # full slant range.
-        vac = propagate_scenario(scenario, geometry)
-    else:
-        # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
-        # turbulence penalty (turbulent / vacuum) is exact.
-        vac = propagate_scenario(scenario, geometry, grid=grid)
-    return Fidelity2Bundle(vacuum=vac, turbulent=turbulent)
+        subharmonics=subharmonics, threader=threader, progress=progress,
+        detectors=detectors)
+    if detectors is None:
+        return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
+                               turbulent=turbulent)
+    # ONE Monte Carlo, N arms. Each arm re-keys its own efficiency onto the Term
+    # faces of the SHARED trials, and it gets its own vacuum baseline.
+    return [Fidelity2Bundle(vacuum=vacuum_run(arm_scenario(scenario, d), grid),
+                            turbulent=_arm_turbulent(turbulent, i, d))
+            for i, d in enumerate(detectors)]
 
 
 if __name__ == '__main__':
@@ -821,6 +1024,46 @@ if __name__ == '__main__':
     reconstructed = vac.mean_db + penalty_loss
     assert np.allclose(reconstructed, direct, atol=1e-9), \
         (reconstructed[:3], direct[:3])
+    # --- the master turbulence switch: a VACUUM-ONLY bundle ------------------
+    # turbulence=False makes no screens and no trials. A terrestrial run still
+    # sizes the SAME grid, so the vacuum Term does not move.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        vac_only = run_fidelity2(scn, geom, preset="rapid", n_trials=16, seed=7,
+                                 turbulence=False, progress=False)
+    assert vac_only.turbulent is None and vac_only.vacuum is not None
+    vac2 = waveoptics_vacuum_term(vac_only.vacuum)
+    assert vac2.category == "geometric" and not vac2.stochastic
+    assert vac2.mean_db == vac.mean_db, (vac2.mean_db, vac.mean_db)
+    print(f"vacuum-only bundle (turbulence=False): {vac2.mean_db:.2f} dB, "
+          f"identical to the turbulent bundle's vacuum Term")
+
+    # --- the beamsplitter arms: ONE run, one bundle for each arm -------------
+    from ..terminal import MMF
+    arms = [SMF(frac=0.9), MMF(core_radius_m=25e-6, focal_length_m=0.05,
+                               numerical_aperture=0.2, frac=0.1)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        bundles = run_fidelity2(scn, geom, preset="rapid", n_trials=16, seed=7,
+                                progress=False, detectors=arms)
+    assert isinstance(bundles, list) and len(bundles) == 2
+    # The SMF arm reproduces the single-detector run EXACTLY: one shared run.
+    for a, b in zip(bundles[0].turbulent.trials, bundle.turbulent.trials):
+        assert a.smf_eta == b.smf_eta, (a.smf_eta, b.smf_eta)
+        assert a.collected_power == b.collected_power
+        assert a.mmf_eta is None
+    # The MMF arm carries its own efficiency on the mmf_eta face.
+    for a in bundles[1].turbulent.trials:
+        assert a.smf_eta is None and 0.0 < a.mmf_eta <= 1.0, a.mmf_eta
+    # Each arm gets its OWN vacuum baseline, so its coupling Term composes.
+    assert bundles[0].vacuum.smf_coupling_db is not None
+    assert bundles[1].vacuum.smf_coupling_db is None
+    # The Term factories read the re-keyed faces with no change.
+    mmf_arm_term = waveoptics_mmf_coupling_term(bundles[1].turbulent)
+    assert mmf_arm_term.category == "coupling" and mmf_arm_term.stochastic
+    print(f"beamsplitter arms (one run, 2 arms): SMF arm eta face OK, "
+          f"MMF arm coupling {mmf_arm_term.mean_db:.2f} dB")
+
     print(f"terrestrial SMF fidelity 2 (3 km, rapid, 16 trials): "
           f"vacuum {vac.mean_db:.2f} dB + turbulence {pen.mean_db:.2f} dB")
     print("self-check passed")

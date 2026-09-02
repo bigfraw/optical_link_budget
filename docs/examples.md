@@ -77,11 +77,14 @@ link both ways.
 
 - API: two `SpaceScenario` objects (one uplink, one downlink) over one shared
   `Channel`; four `Terminal` objects; `uplink_budget` and `downlink_budget`;
-  `downlink_budget(..., fidelity=1)`.
+  `downlink_budget(..., fidelity=1)`; `run_fidelity2` plus
+  `uplink_budget/downlink_budget(..., fidelity=2, wave=...)` for the wave-optics
+  tier (200 trials, threaded).
 - An aperture is a `Terminal` parameter, so a bistatic station needs a separate
   transmit and receive `Terminal`. Each direction wires in its own pair.
 - Output: an itemised table and a Monte Carlo fade for the uplink and the
-  downlink. The downlink path needs `fast-aosim`.
+  downlink at each fidelity rung. The downlink path needs `fast-aosim`, and the
+  fidelity-2 rung runs two Monte Carlo propagations.
 - Run: `python -m examples.build_a_link`
 
 ## [retro_link.py](../examples/retro_link.py)
@@ -250,12 +253,13 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds nine scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds ten scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
 script. The first three have NO turbulence. The next three add the turbulent
 split step of `olb/waveoptics/turbulence/`. The seventh wires the layer into the
-three link budgets.
+three link budgets. Two draw the focused spot on a multimode-fibre core, and one
+bins the focal spot onto a tracking-camera pixel grid.
 
 The vacuum scripts:
 
@@ -371,6 +375,22 @@ OPPOSITE corners of the turbulence. Both use the shared helper
   wander, not in the spot that spills the core. The figure goes to
   `examples/waveoptics/figures/mmf_core_psf_terrestrial.png`.
   - Run: `python -m examples.waveoptics.mmf_core_psf_terrestrial`
+
+The camera tracking script:
+
+- `camera_tracking.py` — the fidelity-2 focal spot on a tracking camera. A
+  600 km downlink at 30 degrees into a 0.7 m ground telescope with a `Camera`
+  detector. It propagates a handful of turbulent snapshots
+  (`propagate_turbulent_field`), clips each one at the ground aperture, and bins
+  the focal spot onto the camera pixels with
+  `olb.waveoptics.camera.camera_image`. For each snapshot it prints the
+  centroid (in pixels and in microradians, through the plate scale
+  theta = x/f), the second-moment spot radius from `spot_metrics`, and the
+  fraction of the collected power on the sensor. One still-atmosphere row gives
+  the instrument floor. The script builds NO budget change and NO Term: the
+  `Camera` is a diagnostic front end. The figure goes to
+  `examples/waveoptics/figures/camera_tracking.png`.
+  - Run: `python -m examples.waveoptics.camera_tracking`
 
 The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
 wave-optics layer only when the caller sets `fidelity=2` and gives it a bundle.

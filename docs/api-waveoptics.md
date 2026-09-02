@@ -18,13 +18,19 @@ Import from the package root:
 from olb.waveoptics import Begin, GaussBeam, Fresnel, GridSpec, propagate_scenario
 ```
 
-Status: the package builds NO Term and it changes NO budget. The vacuum core is
-the no-turbulence validator for the near-field and far-field limits of the
-analytic Terms. The turbulent sub-package gives snapshot statistics against the
-same Terms. A fidelity-2 Term is an owner-gated later step.
+Status: the layer IS wired into the budgets as `fidelity=2` (2026-08-28). The
+bridge is `olb.models.waveoptics`: `run_fidelity2` makes the records, and the
+Term factories turn them into Terms. Section 11 documents that module. The
+modules of THIS package still build no Term and read no budget; they give the
+fields and the per-trial scalars, and the bridge above does the rest. The vacuum
+core stays the no-turbulence validator for the near-field and far-field limits of
+the analytic Terms, and the turbulent sub-package gives snapshot statistics
+against the same Terms. The remaining owner gate is whether fidelity 2 ever
+becomes a DEFAULT.
 
-The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`)
-imports numpy and scipy only. It imports nothing from the rest of `olb`. Only
+The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`,
+`mmf.py`, `camera.py`) imports numpy and scipy only, and `threader.py` imports
+the standard library only. They import nothing from the rest of `olb`. Only
 `grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
 tiers (see Section 9).
 
@@ -245,6 +251,57 @@ A SMALL receive aperture in a beam-sized grid gives a SHORT focal length and a
 small focal field of view (about `lambda*f/dx_pupil`), so a plot window must stay
 inside it; the focal integral is then also grid-limited.
 
+### 4b. The focal-plane camera (`olb/waveoptics/camera.py`)
+
+A tracking camera does not see the continuous focal intensity. It sees the POWER
+IN EACH PIXEL. This module puts that discretisation on one fidelity-2 snapshot:
+it focuses the received pupil field, and it sums the focal power into square
+camera pixels. So a wave-optics run gives the quantities a tracking loop
+measures: the spot size, the spot centroid, and the power that spills off the
+sensor.
+
+The module REUSES `focal_intensity` of Section 4a, so the Fraunhofer FFT, the
+defocus phase and its sign convention, and the Parseval normalisation stay in ONE
+place. This module adds the pixel grid alone. It imports numpy and that helper
+only.
+
+**DIAGNOSTIC ONLY.** The module builds NO Term, and no budget reads it. The
+`Camera` detector of `olb.terminal` has no coupling model, so a `Camera` arm of
+the runner (Section 9d) holds `None`.
+
+- `camera_image(field, focal_length_m, pixel_pitch_m, n_pixels, defocus_m=0.0,
+  mask=None)` — focus a PUPIL field and bin it onto a square sensor. The caller
+  clips the field to the receive aperture first. It returns the tuple
+  `(image, extent_m)`. `image` is the `n_pixels` x `n_pixels` array of the power
+  fraction in each pixel; the first index is y and the second is x.
+  `image.sum()` is the fraction of the COLLECTED power on the sensor, because the
+  function divides by the total masked pupil power. `extent_m` is the HALF-SIDE
+  of the sensor, `n_pixels*pixel_pitch_m/2`, for the `imshow` extent. A field
+  with no power raises `ValueError`.
+- `SpotMetrics` — a frozen dataclass with `centroid_x_m`, `centroid_y_m`,
+  `rms_radius_m`, `peak_ix`, `peak_iy` and `on_sensor_fraction`. Divide a
+  centroid by the focal length to get the arrival angle.
+- `spot_metrics(image, pixel_pitch_m)` — the first and the second central moments
+  of a binned image, as a `SpotMetrics`. The moments are the standard beam
+  position and beam width (ISO 11146-1:2021). An empty image raises `ValueError`.
+
+**THE BINNING.** Camera pixel `j` along one axis covers
+`[(j - n_pixels/2)*pitch, (j - n_pixels/2 + 1)*pitch)`, and the fine focal sample
+at `x` goes to the pixel `floor(x/pitch + n_pixels/2)`. The function SUMS the
+samples of each pixel. It is an exact summation, not an interpolation. A sample
+that falls off the sensor is dropped, and that power is the sensor spill.
+
+`camera_image` WARNS two times. It warns when one camera pixel spans fewer than
+about 3 fine focal samples (`dx_focal = lambda*f/siz`), because the binning is
+then coarse. It warns when the sensor half-side is larger than the focal window
+half-width `(N//2)*dx_focal`, because the outer pixels then read zero falsely.
+Use a wider pupil grid in both cases.
+
+The optical axis falls on a pixel BOUNDARY when `n_pixels` is even, so a
+symmetric spot reads a small positive centroid, of the order of a quarter of a
+pixel. That is the true response of an even-pixel sensor. A tracking loop
+calibrates the offset out.
+
 ---
 
 ## 5. The grid (`olb/waveoptics/grid.py`)
@@ -413,8 +470,10 @@ The turbulent split-step layer is BUILT and self-checked. It moves a complex
 field along a path and it puts a random phase screen at each slab of that path.
 It gives one SNAPSHOT of the atmosphere for each seed. It carries NO time axis.
 
-Status: the sub-package builds NO Term and it changes NO budget. The wiring is an
-owner decision. See `examples/waveoptics/README.md`.
+Status: the sub-package builds NO Term itself, but its records ARE wired into the
+budgets as `fidelity=2` through `olb.models.waveoptics` (Section 11). The
+remaining owner decision is whether fidelity 2 ever becomes a DEFAULT. See
+`examples/waveoptics/README.md`.
 
 Import from the sub-package:
 
@@ -423,7 +482,7 @@ from olb.waveoptics.turbulence import (propagate_turbulent_scenario,
                                        turbulent_grid)
 ```
 
-The five modules are:
+The six modules are:
 
 | Module | What it holds |
 |---|---|
@@ -675,7 +734,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb")`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -699,6 +758,28 @@ it. The trials are independent snapshots.
   argument takes `min(16, cores)` workers: the scaling study
   (`validation/waveoptics_speed/scaling_study.py`) finds the thread rate
   saturates at 8 to 16 workers.
+- `progress=True` shows a tqdm bar that advances one step for each finished
+  trial. It needs the optional `tqdm` package; without `tqdm` the run goes on
+  with no bar and a warning. `False` (the default) shows no bar. With a threader
+  the bar advances in the finishing order, and the returned trials keep the trial
+  order.
+- `detectors` is an optional sequence of detector objects, the arms behind a
+  receive beamsplitter. See the paragraph below. `None` (the default) keeps the
+  single-detector record, bit for bit.
+
+**ONE RUN, MANY ARMS (`detectors`).** With `detectors`, each trial computes the
+coupling efficiency of EVERY arm on the SAME clipped receive field, and it
+records them in `TurbTrial.detector_etas`, in the argument order. So N arms cost
+ONE run, not N: the field is already in memory, and each arm is one more cheap
+focal-plane calculation on that same array. The `frac` of a detector is IGNORED
+here. A beamsplitter scales the field of an arm by a constant, and every coupling
+efficiency is power-normalised, so the split ratio does not change it; the
+fraction is a separate fixed dB Term (`olb.models.splitter`). An `SMF` arm gives
+the mode overlap of Section 4, an `MMF` arm gives the core capture of Section 4a
+(with its `defocus_m`), an `Aperture` arm gives exactly `1.0` (the aperture
+capture is already in `collected_power`), and a `Camera` arm gives `None`,
+because a `Camera` has no coupling model. An unknown detector type raises
+`ValueError`.
 
 **THE BOUNDARY MASK IS ALWAYS ON.** The runner builds
 `super_gaussian_boundary(grid.n, preset.boundary_width_frac)` and it gives that
@@ -764,6 +845,7 @@ A frozen dataclass. One atmosphere snapshot.
 | `mmf_eta` | float or None | The multimode-fibre (light-bucket) coupling efficiency, from `olb.waveoptics.mmf`. It is the encircled energy of the focused spot inside the core; the turbulent tilt walks the spot off the core. It also holds the NON-FOCAL-PLANE detector: the runner reads `MMF.defocus_m` for the plane `z = f + defocus_m`. At the focal plane (`defocus_m = 0`) this is the plain focal-plane coupling. `None` when the receive terminal has no `MMF` detector. |
 | `seed_key` | tuple | The pair `(seed_entropy, trial_index)`. |
 | `wall_time_s` | float | The time of the trial, in s. It holds the screen generation and the propagation. |
+| `detector_etas` | tuple or None | The coupling efficiency of each detector of the `detectors` argument, in that order. `None` on the default path, so a single-detector record does not change. A `Camera` arm holds `None`, and an `Aperture` arm holds `1.0`. |
 
 #### `TurbWaveResult`
 
@@ -798,8 +880,15 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 
 ### 9f. The example scripts
 
-Three scripts in `examples/waveoptics/` put the layer against the analytic models
-that the budgets already use. Each one runs for about four to five minutes.
+The suite in `examples/waveoptics/` holds TEN scripts: three vacuum scripts
+(`space_farfield.py`, `terrestrial_stages.py`, `grid_artefacts.py`), the three
+turbulent scripts below, the budget demonstration `budget_wiring.py`, two
+multimode-fibre demonstrations (`mmf_core_psf.py`,
+`mmf_core_psf_terrestrial.py`), and the camera demonstration
+`camera_tracking.py`.
+
+These three put the turbulent layer against the analytic models that the budgets
+already use. Each one runs for about four to five minutes.
 
 - `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`, three
   receive apertures on the same screens and the same seeds.
@@ -808,9 +897,9 @@ that the budgets already use. Each one runs for about four to five minutes.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink through the overlap of
   Section 9d, at the zenith and at 30 degrees.
 
-See [examples.md](examples.md) and
-[examples/waveoptics/README.md](../examples/waveoptics/README.md) for what each
-one prints and what it shows.
+For the guide to each of the ten scripts, see
+[examples/waveoptics/README.md](../examples/waveoptics/README.md). See also
+[examples.md](examples.md) for what each one prints and what it shows.
 
 ### 9g. The run cache (`olb/waveoptics/turbulence/cache.py`)
 
@@ -945,3 +1034,112 @@ layer. Each one reads `olb` and changes nothing in it.
 
 See [examples/schmidt/README.md](../examples/schmidt/README.md) for the
 measured numbers and the wiring status.
+
+---
+
+## 11. The fidelity-2 runner and the Terms (`olb/models/waveoptics.py`)
+
+This module sits OUTSIDE `olb.waveoptics`. It is the bridge from the layer above
+to the budget: it runs the propagations one time, and it turns the records into
+Terms. A budget NEVER runs a simulation; the caller precomputes the records and
+passes them in. See [api-budget.md](api-budget.md) for the budget side.
+
+| Name | What it gives |
+|---|---|
+| `run_fidelity2(...)` | The runner. It gives the `Fidelity2Bundle` (or a list of them) that a fidelity-2 budget needs. |
+| `run_waveoptics(...)` | The turbulent run alone. It gives a `TurbWaveResult`. |
+| `Fidelity2Bundle` | The two records: `vacuum` and `turbulent`. |
+| `waveoptics_turbulence_term(result, ...)` | The stochastic turbulence Term, from the per-trial scalars. |
+| `waveoptics_smf_coupling_term(result, ...)` | The turbulent SMF-coupling face (`quantity="smf_eta"`). |
+| `waveoptics_mmf_coupling_term(result, ...)` | The turbulent MMF-coupling face (`quantity="mmf_eta"`). |
+| `waveoptics_vacuum_term(result, ...)` | The deterministic vacuum-optics Term (launch to detector, no fade). |
+| `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
+
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None)`
+
+It runs the wave-optics propagations that a fidelity-2 budget needs, one time
+each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence
+GEOMETRIC loss.
+
+`vacuum` selects the source of the geometric loss. `None` (the default) takes
+`"analytic"` for a space link and `"wave"` for a terrestrial link. `"analytic"`
+makes NO wave vacuum run, and the bundle `vacuum` is then `None`: a ground-space
+link is far field, so the analytic geometric Term is exact and cheap, and the
+full-path field solve is slow and grid-noise-limited. `"wave"` makes the run;
+a space link opts back in that way, for research or a cross-check. `"analytic"`
+raises for a terrestrial link, because the near-field penalty needs the vacuum
+baseline on the SAME flat grid. An unknown value raises `ValueError`.
+
+**THE MASTER TURBULENCE SWITCH (`turbulence`).** `True` (the default) runs the
+split-step Monte Carlo. `False` SKIPS it fully: no screens, and no trials. The
+bundle is then VACUUM-ONLY, with `turbulent=None`, and the budget shows the
+deterministic Terms alone. The switch MIRRORS the fidelity-0 master `turbulence`
+switch of `olb.links.terrestrial.terrestrial_budget`, so the fidelity ladder
+reads the same at each rung. Pass `turbulence=False` to the budget too.
+
+- A TERRESTRIAL vacuum-only run still sizes the grid with `turbulent_grid()` and
+  propagates on that SAME grid. So the vacuum Term does NOT move when the caller
+  toggles the switch.
+- A SPACE vacuum-only run skips the grid sizing too. With the default
+  `vacuum="analytic"` the bundle is then EMPTY (`vacuum=None`,
+  `turbulent=None`), and that is VALID: the budget shows the analytic
+  deterministic Terms alone. Use `vacuum="wave"` to get the receive-plane field
+  of the co-moving vacuum solve.
+
+**THE BEAMSPLITTER ARMS (`detectors`).** `detectors` takes a sequence of detector
+objects, the arms behind a receive beamsplitter. The split-step Monte Carlo then
+runs ONE time, and every arm reads the SAME field (Section 9d), so N arms cost
+one run. This is EXACT: a beamsplitter scales the field of an arm by a constant,
+and every coupling efficiency is power-normalised, so the split ratio does not
+change it (the fraction is a separate fixed dB Term, `olb.models.splitter`). The
+function then returns a LIST of `Fidelity2Bundle`, one for each arm, in the
+`detectors` order. Each arm carries its own efficiency on the `smf_eta` or the
+`mmf_eta` face of the shared trials, so the Term factories read it with no
+change.
+
+The VACUUM run is PER ARM, because a vacuum record holds the fibre coupling of
+its own detector. It is one deterministic propagation, so it is cheap for a
+terrestrial link. A space link with the default `vacuum="analytic"` makes NO
+vacuum run at all; `vacuum="wave"` makes one full-path solve for each arm, and
+that is slow (about 14 s each).
+
+`progress=True` (the default) prints a recap of the auto-chosen grid, the screen
+plan and the sampling quality, then it shows a tqdm bar over the turbulent
+trials. The one-time vacuum run has no bar. Pass `progress=False` for a quiet
+run.
+
+#### `Fidelity2Bundle`
+
+A frozen dataclass. The two wave-optics records a fidelity-2 budget needs.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `vacuum` | `WaveResult` or None | The record of one no-turbulence propagation (Section 6). It gives the geometric spread, the launch truncation, the aperture capture, and the vacuum fibre coupling. It is `None` when the geometric loss is analytic (`vacuum="analytic"`, the space default). |
+| `turbulent` | `TurbWaveResult` or None | The record of the split-step Monte Carlo (Section 9d). It gives the turbulence penalty. It is `None` for a VACUUM-ONLY bundle from `run_fidelity2(turbulence=False)`. |
+
+### 11b. `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *, beam_type=BEAM_GAUSSIAN, name=None, note=None, meta_extra=None)`
+
+The DETERMINISTIC vacuum MMF core-capture Term, of the category `"coupling"`. It
+carries NO fade.
+
+A vacuum-only bundle has no per-trial `mmf_eta`, because it makes no trials. But
+it holds the receive-clipped field, so the light-bucket core capture is a direct
+calculation on that field. This Term is that calculation: the fraction of the
+COLLECTED power that enters the fibre core. It reads stage 3 of the record
+(`"after rx clip"`), and it calls `mmf_coupling_efficiency` of Section 4a with
+the `numerical_aperture` and the `defocus_m` of the detector. Because it is
+relative to the COLLECTED power, it composes with the vacuum-optics Term
+(`waveoptics_vacuum_term`, launch to collected power) with NO double-count.
+
+It is the vacuum companion of `waveoptics_mmf_coupling_term`. The focal length
+follows the SAME rule as the turbulent runner: an explicit `MMF.focal_length_m`
+wins; else `MMF.optimal_focus` matches the spot to the core through the
+`a = 1.12` spot-to-core parameter (Shaklan and Roddier, Appl. Opt. 27 (1988)
+2334, DOI 10.1364/AO.27.002334); else it raises `ValueError`.
+
+`aperture_m` is the receive aperture DIAMETER, in m. The Term meta holds
+`mmf_eta`, `focal_length_m` and `defocus_m`.
+
+**The SMF leg still reads NO defocus** (backlog 2-W2). `olb.waveoptics.smf`
+takes no `defocus_m`, so the fidelity-2 single-mode coupling stays a
+focal-plane overlap.

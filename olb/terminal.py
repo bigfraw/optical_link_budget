@@ -16,6 +16,12 @@ transmits and the space Terminal receives. On a downlink the roles swap. The
 scenario resolves which Terminal transmits and which receives (a SpaceScenario
 from its direction; a TerrestrialScenario from near/far). See olb.scenario.
 
+A Terminal holds ONE detector. A receive path that feeds SEVERAL detectors
+behind a beamsplitter (for example a tracking Camera and a comms fibre) stays
+one detector per Terminal: each detector carries its splitter fraction `frac`,
+and the budget helper olb.multidetector makes one Terminal for each arm.
+See olb.models.splitter for the fraction rule.
+
 Approach A: the Compensation stack and the Detector are one physical chain. The
 residual wavefront that the Compensation leaves sets the coupling into the
 Detector. So the model emits ONE receive-coupling Term, not two. See
@@ -86,8 +92,13 @@ class Aperture:
     Parameters:
         sensitivity_dbm : float, optional
             Required received power [dBm]. None if only losses matter.
+        frac : float, optional
+            The fraction of the received power that the beamsplitter sends to
+            this detector (0 to 1). None means "take the remainder" (1.0 when
+            the detector is alone). See olb.models.splitter.
     '''
     sensitivity_dbm: Optional[float] = None
+    frac: Optional[float] = None
 
 
 @dataclass
@@ -140,6 +151,10 @@ class SMF:
             detector off the focal plane, so the spot on the fibre grows. 0.0
             reproduces the focal-plane behaviour exactly. See
             olb.models.coupling.terrestrial.
+        frac : float, optional
+            The fraction of the received power that the beamsplitter sends to
+            this detector (0 to 1). None means "take the remainder" (1.0 when
+            the detector is alone). See olb.models.splitter.
     '''
     eta_max: float = 0.8145
     sensitivity_dbm: Optional[float] = None
@@ -147,6 +162,7 @@ class SMF:
     mode_field_radius_m: Optional[float] = None
     optimal_focus: bool = False
     defocus_m: float = 0.0
+    frac: Optional[float] = None
 
 
 @dataclass
@@ -204,6 +220,10 @@ class MMF:
             detector off the focal plane, so the focal spot grows (more spill from
             the core). 0.0 reproduces the focal-plane behaviour exactly. See
             olb.models.coupling.terrestrial.
+        frac : float, optional
+            The fraction of the received power that the beamsplitter sends to
+            this detector (0 to 1). None means "take the remainder" (1.0 when
+            the detector is alone). See olb.models.splitter.
     '''
     core_radius_m: float
     focal_length_m: Optional[float] = None
@@ -211,6 +231,67 @@ class MMF:
     sensitivity_dbm: Optional[float] = None
     optimal_focus: bool = False
     defocus_m: float = 0.0
+    frac: Optional[float] = None
+
+
+@dataclass
+class Camera:
+    '''
+    Focal-plane array detector (a tracking and spot-diagnostic sensor).
+
+    A camera images the focal spot on a grid of square pixels. It measures the
+    spot SHAPE and the spot POSITION. So it is the sensor of a tracking loop, and
+    it is the diagnostic front end of a wave-optics study.
+
+    pixel_pitch_m is the centre-to-centre distance of two pixels (the pixel
+    scale). The sensor is square: its side is n_pixels * pixel_pitch_m. One pixel
+    subtends the angle pixel_pitch_m / focal_length_m on the sky, so the focal
+    length sets the plate scale. A measured centroid x maps to the arrival angle
+    theta = x / focal_length_m.
+
+    focal_length_m is the imaging optic. defocus_m puts the sensor at
+    z = f + defocus_m, so 0.0 is the focal plane. This is the same convention as
+    SMF and MMF. See olb.waveoptics.camera for the focal-plane discretisation.
+
+    LIMIT, budgets. No budget builds a coupling Term for a Camera today. The
+    dispatch is not the same in each budget, so read this before you put a Camera
+    on a budgeted terminal:
+      * terrestrial_budget treats a Camera like an Aperture (a power-in-bucket
+        receiver): it adds the scintillation Term and no coupling Term.
+      * downlink_budget at fidelity=2 also treats a Camera like an Aperture.
+      * downlink_budget at fidelity 0 or 1 RAISES ValueError ("unknown
+        detector"), because olb.models.coupling.downlink knows Aperture and SMF
+        only.
+    So use a Camera for the wave-optics focal-plane tools, and use an Aperture
+    for a power budget.
+
+    Parameters:
+        pixel_pitch_m : float
+            Centre-to-centre distance of two pixels [m] (the pixel scale).
+        n_pixels : int
+            Number of pixels along one side. The sensor is square.
+        focal_length_m : float, optional
+            Focal length of the imaging optic [m]. None means the plate scale is
+            not set, so the angular scale cannot be computed.
+        defocus_m : float
+            Sensor offset from the focal plane [m]. The sensor sits at
+            z = f + defocus_m, so 0.0 is the focal plane. A non-zero value grows
+            the spot.
+        sensitivity_dbm : float, optional
+            Required received power [dBm]. None if only losses matter.
+        frac : float, optional
+            The fraction of the received power that the beamsplitter sends to
+            this detector (0 to 1). None means "take the remainder" (1.0 when
+            the detector is alone). A tracking camera usually takes a small
+            fraction, and the comms fibre takes the remainder. See
+            olb.models.splitter.
+    '''
+    pixel_pitch_m: float
+    n_pixels: int
+    focal_length_m: Optional[float] = None
+    defocus_m: float = 0.0
+    sensitivity_dbm: Optional[float] = None
+    frac: Optional[float] = None
 
 
 # --- Wavefront compensation stages ------------------------------------------
@@ -239,7 +320,7 @@ class AO:
 # A detector is one of the front ends; a compensation stage is one of the
 # correctors. These aliases give the Terminal fields a concrete type, so a
 # type checker knows the members (e.g. detector.eta_max, detector.sensitivity_dbm).
-Detector = Union[Aperture, SMF, MMF]
+Detector = Union[Aperture, SMF, MMF, Camera]
 Compensation = Union[TipTilt, AO]
 
 
@@ -264,7 +345,7 @@ class Terminal:
             1-sigma tracking (pointing) jitter [rad]. 0 means no jitter.
         transmitter : Transmitter, optional
             The transmit source. None means the terminal only receives.
-        detector : Aperture or SMF, optional
+        detector : Aperture, SMF, MMF, or Camera, optional
             The detector front end. None means no receive-coupling Term.
         compensation : list
             The ordered wavefront-compensation stack. It may be empty. An empty
@@ -341,6 +422,34 @@ if __name__ == '__main__':
     # optimal_focus derives the focal length, so only the core radius is needed.
     mmf_focus = MMF(core_radius_m=25e-6, optimal_focus=True)
     assert mmf_focus.focal_length_m is None and mmf_focus.optimal_focus is True
+
+    # A Camera carries a pixel scale and a pixel count. The optics fields default
+    # to None / 0.0, so a bare Camera is a sensor with no plate scale.
+    cam_bare = Camera(pixel_pitch_m=10e-6, n_pixels=128)
+    assert cam_bare.focal_length_m is None and cam_bare.defocus_m == 0.0
+    assert cam_bare.sensitivity_dbm is None
+    # The sensor is square, and one pixel subtends pixel_pitch_m/focal_length_m.
+    cam = Terminal(aperture_m=0.7, detector=Camera(pixel_pitch_m=10e-6,
+                                                   n_pixels=128,
+                                                   focal_length_m=14.19,
+                                                   sensitivity_dbm=-50.0))
+    assert isinstance(cam.detector, Camera)
+    assert cam.detector.pixel_pitch_m == 10e-6 and cam.detector.n_pixels == 128
+    assert cam.detector.sensitivity_dbm == -50.0
+    side = cam.detector.n_pixels * cam.detector.pixel_pitch_m
+    assert abs(side - 1.28e-3) < 1e-12
+    assert abs(cam.detector.pixel_pitch_m / cam.detector.focal_length_m
+               - 7.0472e-7) < 1e-10
+    # A defocused sensor sits at z = f + defocus_m, the SMF/MMF convention.
+    assert Camera(pixel_pitch_m=5e-6, n_pixels=64, defocus_m=1e-3).defocus_m == 1e-3
+
+    # The beamsplitter fraction: None on every detector by default, so a single
+    # detector keeps today's behaviour. A value is pure data; no physics here.
+    assert Aperture().frac is None and SMF().frac is None
+    assert MMF(core_radius_m=25e-6).frac is None
+    assert Camera(pixel_pitch_m=5e-6, n_pixels=64).frac is None
+    assert Camera(pixel_pitch_m=5e-6, n_pixels=64, frac=0.1).frac == 0.1
+    assert MMF(core_radius_m=25e-6, frac=0.9).frac == 0.9
 
     # Two terminals do not share one compensation list (default_factory works).
     a = Terminal(aperture_m=0.5)

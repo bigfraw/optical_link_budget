@@ -274,7 +274,8 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
     )
 
 
-def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
+def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
+                              turbulence=True):
     '''
     The fidelity-2 wave-optics Terms of a downlink.
 
@@ -301,10 +302,16 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     MMF coupling reads the ABSOLUTE core-capture (mmf_eta), so it holds the
     static encircled-energy floor, and NO vacuum baseline is subtracted. An
     Aperture / no-detector receiver gets the aperture-power penalty alone.
+
+    With `turbulence` False, or with a VACUUM-ONLY bundle (turbulent None), the
+    Term set keeps the DETERMINISTIC geometric Terms alone. A fibre receiver
+    then needs a wave vacuum run, because the default analytic geometric Term
+    carries no coupling number (see the raise below).
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
                                      waveoptics_turbulence_term,
-                                     waveoptics_mmf_coupling_term)
+                                     waveoptics_mmf_coupling_term,
+                                     waveoptics_vacuum_mmf_term)
     from ..terminal import SMF, MMF
     rx = scenario.rx_terminal
     is_smf = isinstance(rx.detector, SMF)
@@ -315,8 +322,28 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
             "the fidelity-2 downlink takes a scalar elevation (one range per "
             "record). Loop over the elevations and build one bundle each."
         )
-    sigma2_I = float(plane_wave_scintillation_index(
-        float(elev), rx.wavelength_m, hs, cn2_profile))
+    vacuum_only = (not turbulence) or wave.turbulent is None
+    if wave.turbulent is None and turbulence:
+        raise ValueError(
+            "the `wave` bundle is vacuum-only (turbulent is None), but the "
+            "budget asks for turbulence. Run "
+            "olb.models.waveoptics.run_fidelity2 WITHOUT turbulence=False, or "
+            "pass turbulence=False to the budget."
+        )
+    if vacuum_only and (is_smf or is_mmf) and wave.vacuum is None:
+        raise ValueError(
+            "a fibre receiver at fidelity=2 with turbulence=False has no "
+            "coupling number: the space bundle skipped the wave vacuum run "
+            "(vacuum='analytic'), and the analytic geometric Term carries no "
+            "coupling. Run run_fidelity2(vacuum='wave', turbulence=False) for "
+            "the static coupling, or use an Aperture receiver. The fidelity-0 "
+            "analytic coupling is NOT wired in here."
+        )
+    # The scintillation index is a turbulence quantity, so read it only when a
+    # stochastic Term needs it.
+    sigma2_I = (None if vacuum_only else
+                float(plane_wave_scintillation_index(
+                    float(elev), rx.wavelength_m, hs, cn2_profile)))
 
     if wave.vacuum is None:
         # ANALYTIC geometric loss (the default for a space link). The link is far
@@ -336,6 +363,15 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
         geo = [waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf,
                                       beam_type=BEAM_PLANE_WAVE)]
         vac_smf_db = wave.vacuum.smf_coupling_db if is_smf else 0.0
+    if vacuum_only:
+        # VACUUM-ONLY: the deterministic Terms alone. An SMF coupling already
+        # sits inside the wave vacuum Term (include_smf); an MMF light bucket
+        # needs its own deterministic core-capture Term.
+        if is_mmf:
+            geo.append(waveoptics_vacuum_mmf_term(wave.vacuum, rx.detector,
+                                                  rx.aperture_m,
+                                                  beam_type=BEAM_PLANE_WAVE))
+        return geo
     trials = wave.turbulent.trials
     if is_smf:
         coll = np.array([t.collected_power for t in trials], dtype=float)
@@ -527,8 +563,15 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
             Add the analytic scintillation Term for an aperture / no-detector
             receiver at fidelity 0/1 when true.
         turbulence : bool
-            Master turbulence switch for fidelity 0/1. When False, drop every
-            turbulence quantity and keep the static parts.
+            Master turbulence switch, at every fidelity. At fidelity 0/1, drop
+            every turbulence quantity and keep the static parts. At fidelity 2,
+            drop the wave-optics turbulence Term and the stochastic coupling
+            Term, so the budget keeps the deterministic geometric Terms plus
+            extinction and pointing. Pair it with
+            olb.models.waveoptics.run_fidelity2(turbulence=False), which makes
+            no screens and no trials; the EMPTY bundle (vacuum=None,
+            turbulent=None) of a space link is accepted. A `wave` bundle is
+            still required at fidelity 2, so the call shape is uniform.
         n_samples : int
             FAST Monte Carlo draws (NITER) for the fidelity-1 SMF coupling.
         fast_params : dict, optional
@@ -575,7 +618,7 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
             pointing_loss_term(scenario, geometry),
         ]
         terms += _downlink_fidelity2_terms(scenario, geometry, wave, hs,
-                                           cn2_profile)
+                                           cn2_profile, turbulence=turbulence)
         return Budget(terms, scenario=scenario)
 
     # fidelity 0/1: the analytic backbone plus the receive-side turbulence Term.
@@ -763,6 +806,49 @@ if __name__ == '__main__':
             assert f2_mmf.provides_fade and np.isfinite(f2_mmf.fade_margin_db(0.9))
         print(f"downlink fidelity 2 MMF (600 km, 30 deg): analytic geometry "
               f"{geo_m.mean_db:.2f} dB + MMF coupling {cpl_m.mean_db:.2f} dB")
+
+    # --- fidelity-2 master turbulence switch (no simulation needed) ----------
+    # The EMPTY bundle (vacuum=None, turbulent=None) of a space link needs no
+    # run at all, so this case is cheap. The budget then shows the analytic
+    # deterministic Terms alone.
+    from ..models.waveoptics import Fidelity2Bundle
+    empty = Fidelity2Bundle(vacuum=None, turbulent=None)
+    f2_off = downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
+                             wave=empty, turbulence=False)
+    off_names = [t.name for t in f2_off.terms]
+    off_cats = [t.category for t in f2_off.terms]
+    assert "turbulence" not in off_cats and "coupling" not in off_cats, off_cats
+    assert "geometric spreading" in off_names, off_names
+    assert "atmospheric" in off_cats and "pointing" in off_cats, off_cats
+    # An empty bundle with turbulence=True raises a helpful error.
+    try:
+        downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
+                        wave=empty)
+    except ValueError as e:
+        assert "vacuum-only" in str(e), str(e)
+    else:
+        raise AssertionError("an empty bundle with turbulence must raise")
+    # A fibre receiver has no vacuum coupling number in the analytic-default
+    # bundle, so it raises and names the fix.
+    scn_smf_off = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
+                               detector=SMF(sensitivity_dbm=-40)))
+    try:
+        downlink_budget(scn_smf_off, CircularOrbit(600e3, 30.0), fidelity=2,
+                        wave=empty, turbulence=False)
+    except ValueError as e:
+        assert "vacuum='wave'" in str(e), str(e)
+    else:
+        raise AssertionError("an SMF receiver with no wave vacuum must raise")
+    # A `wave` bundle is still REQUIRED, so the call shape stays uniform.
+    try:
+        downlink_budget(scenario, CircularOrbit(600e3, 30.0), fidelity=2,
+                        turbulence=False)
+    except ValueError as e:
+        assert "needs a precomputed `wave` bundle" in str(e)
+    else:
+        raise AssertionError("fidelity=2 turbulence=False still needs a bundle")
+    print(f"downlink fidelity 2, turbulence=False (600 km, 30 deg): "
+          f"{f2_off.total_loss_db():.2f} dB, terms {off_names}")
 
     # --- gamma-gamma Term ---------------------------------------------------
     # A 15 deg elevation is a strong case: the point index passes the house

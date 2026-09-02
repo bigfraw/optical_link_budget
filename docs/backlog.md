@@ -494,6 +494,20 @@ The path forward for each is a second reference or a derivation.
   `smf_eta_defocused(a, c)` therefore has no field reference yet. The fix is a
   defocus phase on the back-projected fibre mode, the same quadratic factor the
   MMF path uses.
+- **2-W3. The power-to-pixel-brightness conversion for the Camera detector is
+  NOT built (owner-deferred 2026-09-02).** The pieces exist: the `Camera`
+  dataclass (olb/terminal.py: `pixel_pitch_m`, `n_pixels`, `focal_length_m`,
+  `defocus_m`), `olb.waveoptics.camera.camera_image` (the focal spot binned onto
+  the pixel grid, normalised to the collected power) and `spot_metrics`, and the
+  vacuum route `run_fidelity2(turbulence=False)` -> budget. The missing step is
+  the scale from the budget received power to watts (or photons, or counts) per
+  pixel. A demonstration script did this with one multiplication and was REMOVED
+  on purpose: the owner wants a HOLISTIC camera model, not a bare scale. That
+  model adds the camera-specific parameters (for example the quantum efficiency,
+  the integration time, the read noise, the dark current, the full-well and
+  saturation limit, the bit depth) so the output is a real detector signal, not
+  an ideal power map. Design it in one pass with the owner before any wiring;
+  each parameter changes what "pixel brightness" means.
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.

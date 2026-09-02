@@ -152,14 +152,14 @@ def main():
     # Carlo runs. Pass vacuum="wave" to opt back into the wave-optics vacuum Term.
     # print('running fidelity=2 waveoptics for uplink...')
 
-    # th = Threader(max_workers=8)
-    # up2_wave = run_fidelity2(uplink, geom, n_trials=200, seed=0, threader=th)
-    # up2 = uplink_budget(uplink, geom, fidelity=2, wave=up2_wave)
+    th = Threader(max_workers=8)
+    up2_wave = run_fidelity2(uplink, geom, n_trials=200, seed=0, threader=th)
+    up2 = uplink_budget(uplink, geom, fidelity=2, wave=up2_wave)
 
-    # print('running fidelity=2 waveoptics for downlink...')
-    # down2_wave = run_fidelity2(downlink, geom, n_trials=200, seed=0, threader=th)
-    # down2 = downlink_budget(downlink, geom, fidelity=2, wave=down2_wave)
-    # report("fidelity 2  (wave optics)", up2, down2)
+    print('running fidelity=2 waveoptics for downlink...')
+    down2_wave = run_fidelity2(downlink, geom, n_trials=200, seed=0, threader=th)
+    down2 = downlink_budget(downlink, geom, fidelity=2, wave=down2_wave)
+    report("fidelity 2  (wave optics)", up2, down2)
 
     print("=" * 62)
     print("A bistatic station transmits and receives through DIFFERENT "

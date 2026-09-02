@@ -34,7 +34,7 @@ One optical terminal: aperture, transmitter, compensation, and detector.
 | `wavelength_m` | float | m | `1550e-9` | The terminal operating wavelength. |
 | `pointing_jitter_rad` | float | rad | `0.0` | 1-sigma tracking jitter. 0 means no jitter. |
 | `transmitter` | `Transmitter` or None | — | `None` | The transmit source. None means the terminal only receives. |
-| `detector` | `Aperture`, `SMF`, or `MMF`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
+| `detector` | `Aperture`, `SMF`, `MMF`, or `Camera`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
 | `compensation` | list of `TipTilt` or `AO` | — | `[]` | The ordered wavefront-compensation stack. It may be empty. |
 
 Constraints:
@@ -42,6 +42,11 @@ Constraints:
 - Each `Terminal` owns its own `compensation` list. Two terminals do not share
   one list. The default is a fresh empty list per terminal.
 - An empty `compensation` stack leaves the piston-removed turbulence.
+- A `Terminal` holds ONE detector. A receive path that feeds SEVERAL detectors
+  behind a beamsplitter (for example a tracking `Camera` and a comms fibre)
+  stays one detector per `Terminal`. Each detector carries its splitter fraction
+  `frac`, and the budget helper `olb.multidetector` makes one `Terminal` for
+  each arm.
 
 ### `Transmitter`
 
@@ -74,8 +79,15 @@ Constraints:
 
 ### Detectors
 
-A detector is one of two front ends. Each carries an optional receive
-sensitivity.
+A detector is one of four front ends: `Aperture`, `SMF`, `MMF`, or `Camera`.
+Each carries an optional receive sensitivity.
+
+Each detector also carries a splitter fraction `frac`. It is the fraction of the
+received power that the beamsplitter sends to this detector (0 to 1). `None`
+means "take the remainder", so a detector that is alone gets 1.0. The fraction
+rule lives in `olb.models.splitter.resolve_fracs`, and the per-arm budgets are in
+`olb.multidetector.multi_detector_budgets` (see `api-budget.md`). The field is
+pure data: `olb.terminal` computes no physics.
 
 #### `Aperture`
 
@@ -86,6 +98,7 @@ change its coupling. Use it for parity with the plain downlink budget.
 | Field | Type | Unit | Default | Meaning |
 |---|---|---|---|---|
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
+| `frac` | float or None | — | `None` | The fraction of the received power that the beamsplitter sends to this detector (0 to 1). None means "take the remainder" (1.0 when the detector is alone). |
 
 #### `SMF`
 
@@ -112,6 +125,7 @@ through `a`. It does not change the angular sensitivity on its own.
 | `mode_field_radius_m` | float or None | m | `None` | Fibre mode field RADIUS (about 5.2e-6 m for SMF-28 at 1550 nm). It sets the fibre mode size for `a` and for the walk-off Term. |
 | `optimal_focus` | bool | — | `False` | Design the coupling optic for the best coupling (see below). |
 | `defocus_m` | float | m | `0.0` | Detector offset from the design focus. The fibre tip sits at `z = f + defocus_m`. `0.0` puts it at the nominal focal plane. |
+| `frac` | float or None | — | `None` | The fraction of the received power that the beamsplitter sends to this detector (0 to 1). None means "take the remainder" (1.0 when the detector is alone). |
 
 `optimal_focus=True` assumes the optimal coupling parameter `a=1.12`, so
 `eta_max=0.8145`, and derives the focal length from the mode field radius and the
@@ -161,6 +175,7 @@ etendue penalty a core-radius-only bucket misses (see `physics.md` section 6c).
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
 | `optimal_focus` | bool | — | `False` | Match the spot to the core (see below). |
 | `defocus_m` | float | m | `0.0` | Detector offset from the design focus. The core sits at `z = f + defocus_m`. `0.0` puts it at the nominal focal plane. A detector away from the TRUE focus sees a larger spot, so the core captures less. |
+| `frac` | float or None | — | `None` | The fraction of the received power that the beamsplitter sends to this detector (0 to 1). None means "take the remainder" (1.0 when the detector is alone). |
 
 `optimal_focus=True` derives the focal length so the spot radius is the core
 radius over 1.12 (the same `a=1.12` that a single-mode fibre uses):
@@ -173,8 +188,52 @@ shift is charged at the actual fibre plane, and
 `curvature_focus_shift(scenario)` gives the `defocus_m` of an aligned coupler
 (see `physics.md` section 6a).
 
-`MMF` lives in `olb.terminal`. It is not in the top-level `olb` exports yet.
-Import it as `from olb.terminal import MMF`.
+Import it as `from olb import MMF` (a top-level export), or as
+`from olb.terminal import MMF`.
+
+#### `Camera`
+
+Focal-plane array detector: a tracking and spot-diagnostic sensor. A camera
+images the focal spot on a grid of square pixels. It measures the spot SHAPE and
+the spot POSITION. So it is the sensor of a tracking loop, and it is the
+diagnostic front end of a wave-optics study.
+
+`pixel_pitch_m` is the centre-to-centre distance of two pixels (the pixel
+scale). The sensor is square: its side is `n_pixels * pixel_pitch_m`. One pixel
+subtends the angle `pixel_pitch_m / focal_length_m` on the sky, so the focal
+length sets the plate scale. A measured centroid `x` maps to the arrival angle
+`theta = x / focal_length_m`.
+
+`focal_length_m` is the imaging optic. `defocus_m` puts the sensor at
+`z = f + defocus_m`, so `0.0` is the focal plane. This is the same convention as
+`SMF` and `MMF`. See `olb.waveoptics.camera` for the focal-plane
+discretisation.
+
+| Field | Type | Unit | Default | Meaning |
+|---|---|---|---|---|
+| `pixel_pitch_m` | float | m | (required) | Centre-to-centre distance of two pixels (the pixel scale). |
+| `n_pixels` | int | — | (required) | Number of pixels along one side. The sensor is square. |
+| `focal_length_m` | float or None | m | `None` | Focal length of the imaging optic. None means the plate scale is not set, so the angular scale cannot be computed. |
+| `defocus_m` | float | m | `0.0` | Sensor offset from the focal plane. The sensor sits at `z = f + defocus_m`. `0.0` is the focal plane. A non-zero value grows the spot. |
+| `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
+| `frac` | float or None | — | `None` | The fraction of the received power that the beamsplitter sends to this detector (0 to 1). None means "take the remainder" (1.0 when the detector is alone). A tracking camera usually takes a small fraction, and the comms fibre takes the remainder. |
+
+LIMIT, budgets. No budget builds a coupling Term for a `Camera` today. The
+dispatch is not the same in each budget, so read this before you put a `Camera`
+on a budgeted terminal:
+
+- `terrestrial_budget` treats a `Camera` like an `Aperture` (a power-in-bucket
+  receiver): it adds the scintillation Term and no coupling Term.
+- `downlink_budget` at `fidelity=2` also treats a `Camera` like an `Aperture`.
+- `downlink_budget` at fidelity 0 or 1 RAISES `ValueError` ("unknown
+  detector"), because `olb.models.coupling.downlink` knows `Aperture` and `SMF`
+  only.
+
+So use a `Camera` for the wave-optics focal-plane tools, and use an `Aperture`
+for a power budget.
+
+Import it as `from olb import Camera` (a top-level export), or as
+`from olb.terminal import Camera`.
 
 ### Compensation stack
 

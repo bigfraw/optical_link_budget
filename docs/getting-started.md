@@ -184,6 +184,12 @@ charge that defocus. To model a coupler that is aligned on the true focus, set
 For a bistatic station with different transmit and receive apertures on the
 one-way links, see [../examples/build_a_link.py](../examples/build_a_link.py).
 
+A receive path that feeds SEVERAL detectors behind a beamsplitter (for example
+a tracking camera and a comms fibre) gets one budget per arm: set the split
+fraction `frac` on each detector and call
+`multi_detector_budgets(scenario, geometry, detectors)` (a top-level `olb`
+export). See [api-budget.md](api-budget.md).
+
 ## 5. What a fade margin needs
 
 A fade margin needs a stochastic Term. A Term has three faces: a mean

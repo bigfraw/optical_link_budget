@@ -19,6 +19,11 @@ pure data   ->   models      ->   links       ->   results
 (terminal)        scenario)         assembly)
 ```
 
+One helper sits ABOVE the links. `olb/multidetector.py` builds one budget for
+each detector behind a receive beamsplitter. It imports `olb.links`,
+`olb.models` and `olb.terminal`, and nothing in `links/` or `models/` imports it
+back. See Section 3.
+
 The turbulence physics sits under the models and the links:
 
 ```
@@ -68,6 +73,7 @@ keeps the LightPipes names and call order:
 - `lenses.py` — `Lens`, `LensForvard`, `LensFresnel`, `Convert`. The thin lens, and the spherical (co-moving) coordinate route. `LensFresnel` moves the grid with the beam, so a beam that grows by a factor of 100 stays sampled on a small pixel count. `Convert` comes back to a flat grid.
 - `smf.py` — the single-mode-fibre pupil mode and the overlap coupling efficiency.
 - `mmf.py` — the multimode-fibre light-bucket coupling. `focal_intensity` focuses the pupil field to the detector plane `z = f + defocus_m` (a quadratic pupil phase), and `mmf_coupling_efficiency` sums the encircled energy inside the hard core disk on the axis.
+- `camera.py` — the focal-plane array: `camera_image` bins the focused spot onto square camera pixels, and `spot_metrics` gives the centroid, the second-moment radius and the on-sensor power fraction (`SpotMetrics`). It reuses `mmf.focal_intensity`, so the focus, the defocus sign and the normalisation stay in one place. It is a DIAGNOSTIC layer: it builds no Term, and no budget reads it.
 - `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, `beam_magnification`, and `forvard_max_z`.
 - `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
 
@@ -81,9 +87,9 @@ The last one is the route for a long space link. See Schmidt,
 DOI 10.1117/3.866274, Ch. 7.
 
 The dependency stays one-way. The core (`field.py`, `sources.py`,
-`propagators.py`, `lenses.py`, `smf.py`, `mmf.py`) imports numpy and scipy only, and it
-imports nothing from the rest of olb. Only `grid.py` and `run.py` read a
-scenario.
+`propagators.py`, `lenses.py`, `smf.py`, `mmf.py`, `camera.py`) imports numpy and
+scipy only, and it imports nothing from the rest of olb. Only `grid.py` and
+`run.py` read a scenario.
 
 The turbulent split-step layer now EXISTS at `olb/waveoptics/turbulence/`, and it
 uses those same propagators. It holds `screens.py` (the random phase screens: the
@@ -101,10 +107,22 @@ profiles, the Andrews layer), and `temporal.py` imports numpy only. A space
 scenario always propagates the DOWNLINK slab; an uplink reads the same field
 through the Shapiro reciprocity overlap, DOI 10.1364/JOSA.61.000492.
 
-Both parts are built and each module holds a self-check, but neither builds a
-Term and neither changes a budget. The vacuum core is the no-turbulence validator
-for the near-field and far-field limits of the analytic Terms. A fidelity-2 Term
-is an owner-gated later step. See [examples.md](examples.md) and
+`propagate_turbulent_scenario` also takes an optional `detectors` sequence, the
+arms behind a receive beamsplitter. Each trial then computes the coupling
+efficiency of EVERY arm from the SAME clipped receive field, and it reports them
+in the new `TurbTrial.detector_etas` tuple. So N arms cost ONE Monte Carlo, not
+N. The default `detectors=None` leaves `detector_etas` None, so the
+single-detector record is bit-identical. The shared field is exact, because a
+beamsplitter multiplies the field of an arm by a constant and every coupling
+efficiency is power-normalised (see Section 3).
+
+Both parts are built and each module holds a self-check. The modules of this
+package build no Term themselves, but their records ARE wired into the budgets
+as `fidelity=2` (2026-08-28) through `olb.models.waveoptics` (`run_fidelity2`
+plus the Term factories; see Section 5). The vacuum core is also the
+no-turbulence validator for the near-field and far-field limits of the analytic
+Terms. The open owner decision is whether fidelity 2 ever becomes a DEFAULT.
+See [examples.md](examples.md) and
 [examples/waveoptics/README.md](../examples/waveoptics/README.md).
 
 For the full API, the propagator regimes, and the sampling limits, see
@@ -121,12 +139,24 @@ A [`Terminal`](../olb/terminal.py) is a plain dataclass. ALL terminal hardware
 lives on a Terminal. A Terminal holds:
 - `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`;
 - an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`, and an optional bistatic `aperture_m`);
-- an optional `Detector` (an `Aperture` bucket, an `SMF` fibre, or an `MMF` light bucket, each with a `sensitivity_dbm`; a fibre detector also carries `defocus_m`, the detector offset from the design focus);
+- an optional `Detector` (an `Aperture` bucket, an `SMF` fibre, an `MMF` light bucket, or a `Camera` focal-plane array, each with a `sensitivity_dbm` and an optional beamsplitter `frac`; a fibre detector and a `Camera` also carry `defocus_m`, the detector offset from the design focus);
 - an ordered `compensation` stack (`TipTilt`, `AO`).
 
 A terminal parameter can only be set through a Terminal. One Terminal serves
 both link directions. On an uplink the ground Terminal transmits. On a downlink
 the roles swap. The Terminal does not import the models. The data moves one way.
+
+A `Camera` holds `pixel_pitch_m`, `n_pixels`, `focal_length_m` and `defocus_m`.
+It is a tracking and spot-diagnostic sensor, so NO budget builds a coupling Term
+for it. `terrestrial_budget`, and `downlink_budget` at fidelity 2, treat a
+`Camera` like an `Aperture` bucket. `downlink_budget` at fidelity 0 or 1 raises,
+because `models/coupling/downlink.py` knows an `Aperture` and an `SMF` only. The
+focal-plane tools are `olb/waveoptics/camera.py`.
+
+A Terminal holds ONE detector, and about twenty detector dispatch sites read
+that one field. A receive path that feeds SEVERAL detectors keeps that rule: each
+detector carries its power fraction `frac`, and the helper `olb/multidetector.py`
+makes one Terminal, and one budget, for each arm. See Section 3.
 
 ### Two scenario families, one interface
 
@@ -198,6 +228,7 @@ The model files are:
 - [`extinction.py`](../olb/models/extinction.py) — `slant_extinction_term` (slant airmass extinction) AND `terrestrial_extinction_term` (horizontal Beer-Lambert extinction).
 - [`pointing.py`](../olb/models/pointing.py) — pointing-jitter fade.
 - [`gaussian_efficiency.py`](../olb/models/gaussian_efficiency.py) — transmit truncation loss at the launch aperture.
+- [`splitter.py`](../olb/models/splitter.py) — the receive beamsplitter. `resolve_fracs(detectors)` turns the `frac` field of a set of detectors into one fraction for each arm; at most ONE detector may leave `frac` at None, and that arm takes the remainder (a lone None takes 1.0). The given fractions must not add up to more than 1.0, and a sum below 1.0 is the excess loss of the splitter. A violation raises `ValueError`. `splitter_term(frac)` gives the fixed `-10*log10(frac)` dB Term, of category `"system"`. `arm_scenario(scenario, detector)` copies a scenario with that detector on the receive terminal; it resolves the correct terminal field for each family and direction (a downlink and a retro on `ground`, an uplink on `space`, a forward terrestrial on `far`, a reverse one on `near`).
 - [`coupling/`](../olb/models/coupling) — the receive-coupling Terms, split by link. `_common.py` holds the shared SMF physics, which is the flat-wavefront `smf_eta_max_from_a(a)` and the defocus-aberrated `smf_eta_defocused(a, c)`. `downlink.py` holds the downlink SMF and aperture coupling. `terrestrial.py` holds the terrestrial SMF and MMF coupling with the tip-tilt walk-off fade, and the public `curvature_focus_shift(scenario)`. `fast.py` holds the FAST fibre coupling and `uplink_fast_term`, the fidelity-1 pre-compensated uplink Term.
 
 The terrestrial coupling Terms ALWAYS charge the received-beam curvature. A
@@ -214,6 +245,34 @@ and [`terrestrial.py`](../olb/links/terrestrial.py).
 terrestrial budget: one monostatic collimator defocus `dz` drives BOTH the
 transmit divergence and the receive coupling, and the wrapper returns the forward
 and the reverse budget of one horizontal path.
+
+### Several detectors behind one beamsplitter
+
+[`olb/multidetector.py`](../olb/multidetector.py) holds
+`multi_detector_budgets(scenario, geometry, detectors, wave=None, **kwargs)`. It
+gives one `(detector, Budget)` pair for each arm, in the `detectors` order. For
+each arm it copies the scenario with `arm_scenario`, it calls the budget
+function of the scenario family and direction, and it adds the fixed
+`splitter_term`. An arm that takes all the power (a fraction of 1.0) gets no
+splitter row. The input scenario does not change, and a per-arm error is not
+caught. `olb/__init__.py` exports the function.
+
+The split is CROSS-CUTTING: it is not the physics of one link. So the module
+sits ABOVE `links/` in the dependency order.
+
+The shared field is EXACT. A beamsplitter multiplies the field of an arm by a
+constant, so the arm keeps the SHAPE of the received field and it loses only
+power. Every coupling efficiency in olb is power-normalised, so the split ratio
+does not change it. The ratio therefore enters the budget one time, as the fixed
+dB Term. Source: Saleh and Teich, Fundamentals of Photonics,
+DOI 10.1002/0471213748.
+
+At fidelity 2 the arms share ONE Monte Carlo.
+`olb.models.waveoptics.run_fidelity2(scenario, geometry, detectors=[...])`
+returns a LIST of `Fidelity2Bundle`, one for each arm, from one turbulent run:
+each bundle re-keys that arm's `TurbTrial.detector_etas` value onto the Term
+face of its detector type, and each arm gets its own deterministic vacuum
+baseline. Pass that list as `wave`. A `wave` list of the wrong length raises.
 
 ## 4. The result layer
 
@@ -346,6 +405,20 @@ Every budget takes one whole-path `fidelity=0|1|2` argument (see the README
 fidelity ladder). Fidelity 0 is analytic, fidelity 1 is statistical (a real
 fade), and fidelity 2 is wave optics (two Terms: a deterministic vacuum-optics
 Term and a stochastic turbulence Term, from a precomputed `wave` bundle).
+
+Every budget also takes a master `turbulence` switch, at EVERY rung. When it is
+False the budget drops each turbulence quantity and it keeps the deterministic
+Terms. At fidelity 2 that means no wave-optics turbulence Term and no stochastic
+coupling Term. Pair it with `run_fidelity2(turbulence=False)`, which makes NO
+screens and NO trials and gives a vacuum-only bundle
+(`Fidelity2Bundle.turbulent` is None). A space link then needs no run at all: its
+EMPTY bundle (`vacuum=None`, `turbulent=None`) is valid, because the geometric
+loss is analytic. A terrestrial link still sizes the SAME turbulent grid and
+propagates the vacuum field on it, so the vacuum Term does not move when the
+caller toggles the switch. A terrestrial or downlink MMF receiver keeps ONE
+deterministic core-capture Term, `waveoptics_vacuum_mmf_term`. A `wave` bundle
+stays REQUIRED at fidelity 2, so the call shape is uniform, and a vacuum-only
+bundle with `turbulence=True` raises.
 
 A Term can set `mean_only=True`. This marks a fidelity-0 model. Such a Term
 gives the expected loss of a quantity that really fluctuates (for example a

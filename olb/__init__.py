@@ -28,9 +28,10 @@ from .geometry import CircularOrbit, TLEPass, HorizontalPath
 from .beam import virtual_waist, free_space_radius
 from .results import Term, Budget
 from .assumptions import Assumptions
-from .terminal import Terminal, Transmitter, Aperture, SMF, TipTilt, AO
+from .terminal import Terminal, Transmitter, Aperture, SMF, MMF, Camera, TipTilt, AO
 from .links import (uplink_budget, downlink_budget, retro_space_budget,
                     retro_budget, terrestrial_budget)
+from .multidetector import multi_detector_budgets
 from . import units
 
 __all__ = [
@@ -40,8 +41,10 @@ __all__ = [
     "virtual_waist", "free_space_radius",
     "Term", "Budget",
     "Assumptions",
-    "Terminal", "Transmitter", "Aperture", "SMF", "TipTilt", "AO",
+    "Terminal", "Transmitter", "Aperture", "SMF", "MMF", "Camera",
+    "TipTilt", "AO",
     "uplink_budget", "downlink_budget", "retro_space_budget", "retro_budget",
     "terrestrial_budget",
+    "multi_detector_budgets",
     "units",
 ]

@@ -40,7 +40,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...beam import virtual_waist
-from ...terminal import SMF, MMF
+from ...terminal import Aperture, Camera, SMF, MMF
 from ..field import Begin, Power
 from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard
@@ -77,6 +77,89 @@ def _progress_bar(progress, total, desc):
     return tqdm(total=total, desc=desc)
 
 
+def _mmf_focal_length(detector, aperture_m, lam):
+    """Give the focal length of the multimode-fibre coupling optic, in m.
+
+    An explicit MMF.focal_length_m wins. Else MMF.optimal_focus matches the spot
+    to the core through the a = 1.12 spot-to-core parameter. Source: Shaklan and
+    Roddier, Appl. Opt. 27 (1988) 2334, DOI 10.1364/AO.27.002334. This is the
+    SAME rule as olb.models.coupling.terrestrial._mmf_focal_length.
+
+    Args:
+        detector:   the MMF detector.
+        aperture_m: the receive aperture diameter, in m.
+        lam:        the wavelength, in m.
+
+    Returns:
+        The focal length, in m.
+
+    Raises:
+        ValueError: the detector sets no focal length and no optimal_focus.
+    """
+    if detector.focal_length_m is not None:
+        return float(detector.focal_length_m)
+    if detector.optimal_focus:
+        return (np.pi * (aperture_m / 2.0) * detector.core_radius_m
+                / (lam * 1.12))
+    raise ValueError(
+        "the MMF detector needs a focal length to focus the field. "
+        "Set MMF.focal_length_m, or set MMF.optimal_focus=True to "
+        "match the spot to the core.")
+
+
+def _detector_eta(detector, collected, aperture_m, lam):
+    """Give the coupling efficiency of one detector on the collected field.
+
+    The field `collected` is the receive-plane field AFTER the aperture clip.
+    Each efficiency is a ratio of the detector power to the collected power, so
+    it is power-normalised. A beamsplitter scales the field of an arm by a
+    constant, and a constant cancels in a ratio. So this efficiency does NOT
+    change with the splitter fraction, and one field serves every arm. The
+    fraction is a separate fixed dB Term (see olb.models.splitter).
+
+    Args:
+        detector:   an SMF, an MMF, an Aperture, a Camera, or None.
+        collected:  the clipped receive-plane Field.
+        aperture_m: the receive aperture diameter, in m.
+        lam:        the wavelength, in m.
+
+    Returns:
+        The efficiency as a float, or None when the detector has no coupling
+        model (a Camera, or no detector).
+
+    Raises:
+        ValueError: the detector type is unknown, or an MMF sets no focal
+                    length.
+    """
+    if detector is None or isinstance(detector, Camera):
+        # A Camera is a DIAGNOSTIC front end. It measures the spot shape and the
+        # spot position, and no budget builds a coupling Term for it. See
+        # olb.terminal.Camera and olb.waveoptics.camera.
+        return None
+    if isinstance(detector, SMF):
+        # The overlap of the focal field with the fibre mode. NOTE: this leg
+        # reads NO defocus (backlog 2-W2). See olb.waveoptics.smf.
+        return float(coupling_efficiency(collected, aperture_m))
+    if isinstance(detector, MMF):
+        # A non-focal-plane detector (z = f + defocus_m). The AXIAL displacement
+        # grows the spot (defocus_m); the field already carries the turbulent
+        # tilt. At the focal plane (defocus_m = 0) this is the plain focal-plane
+        # coupling. See olb.waveoptics.mmf and olb.models.coupling.terrestrial.
+        f_mmf = _mmf_focal_length(detector, aperture_m, lam)
+        return float(mmf_coupling_efficiency(
+            collected, aperture_m, detector.core_radius_m, f_mmf,
+            numerical_aperture=detector.numerical_aperture,
+            defocus_m=detector.defocus_m))
+    if isinstance(detector, Aperture):
+        # A power-in-bucket detector takes ALL the collected power, so its
+        # efficiency against the aperture clip is exactly 1.0. The real loss of
+        # this arm is the aperture capture, which collected_power already holds.
+        return 1.0
+    raise ValueError(
+        f"_detector_eta: unknown detector type {type(detector).__name__}. Use "
+        "an Aperture, an SMF, an MMF, or a Camera.")
+
+
 @dataclass(frozen=True)
 class TurbTrial:
     """One atmosphere snapshot.
@@ -101,6 +184,10 @@ class TurbTrial:
                          the core, and the turbulent tilt walks the spot off the
                          on-axis core on its own. It is None when the receive
                          terminal has no MMF detector.
+        detector_etas:   the coupling efficiency of each detector of the
+                         `detectors` argument, in that order. It is None when
+                         the caller gives no `detectors`. A Camera arm holds
+                         None, because a Camera has no coupling model.
     """
 
     collected_power: float
@@ -109,6 +196,7 @@ class TurbTrial:
     seed_key: tuple
     wall_time_s: float
     mmf_eta: float = None
+    detector_etas: tuple = None
 
 
 @dataclass(frozen=True)
@@ -277,7 +365,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  hs=None, cn2_profile=None, L0_m=np.inf,
                                  subharmonics=True, threader=None,
-                                 screen_generator="olb", progress=False):
+                                 screen_generator="olb", progress=False,
+                                 detectors=None):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -328,6 +417,19 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       warning. False (the default) shows no bar. With a threader
                       the bar advances in the finishing order, not the trial
                       order, but the returned trials keep the trial order.
+        detectors:    an optional sequence of detector objects, the arms behind
+                      a receive beamsplitter. Each trial then gives the coupling
+                      efficiency of EVERY arm, in this order, as
+                      TurbTrial.detector_etas. ONE run therefore feeds every
+                      arm: the clipped receive field is already in memory, and
+                      each arm is one more cheap focal-plane calculation on that
+                      same array. The `frac` of each detector is IGNORED here.
+                      A beamsplitter scales the field of an arm by a constant,
+                      and every coupling efficiency is power-normalised, so the
+                      efficiency does not change with the split ratio. The
+                      fraction is a separate fixed dB Term (see
+                      olb.models.splitter). None (the default) keeps the
+                      single-detector record, bit for bit.
 
     Returns:
         A TurbWaveResult.
@@ -416,37 +518,19 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
         collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
         collected_power = float(Power(collected) / p_reference)
-        smf_eta = (float(coupling_efficiency(collected, rx.aperture_m))
+        # The receive-terminal detector, the single-detector faces. The MMF and
+        # the SMF physics live in _detector_eta, so the multi-detector path
+        # below reads the SAME code on the SAME field.
+        smf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
                    if isinstance(rx.detector, SMF) else None)
-        mmf_eta = None
-        if isinstance(rx.detector, MMF):
-            # Resolve the focal length the way the terrestrial MMF Term does. An
-            # explicit focal_length_m wins; else optimal_focus matches the spot
-            # to the core through the a=1.12 spot-to-core parameter. Source:
-            # Shaklan and Roddier, Appl. Opt. 27 (1988) 2334,
-            # DOI 10.1364/AO.27.002334. See olb.models.coupling.terrestrial
-            # _mmf_focal_length.
-            det = rx.detector
-            if det.focal_length_m is not None:
-                f_mmf = det.focal_length_m
-            elif det.optimal_focus:
-                f_mmf = (np.pi * (rx.aperture_m / 2.0) * det.core_radius_m
-                         / (lam * 1.12))
-            else:
-                raise ValueError(
-                    "the MMF detector needs a focal length to focus the field. "
-                    "Set MMF.focal_length_m, or set MMF.optimal_focus=True to "
-                    "match the spot to the core.")
-            # A non-focal-plane detector (z = f + defocus_m). The AXIAL
-            # displacement grows the spot (defocus_m); the field already carries
-            # the turbulent tilt. At the focal plane (defocus_m=0) this is the
-            # plain focal-plane coupling. See olb.waveoptics.mmf and
-            # olb.models.coupling.terrestrial.
-            dz = det.defocus_m
-            mmf_eta = float(mmf_coupling_efficiency(
-                collected, rx.aperture_m, det.core_radius_m, f_mmf,
-                numerical_aperture=det.numerical_aperture,
-                defocus_m=dz))
+        mmf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
+                   if isinstance(rx.detector, MMF) else None)
+        # The extra beamsplitter arms. The field is already in memory, so each
+        # arm is one more cheap focal-plane calculation on the SAME array.
+        detector_etas = (
+            None if detectors is None else
+            tuple(_detector_eta(d, collected, rx.aperture_m, lam)
+                  for d in detectors))
         eta_turb = None
         if is_space and scenario.direction == "uplink":
             # The reciprocity overlap. See Shapiro,
@@ -457,7 +541,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
                          eta_turb=eta_turb, seed_key=(seed_entropy, k),
                          wall_time_s=time.perf_counter() - t0,
-                         mmf_eta=mmf_eta)
+                         mmf_eta=mmf_eta, detector_etas=detector_etas)
 
     bar = _progress_bar(progress, n_trials, "turbulent trials")
     try:
@@ -771,6 +855,52 @@ if __name__ == '__main__':
         raise AssertionError("an unknown generator must raise ValueError")
     except ValueError as exc:
         assert "aotools" in str(exc), str(exc)
+
+    # ---- 4d. the beamsplitter arms: ONE run feeds every detector ----
+    # The default path leaves detector_etas None, so the record is unchanged.
+    assert all(tr.detector_etas is None for tr in mc.trials)
+
+    # The rx terminal of terr_scn holds an SMF. A run that ALSO asks for that
+    # same SMF as an arm must give the SAME number, because both read the same
+    # clipped field through the same helper.
+    arms = [SMF(), Aperture(frac=0.1), Camera(pixel_pitch_m=10e-6, n_pixels=64),
+            MMF(core_radius_m=25e-6, focal_length_m=0.05,
+                numerical_aperture=0.2)]
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        multi = propagate_turbulent_scenario(terr_scn, path, n_trials=2, seed=1,
+                                             preset="standard", detectors=arms)
+    for tr in multi.trials:
+        assert len(tr.detector_etas) == 4, tr.detector_etas
+        assert tr.detector_etas[0] == tr.smf_eta            # the same SMF arm
+        assert tr.detector_etas[1] == 1.0                   # an Aperture bucket
+        assert tr.detector_etas[2] is None                  # a Camera: no model
+        assert 0.0 < tr.detector_etas[3] <= 1.0             # the MMF light bucket
+    # The default path of the SAME seed is bit-identical: the arms change no draw.
+    assert multi.trials[0].collected_power == vac.trials[0].collected_power
+    assert multi.trials[0].smf_eta == vac.trials[0].smf_eta
+    # An MMF arm matches a run whose rx detector IS that MMF (the same field).
+    mmf_det = MMF(core_radius_m=25e-6, focal_length_m=0.05,
+                  numerical_aperture=0.2)
+    mmf_scn = TerrestrialScenario(
+        near=terr_scn.near,
+        far=Terminal(aperture_m=0.20, wavelength_m=lam, detector=mmf_det),
+        channel=terr_scn.channel)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        mmf_run = propagate_turbulent_scenario(mmf_scn, path, n_trials=2, seed=1,
+                                               preset="standard",
+                                               detectors=[mmf_det])
+    for a, b in zip(mmf_run.trials, multi.trials):
+        assert a.mmf_eta == a.detector_etas[0], (a.mmf_eta, a.detector_etas)
+        assert a.mmf_eta == b.detector_etas[3], (a.mmf_eta, b.detector_etas[3])
+    # An unknown detector type raises.
+    try:
+        propagate_turbulent_scenario(terr_scn, path, n_trials=1, seed=1,
+                                     preset="rapid", detectors=[object()])
+        raise AssertionError("an unknown detector must raise ValueError")
+    except ValueError as exc:
+        assert "unknown detector" in str(exc), str(exc)
 
     # ---- the printed tables ----
     print("terrestrial vacuum limit, 1 km, Cn2 = 1e-20, standard preset:")

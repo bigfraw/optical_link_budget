@@ -287,7 +287,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     )
 
 
-def _terrestrial_fidelity2_terms(scenario, geometry, wave):
+def _terrestrial_fidelity2_terms(scenario, geometry, wave, turbulence=True):
     '''
     The fidelity-2 wave-optics Terms of a terrestrial link.
 
@@ -310,10 +310,15 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     because the run folds it into mmf_eta (see olb.waveoptics.mmf and
     olb.waveoptics.turbulence.run). An Aperture (bucket) receiver gets the
     aperture-power penalty only.
+
+    With `turbulence` False, or with a VACUUM-ONLY bundle (turbulent None), the
+    Term set is DETERMINISTIC: the vacuum-optics Term alone, plus the vacuum MMF
+    core-capture Term for an MMF receiver. No stochastic Term is built.
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
                                      waveoptics_turbulence_term,
-                                     waveoptics_mmf_coupling_term)
+                                     waveoptics_mmf_coupling_term,
+                                     waveoptics_vacuum_mmf_term)
     from ..waveoptics.field import Power
     from ..terminal import SMF, MMF
     tx = scenario.tx_terminal
@@ -321,7 +326,24 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave):
     is_smf = isinstance(rx.detector, SMF)
     is_mmf = isinstance(rx.detector, MMF)
 
+    if wave.turbulent is None and turbulence:
+        raise ValueError(
+            "the `wave` bundle is vacuum-only (turbulent is None), but the "
+            "budget asks for turbulence. Run "
+            "olb.models.waveoptics.run_fidelity2 WITHOUT turbulence=False, or "
+            "pass turbulence=False to the budget."
+        )
+
     vac = waveoptics_vacuum_term(wave.vacuum, include_smf=is_smf)
+    if not turbulence or wave.turbulent is None:
+        # VACUUM-ONLY: the deterministic Terms alone. The SMF coupling is
+        # already inside the vacuum Term (include_smf); the MMF light bucket
+        # needs its own deterministic core-capture Term, computed on the
+        # receive-clipped vacuum field.
+        if is_mmf:
+            return [vac, waveoptics_vacuum_mmf_term(wave.vacuum, rx.detector,
+                                                    rx.aperture_m)]
+        return [vac]
 
     trials = wave.turbulent.trials
     coll = np.array([t.collected_power for t in trials], dtype=float)
@@ -418,11 +440,16 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             Add the fidelity-0 scintillation Term for an aperture / no-detector
             receiver when True (the default).
         turbulence : bool
-            Master turbulence switch for fidelity 0. When False, drop EVERY
-            turbulence quantity: no scintillation Term, and the fibre-coupling
-            Terms keep only their static parts. The deterministic Terms
-            (geometric, extinction, launch truncation) and the transmit pointing
-            jitter stay.
+            Master turbulence switch, at fidelity 0 AND fidelity 2. When False,
+            drop EVERY turbulence quantity. At fidelity 0: no scintillation
+            Term, and the fibre-coupling Terms keep only their static parts. At
+            fidelity 2: no wave-optics turbulence Term and no stochastic
+            coupling Term, so the budget shows the deterministic vacuum-optics
+            Term alone (plus the vacuum MMF core capture for an MMF receiver).
+            The deterministic Terms (geometric, extinction, launch truncation)
+            and the transmit pointing jitter stay at both rungs. At fidelity 2
+            pair it with olb.models.waveoptics.run_fidelity2(turbulence=False),
+            which makes no screens and no trials.
         wave : Fidelity2Bundle, optional
             The precomputed wave-optics records for fidelity=2. Run it with
             olb.models.waveoptics.run_fidelity2.
@@ -434,7 +461,8 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
     Raises:
         ValueError
             If fidelity is not 0/1/2, if fidelity=1 (unavailable for terrestrial),
-            or if fidelity=2 without a `wave` bundle.
+            if fidelity=2 without a `wave` bundle, or if fidelity=2 with
+            turbulence=True and a VACUUM-ONLY bundle.
     '''
     if fidelity not in (0, 1, 2):
         raise ValueError(f"fidelity must be 0, 1, or 2, got {fidelity!r}.")
@@ -460,7 +488,8 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             terrestrial_extinction_term(scenario, geometry),
             pointing_loss_term(scenario, geometry),
         ]
-        terms += _terrestrial_fidelity2_terms(scenario, geometry, wave)
+        terms += _terrestrial_fidelity2_terms(scenario, geometry, wave,
+                                              turbulence=turbulence)
         return Budget(terms, scenario=scenario)
 
     # fidelity 0: the analytic budget.
@@ -772,6 +801,48 @@ if __name__ == '__main__':
               f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB, "
               f"total {f2.total_loss_db():.2f} dB")
 
+    # --- fidelity-2 master turbulence switch ---------------------------------
+    # turbulence=False at fidelity 2 gives a VACUUM-ONLY Term set: the
+    # deterministic vacuum-optics Term plus extinction and pointing. The bundle
+    # comes from run_fidelity2(turbulence=False), which makes no trials.
+    try:
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            vac_bundle = run_fidelity2(wo_scn, HorizontalPath(3e3),
+                                       preset="rapid", turbulence=False,
+                                       progress=False)
+            f2_off = terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=2,
+                                        wave=vac_bundle, turbulence=False)
+    except ImportError:
+        f2_off = None
+    if f2_off is not None:
+        assert vac_bundle.turbulent is None
+        off_cats = [t.category for t in f2_off.terms]
+        assert "turbulence" not in off_cats, off_cats
+        assert "coupling" not in off_cats, off_cats
+        # The deterministic backbone stays: the vacuum Term, extinction, pointing.
+        assert any(t.meta.get("model") == "waveoptics-vacuum" for t in f2_off.terms)
+        assert "atmospheric" in off_cats and "pointing" in off_cats
+        # A vacuum-only bundle with turbulence=True raises a helpful error.
+        try:
+            terrestrial_budget(wo_scn, HorizontalPath(3e3), fidelity=2,
+                               wave=vac_bundle)
+        except ValueError as e:
+            assert "vacuum-only" in str(e), str(e)
+        else:
+            raise AssertionError("a vacuum-only bundle with turbulence must raise")
+        # turbulence=False with the FULL bundle is allowed: it drops the
+        # stochastic Terms, so the Term set matches the vacuum-only bundle.
+        if f2 is not None:
+            full_off = terrestrial_budget(wo_scn, HorizontalPath(3e3),
+                                          fidelity=2, wave=bundle,
+                                          turbulence=False)
+            assert ([t.name for t in full_off.terms]
+                    == [t.name for t in f2_off.terms])
+        print(f"terrestrial fidelity 2, turbulence=False (3 km): "
+              f"{f2_off.total_loss_db():.2f} dB, "
+              f"terms {[t.name for t in f2_off.terms]}")
+
     # --- fidelity-2 MMF light bucket, and the non-focal-plane detector -------
     # The MMF core coupling is now routed into the fidelity-2 budget. The
     # detector defocus grows the spot, which folds into the per-trial mmf_eta in
@@ -813,6 +884,35 @@ if __name__ == '__main__':
         assert m_defoc.mean_db > m_focus.mean_db, (m_defoc.mean_db, m_focus.mean_db)
         print(f"terrestrial fidelity 2 MMF (25 um core): focus {m_focus.mean_db:.2f} "
               f"dB -> defocus -2 mm {m_defoc.mean_db:.2f} dB")
+
+        # An MMF receiver with turbulence=False keeps ONE deterministic
+        # core-capture Term, computed on the receive-clipped vacuum field.
+        s_mmf = TerrestrialScenario(
+            near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
+                          transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
+            far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
+                         pointing_jitter_rad=5e-6,
+                         detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                                      sensitivity_dbm=-38)),
+            channel=TerrestrialChannel(path_length_m=3e3,
+                                       attenuation_db_per_km=0.5, cn2=1e-14))
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            mmf_vac_bundle = run_fidelity2(s_mmf, HorizontalPath(3e3),
+                                           preset="rapid", turbulence=False,
+                                           progress=False)
+            mmf_off = terrestrial_budget(s_mmf, HorizontalPath(3e3), fidelity=2,
+                                         wave=mmf_vac_bundle, turbulence=False)
+        mmf_vac_term = next(t for t in mmf_off.terms if t.category == "coupling")
+        assert not mmf_vac_term.stochastic and not mmf_vac_term.mean_only
+        assert mmf_vac_term.meta["model"] == "waveoptics-vacuum"
+        assert not any(t.category == "turbulence" for t in mmf_off.terms)
+        # The vacuum core capture is BETTER than the turbulent mean (no fade).
+        assert mmf_vac_term.mean_db < m_focus.mean_db, (mmf_vac_term.mean_db,
+                                                        m_focus.mean_db)
+        print(f"terrestrial fidelity 2 MMF, turbulence=False: core capture "
+              f"{mmf_vac_term.mean_db:.2f} dB (turbulent mean "
+              f"{m_focus.mean_db:.2f} dB)")
 
     # --- MMF (multimode-fibre light bucket) ---------------------------------
     def _mmf(core_radius=25e-6, focal=None, jitter=5e-6, far_aperture=0.2,

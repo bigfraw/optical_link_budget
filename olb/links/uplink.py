@@ -474,7 +474,8 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
     )
 
 
-def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
+def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
+                            turbulence=True):
     '''
     The two fidelity-2 wave-optics Terms of an UNCORRECTED uplink.
 
@@ -497,6 +498,10 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
     The reciprocity route reads the SAME screens up and down, so it does NOT model
     an adaptive-optics correction or the point-ahead decorrelation. So it fits the
     uncorrected uplink only, not a pre-compensated one.
+
+    With `turbulence` False, or with a VACUUM-ONLY bundle (turbulent None), the
+    reciprocity Term is dropped and the DETERMINISTIC geometric Terms stand
+    alone.
     '''
     from ..models.waveoptics import (waveoptics_vacuum_term,
                                      waveoptics_turbulence_term)
@@ -506,8 +511,20 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
             "the fidelity-2 uplink takes a scalar elevation (one range per "
             "record). Loop over the elevations and build one bundle each."
         )
-    sigma2_I = float(plane_wave_scintillation_index(
-        float(elev), scenario.tx_terminal.wavelength_m, hs, cn2_profile))
+    vacuum_only = (not turbulence) or wave.turbulent is None
+    if wave.turbulent is None and turbulence:
+        raise ValueError(
+            "the `wave` bundle is vacuum-only (turbulent is None), but the "
+            "budget asks for turbulence. Run "
+            "olb.models.waveoptics.run_fidelity2 WITHOUT turbulence=False, or "
+            "pass turbulence=False to the budget."
+        )
+    # The scintillation index is a turbulence quantity, so read it only when the
+    # stochastic Term needs it.
+    sigma2_I = (None if vacuum_only else
+                float(plane_wave_scintillation_index(
+                    float(elev), scenario.tx_terminal.wavelength_m, hs,
+                    cn2_profile)))
     if wave.vacuum is None:
         # ANALYTIC geometric loss (the default for a space link). The link is far
         # field, so the analytic Term is exact and the wave vacuum run is skipped
@@ -522,6 +539,11 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile):
         # The wave-optics vacuum Term (opt-in for space, vacuum="wave").
         geo = [waveoptics_vacuum_term(wave.vacuum, include_smf=False,
                                       beam_type=BEAM_GAUSSIAN)]
+    if vacuum_only:
+        # VACUUM-ONLY: the deterministic geometric Terms alone. The uplink
+        # fidelity-2 route builds no coupling Term at any setting, so nothing
+        # else is needed.
+        return geo
     pen = waveoptics_turbulence_term(
         wave.turbulent, quantity="eta_turb", beam_type=BEAM_GAUSSIAN,
         sigma2_I=sigma2_I,
@@ -583,8 +605,14 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             0 (analytic), 1 (statistical, the default), or 2 (wave optics, needs
             `wave` and an uncorrected uplink).
         turbulence : bool
-            Add the turbulence Term when true (fidelity 0/1). When false the
-            budget is geometric-only.
+            Master turbulence switch, at every fidelity. At fidelity 0/1 the
+            budget is geometric-only when false. At fidelity 2 the wave-optics
+            reciprocity Term is dropped, so the deterministic geometric Terms
+            stand alone beside extinction and pointing. Pair it with
+            olb.models.waveoptics.run_fidelity2(turbulence=False), which makes
+            no screens and no trials; the EMPTY bundle (vacuum=None,
+            turbulent=None) of a space link is accepted. A `wave` bundle is
+            still required at fidelity 2, so the call shape is uniform.
         tau_zenith : float, optional
             Zenith optical depth. Defaults to extinction.DEFAULT_TAU_ZENITH.
         n_samples : int
@@ -650,7 +678,7 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             pointing_loss_term(scenario, geometry),
         ]
         terms += _uplink_fidelity2_terms(scenario, geometry, wave, DEFAULT_HS,
-                                         cn2_profile)
+                                         cn2_profile, turbulence=turbulence)
         return Budget(terms, scenario=scenario)
 
     # fidelity 0/1: the analytic backbone.
@@ -1056,6 +1084,39 @@ if __name__ == '__main__':
     default_turb = next(t for t in up.terms if t.category == "turbulence")
     assert default_turb.meta.get("model") != "waveoptics"
     assert default_turb.name == "turbulence (coupled-flux)"
+
+    # --- fidelity-2 master turbulence switch (no simulation needed) ----------
+    # The EMPTY bundle (vacuum=None, turbulent=None) of a space link needs no
+    # run, so this case is cheap. The budget then keeps the analytic
+    # deterministic Terms alone.
+    from ..models.waveoptics import Fidelity2Bundle
+    empty_bundle = Fidelity2Bundle(vacuum=None, turbulent=None)
+    up_off = uplink_budget(
+        budget_scn, budget_geom, fidelity=2, wave=empty_bundle,
+        turbulence=False,
+        cn2_profile=default_cn2_profile(budget_scn.channel.site))
+    off_names = [t.name for t in up_off.terms]
+    off_cats = [t.category for t in up_off.terms]
+    assert "turbulence" not in off_cats and "coupling" not in off_cats, off_cats
+    assert "geometric spreading" in off_names, off_names
+    assert "atmospheric" in off_cats and "pointing" in off_cats, off_cats
+    # An empty bundle with turbulence=True raises a helpful error.
+    try:
+        uplink_budget(budget_scn, budget_geom, fidelity=2, wave=empty_bundle,
+                      cn2_profile=default_cn2_profile(budget_scn.channel.site))
+    except ValueError as e:
+        assert "vacuum-only" in str(e), str(e)
+    else:
+        raise AssertionError("an empty bundle with turbulence must raise")
+    # A `wave` bundle is still REQUIRED, so the call shape stays uniform.
+    try:
+        uplink_budget(budget_scn, budget_geom, fidelity=2, turbulence=False)
+    except ValueError as e:
+        assert "needs a precomputed `wave` bundle" in str(e)
+    else:
+        raise AssertionError("fidelity=2 turbulence=False still needs a bundle")
+    print(f"uplink fidelity 2, turbulence=False (600 km, 60 deg): "
+          f"{up_off.total_loss_db():.2f} dB, terms {off_names}")
 
     # A real fidelity-2 uncorrected uplink (skip if aotools absent). The DEFAULT
     # geometric loss is ANALYTIC (a space link is far field, so wave.vacuum is

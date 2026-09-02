@@ -286,6 +286,10 @@ a fixed set of Terms.
 (the near-IR clear-sky zenith optical depth). All keyword arguments after the
 first two are keyword-only.
 
+For several detectors behind one receive beamsplitter, call
+`olb.multi_detector_budgets`. It calls the budget function of the table one time
+for each arm; see the section at the end of this page.
+
 ### The `fidelity` ladder
 
 Every budget takes ONE whole-path `fidelity` argument. It sets the model of the
@@ -337,6 +341,39 @@ of a fidelity-1 FAST MMF Term that does NOT exist: the light bucket has no
 analytic and no FAST model, so this Term is the only statistical MMF coupling
 model in olb. Both are re-exported from `olb.models.coupling`, so a coupling
 Term is discoverable there whatever its fidelity.
+
+#### The master `turbulence` switch at fidelity 2
+
+The `turbulence` keyword of `uplink_budget`, `downlink_budget`, and
+`terrestrial_budget` acts at EVERY fidelity, fidelity 2 included. With
+`turbulence=False` at fidelity 2 the budget drops the wave-optics turbulence Term
+AND the stochastic coupling Term. It keeps the deterministic Terms: the geometric
+Terms (the analytic geometric loss, or the wave-optics vacuum-optics Term), the
+extinction Term, and the pointing Term.
+
+Pair the switch with the runner:
+`olb.models.waveoptics.run_fidelity2(..., turbulence=False)` makes no screens and
+no trials, and it gives a VACUUM-ONLY bundle (`turbulent=None`). A space link with
+the default `vacuum="analytic"` then gives an EMPTY bundle (`vacuum=None`,
+`turbulent=None`), which the budget accepts: it shows the analytic deterministic
+Terms alone. A `wave` bundle is still REQUIRED at fidelity 2, so the call shape is
+the same at every setting.
+
+Three rules apply:
+
+- A vacuum-only bundle with `turbulence=True` raises `ValueError`. The message
+  names the two repairs: run `run_fidelity2` without `turbulence=False`, or pass
+  `turbulence=False` to the budget.
+- A fibre receiver (`SMF` or `MMF`) on a SPACE link with the analytic-default
+  bundle and `turbulence=False` raises `ValueError`. The bundle holds no vacuum
+  coupling number, and the analytic geometric Term carries no coupling. The
+  message names `run_fidelity2(vacuum='wave', turbulence=False)`, or an `Aperture`
+  receiver. The fidelity-0 analytic coupling is NOT wired in here.
+- A TERRESTRIAL `MMF` receiver with `turbulence=False` keeps ONE deterministic
+  coupling Term, the vacuum core capture (`waveoptics_vacuum_mmf_term`). It is the
+  fraction of the COLLECTED power that enters the fibre core, computed on the
+  receive-clipped vacuum field, with no fade. A terrestrial `SMF` coupling is
+  already inside the vacuum-optics Term (`include_smf`), so it gets no extra Term.
 
 Not every fidelity fits every link. Each budget section below gives the exact
 mapping and the cases that raise.
@@ -407,7 +444,11 @@ PRE-COMPENSATED (`DownlinkBeacon` with an `AO` stage):
 
 Other rules:
 
-- `turbulence` — add the turbulence Term when `True`.
+- `turbulence` — the master turbulence switch, at every fidelity. At fidelity 0/1
+  the budget is geometric-only when `False`. At fidelity 2 the wave-optics
+  reciprocity Term drops, so the deterministic geometric Terms stand alone beside
+  the extinction and the pointing Terms. See the master switch above. The uplink
+  fidelity-2 route builds no coupling Term at any setting.
 - Pointing jitter folds into the coupled-flux turbulence Term. A standalone
   pointing-loss Term is added only when that Term is absent: `turbulence` is
   `False`, or the pre-compensation Terms replace it. The jitter is never lost
@@ -489,16 +530,28 @@ MMF coupling holds the static encircled-energy floor, so NO vacuum coupling
 baseline is subtracted (this is the difference from the SMF composite, which
 does subtract one).
 
+A `Camera` receive detector is DIAGNOSTIC-ONLY: no budget builds a coupling
+Term for it. The downlink budget at fidelity 0 or 1 raises `ValueError`
+("unknown detector") on a `Camera`; at fidelity 2 it treats a `Camera` like an
+`Aperture` (a power-in-bucket receiver). The terrestrial budget also treats a
+`Camera` like an `Aperture`. Use a `Camera` for the wave-optics focal-plane
+tools (`olb.waveoptics.camera`), and use an `Aperture` for a power budget. See
+[api-terminal-scenario.md](api-terminal-scenario.md).
+
 Other rules:
 
 - `scintillation` — add the analytic scintillation Term for an aperture or
   no-detector receiver at fidelity 0/1 when `True`. Every fidelity-0/1 downlink
   Term has a closed-form quantile, so the downlink budget supports the analytic
   fade.
-- `turbulence` — the master turbulence switch for fidelity 0/1. When `False`,
+- `turbulence` — the master turbulence switch, at every fidelity. At fidelity 0/1,
   drop every turbulence quantity. The budget keeps the deterministic Terms
   (geometric, atmospheric, pointing) and any static coupling loss, but it drops
-  the scintillation and the turbulence part of the receive-coupling Term.
+  the scintillation and the turbulence part of the receive-coupling Term. At
+  fidelity 2, drop the wave-optics turbulence Term and the stochastic coupling
+  Term, so the budget keeps the deterministic geometric Terms plus the extinction
+  and the pointing Terms. A fibre receiver then needs a wave vacuum run; see the
+  master switch above.
 - The receive terminal is opt-in. When the receive terminal has a detector, the
   receive-coupling Term owns the receive-side turbulence physics. It replaces
   the standalone scintillation Term. An `Aperture` detector reproduces the plain
@@ -646,13 +699,19 @@ Flags:
   `Aperture` or no-detector receiver when `True` (the default). Set it to
   `False` to keep only the deterministic Terms, for example to sweep an array
   path length. The scintillation Term is scalar-only, so it does not broadcast.
-- `turbulence` — the master turbulence switch. When `False`, drop every
-  turbulence quantity: no scintillation Term, and the fibre-coupling Terms keep
-  only their static parts. The SMF coupling Term becomes the static mode-match
-  loss, the MMF Term keeps its spot-overfill loss, and the walk-off Term keeps
-  only the receive mechanical jitter (the beam-wander tilt drops). The
-  deterministic Terms and the transmit pointing jitter stay. So a coupling budget
-  with angular jitter still runs, only without turbulence.
+- `turbulence` — the master turbulence switch, at fidelity 0 AND fidelity 2. When
+  `False`, drop every turbulence quantity. At fidelity 0: no scintillation Term,
+  and the fibre-coupling Terms keep only their static parts. The SMF coupling Term
+  becomes the static mode-match loss, the MMF Term keeps its spot-overfill loss,
+  and the walk-off Term keeps only the receive mechanical jitter (the beam-wander
+  tilt drops). At fidelity 2: no wave-optics turbulence Term and no stochastic
+  coupling Term, so the budget shows the deterministic vacuum-optics Term alone,
+  plus the vacuum MMF core capture (`waveoptics_vacuum_mmf_term`) for an `MMF`
+  receiver. Pair it with
+  `olb.models.waveoptics.run_fidelity2(turbulence=False)`; see the master switch
+  above. At both rungs the deterministic Terms (geometric, extinction, launch
+  truncation) and the transmit pointing jitter stay. So a coupling budget with
+  angular jitter still runs, only without turbulence.
 
 The receive-side Terms:
 
@@ -721,3 +780,124 @@ TWO LIMITS of this fidelity-0 wrapper:
    deliberately diverged monostatic terminal therefore pays `|dz| + dz_curv` of
    receive defocus, and the coupling Terms now CHARGE it. There is no free best
    focus for a monostatic terminal.
+
+---
+
+## Several detectors: `multi_detector_budgets` (`olb/multidetector.py`)
+
+A `Terminal` holds ONE detector. A receive telescope that feeds SEVERAL detectors
+behind a beamsplitter (for example a tracking `Camera` and a comms fibre) is
+therefore ONE budget for each arm. `multi_detector_budgets` builds that set. It is
+exported at the top level, so `from olb import multi_detector_budgets` works.
+
+### `multi_detector_budgets(scenario, geometry, detectors, *, wave=None, **kwargs)`
+
+Build one budget for each detector behind the receive beamsplitter.
+
+For each arm the helper copies the scenario with `arm_scenario`, so the receive
+terminal holds that arm's detector. It then calls the budget function of the
+scenario family and direction (a `SpaceScenario` maps `uplink_budget`,
+`downlink_budget`, or `retro_space_budget`; a `TerrestrialScenario` always maps
+`terrestrial_budget`), and it adds the fixed splitter Term to the returned
+`Budget`.
+
+Parameters:
+
+- `scenario` — the link case. The input scenario does not change.
+- `geometry` — the link geometry, passed to the budget function unchanged.
+- `detectors` — the detector of each arm (`Aperture`, `SMF`, `MMF`, or `Camera`).
+  Each detector carries its own `frac`; see the fraction rule below.
+- `wave` — the precomputed wave-optics record(s) for `fidelity=2`. Give a LIST,
+  one bundle for each arm in the `detectors` order, from
+  `olb.models.waveoptics.run_fidelity2(..., detectors=[...])`. A single bundle
+  goes to every arm unchanged. `None` passes no `wave` to the budget function.
+- `**kwargs` — passed to the budget function unchanged (for example `fidelity`,
+  `turbulence`, `scintillation`, `tau_zenith`).
+
+Return a list of `(detector, Budget)` pairs, in the `detectors` order. Each Budget
+holds the arm's own Terms plus the fixed beamsplitter Term. An arm with a fraction
+of `1.0` gets NO beamsplitter Term, because it has no loss. Each Budget also reads
+its own arm's `sensitivity_dbm`, so the margin is that arm's margin.
+
+`ValueError` comes from two sources: the fractions do not resolve (see
+`resolve_fracs`), or the `wave` list length does not match the number of
+detectors. A per-arm error is NOT caught. For example, `downlink_budget` at
+fidelity 0 or 1 raises on a `Camera`, and that is the documented behaviour of that
+budget.
+
+WHY THIS IS EXACT. A beamsplitter multiplies the field of an arm by a constant, so
+the arm keeps the SHAPE of the received field and it loses only power. Every
+coupling model in olb is power-normalised, so the coupling of an arm does not
+change with the split ratio. The ratio therefore enters one time, as the fixed dB
+Term.
+
+AT FIDELITY 2 the arms share ONE Monte Carlo. `run_fidelity2(scenario, geometry,
+detectors=[...])` returns a LIST of `Fidelity2Bundle` in the arm order. The
+clipped receive field is computed one time, and each arm is one more cheap
+focal-plane calculation on that same array. So N arms cost one run, not N. The
+vacuum run is per arm, because a vacuum record holds the fibre coupling of its own
+detector. See [api-waveoptics.md](api-waveoptics.md) for the full wave-optics API.
+
+LIMITS. The pattern works wherever a budget reads the receive terminal detector.
+It is TESTED for a terrestrial link and a downlink. An uplink receives on the SPACE
+terminal, so the arms are on the satellite. A RETRO link transmits and receives on
+the SAME ground terminal, so an arm copy changes the transmit terminal too. That is
+correct (it is one physical terminal), but check that the retro budget reads what
+you expect.
+
+---
+
+## The receive beamsplitter (`olb/models/splitter.py`)
+
+The module holds the two small pieces of the power split, plus the scenario copy.
+The split is a fixed optical loss, so the Term declares no beam type, no
+turbulence regime, and no spectrum.
+
+### `resolve_fracs(detectors)`
+
+Return the beamsplitter fraction of each detector, one float for each input, in
+the input order.
+
+THE FRACTION RULE. At most ONE detector may leave `frac` at `None`. That detector
+takes the remainder, `1 - sum(the others)`. One detector alone with `frac=None`
+takes `1.0`. When every fraction is given, the sum must not be more than `1.0`. A
+sum BELOW `1.0` is allowed: the missing part is the excess loss of the splitter,
+and it goes to no arm.
+
+`resolve_fracs` raises `ValueError` when the sequence is empty, when two or more
+detectors have `frac=None`, when a given fraction is outside `(0, 1]`, when the
+given fractions add up to more than `1.0`, or when the remainder is not more than
+zero.
+
+### `splitter_term(frac, *, name=None, note=None)`
+
+Return the power split of one arm as a DETERMINISTIC Term, category `system`, name
+`"beamsplitter"`. The loss is the plain dB value of the power fraction:
+
+    loss_db = -10*log10(frac)
+
+This is the definition of a dB power ratio, not a model. `frac=1.0` gives `0.0`
+dB. The Term meta holds `{"frac": frac}`. The split relation itself is the
+beamsplitter of Saleh and Teich, Fundamentals of Photonics,
+DOI 10.1002/0471213748. `frac` outside `(0, 1]` raises `ValueError`.
+
+The Term is deterministic, so its quantile is its mean and it locks no fidelity.
+`multi_detector_budgets` omits the Term at `frac = 1.0`.
+
+`Budget.check()` applies its untraced-provenance guard to `turbulence` and
+`coupling` Terms only, so the `system` category of this Term needs no traced
+provenance.
+
+### `arm_scenario(scenario, detector)`
+
+Return a COPY of the scenario whose RECEIVE terminal holds that detector. The
+input scenario does not change. The function replaces the correct terminal field
+for each family: a `SpaceScenario` resolves the receive role from its direction
+(`downlink` and `retro` receive on `ground`, an `uplink` on `space`), and a
+`TerrestrialScenario` resolves it the same way (`forward` receives on `far`,
+`reverse` on `near`). Every model then runs unchanged, because the ~20 detector
+dispatch sites in olb read the one detector field.
+
+NOTE, a retro link. A retro `SpaceScenario` transmits and receives on the SAME
+ground terminal, so the copy changes the transmit terminal too. That is correct:
+it is one physical terminal.
