@@ -901,3 +901,49 @@ dispatch sites in olb read the one detector field.
 NOTE, a retro link. A retro `SpaceScenario` transmits and receives on the SAME
 ground terminal, so the copy changes the transmit terminal too. That is correct:
 it is one physical terminal.
+
+---
+
+## An elevation sweep: `budgets_vs_elevation` (`olb/sweep.py`)
+
+Some budget Terms model ONE line of sight and refuse an elevation ARRAY: the FAST
+coupling Term runs one Monte Carlo for one geometry, and the gamma-gamma downlink
+Term carries one `(alpha, beta)` pair. Other Terms (geometric spread, extinction,
+pointing, the lognormal scintillation) DO take an array. So the same budget
+accepts an array for some receivers and raises for others.
+
+`budgets_vs_elevation` gives ONE uniform way that always works. It builds a
+scalar-elevation geometry for each angle, calls the budget function of the
+scenario family and direction, and returns the `Budget` of each angle. It is
+exported at the top level, so `from olb import budgets_vs_elevation` works.
+
+### `budgets_vs_elevation(scenario, elevations, *, geometry_factory=None, **kwargs)`
+
+Assemble the scenario budget at each elevation.
+
+- `scenario` — a `SpaceScenario` (uplink, downlink, or retro). A
+  `TerrestrialScenario` has no elevation axis and raises `TypeError`.
+- `elevations` — a float or an array of elevation angles [deg]. A scalar gives a
+  length-one list.
+- `geometry_factory` — an optional function `elevation_deg -> geometry`. The
+  default builds `CircularOrbit(scenario.channel.altitude_m, elevation_deg)`, so
+  the common call needs no geometry argument, and the point-ahead angle and the
+  slant range follow from each elevation.
+- `**kwargs` — passed to the budget function unchanged (for example `fidelity`,
+  `turbulence`, `n_samples`, `tau_zenith`, `scint_model`, `wave`).
+
+It returns a `list` of `(elevation_deg, Budget)` pairs, in the `elevations` order.
+A per-angle error is NOT caught (an uncorrected uplink at `fidelity=0` raises
+here too). Reduce the list as the task needs:
+
+```python
+from olb import budgets_vs_elevation
+
+sweep = budgets_vs_elevation(scn, [20, 30, 45, 60, 90], fidelity=1)
+totals = [(e, float(b.total_loss_db())) for e, b in sweep]
+```
+
+This module sits ABOVE `olb.links` in the dependency order, like
+`multi_detector_budgets`: a sweep is cross-cutting, not the physics of one link.
+For an elevation sweep of several detector arms, wrap `multi_detector_budgets` in
+a `geometry_factory`, or loop the sweep for each arm.

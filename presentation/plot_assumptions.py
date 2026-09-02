@@ -76,7 +76,7 @@ def build_cards():
                        channel=Channel(site=STRONG_SITE, altitude_m=ALT_M))
     dlb = downlink_budget(dl, CircularOrbit(ALT_M, elevation_deg=ELEV_DEG),
                           fidelity=1)
-    scint = next(t for t in dlb.terms if t.category == "coupling")
+    scint = next(t for t in dlb.terms if t.category in ("coupling", "turbulence"))
     s2I = float(scint.meta["sigma2_I"])
     cards["weak"] = dict(
         accent=BLUE, fidelity=1, link="downlink",

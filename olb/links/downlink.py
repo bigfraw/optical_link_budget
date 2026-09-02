@@ -584,10 +584,13 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
             The precomputed wave-optics records for fidelity=2. Run it with
             olb.models.waveoptics.run_fidelity2.
 
-    A receive terminal is opt-in. When scenario.rx_terminal has a detector, the
-    receive-coupling Term owns the receive-side turbulence physics and REPLACES
-    the standalone scintillation Term. When rx_terminal is None the budget keeps
-    the scintillation Term.
+    A receive detector is opt-in. A BUCKET receiver -- no detector or a plain
+    Aperture -- gets the aperture-averaged scintillation Term (with the
+    scint_model selector); None and Aperture() are the SAME bucket, so there is
+    no "no detector" special case. An SMF detector instead gets the
+    receive-coupling Term, which owns the receive-side turbulence physics and
+    REPLACES the scintillation Term. An MMF or Camera receiver raises at
+    fidelity 0/1.
 
     Returns:
         Budget
@@ -629,7 +632,14 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
         pointing_loss_term(scenario, geometry),
     ]
     terminal = getattr(scenario, "rx_terminal", None)
-    if terminal is not None and terminal.detector is not None:
+    detector = terminal.detector if terminal is not None else None
+    # A bucket receiver -- no detector or a plain Aperture -- is phase-insensitive,
+    # so its turbulence penalty is the aperture-averaged scintillation Term (with
+    # the scint_model selector). None and Aperture() are the SAME bucket: there is
+    # no "no detector" case, that is just Aperture(). An SMF/MMF/Camera detector
+    # takes the receive-coupling Term instead (SMF couples; MMF and Camera raise).
+    from ..terminal import Aperture
+    if detector is not None and not isinstance(detector, Aperture):
         # Import here to break the downlink <-> coupling import cycle.
         from ..models.coupling import downlink_coupling_term
         terms.append(downlink_coupling_term(scenario, geometry, n_samples=n_samples,
@@ -942,14 +952,14 @@ if __name__ == '__main__':
 
     geom60 = CircularOrbit(altitude_m=600e3, elevation_deg=60.0)
 
-    # Aperture detector: the receive-coupling Term replaces the scintillation
-    # Term, but reproduces it exactly, so the total loss is byte-for-byte parity.
+    # Aperture detector: a bucket is the SAME as no detector, so it gets the
+    # scintillation Term, byte-for-byte identical to the plain (no-detector) total.
     scn_ap = _dl(Terminal(aperture_m=0.7, wavelength_m=lam,
                           detector=Aperture(sensitivity_dbm=-40)),
                  jitter=2e-6, power=40)
     down_ap = downlink_budget(scn_ap, geom60)
     assert down_ap.to_frame().shape[0] == 4                 # same count as plain
-    assert "receive coupling (aperture)" in [t.name for t in down_ap.terms]
+    assert "scintillation" in [t.name for t in down_ap.terms]
     assert np.isclose(down_ap.total_loss_db(), down.total_loss_db()), (
         down_ap.total_loss_db(), down.total_loss_db())     # parity
 
@@ -979,11 +989,12 @@ if __name__ == '__main__':
         assert np.isfinite(down_ao.fade_margin_db(0.99))
 
     # --- master turbulence switch (turbulence=False) ------------------------
-    # An Aperture detector with turbulence off gives 0 dB coupling (no
-    # scintillation), and the budget keeps its fade from the pointing jitter.
+    # An Aperture detector is a bucket (the SAME as no detector), so turbulence off
+    # drops the scintillation Term entirely. The budget keeps its fade from the
+    # pointing jitter.
     ap_off = downlink_budget(scn_ap, geom60, turbulence=False)
-    cpl_off = next(t for t in ap_off.terms if t.category == "coupling")
-    assert cpl_off.mean_db == 0.0 and cpl_off.meta["model"] == "static"
+    assert not any(t.category in ("coupling", "turbulence") for t in ap_off.terms), \
+        [t.name for t in ap_off.terms]
     assert ap_off.provides_fade and np.isfinite(ap_off.fade_margin_db(0.99))
     # An SMF detector with turbulence off keeps only the static mode-match loss
     # (deterministic, NOT mean-only), so the budget still provides a fade and the
