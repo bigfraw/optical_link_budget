@@ -753,10 +753,22 @@ The path forward for each is a second reference or a derivation.
   ABOVE `olb.links`. A `TerrestrialScenario` has no elevation axis and raises.
   The self-check asserts the I-1 regression: a gamma-gamma array-elevation call
   raises, but the sweep runs it one angle at a time. Docs: docs/api-budget.md.
-- **I-2. Duplicate physics copies (Gap 10).** The Rytov standard deviation,
-  the plane-wave coherence radius, and the Fried parameter each exist in
-  three places; the lognormal dB faces exist twice (crosscheck TL-01..04,
-  GF-05, GF-10, KR-23, KR-25). Converge.
+- **I-2. Duplicate physics copies (Gap 10) — the LOGNORMAL dB faces are
+  CONVERGED (2026-09-02); the Fried/Rytov/coherence copies STAY.** The lognormal
+  dB faces (crosscheck TL-01..04) that `olb/links/downlink.py` and
+  `olb/links/terrestrial.py` built INLINE now route through the ONE shared adapter
+  `olb.models.fade.irradiance_fade_term` with the `andrews.distributions`
+  lognormal helpers, the SAME path the gamma-gamma Term already used. The mean and
+  the sampler are BYTE identical to the retired inline code, and the quantile
+  matches to machine precision (~1e-16 dB: the adapter takes -10 log10(exp(x)),
+  the retired code took -10 x / ln10 directly). A raw-formula parity guard in each
+  module's self-check (and in `fade.py`) now enforces this mechanically, so no
+  future adapter change can silently move the numbers. STILL OPEN and owner-gated:
+  the Rytov standard deviation, the plane-wave coherence radius, and the Fried
+  parameter each exist in three places (GF-05, GF-10, KR-23, KR-25). Those copies
+  use DIFFERENT constants (0.423 Fried 1966 vs 0.4240 the book chain, ~0.3% apart),
+  so converging them would MOVE numbers and needs an owner decision on the
+  canonical constant. Not lightweight; not done.
 - **I-3. The diverged (Theta, Lambda) coupled-flux feed cross-check test —
   DONE (2026-09-01).** The `uplink_flux.py` module self-check now drives the
   `_scintillation_beam` diverged feed through the coupled-flux on-axis kernel
