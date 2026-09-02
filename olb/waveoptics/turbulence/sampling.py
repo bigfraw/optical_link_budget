@@ -716,7 +716,7 @@ if __name__ == '__main__':
     r0_analytic = plane_wave_fried_parameter_profile(cn2_prof, hs, lam, 30.0)
     # The plan r0 uses the Fried constant 0.423, and the Andrews chain uses
     # 0.4240. The layer sum uses np.gradient, and the analytic value uses
-    # np.trapz. The two differences are small, and they partly cancel.
+    # np.trapezoid. The two differences are small, and they partly cancel.
     assert abs(plan2.r0_total_m / r0_analytic - 1.0) < 0.01, \
         (plan2.r0_total_m, r0_analytic)
     assert plan2.direction == "down"

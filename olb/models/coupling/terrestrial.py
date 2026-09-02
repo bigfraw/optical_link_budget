@@ -967,7 +967,7 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
     if sigma_d > 0.0:
         dd = np.linspace(0.0, 8.0 * sigma_d, 2000)
         rayleigh = dd / sigma_d ** 2 * np.exp(-dd ** 2 / (2.0 * sigma_d ** 2))
-        mean_db = float(np.trapz(_loss_db(dd) * rayleigh, dd))
+        mean_db = float(np.trapezoid(_loss_db(dd) * rayleigh, dd))
     else:
         mean_db = static_db
 

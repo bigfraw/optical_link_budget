@@ -149,7 +149,7 @@ def spherical_wave_coherence_diameter(k, L, cn2_vals, z):
         z_grid = z
 
     weight = ((L - z_grid) / L) ** (5.0 / 3.0)
-    path_integral = np.trapz(cn2_vals * weight, z_grid)
+    path_integral = np.trapezoid(cn2_vals * weight, z_grid)
 
     return (0.42 * (k ** 2) * path_integral) ** (-3 / 5)
 
@@ -256,7 +256,7 @@ def beam_wander_variance(L, cn2, ws, z):
     cn2_vals = np.asarray(cn2, dtype=float)
     ws_vals = np.asarray(ws, dtype=float)
     integrand = cn2_vals * ((L - z_grid) ** 2) * ((1.0 / ws_vals) ** (1 / 3))
-    return 2.07 * np.trapz(integrand, z_grid)
+    return 2.07 * np.trapezoid(integrand, z_grid)
 
 
 @assumes(RADIAL_VARIANCE, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK)
@@ -309,7 +309,7 @@ def off_axis_scintillation_index(L, k_0, wL, cn2s, z_points, r):
     a_z = _A(z_points, L, k_0, wL)
     hyp_arg = 2 * r ** 2 / wL ** 2
     integrand = cn2s * a_z ** (5 / 6) * (hyp1f1(-5 / 6, 1, hyp_arg) - 1)
-    result = np.trapz(integrand, z_points)
+    result = np.trapezoid(integrand, z_points)
 
     coefficient = 4 * np.pi ** 2 * k_0 ** 2 * gamma(-5 / 6) * 0.033
     return coefficient * result
@@ -344,7 +344,7 @@ def on_axis_scintillation_index(L, k_0, wL, Z0, cn2s, z_points):
     # to get the form below. Before 2026-08 a parenthesis closed too early, so
     # the cosine multiplied the full bracket.
     integrand = cn2s * a_z ** (5 / 6) * (1 - (1 + ratio ** 2) ** (5 / 12) * np.cos((5 / 6) * np.arctan(ratio)))
-    result = np.trapz(integrand, z_points)
+    result = np.trapezoid(integrand, z_points)
 
     coefficient = 4 * np.pi ** 2 * k_0 ** 2 * gamma(-5 / 6) * 0.033
     return coefficient * result

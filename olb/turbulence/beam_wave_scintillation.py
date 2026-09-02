@@ -193,7 +193,7 @@ def on_axis_scintillation_index(hs, cn2_profile, w0, wavelength,
                        - (a ** 2 + b ** 2) ** (5.0 / 12.0)
                        * np.cos((5.0 / 6.0) * np.arctan2(b, a)))
     prefactor = 4.0 * np.pi ** 2 * k ** 2 * _GAMMA_M56 * _KOLMOGOROV * sec_z
-    return prefactor * np.trapz(integrand, np.asarray(hs, dtype=float))
+    return prefactor * np.trapezoid(integrand, np.asarray(hs, dtype=float))
 
 
 @assumes()
@@ -222,7 +222,7 @@ def radial_scintillation_index(r, hs, cn2_profile, w0, wavelength,
     k, sec_z, L, theta, lam, w2, a, b = _beam_and_path(hs, w0, wavelength,
                                                        elevation_deg, f0,
                                                        path_length_m)
-    a_integral = np.trapz(cn2 * a ** (5.0 / 6.0), np.asarray(hs, dtype=float))
+    a_integral = np.trapezoid(cn2 * a ** (5.0 / 6.0), np.asarray(hs, dtype=float))
     prefactor = 4.0 * np.pi ** 2 * k ** 2 * _GAMMA_M56 * _KOLMOGOROV * sec_z
     arg = 2.0 * np.asarray(r, dtype=float) ** 2 / w2
     return prefactor * (hyp1f1(-5.0 / 6.0, 1.0, arg) - 1.0) * a_integral

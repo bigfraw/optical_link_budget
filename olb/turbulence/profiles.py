@@ -140,7 +140,7 @@ if __name__ == '__main__':
     # Phillips, DOI 10.1117/3.626196, Ch. 12, printed p. 481.
     fine = np.linspace(0.0, 20e3, 20001)
     k = 2 * np.pi / 0.5e-6
-    mu0 = np.trapz(get_c2n(fine, 21.0, 1.7e-14), fine)
+    mu0 = np.trapezoid(get_c2n(fine, 21.0, 1.7e-14), fine)
     r0 = (0.423 * k ** 2 * mu0) ** (-3 / 5)
     assert abs(r0 / 0.05 - 1.0) < 0.15, r0          # about 5 cm
 
