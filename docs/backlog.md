@@ -275,7 +275,25 @@ The path forward for each is a second reference or a derivation.
   model (a Monte Carlo or the fidelity-2 layer; see the memory
   `strong-fluctuation-numerical`).
 - **1-5. Validate the FAST point-ahead residual against the analytic Stone
-  decorrelation (owner-flagged 2026-08-27).** The two routes compute the
+  decorrelation — DONE (2026-09-02). VERDICT: MATCH, both routes validated.**
+  The study is `validation/fast_stone_pointahead/` and the entry of record is
+  physics.md Section 9j. With the servo off (`TLOOP=0`, `TEXP=0`, zero wind)
+  the PAOLA filter reduces exactly to `2 - 2cos(delta_r . kappa)` (verified to
+  9e-16), and at MATCHED MODE SETS the two routes agree to about 5 % across
+  the full sweep (point-ahead 0.25x to 2x, ZMAX 1 to 66 plus the exact-zero
+  uncorrected anchor, elevation 30 to 90 deg); the fitting sides agree to
+  0.6 %. THE MODE SETS MATTER: the FAST modal
+  mask keeps the piston and the tilts, so its analytic partner is Stone
+  `remove='none'`; the production pairing (against `piston_tilt`) reads 3.5x
+  and the whole factor is that convention. The backlog first reading is
+  reproduced (3.04 vs 3.79 dB) and the Term-level gap decomposes into the mode
+  set, the FAST auto-grid truncation, and the Marechal-vs-Monte-Carlo mapping.
+  Two OPEN FAST cautions, measured: `sim.aniso_servo_error` leaks
+  `mask(1-mask)` of the uncorrected band (0.061 rad^2 at theta = 0, truth 0),
+  and the FAST grid misses 29 to 48 % of the whole-plane Kolmogorov residual
+  (the shipped Term's auto grid, `df` = 3.11 rad/m, misses more); the missing
+  scales sit far above the aperture, so the coupled-flux effect is damped, and
+  that damping is not quantified. The original recipe follows. The two routes compute the
   same quantity: the residual phase of a finite-aperture pre-compensation
   that measures off-axis by the point-ahead angle. FAST integrates the
   PAOLA aniso-servo filter over the corrected spatial-frequency mask and
