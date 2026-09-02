@@ -737,10 +737,22 @@ The path forward for each is a second reference or a derivation.
 
 ## Infrastructure and code debt
 
-- **I-1. Scalar-elevation limits.** The gamma-gamma Term
-  (olb/links/downlink.py:185) and the FAST Term
-  (olb/models/fast.py:132) refuse an elevation array. Vectorise or
-  loop internally.
+- **I-1. Scalar-elevation limits — RESOLVED by a sweep helper (2026-09-02).**
+  The gamma-gamma Term (olb/links/downlink.py) and the FAST Term
+  (olb/models/fast.py) each model ONE line of sight, so an internal
+  vectorisation is not possible: FAST runs one Monte Carlo per geometry, and the
+  gamma-gamma Term carries one (alpha, beta) pair. This was CONFIRMED against the
+  fast-aosim source, whose own multi-elevation driver
+  (`complete_orbit_simulation.py`) builds one `fast.Fast(...)` per zenith angle in
+  a loop. So the correct fix is a LOOP, not vectorisation. The new top-level
+  helper `olb.budgets_vs_elevation(scenario, elevations, **kwargs)`
+  (`olb/sweep.py`) builds a scalar-elevation `CircularOrbit` for each angle from
+  `scenario.channel.altitude_m`, calls the family/direction budget function
+  (reusing `multidetector._budget_function`), and returns
+  `list[(elevation_deg, Budget)]`. It mirrors `multi_detector_budgets` and sits
+  ABOVE `olb.links`. A `TerrestrialScenario` has no elevation axis and raises.
+  The self-check asserts the I-1 regression: a gamma-gamma array-elevation call
+  raises, but the sweep runs it one angle at a time. Docs: docs/api-budget.md.
 - **I-2. Duplicate physics copies (Gap 10).** The Rytov standard deviation,
   the plane-wave coherence radius, and the Fried parameter each exist in
   three places; the lognormal dB faces exist twice (crosscheck TL-01..04,

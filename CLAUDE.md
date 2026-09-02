@@ -255,6 +255,17 @@ README fidelity ladder.
   module sits ABOVE `links/` in the one-way dependency order: it imports
   `olb.links`, `olb.models` and `olb.terminal`, and nothing in `links/` or
   `models/` imports it back. `olb/__init__.py` exports it.
+- `olb/sweep.py` — the top-level elevation-sweep helper,
+  `budgets_vs_elevation(scenario, elevations, geometry_factory=None, **kwargs)`.
+  It gives one `(elevation_deg, Budget)` pair for each angle: it builds a
+  scalar-elevation `CircularOrbit` from `scenario.channel.altitude_m` (or a
+  supplied `geometry_factory`), and it calls the family/direction budget function
+  (it reuses `multidetector._budget_function`). It exists because some Terms model
+  ONE line of sight and refuse an elevation ARRAY (FAST runs one Monte Carlo per
+  geometry; the gamma-gamma Term carries one `(alpha, beta)` pair), so the correct
+  fix is a LOOP, not vectorisation (backlog I-1). A `TerrestrialScenario` has no
+  elevation axis and raises. Like `multidetector.py` it is CROSS-CUTTING and sits
+  ABOVE `links/`. `olb/__init__.py` exports it.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
