@@ -363,7 +363,8 @@ def _ground_transmit_mode(ground, grid):
 
 def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
-                                 hs=None, cn2_profile=None, L0_m=np.inf,
+                                 cn2=None, hs=None, cn2_profile=None,
+                                 h_top_m=None, L0_m=np.inf,
                                  subharmonics=True, threader=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None):
@@ -397,8 +398,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         grid:         an optional GridSpec. Give grid AND plan together, or
                       give neither.
         plan:         an optional ScreenPlan.
-        hs:           the height grid of the Cn2 profile, in m. Space only.
+        cn2:          an optional callable cn2(h) -> the zenith Cn2 at height h
+                      [m]. None (with no hs/cn2_profile) integrates the site
+                      Hufnagel-Valley profile: the continuous default. Space
+                      only. See turbulent_grid.
+        hs:           the height grid of a DISCRETE Cn2 profile, in m. Give it
+                      to take the legacy array planner. Space only.
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
+        h_top_m:      the atmosphere top for the continuous integral, in m.
+                      Space only.
         L0_m:         the outer scale of the screens, in m.
         subharmonics: True adds the three subharmonic levels to each screen.
                       Keep it True: the tilt content drives the beam wander,
@@ -459,8 +467,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     report = None
     if grid is None:
         grid, plan, report = turbulent_grid(
-            scenario, geometry, preset=p, hs=hs, cn2_profile=cn2_profile,
-            L0_m=L0_m)
+            scenario, geometry, preset=p, cn2=cn2, hs=hs,
+            cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
 
     lam = scenario.tx_terminal.wavelength_m
     rx = scenario.ground if is_space else scenario.rx_terminal
@@ -564,7 +572,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               preset="standard", grid=None, plan=None,
-                              hs=None, cn2_profile=None, L0_m=np.inf,
+                              cn2=None, hs=None, cn2_profile=None,
+                              h_top_m=None, L0_m=np.inf,
                               subharmonics=True, screen_generator="olb"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
@@ -588,8 +597,15 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         preset:       the name of a preset in sampling.PRESETS.
         grid:         an optional GridSpec. Give grid AND plan together.
         plan:         an optional ScreenPlan.
-        hs:           the height grid of the Cn2 profile, in m. Space only.
+        cn2:          an optional callable cn2(h) -> the zenith Cn2 at height h
+                      [m]. None (with no hs/cn2_profile) integrates the site
+                      Hufnagel-Valley profile: the continuous default. Space
+                      only. See turbulent_grid.
+        hs:           the height grid of a DISCRETE Cn2 profile, in m. Give it
+                      to take the legacy array planner. Space only.
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
+        h_top_m:      the atmosphere top for the continuous integral, in m.
+                      Space only.
         L0_m:         the outer scale of the screens, in m.
         subharmonics: True adds the three subharmonic levels to each screen.
         screen_generator: "olb" (the default) or "aotools". See
@@ -620,8 +636,9 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
 
     p = PRESETS[preset] if isinstance(preset, str) else preset
     if grid is None:
-        grid, plan, _ = turbulent_grid(scenario, geometry, preset=p, hs=hs,
-                                       cn2_profile=cn2_profile, L0_m=L0_m)
+        grid, plan, _ = turbulent_grid(scenario, geometry, preset=p, cn2=cn2,
+                                       hs=hs, cn2_profile=cn2_profile,
+                                       h_top_m=h_top_m, L0_m=L0_m)
 
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)

@@ -95,8 +95,9 @@ class Fidelity2Bundle:
 
 
 def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
-                   seed=None, threader=None, grid=None, plan=None, hs=None,
-                   cn2_profile=None, L0_m=np.inf, subharmonics=True):
+                   seed=None, threader=None, grid=None, plan=None, cn2=None,
+                   hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
+                   subharmonics=True):
     '''
     Run the turbulent split-step propagation ONE time.
 
@@ -122,8 +123,17 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
         grid, plan : optional
             A precomputed grid and screen plan. Give both or neither. When None,
             turbulent_grid sizes them from the scenario.
+        cn2 : callable, optional
+            A callable cn2(h) -> the zenith Cn2 at height h [m]. None (with no
+            hs/cn2_profile) integrates the site Hufnagel-Valley profile: the
+            continuous default (a space link only). See turbulent_grid.
         hs, cn2_profile : numpy.ndarray, optional
-            The height grid and the zenith Cn2 profile (a space link only).
+            The height grid and the zenith Cn2 profile of the LEGACY array
+            planner (a space link only). Give hs to opt out of the continuous
+            default.
+        h_top_m : float, optional
+            The atmosphere top for the continuous integral [m]. None takes 20
+            km (a space link only).
         L0_m : float
             The turbulence outer scale [m]. Infinite is the Kolmogorov limit.
         subharmonics : bool
@@ -136,12 +146,14 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
     if grid is None or plan is None:
-        grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
-                                       cn2_profile=cn2_profile, L0_m=L0_m)
+        grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset,
+                                       cn2=cn2, hs=hs, cn2_profile=cn2_profile,
+                                       h_top_m=h_top_m, L0_m=L0_m)
     return propagate_turbulent_scenario(
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
-        grid=grid, plan=plan, hs=hs, cn2_profile=cn2_profile, L0_m=L0_m,
-        subharmonics=subharmonics, threader=threader)
+        grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
+        h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
+        threader=threader)
 
 
 def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
@@ -686,9 +698,9 @@ def _arm_turbulent(result, index, detector):
 
 
 def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
-                  seed=None, threader=None, hs=None, cn2_profile=None,
-                  L0_m=np.inf, subharmonics=True, progress=True, vacuum=None,
-                  turbulence=True, detectors=None):
+                  seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
+                  h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
+                  vacuum=None, turbulence=True, detectors=None):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -722,8 +734,12 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
 
     Parameters:
         scenario, geometry : the link case and geometry (one range only).
-        n_trials, preset, seed, threader, hs, cn2_profile, L0_m, subharmonics :
-            passed to the turbulent run (see run_waveoptics).
+        n_trials, preset, seed, threader, cn2, hs, cn2_profile, h_top_m, L0_m,
+        subharmonics :
+            passed to the turbulent run (see run_waveoptics). cn2 (with no
+            hs/cn2_profile) is the continuous Cn2 callable; None takes the site
+            Hufnagel-Valley profile, integrated. hs opts back to the legacy
+            array planner.
         progress : True (the default) prints a recap of the auto-chosen grid,
             screen plan, and sampling quality, then shows a tqdm bar over the
             turbulent trials. The bar needs the optional tqdm package; without
@@ -825,15 +841,16 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                                 turbulent=None)
                 for d in detectors]
 
-    grid, plan, report = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
-                                        cn2_profile=cn2_profile, L0_m=L0_m)
+    grid, plan, report = turbulent_grid(scenario, geometry, preset=preset,
+                                        cn2=cn2, hs=hs, cn2_profile=cn2_profile,
+                                        h_top_m=h_top_m, L0_m=L0_m)
     if progress:
         print(_recap(scenario, geometry, grid, plan, report, n_trials, preset))
     turbulent = propagate_turbulent_scenario(
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
-        grid=grid, plan=plan, hs=hs, cn2_profile=cn2_profile, L0_m=L0_m,
-        subharmonics=subharmonics, threader=threader, progress=progress,
-        detectors=detectors)
+        grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
+        h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
+        threader=threader, progress=progress, detectors=detectors)
     if detectors is None:
         return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
                                turbulent=turbulent)

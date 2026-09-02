@@ -135,9 +135,23 @@ def _geometry_signature(geometry):
     return "|".join(parts)
 
 
+def _cn2_fingerprint(cn2, h_top_m):
+    """Give a stable string that identifies a Cn2 callable, or "none".
+
+    A callable has no stable repr, so the key SAMPLES it: it evaluates cn2 at a
+    fixed set of heights and hashes the values with the integration top. Two
+    callables that agree on the profile give the same key; a changed profile
+    gives a new key. It never enters the physics; it only names the run.
+    """
+    if cn2 is None:
+        return "none"
+    h = np.linspace(0.0, float(h_top_m) if h_top_m is not None else 20e3, 64)
+    return _array_sha(np.concatenate((np.asarray(cn2(h), float), [h[-1]])))
+
+
 def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               L0_m, subharmonics, hs, cn2_profile, block_size,
-              grid=None, plan=None):
+              cn2=None, h_top_m=None, grid=None, plan=None):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -155,6 +169,9 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         L0_m:             the outer scale, in m.
         subharmonics:     the subharmonic switch.
         hs, cn2_profile:  the height grid and the zenith Cn2 profile, or None.
+        cn2:              the continuous Cn2 callable, or None. Fingerprinted by
+                          sampling, see _cn2_fingerprint.
+        h_top_m:          the atmosphere top for the continuous integral, or None.
         block_size:       the block size.
         grid, plan:       an optional caller-supplied grid and plan.
 
@@ -172,8 +189,10 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         f"screen_generator={screen_generator}",
         f"L0_m={float(L0_m)!r}",
         f"subharmonics={bool(subharmonics)}",
+        f"cn2_fp={_cn2_fingerprint(cn2, h_top_m)}",
         f"hs_sha={_array_sha(hs)}",
         f"cn2_sha={_array_sha(cn2_profile)}",
+        f"h_top_m={float(h_top_m) if h_top_m is not None else None!r}",
         f"block_size={int(block_size)}",
         f"grid={grid!r}",
         f"plan={plan!r}",
@@ -233,7 +252,8 @@ def cached_propagate_turbulent_scenario(
         scenario, geometry, *, n_trials=1, seed,
         preset="standard", cache_dir=None, block_size=DEFAULT_BLOCK_SIZE,
         screen_generator="olb", L0_m=np.inf, subharmonics=True,
-        hs=None, cn2_profile=None, grid=None, plan=None, threader=None,
+        cn2=None, hs=None, cn2_profile=None, h_top_m=None,
+        grid=None, plan=None, threader=None,
         refresh=False, store=True):
     """Load a turbulent run from the cache, or run only the missing blocks.
 
@@ -263,7 +283,13 @@ def cached_propagate_turbulent_scenario(
         screen_generator: "olb" (the default) or "aotools". It enters the key.
         L0_m:             the outer scale, in m.
         subharmonics:     the subharmonic switch.
-        hs, cn2_profile:  the height grid and the zenith Cn2 profile (space).
+        cn2:              an optional continuous Cn2 callable cn2(h) (space).
+                          None (with no hs/cn2_profile) integrates the site
+                          profile: the continuous default. The key fingerprints
+                          it at a fixed set of heights.
+        hs, cn2_profile:  the height grid and the zenith Cn2 profile of the
+                          LEGACY array planner (space).
+        h_top_m:          the atmosphere top for the continuous integral (space).
         grid, plan:       an optional grid and plan. Give both or neither. When
                           None, the wrapper sizes them once and shares them
                           across the block runs.
@@ -295,7 +321,8 @@ def cached_propagate_turbulent_scenario(
 
     key = cache_key(scenario, geometry, preset=preset, seed=base_seed,
                     screen_generator=screen_generator, L0_m=L0_m,
-                    subharmonics=subharmonics, hs=hs, cn2_profile=cn2_profile,
+                    subharmonics=subharmonics, cn2=cn2, hs=hs,
+                    cn2_profile=cn2_profile, h_top_m=h_top_m,
                     block_size=block_size, grid=grid, plan=plan)
     path = _path_for_key(cache_dir, key)
 
@@ -322,16 +349,17 @@ def cached_propagate_turbulent_scenario(
         # Size the grid and the plan ONE time, then share them across the
         # block runs. This is the level-2 in-process reuse of the setup.
         sized_grid, sized_plan, _ = turbulent_grid(
-            scenario, geometry, preset=preset, hs=hs, cn2_profile=cn2_profile,
-            L0_m=L0_m)
+            scenario, geometry, preset=preset, cn2=cn2, hs=hs,
+            cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
 
     new_blocks = []
     for b in range(n_blocks_have, n_blocks_need):
         ent = _block_entropy(base_seed, b)
         res = _run_scenario(
             scenario, geometry, n_trials=block_size, seed=ent, preset=preset,
-            grid=sized_grid, plan=sized_plan, hs=hs, cn2_profile=cn2_profile,
-            L0_m=L0_m, subharmonics=subharmonics, threader=threader,
+            grid=sized_grid, plan=sized_plan, cn2=cn2, hs=hs,
+            cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m,
+            subharmonics=subharmonics, threader=threader,
             screen_generator=screen_generator)
         new_blocks.append({"index": b, "entropy": ent,
                            "trials": [_trial_to_row(t) for t in res.trials]})

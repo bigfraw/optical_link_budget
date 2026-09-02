@@ -215,7 +215,14 @@ README fidelity ladder.
   the opt-in `aotools` wrapper as the reference path, a lazy LGPL import),
   `splitstep.py` (`super_gaussian_boundary`, `split_step`), `sampling.py` (the
   turbulent grid sizer and screen planner: `QualityPreset`, `PRESETS`
-  reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`),
+  reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`.
+  The DEFAULT space planner is CONTINUOUS (item 2-I2 step 1): it INTEGRATES a
+  Cn2 callable `cn2(h)` (the site HV5/7 when none is given) and cuts the slab
+  into equal-Rytov-weight screens at Cn2-weighted centroids. An explicit
+  `hs`/`cn2_profile` array takes the LEGACY discrete planner; `DEFAULT_HS` is
+  the fallback for that array caller ONLY, no longer the physics grid of the
+  default budget. `cn2`/`h_top_m` thread through `run_waveoptics`,
+  `run_fidelity2`, the runners, and the cache),
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
   for a plot; it does NOT extend the scalar record); both take
