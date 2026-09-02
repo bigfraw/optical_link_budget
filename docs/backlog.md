@@ -821,8 +821,19 @@ The path forward for each is a second reference or a derivation.
 - **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
   caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
   `QualityPreset` table.
-- **DD-4. Crosscheck Table 3 is partly stale** — the "not found in olb"
-  spectra rows predate WP3's andrews/spectra.py.
+- **DD-4. DONE (2026-09-02).** The Ch. 3 spectrum-model rows of Crosscheck
+  Table 3 that read "not found in olb" are reconciled against
+  `olb/turbulence/andrews/spectra.py` (WP3). Four rows now point at the code and
+  read IMPLEMENTED, with a "Reconciled 2026-09-02" tag: the Tatarskii inner-scale
+  wavenumber (`TATARSKII_KM = 5.92`), the modified-atmospheric inner-scale
+  wavenumber (`MODIFIED_KL = 3.3`), the high-wavenumber bump terms (`1.802`,
+  `0.254` in `modified_atmospheric`), and the outer-scale conventions
+  (`VON_KARMAN_C0 = 2 pi`, `EXPONENTIAL_C0 = 4 pi`, `MODIFIED_EQ23_C0 = 4 pi`).
+  A dated header note records the reconciliation. Rows that are still genuinely
+  absent from the code are unchanged. NOTE (a follow-up, not DD-4): the
+  structure-function / coherence-radius constants (2.914/1.093, 1.64/1.87,
+  0.55/0.62) now live in `andrews/structure.py`, not `spectra.py`, so they were
+  left for a separate structure.py reconciliation.
 - **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
   AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
   (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on

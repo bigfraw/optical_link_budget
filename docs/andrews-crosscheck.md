@@ -557,6 +557,11 @@ Every literal physics number, deduplicated by (value, location) and sorted by
 file then line. The last block holds book constants that olb does NOT have; it
 is the numeric face of Table 2.
 
+Note (2026-09-02): the Ch. 3 spectrum-model rows in the last block were
+reconciled against `olb/turbulence/andrews/spectra.py` (WP3). The Tatarskii km,
+the modified atmospheric kl, the bump terms, and the outer-scale convention now
+point at that module. The remaining "ABSENT" rows stay absent.
+
 | value | location | role | book equation | printed p | pdf p | agrees |
 |---|---|---|---|---|---|---|
 | 1e-9 | olb/beam.py:50 | numerical tolerance on the diffraction-limit test | not physics | - | - | not found (no book equation applies) |
@@ -707,10 +712,10 @@ is the numeric face of Table 2.
 | 3.30 | my_analysis_modules/general_atmospherics.py:609 | Roddier random-tilt scale in a phase screen | Roddier, Progress in Optics 19 (1981) 281 | - | - | not found in Andrews |
 | 1.0299 | my_analysis_modules/general_atmospherics.py:785 | total phase variance over a circular aperture | Ch. 14, Eq. (90); Noll 1976, DOI 10.1364/JOSA.66.000207 | 635 | 660 | yes; the book prints 1.03 (and 1.02 by the ABCD route) |
 | 0.134 | my_analysis_modules/general_atmospherics.py:786 | tilt-removed phase variance over a circular aperture | Ch. 14, Eq. (94); Noll 1976, DOI 10.1364/JOSA.66.000207 | 636 | 661 | yes; the book prints 0.13 |
-| 5.92 | ABSENT from olb | Tatarskii inner-scale wavenumber, km = 5.92/l0 | Ch. 3, Eq. (19), restated as Eq. (29); Ch. 8, Eq. (25) | 67, 265 | 92, 290 | not found in olb. The book fixes 5.92 so that the structure function takes the quadratic form of Eq. (13). See olb gap 6. |
-| 3.3 | ABSENT from olb | modified atmospheric inner-scale wavenumber, kl = 3.3/l0 | Ch. 3, Eq. (22), restated as Eq. (31); Ch. 9, Eqs. (5) and (146) | 69, 328, 381 | 94, 353, 406 | not found in olb. See olb gap 6. |
-| 1.802, 0.254 | ABSENT from olb | high-wavenumber bump terms of the modified atmospheric spectrum | Ch. 3, Eq. (22); Ch. 9, Eqs. (5) and (146) | 69, 328 | 94, 353 | not found in olb. See olb gap 6. |
-| 2 pi, 4 pi, 8 pi (in k0 = C0/L0) | ABSENT from olb | outer-scale wavenumber convention | Ch. 3, Eqs. (20), (21), (23); Ch. 9, Eqs. (6) and (147) | 68-69, 328 | 93-94, 353 | not found in olb. The book uses 2 pi/L0 or 1/L0 for von Karman, and 4 pi/L0 or 8 pi/L0 for the modified spectrum. Any new spectra.py must make the convention explicit. |
+| 5.92 | olb/turbulence/andrews/spectra.py:59 (TATARSKII_KM) | Tatarskii inner-scale wavenumber, km = 5.92/l0 | Ch. 3, Eq. (19), restated as Eq. (29); Ch. 8, Eq. (25) | 67, 265 | 92, 290 | IMPLEMENTED as TATARSKII_KM = 5.92 (WP3). It sets km in `tatarskii` and in `von_karman`. The book fixes 5.92 so that the structure function takes the quadratic form of Eq. (13). Reconciled 2026-09-02. |
+| 3.3 | olb/turbulence/andrews/spectra.py:60 (MODIFIED_KL) | modified atmospheric inner-scale wavenumber, kl = 3.3/l0 | Ch. 3, Eq. (22), restated as Eq. (31); Ch. 9, Eqs. (5) and (146) | 69, 328, 381 | 94, 353, 406 | IMPLEMENTED as MODIFIED_KL = 3.3 (WP3). It sets kl in `modified_atmospheric`. Reconciled 2026-09-02. |
+| 1.802, 0.254 | olb/turbulence/andrews/spectra.py:302 | high-wavenumber bump terms of the modified atmospheric spectrum | Ch. 3, Eq. (22); Ch. 9, Eqs. (5) and (146) | 69, 328 | 94, 353 | IMPLEMENTED in `modified_atmospheric` as the bump 1 + 1.802 (kappa/kl) - 0.254 (kappa/kl)^(7/6) (WP3). Reconciled 2026-09-02. |
+| 2 pi, 4 pi, 8 pi (in k0 = C0/L0) | olb/turbulence/andrews/spectra.py:64,69,73 | outer-scale wavenumber convention | Ch. 3, Eqs. (20), (21), (23); Ch. 9, Eqs. (6) and (147) | 68-69, 328 | 93-94, 353 | IMPLEMENTED (WP3): VON_KARMAN_C0 = 2 pi, EXPONENTIAL_C0 = 4 pi, and MODIFIED_EQ23_C0 = 4 pi. Each builder takes a `c0` keyword, so the caller can select 1/L0 or 8 pi/L0. spectra.py makes the convention explicit in the module docstring. Reconciled 2026-09-02. |
 | 2.914, 1.093 | ABSENT from olb | plane-wave and spherical-wave Kolmogorov structure-function constants | App. III Tables I and II; Ch. 9 Sec. 9.3.1 text prints 2.91 | 765, 330 | 790, 355 | not found in olb |
 | 1.64, 1.87 | ABSENT from olb | plane-wave inner-scale coherence radius constants, von Karman and modified | App. III Table IV; Ch. 6, Eq. (83) | 767, 200 | 792, 225 | not found in olb. See olb gap 6. |
 | 0.55, 0.62 | ABSENT from olb | spherical-wave coherence radius constants | App. III Table V | 767 | 792 | not found in olb |
