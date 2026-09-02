@@ -23,9 +23,16 @@ are from 2026-08-26 and can drift.
    pre-compensated scenario). See 0-W1 for the decision record and 1-2 for the
    remaining FAST limits.
 2. **HIGH (owner-flagged, 2026-08-27) — stop the reliance on the
-   `DEFAULT_HS` 20-layer array.** HV5/7 is a continuous profile; the planner
-   and the physics must take a callable, not a hand-discretised grid. See
-   2-I2.
+   `DEFAULT_HS` 20-layer array. STEP 1 DONE (2026-09-02).** HV5/7 is a
+   continuous profile; the turbulent planner now takes a callable and
+   integrates it, and the default fidelity-2 SPACE budgets use the continuous
+   plan. Step 2 (the fidelity-0/1 `hs`-array modules move to callables) is
+   still open. See 2-I2.
+2a. **VERY IMPORTANT — DO SOON (owner-flagged 2026-09-02): the tail-convergence
+   study.** The continuous planner from step 1 now lets the near-ground
+   resolution be dialled independently. Run the study WP7 could not: does the
+   deep SMF fade tail (p5/p1 — the link availability margin) converge as the
+   near-ground `Cn2` is resolved? See 2-I2T.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -545,27 +552,64 @@ The path forward for each is a second reference or a derivation.
   the Cn2-weighted centroid grouping holds every moment inside 1 percent.
   olb/waveoptics/turbulence/sampling.py:271, :311.
 - **2-I2. Continuous Cn2 profiles — drop the `DEFAULT_HS` crutch (HIGH,
-  owner-flagged 2026-08-27).** HV5/7 and the other Cn2 models are continuous
-  functions; the 20-layer `DEFAULT_HS` array is a hand-made discretisation,
-  and it leaks into the physics wherever a decision reads the grid instead of
-  the profile. Work package 7 removed the worst leak (the screen count), but
-  the screen PLACEMENT still comes from the array. The post-WP7 matched-seed
-  measurement (the WP7 note in docs/schmidt-crosscheck.md) sharpened the
-  question: the bottom screen HEIGHT is a null, and the live variable is
-  whether the near-ground `Cn2` is spread over many thin screens or lumped
-  into one — a resolution question that only the continuous ground layer can
-  answer. The same measurement shows the placement moves the deep SMF fade
-  tail (about 2 dB at p5, direction consistent, not yet resolved above the
-  Monte-Carlo noise at 200 trials). The change, in two separate steps: (1) `turbulent_grid` and
-  `_plan_space` in olb/waveoptics/turbulence/sampling.py accept a callable
-  `cn2(h)` and compute the group integrals, centroids, Rytov shares, and the
-  Eq. (9.65) moments by quadrature on the callable; `DEFAULT_HS` stays only
-  as the fallback for an array caller. This also makes the Gauss-quadrature
-  screen placement (tracker candidate, S-22) implementable. (2) LATER, and
-  separately: the fidelity-0/1 modules that integrate over `hs` arrays
-  (slant extinction and scintillation, uplink flux, FAST) move to callables;
-  that step is wide, mechanical, and must move no numbers. The owner decided
-  on 2026-08-27 to flag this here and NOT build it yet.
+  owner-flagged 2026-08-27). STEP 1 DONE (2026-09-02).** HV5/7 and the other
+  Cn2 models are continuous functions; the 20-layer `DEFAULT_HS` array is a
+  hand-made discretisation, and it leaks into the physics wherever a decision
+  reads the grid instead of the profile. Work package 7 removed the worst leak
+  (the screen count), but the screen PLACEMENT still came from the array. The
+  post-WP7 matched-seed measurement (the WP7 note in docs/schmidt-crosscheck.md)
+  sharpened the question: the bottom screen HEIGHT is a null, and the live
+  variable is whether the near-ground `Cn2` is spread over many thin screens or
+  lumped into one — a resolution question that only the continuous ground layer
+  can answer. The same measurement showed a hint that the placement moves the
+  deep SMF fade tail (about 2 dB at p5, direction consistent, NOT resolved above
+  the Monte-Carlo noise at 200 trials; the mean is a null, 0.23 +/- 0.48 dB).
+  The change, in two separate steps:
+  - **(1) DONE (2026-09-02).** `turbulent_grid` and `_plan_space` in
+    olb/waveoptics/turbulence/sampling.py now take a callable `cn2(h)` and
+    INTEGRATE it. The DEFAULT (no hs/cn2_profile) builds the site HV5/7 callable
+    and integrates it; `DEFAULT_HS` is now the fallback for an explicit array
+    caller ONLY (`_plan_space_array`, frozen behaviour). The continuous planner
+    (`_plan_space_continuous`) places screens by EQUAL RYTOV WEIGHT
+    (N = max(min_screens, ceil(sigma2_R_total / cap)) equal-weight slabs) with a
+    Cn2-weighted centroid per slab. It is grid-free by construction: a finer
+    internal integration grid does not move the plan. Validated in the module
+    self-check — the continuous r0 matches a fine-grid analytic to <1% (the
+    coarse 20-layer trapezoid is biased ~2% low in r0, the crutch bias), every
+    profile moment holds inside 1% (Schmidt Eq. (9.65)), and the sampling stays
+    good at 10/30/90 deg. `cn2` and `h_top_m` are threaded through
+    `propagate_turbulent_scenario`, `propagate_turbulent_field`, `run_waveoptics`,
+    `run_fidelity2`, and the opt-in cache (the cache fingerprints the callable by
+    sampling it). The default fidelity-2 SPACE budgets now use the continuous
+    plan; only the screen PLACEMENT moves (the total turbulence is conserved),
+    and the mean is validated flat. The Gauss-quadrature screen placement
+    (tracker candidate, S-22) is now implementable on this base. FOLLOW-UP: the
+    TAIL-CONVERGENCE STUDY — see 2-I2T, flagged VERY IMPORTANT / DO SOON by the
+    owner on 2026-09-02.
+  - **(2) OPEN, LATER, and separately:** the fidelity-0/1 modules that integrate
+    over `hs` arrays (slant extinction and scintillation, uplink flux, FAST) move
+    to callables; that step is wide, mechanical, and must move no numbers. Still
+    NOT built.
+- **2-I2T. The tail-convergence study (VERY IMPORTANT — DO SOON, owner-flagged
+  2026-09-02).** Now that the continuous planner (2-I2 step 1) lets the
+  near-ground resolution be dialled INDEPENDENTLY of the physics, run the study
+  that WP7 could not. THE QUESTION: does the deep SMF fade tail (p5, p1) CONVERGE
+  as the near-ground `Cn2` is resolved with more, thinner screens — or is the
+  ~2 dB p5 sensitivity seen in the post-WP7 matched-seed re-test (docs/schmidt-
+  crosscheck.md:1273) a real, convergent effect that the default screen count
+  under-resolves? WHY IT MATTERS: the fade tail sets the LINK AVAILABILITY
+  margin, so an under-resolved tail biases the availability the budget reports;
+  the mean is already validated flat, so the tail is the open risk in the
+  fidelity-2 space budgets. THE METHOD: hold the grid and the seed set fixed,
+  sweep the effective near-ground screen resolution (e.g. raise `min_screens`,
+  or add a near-ground refinement to the equal-weight cut), and measure p50 /
+  p10 / p5 / p1 of the SMF (point-receiver) fade against screen count at 30 deg
+  and a low elevation. Resolve the p5 gap ABOVE the Monte-Carlo noise — the
+  re-test showed that needs about 4x the 200 trials (so about 800), which the
+  fast `ScreenFactory` now makes cheap. Record the convergence curve and, if the
+  tail moves, RE-TIER the default screen count for the tail (this feeds 2-I3,
+  the per-channel preset revision, and the receiver-kind floor question). Land it
+  as a `validation/` study with a written note in docs/schmidt-crosscheck.md.
 - **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27;
   scope widened 2026-08-29).**
   One preset table serves two channel families that measure differently, and
