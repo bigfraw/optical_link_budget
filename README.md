@@ -5,52 +5,6 @@ statistics, and Monte Carlo. The package models uplink, downlink, and
 retroreflected links (as well as terrestrial ones) at optical 
 wavelengths (for example 1550 nm).
 
-## Fidelity ladder
-
-The organising idea of the package is a **fidelity ladder**: every budget is
-built at one of three levels of rigour, chosen with a single `fidelity` argument
-on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
-
-- **Fidelity 0 — analytic.** A Term gives a closed-form loss. Cheap. It carries
-  the most assumptions (far-field, weak fluctuation, flat wavefront).
-- **Fidelity 1 — statistical.** A Term gives samples, so the budget gives a
-  Monte-Carlo fade (FAST modal coupling, the coupled-flux uplink). Fewer
-  assumptions, a real fade, still not a full field solve.
-- **Fidelity 2 — wave optics.** A split-step field propagation. Assumption-free,
-  and the most expensive. It appears as TWO Terms: a deterministic vacuum-optics
-  Term (the full no-turbulence loss from launch to detector — truncation,
-  geometric spread, aperture capture, vacuum fibre coupling) and a stochastic
-  turbulence Term (the fade). Only the analytic extinction (molecular absorption)
-  and pointing (mechanical jitter) Terms remain, because a vacuum-index field sim
-  models neither.
-
-Set `fidelity=0`, `1`, or `2` on each budget. **Fidelity 1 does not exist for a
-terrestrial link** (FAST is a far-field plane-wave-source model; a near-field
-finite Gaussian beam needs fidelity 2). Fidelity 2 needs a precomputed `wave`
-bundle from `olb.models.waveoptics.run_fidelity2` — the budget never runs the
-split-step propagation itself. See `examples/waveoptics/budget_wiring.py`.
-
-## Dependency
-
-This package is self-contained. It once reused physics kernels from a sibling
-repository, `my_analysis_modules`, through `olb/_deps.py`; those kernels are now
-vendored into olb (the unit conversions in `olb.units`, the Gaussian-beam
-helpers in `olb.beam`, the satellite geometry in `olb.geometry`, the
-Hufnagel-Valley Cn2 and Bufton wind in `olb.turbulence.profiles`, and the Dios
-coupled-flux kernels in `olb.turbulence.coupled_flux`). No sibling repository is
-needed. Two optional third-party packages remain:
-
-- `fast-aosim` is optional (`pip install fast-aosim`). It supplies the
-  Hufnagel-Valley HV57 Cn2 profile, and the fidelity-1 single-mode-fibre modal
-  coupling (`downlink_budget(fidelity=1)`), the only statistical SMF coupling
-  model (mean, quantile, and fade). Without it, pass an explicit `cn2_profile`,
-  or use the built-in `default_cn2_profile` (which uses `get_c2n`), and use
-  `fidelity=0` for the analytic mean-only coupling loss (no fade).
-- `aotools` is optional (`pip install aotools`, or the `screens` extra). It draws
-  the random phase screens of the fidelity-2 turbulent split-step layer,
-  `olb.waveoptics.turbulence`. `olb` imports it and does not copy it, because
-  `aotools` is LGPL-3.0. No budget needs it.
-
 ## Install
 
 ```
@@ -101,6 +55,31 @@ into a single-mode fibre, the retroreflected link, and a terrestrial
 horizontal-path link, see the runnable examples in `examples/`
 (`build_a_link.py`, `retro_link.py`, `terrestrial_link.py`).
 
+## Fidelity ladder
+
+The organising idea of the package is a **fidelity ladder**: every budget is
+built at one of three levels of rigour, chosen with a single `fidelity` argument
+on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
+
+- **Fidelity 0 — analytic.** A Term gives a closed-form loss. Cheap. It carries
+  the most assumptions (far-field, weak fluctuation, flat wavefront).
+- **Fidelity 1 — statistical.** A Term gives samples, so the budget gives a
+  Monte-Carlo fade (FAST modal coupling, the coupled-flux uplink). Fewer
+  assumptions, a real fade, still not a full field solve.
+- **Fidelity 2 — wave optics.** A split-step field propagation. Assumption-free,
+  and the most expensive. It appears as TWO Terms: a deterministic vacuum-optics
+  Term (the full no-turbulence loss from launch to detector — truncation,
+  geometric spread, aperture capture, vacuum fibre coupling) and a stochastic
+  turbulence Term (the fade). Only the analytic extinction (molecular absorption)
+  and pointing (mechanical jitter) Terms remain, because a vacuum-index field sim
+  models neither.
+
+Set `fidelity=0`, `1`, or `2` on each budget. **Fidelity 1 does not exist for a
+terrestrial link** (FAST is a far-field plane-wave-source model; a near-field
+finite Gaussian beam needs fidelity 2). Fidelity 2 needs a precomputed `wave`
+bundle from `olb.models.waveoptics.run_fidelity2` — the budget never runs the
+split-step propagation itself. See `examples/waveoptics/budget_wiring.py`.
+
 ## Structure
 
 The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
@@ -125,6 +104,23 @@ The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
   decorator; a Term factory opens `trace_assumptions()` around its physics calls,
   so the Term inherits the union automatically. `budget.check()` also flags a
   turbulence or coupling Term whose factory forgot to open the trace.
+
+## Dependencies
+
+The package is self-contained: the core needs only NumPy and SciPy, and no
+sibling repository. Two optional third-party packages add capability:
+
+- `fast-aosim` is optional (`pip install fast-aosim`). It supplies the
+  Hufnagel-Valley HV57 Cn2 profile, and the fidelity-1 single-mode-fibre modal
+  coupling (`downlink_budget(fidelity=1)`), the only statistical SMF coupling
+  model (mean, quantile, and fade). Without it, pass an explicit `cn2_profile`,
+  or use the built-in `default_cn2_profile` (which uses `get_c2n`), and use
+  `fidelity=0` for the analytic mean-only coupling loss (no fade).
+- `aotools` is optional (`pip install aotools`, or the `screens` extra). It draws
+  the random phase screens of the fidelity-2 turbulent split-step layer,
+  `olb.waveoptics.turbulence`, as the opt-in reference generator (the default
+  olb generator needs only NumPy and SciPy). `olb` imports it and does not copy
+  it, because `aotools` is LGPL-3.0. No budget needs it.
 
 ## Roadmap
 
