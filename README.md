@@ -96,6 +96,10 @@ The package uses one-way dependencies: `turbulence/` <- `models/` and `links/`.
   `downlink_budget`, `retro_budget`, `terrestrial_budget`, and the
   `bidirectional_terrestrial` wrapper (one monostatic defocus drives the launch
   divergence and the receive coupling together).
+- `olb/multidetector.py`, `olb/sweep.py` — cross-cutting helpers ABOVE the
+  links. `multi_detector_budgets` gives one budget for each detector behind a
+  receive beamsplitter. `budgets_vs_elevation` gives one budget for each
+  elevation in a sweep.
 - `olb/results.py` — `Term` (mean / analytic quantile / sampler) and `Budget`.
   Monte Carlo is not a separate path. The Budget asks each Term for samples.
 - `olb/assumptions.py` — the model constraints (beam type, turbulence regime,

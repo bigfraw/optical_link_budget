@@ -19,10 +19,11 @@ pure data   ->   models      ->   links       ->   results
 (terminal)        scenario)         assembly)
 ```
 
-One helper sits ABOVE the links. `olb/multidetector.py` builds one budget for
-each detector behind a receive beamsplitter. It imports `olb.links`,
-`olb.models` and `olb.terminal`, and nothing in `links/` or `models/` imports it
-back. See Section 3.
+Two helpers sit ABOVE the links. `olb/multidetector.py` builds one budget for
+each detector behind a receive beamsplitter. `olb/sweep.py` builds one budget for
+each elevation in a sweep. Each imports `olb.links`, `olb.models` and
+`olb.terminal`, and nothing in `links/` or `models/` imports it back. See
+Section 3.
 
 The turbulence physics sits under the models and the links:
 
@@ -273,6 +274,24 @@ returns a LIST of `Fidelity2Bundle`, one for each arm, from one turbulent run:
 each bundle re-keys that arm's `TurbTrial.detector_etas` value onto the Term
 face of its detector type, and each arm gets its own deterministic vacuum
 baseline. Pass that list as `wave`. A `wave` list of the wrong length raises.
+
+### An elevation sweep
+
+[`olb/sweep.py`](../olb/sweep.py) holds
+`budgets_vs_elevation(scenario, elevations, *, geometry_factory=None, **kwargs)`.
+It gives one `(elevation_deg, Budget)` pair for each angle, in the `elevations`
+order. For each angle it builds a scalar-elevation `CircularOrbit` from
+`scenario.channel.altitude_m` (or from an optional `geometry_factory`), and it
+calls the budget function of the scenario family and direction (it reuses
+`multidetector._budget_function`). It passes `**kwargs` to the budget unchanged,
+and a per-angle error is not caught. `olb/__init__.py` exports the function.
+
+The sweep exists because some Terms model ONE line of sight and refuse an
+elevation ARRAY: the FAST coupling Term runs one Monte Carlo for one geometry,
+and the gamma-gamma downlink Term carries one `(alpha, beta)` pair. So the
+correct answer is a loop, not a vectorised call. A `SpaceScenario` has the
+elevation axis; a `TerrestrialScenario` has none, so it raises. Like
+`multidetector.py`, the sweep is CROSS-CUTTING and sits ABOVE `links/`.
 
 ## 4. The result layer
 
