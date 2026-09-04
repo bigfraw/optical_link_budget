@@ -1,0 +1,17 @@
+The phase-screen STACKING test (phase only, no propagation)
+grid 1024 px, 3.43 mm pixel; 25 apertures of 0.7 m per draw; 100 draws per configuration
+Every number is a RATIO to the Kolmogorov theory of the composite r0. +- is the standard error over the draws.
+
+configuration                      r0c[cm]  D(0.05)   D(0.1)   D(0.2)  D(0.35)   D(0.7)   D(1.4)        Delta1        Delta3
+----------------------------------------------------------------------------------------------------------------------------
+ground: 1 screen (pin09 bottom)      15.38    0.954    0.880    0.851    0.829    0.783    0.721   0.823+-0.033   1.005+-0.010   (29 s)
+ground: 4 sub-screens (gnd09x4)      15.38    0.962    0.888    0.861    0.841    0.793    0.716   0.839+-0.036   0.996+-0.011   (59 s)
+whole plan: 5 screens (pin05)        12.73    0.935    0.857    0.821    0.790    0.729    0.638   0.772+-0.024   1.022+-0.010   (76 s)
+whole plan: 9 screens (pin09)        12.73    0.931    0.852    0.816    0.788    0.739    0.680   0.765+-0.027   1.014+-0.010   (96 s)
+whole plan: 25 screens (pin25)       12.73    0.920    0.838    0.797    0.761    0.697    0.592   0.748+-0.025   1.005+-0.010   (214 s)
+
+THE VERDICT
+  the ground layer, 1 -> 4 screens: Delta1 ratio 0.823 -> 0.839, a change of +0.015 against a bar of 0.049 (0.3 sigma).
+  the whole plan, 5 -> 25 screens: Delta1 ratio 0.772 -> 0.748, a change of -0.024 against a bar of 0.034 (0.7 sigma).
+  every configuration: Delta1 ratio 0.748 to 0.839, Delta3 ratio 0.996 to 1.022. The missing power is tip and tilt (backlog 2-N2).
+wrote D:\repos\optical_link_budget\validation\screen_stacking\screen_stacking_results.json

@@ -137,7 +137,9 @@ computes them in any order. `Campaign.run(n, workers=W)` opens ONE warm process
 pool for the whole call and runs each block SERIALLY inside its process:
 the parallelism lives at ONE level, because threads inside processes
 over-subscribe the cores (`workers=None` keeps the serial-block, threaded-inside
-route). `sizing_aperture_m` sizes the grid and the stored field patch one time
+route). `grid=` and `plan=` inject a caller grid and a caller screen plan, both
+fingerprinted, so a convergence study holds the grid and moves the screens
+only (`validation/tail_convergence/`). `sizing_aperture_m` sizes the grid and the stored field patch one time
 for the LARGEST receive aperture of a family, so every smaller aperture is a
 post-hoc crop through `Campaign.recouple`/`recollect`. The dependency direction
 holds: `campaign.py` reads `run.py`, the `cache_key` fingerprint of `fingerprint.py`,

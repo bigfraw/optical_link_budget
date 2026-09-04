@@ -200,8 +200,8 @@ class Campaign:
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
                  preset="standard", block_size=100, patch_radius_m=None,
-                 sizing_aperture_m=None, grid=None, cn2=None, hs=None,
-                 cn2_profile=None, h_top_m=None, L0_m=np.inf,
+                 sizing_aperture_m=None, grid=None, plan=None, cn2=None,
+                 hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
                  subharmonics=True, screen_generator="olb"):
         """Open a campaign, or make a new one.
 
@@ -229,6 +229,10 @@ class Campaign:
                            smaller receive aperture.
             grid:          an optional GridSpec. The plan is then still planned
                            from the Cn2 inputs.
+            plan:          an optional ScreenPlan. Give it WITH grid to hold
+                           the grid fixed and move the screens only (a
+                           convergence study). Both enter the fingerprint, so
+                           a different plan is a different campaign.
             cn2:           an optional callable cn2(h) (space). See
                            turbulent_grid.
             hs, cn2_profile: the legacy discrete Cn2 profile (space).
@@ -268,7 +272,7 @@ class Campaign:
             screen_generator=screen_generator, L0_m=L0_m,
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
-            block_size=self.block_size, grid=grid, plan=None)
+            block_size=self.block_size, grid=grid, plan=plan)
 
         os.makedirs(self.root_dir, exist_ok=True)
         manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
@@ -294,11 +298,11 @@ class Campaign:
         else:
             sizer_scenario = (scenario if self.sizing_aperture_m is None else
                               _sizing_scenario(scenario, self.sizing_aperture_m))
-            sized_grid, plan, _ = turbulent_grid(
+            sized_grid, sized_plan, _ = turbulent_grid(
                 sizer_scenario, geometry, preset=self.preset, cn2=cn2, hs=hs,
                 cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
             self.grid = sized_grid if grid is None else grid
-            self.plan = plan
+            self.plan = sized_plan if plan is None else plan
             self.patch = _field_patch(self.grid, self.patch_radius_m)
             np.save(os.path.join(self.root_dir, PATCH_NAME), self.patch.indices)
             self._write_manifest(manifest_path)
@@ -612,6 +616,7 @@ if __name__ == '__main__':
     root = tempfile.mkdtemp(prefix="olb_campaign_selfcheck_")
     root2 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck2_")
     root3 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck3_")
+    root4 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck4_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -683,6 +688,27 @@ if __name__ == '__main__':
             big = (camp3.grid.n, camp3.grid.size_m) != (camp.grid.n,
                                                         camp.grid.size_m)
 
+            # ---- 7. an injected plan is stored, fingerprinted, and reopened --
+            # A convergence study holds the grid and moves the screens only.
+            thin = ScreenPlan(
+                z_m=camp.plan.z_m[::2], cn2_int_m13=camp.plan.cn2_int_m13[::2],
+                r0_m=camp.plan.r0_m[::2], sigma2_r=camp.plan.sigma2_r[::2],
+                z_total_m=camp.plan.z_total_m, r0_total_m=camp.plan.r0_total_m,
+                direction=camp.plan.direction)
+            camp4 = Campaign(scn, orbit, root4, grid=camp.grid, plan=thin,
+                             **common)
+            assert camp4.plan is thin and camp4.grid is camp.grid
+            assert camp4.fingerprint != camp.fingerprint, "a plan must key"
+            reopened = Campaign(scn, orbit, root4, grid=camp.grid, plan=thin,
+                                **common)
+            assert reopened.fingerprint == camp4.fingerprint
+            assert reopened.plan.z_m.size == thin.z_m.size
+            try:
+                Campaign(scn, orbit, root4, grid=camp.grid, **common)
+                raise AssertionError("a dropped plan must raise ValueError")
+            except ValueError as exc:
+                assert "fingerprint" in str(exc), str(exc)
+
         print("campaign self-check, downlink 30 deg, rapid preset, "
               f"block_size {common['block_size']}:")
         print(f"  grid                    {camp.grid.n:11d} px, "
@@ -702,5 +728,5 @@ if __name__ == '__main__':
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
-        for d in (root, root2, root3):
+        for d in (root, root2, root3, root4):
             shutil.rmtree(d, ignore_errors=True)

@@ -1,0 +1,130 @@
+The fidelity-2 SMF fade-tail convergence study (backlog 2-I2T, 2-N6)
+elevation     : 30.0 deg      trials/case: 1000
+seed          : 20260904      preset: standard (rapid for the rapid case)      block size: 50      workers: 8
+scenario      : downlink, 1550 nm, 500 km, 700 mm ground SMF, 100 mm space terminal
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO); the SMF power is the raw atmosphere.
+primary       : the SMF coupled-power fade and the POINT irradiance fade. The aperture index s2_P is a footnote (strongly averaged).
+
+THE CASES
+  pin25     25 screens on the pinned grid. It isolates the SCREEN COUNT.
+  rapid     the shipped RAPID preset: its own grid AND its 5-screen plan. It is what a preset='rapid' user gets.
+  pin05     5 screens (the rapid floor) on the pinned grid. Against rapid it isolates the rapid GRID; against pin09 the rapid COUNT.
+  pin07     7 screens (the WP7 converged count) on the pinned grid.
+  prod      the shipped default: the standard sizer picks the grid AND the plan. It is the production baseline.
+  pin09     9 screens on the pinned grid. Against prod it isolates the GRID.
+  pin15     15 screens on the pinned grid. It isolates the SCREEN COUNT.
+  gnd09x4   the pin09 plan with the BOTTOM screen split into 4 equal-Cn2 sub-screens. It isolates the NEAR-GROUND resolution alone.
+
+  pin25: grid 1024 px, 3.514 m (3.43 mm px); 25 screens; r0_total 12.73 cm
+    screen h [m] : 17893 15828 14624 13731 12940 12276 11657 11066 10464 9878 9245 8550 7731 6647 5204 3909 3016 2351 1798 1298 801 393 219 126 39
+    Cn2 share    : 0.003 0.003 0.003 0.003 0.004 0.004 0.004 0.004 0.004 0.005 0.005 0.005 0.006 0.006 0.008 0.010 0.012 0.015 0.019 0.025 0.037 0.067 0.109 0.172 0.470
+    sigma2_r     : 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089 0.0089
+
+  rapid: grid 256 px, 2.638 m (10.31 mm px); 5 screens; r0_total 12.73 cm
+    screen h [m] : 14844 11014 7224 2191 140
+    Cn2 share    : 0.016 0.021 0.029 0.080 0.853
+    sigma2_r     : 0.0443 0.0443 0.0443 0.0443 0.0443
+
+  pin05: grid 1024 px, 3.514 m (3.43 mm px); 5 screens; r0_total 12.73 cm
+    screen h [m] : 14844 11014 7224 2191 140
+    Cn2 share    : 0.016 0.021 0.029 0.080 0.853
+    sigma2_r     : 0.0443 0.0443 0.0443 0.0443 0.0443
+
+  pin07: grid 1024 px, 3.514 m (3.43 mm px); 7 screens; r0_total 12.73 cm
+    screen h [m] : 15651 12371 10178 7494 3319 1050 99
+    Cn2 share    : 0.011 0.013 0.016 0.020 0.040 0.106 0.793
+    sigma2_r     : 0.0316 0.0316 0.0316 0.0316 0.0316 0.0316 0.0316
+
+  prod: grid 512 px, 3.514 m (6.86 mm px); 9 screens; r0_total 12.73 cm
+    screen h [m] : 16185 13201 11378 9711 7602 4126 1985 569 80
+    Cn2 share    : 0.008 0.010 0.011 0.013 0.016 0.026 0.048 0.138 0.730
+    sigma2_r     : 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246
+
+  pin09: grid 1024 px, 3.514 m (3.43 mm px); 9 screens; r0_total 12.73 cm
+    screen h [m] : 16185 13201 11378 9711 7602 4126 1985 569 80
+    Cn2 share    : 0.008 0.010 0.011 0.013 0.016 0.026 0.048 0.138 0.730
+    sigma2_r     : 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246
+
+  pin15: grid 1024 px, 3.514 m (3.43 mm px); 15 screens; r0_total 12.73 cm
+    screen h [m] : 17123 14637 13198 12072 11049 10072 9012 7697 5650 3571 2339 1443 614 216 55
+    Cn2 share    : 0.005 0.005 0.006 0.006 0.007 0.007 0.008 0.009 0.012 0.018 0.025 0.038 0.077 0.183 0.593
+    sigma2_r     : 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148 0.0148
+
+  gnd09x4: grid 1024 px, 3.514 m (3.43 mm px); 12 screens; r0_total 12.73 cm
+    screen h [m] : 16185 13201 11378 9711 7602 4126 1985 569 174 89 44 13
+    Cn2 share    : 0.008 0.010 0.011 0.013 0.016 0.026 0.048 0.138 0.182 0.182 0.182 0.182
+    sigma2_r     : 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0246 0.0123 0.0071 0.0039 0.0014
+
+RUN pin25: 1000 trials
+  pin25: 1000 trials on disk, 1332.8 s wall, 1.33 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT pin25: SMF loss mean 18.22 dB, p50 17.37, p10 26.73, p5 29.04, p1 37.60 dB (n = 1000)
+
+RUN rapid: 1000 trials
+  rapid: 1000 trials on disk, 23.7 s wall, 0.02 s/trial (this call), 28.9 MB on disk
+  CHECKPOINT rapid: SMF loss mean 18.15 dB, p50 17.14, p10 26.66, p5 29.90, p1 38.11 dB (n = 1000)
+
+RUN pin05: 1000 trials
+  pin05: 1000 trials on disk, 576.7 s wall, 0.58 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT pin05: SMF loss mean 18.74 dB, p50 17.90, p10 28.00, p5 31.51, p1 38.74 dB (n = 1000)
+
+RUN pin07: 1000 trials
+  pin07: 1000 trials on disk, 793.8 s wall, 0.79 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT pin07: SMF loss mean 18.57 dB, p50 17.69, p10 27.07, p5 30.95, p1 38.03 dB (n = 1000)
+
+RUN prod: 1000 trials
+  prod: 1000 trials on disk, 0.0 s wall, 0.00 s/trial (this call), 65.5 MB on disk
+  CHECKPOINT prod: SMF loss mean 18.71 dB, p50 17.96, p10 27.47, p5 31.47, p1 37.64 dB (n = 1000)
+
+RUN pin09: 1000 trials
+  pin09: 1000 trials on disk, 0.0 s wall, 0.00 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT pin09: SMF loss mean 18.59 dB, p50 17.59, p10 27.49, p5 31.20, p1 37.71 dB (n = 1000)
+
+RUN pin15: 1000 trials
+  pin15: 1000 trials on disk, 0.0 s wall, 0.00 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT pin15: SMF loss mean 18.51 dB, p50 17.71, p10 27.06, p5 30.45, p1 38.02 dB (n = 1000)
+
+RUN gnd09x4: 1000 trials
+  gnd09x4: 1000 trials on disk, 0.0 s wall, 0.00 s/trial (this call), 261.7 MB on disk
+  CHECKPOINT gnd09x4: SMF loss mean 18.19 dB, p50 17.45, p10 26.58, p5 29.79, p1 36.75 dB (n = 1000)
+
+THE CONVERGENCE TABLE (pX = the loss EXCEEDED X percent of the time)
+case      scr  grid   h_bot  share    mean     p50            p10             p5             p1   d_p5   d_p1         pt_p5         pt_p1    s2_I    s2_P   s/tr     MB
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+rapid       5   256     140  0.853   18.15   17.14    26.66+-0.64    29.90+-0.38    38.11+-1.70  12.76  20.97    3.83+-0.16    5.75+-0.37   0.214   0.005   0.15   28.9
+prod        9   512      80  0.730   18.71   17.96    27.47+-0.64    31.47+-0.65    37.64+-1.55  13.51  19.68    3.87+-0.18    6.11+-0.75   0.239   0.005   2.02   65.5
+pin05       5  1024     140  0.853   18.74   17.90    28.00+-0.65    31.51+-0.70    38.74+-0.95  13.61  20.83    4.28+-0.16    5.86+-0.34   0.239   0.005   3.90  261.7
+pin07       7  1024      99  0.793   18.57   17.69    27.07+-0.33    30.95+-0.72    38.03+-1.29  13.26  20.34    4.35+-0.18    5.92+-0.25   0.243   0.005   5.43  261.7
+pin09       9  1024      80  0.730   18.59   17.59    27.49+-0.43    31.20+-1.08    37.71+-1.46  13.61  20.11    4.29+-0.15    6.17+-0.23   0.259   0.005   9.63  261.7
+pin15      15  1024      55  0.593   18.51   17.71    27.06+-0.47    30.45+-0.59    38.02+-2.12  12.73  20.31    3.97+-0.11    5.81+-0.25   0.234   0.005   9.29  261.7
+pin25      25  1024      39  0.470   18.22   17.37    26.73+-0.31    29.04+-0.68    37.60+-1.35  11.67  20.23    4.18+-0.25    5.88+-0.26   0.232   0.005  14.37  261.7
+gnd09x4    12  1024      13  0.182   18.19   17.45    26.58+-0.32    29.79+-0.62    36.75+-1.11  12.34  19.30    4.19+-0.21    5.79+-0.21   0.255   0.005  12.65  261.7
+  scr = screens, h_bot = the height of the lowest screen [m], share = its Cn2 share.
+  p10, p5, p1 = the SMF loss EXCEEDED 10, 5, 1 percent of the time. d_p5 and d_p1 are the FADE DEPTH pX - p50 [dB].
+  pt_p5, pt_p1 = the POINT irradiance fade -10 log10(I/<I>) exceeded 5 and 1 percent of the time [dB]. s2_I = the point index.
+  s2_P = the aperture index of the 700 mm bucket. It is strongly averaged and INSENSITIVE: read it as a footnote only.
+  s/tr = the mean stored wall time of one trial [s]. The +- values are 68 % bootstrap half-widths (1000 resamples).
+
+HOW THE TAIL ESTIMATE SETTLES WITH THE TRIAL COUNT (backlog 2-N6)
+     n      p50            p10             p5             p1
+   100    17.42    27.96+-1.93    29.94+-1.01    34.93+-3.27
+   200    17.42    26.75+-1.47    29.94+-1.47    37.63+-3.17
+   400    17.89    26.88+-0.74    29.94+-1.47    37.63+-1.65
+   600    17.87    27.18+-0.58    31.00+-1.26    40.57+-1.10
+   800    17.63    27.24+-0.41    30.70+-1.20    40.04+-1.48
+  1000    17.59    27.49+-0.43    31.20+-1.08    37.71+-1.46
+
+THE VERDICT
+  SMF p5: 5 -> 25 screens moves the loss by -2.47 dB, against a combined bootstrap bar of 0.98 dB (2.5 sigma). IT MOVES.
+  SMF p1: 5 -> 25 screens moves the loss by -1.14 dB, against a combined bootstrap bar of 1.65 dB (0.7 sigma). NO RESOLVED MOVE.
+  SMF full spread across the pinned counts [dB]: p50 0.53, p10 1.28, p5 2.47, p1 1.14
+  POINT p5: 5 -> 25 screens moves the loss by -0.10 dB, against a combined bootstrap bar of 0.29 dB (0.3 sigma). NO RESOLVED MOVE.
+  POINT p1: 5 -> 25 screens moves the loss by +0.02 dB, against a combined bootstrap bar of 0.43 dB (0.1 sigma). NO RESOLVED MOVE.
+  POINT full spread across the pinned counts [dB]: p50 0.11, p10 0.24, p5 0.37, p1 0.36
+  SMF p5: the near-ground split moves it by -1.41 dB against a bar of 1.25 dB (1.1 sigma).
+  SMF p1: the near-ground split moves it by -0.96 dB against a bar of 1.83 dB (0.5 sigma).
+  POINT p5: the near-ground split moves it by -0.10 dB against a bar of 0.26 dB (0.4 sigma).
+  POINT p1: the near-ground split moves it by -0.38 dB against a bar of 0.31 dB (1.2 sigma).
+  SMF p5: the GRID (prod against pin09) moves it by +0.27 dB against a bar of 1.27 dB (0.2 sigma).
+  POINT p5: the GRID (prod against pin09) moves it by -0.42 dB against a bar of 0.24 dB (1.8 sigma). PIXEL-LIMITED: the two grids average a point over a different pixel (6.86 against 3.43 mm), so this is NOT a physics difference.
+

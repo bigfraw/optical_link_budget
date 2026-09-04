@@ -253,7 +253,9 @@ README fidelity ladder.
   the grid and the plan so a resume never re-sizes, `run(n, workers=None|W)`
   where W opens ONE warm `ProcessPoolExecutor` for the whole call with the
   blocks serial inside a process (ONE level of parallelism), `load`, the
-  streaming `recouple`/`recollect`, and `sizing_aperture_m`, which sizes the
+  streaming `recouple`/`recollect`, `grid=` and `plan=` (a caller grid and a
+  caller screen plan, both fingerprinted, so a convergence study holds the
+  grid and moves the screens only), and `sizing_aperture_m`, which sizes the
   grid and the patch ONE time for the largest receive aperture of a family so
   every smaller aperture is a post-hoc crop; the space downlink field does not
   depend on the receive terminal at all. A budget takes `wave=campaign`
@@ -634,8 +636,37 @@ Open items:
   bit-identically in tens of milliseconds; 10,000 trials of screens would take
   200 to 300 GB) and a parametric tail fitted to the simulated bulk to
   extrapolate deep fades (the owner does not want extrapolation). `cache.py` is
-  RETIRED (2026-09-04, see the P4 note above). NEXT: a large-campaign
-  validation run.
+  RETIRED (2026-09-04, see the P4 note above). The large-campaign validation
+  is DONE (2026-09-04, `validation/tail_convergence/`, backlog 2-N6): eight
+  campaigns of 1000 trials, 0.17 s/trial at 512 px on a warm 16-worker pool,
+  262 MB for 1000 trials at 1024 px, and a real resume after an out-of-memory
+  kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted).
+- **The fidelity-2 fade-tail convergence study is DONE (2026-09-04, backlog
+  2-I2T, `validation/tail_convergence/`).** On the 30 deg hero downlink
+  (0.7 m uncorrected SMF), grid PINNED at 1024 px, 1000 trials for each case:
+  the grid is a null (512 against 1024 px); p1, the mean and EVERY point
+  (pixel) quantity are flat from 5 to 25 screens; the SMF p5 falls about 2 dB
+  from 9 to 25 screens (more screens, LESS fade — the safe direction), the
+  ground-layer split lands on the 25-screen line, and the trend past 25 is
+  unresolved. The count effect is the PHASE the fibre overlap pays, not
+  scintillation. `rapid` as shipped reads inside the standard spread at 1/30
+  of the cost. The screen generator is NOT the cause
+  (`validation/screen_stacking/`, phase only): it misses the SAME 20 percent
+  of the tip-tilt variance at every count (the 2-N2 deficit), so every
+  fidelity-2 SMF fade is optimistic by that, uniformly. NOT run: 20 deg,
+  40 screens.
+- **THE OUTER SCALE IS HIGH (owner-flagged 2026-09-04, backlog 2-P5).** The
+  fidelity-2 screens run `L0_m = inf` by default, but three subharmonic
+  levels reach only 27 x the grid side (95 m at 30 deg), and the screens
+  match a von Karman L0 = 95 m theory EXACTLY (Delta1 0.765 against 0.765);
+  asked for L0 = 25 m and judged against it they read 1.00 +-0.03 (one
+  screen) and 0.97 to 0.94 (a 5- to 25-screen plan, a mild stacking drift).
+  So the code claims an outer scale it does not deliver, and the fibre tilt
+  the SMF tail pays moves with that choice by an amount of the order of 2 dB at p5 (an estimate
+  from the tilt share of the fade, not a measurement). THE WORK: an
+  explicit site L0 threaded to the screens AND to the analytic tilt Terms
+  (0-W4), plus a sizer check that raises `n_sub_levels` when L0 > 3^n x side
+  (a small aperture). `validation/screen_stacking/ --L0 <m>` is the test.
 - **The non-focal-plane (defocus) sensing and the received curvature are WIRED
   (2026-08-31, see `validation/defocus/`).** `SMF`/`MMF` carry `defocus_m`; the
   terrestrial coupling Terms grow the spot over `dz_eff = defocus_m - dz_curv`

@@ -577,6 +577,22 @@ the gap: the self-check of `screens.py` measures a deficit inside 15 percent ove
 that same bias. Read the bias as a RATIO between two cases, not as an absolute
 value.
 
+**The low-frequency limit is the OUTER SCALE the grid holds.** Three
+subharmonic levels extend the screen to about `27 * n * dx` (a factor 3 for
+each level) and no further. So a screen drawn with `L0_m=np.inf` on a 3.5 m
+grid is, in its measured statistics, a von Karman screen with an outer scale
+of about 95 m: the stacking test of `validation/screen_stacking/` (2026-09-04)
+reads a piston-removed aperture variance of 0.765 of the Noll value on a
+0.7 m aperture, and the von Karman theory at `L0 = 95 m` gives 0.765; asked
+for `L0_m=25` and judged against the theory at 25 m, one screen reads
+1.00 +-0.03. The tilt-removed variance is 1.00 at every `L0`. So the default
+`L0_m=np.inf` CLAIMS an outer scale the grid does not deliver, and the fibre
+tilt that an SMF fade pays moves with the choice by an estimated (not
+measured) 2 dB at p5. Give an
+explicit `L0_m`, and keep `L0_m <= 27 * n * dx` (raise `n_sub_levels` of
+`ScreenFactory` when it is not; a small aperture makes a small grid). This is
+backlog 2-P5.
+
 ### 9b. The split-step engine (`olb/waveoptics/turbulence/splitstep.py`)
 
 - `super_gaussian_boundary(n, width_frac=0.125, power=8)` — an `n` x `n`
@@ -1021,7 +1037,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb")`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1037,6 +1053,13 @@ one scenario, one geometry, one grid, one screen plan, one seed.
 - `sizing_aperture_m` is an optional LARGER receive aperture that sizes the
   grid. See the rule below.
 - `grid` is an optional `GridSpec`. The plan still comes from the `Cn2` inputs.
+- `plan` is an optional `ScreenPlan`. Give it WITH `grid` to hold the grid
+  fixed and move the screens only (a convergence study; the sizer moves the
+  grid with the screen count, so a naive `min_screens` sweep moves two
+  things). Both enter the fingerprint, so a different plan is a different
+  campaign, and a reopen that drops the plan raises. The sizer still runs when
+  one of the two is `None`, and the given one overrides its half. See
+  `validation/tail_convergence/`.
 - `cn2`, `hs`, `cn2_profile`, `h_top_m`, `L0_m`, `subharmonics` and
   `screen_generator` pass to the sizer and the runner of Section 9d, with the
   same meanings and the same defaults.
@@ -1048,7 +1071,7 @@ Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
 `olb/waveoptics/turbulence/fingerprint.py`: one SHA-256 of everything that
 changes a trial (the scenario repr, a canonical geometry signature, the preset,
 the seed, the screen generator, the outer scale, the subharmonic switch, the
-Cn2 inputs, the block size, a caller grid, and `KEY_VERSION`). The manifest
+Cn2 inputs, the block size, a caller grid and plan, and `KEY_VERSION`). The manifest
 stores it, and an existing campaign whose fingerprint does not match raises.
 This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
 and which was RETIRED on 2026-09-04; the value of the key did not change, so an

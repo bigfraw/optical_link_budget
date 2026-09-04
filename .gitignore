@@ -11,3 +11,4 @@ dist/
 *.pdf
 examples/waveoptics/_campaign_demo/
 examples/waveoptics/_campaign_demo2/
+validation/tail_convergence/campaigns/
