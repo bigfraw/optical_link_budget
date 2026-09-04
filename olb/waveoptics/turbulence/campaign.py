@@ -14,12 +14,11 @@ and the concatenation is the native run. See
 `olb.waveoptics.turbulence.run.propagate_turbulent_scenario` and its
 `start_index` argument.
 
-THE DIFFERENCE FROM cache.py. `olb.waveoptics.turbulence.cache` is the older,
-opt-in scalar cache. It seeds each block from a SUB-SEED, so its blocks are not
-the trials of one native run, and it stores no field. This module keeps the
-native seeding and it stores the field. The two do not share a file format.
-This module imports the `cache_key` fingerprint from it, and it changes nothing
-there.
+HISTORY. This module REPLACED the P4 scalar cache (`cache.py`, retired
+2026-09-04). That cache seeded each block from a SUB-SEED, so its blocks were
+not the trials of one native run, and it stored no field. This module keeps the
+native seeding and it stores the field. The content fingerprint of that cache
+lives on in `olb.waveoptics.turbulence.fingerprint`.
 
 THE STORED FIELD. Each trial stores the receive-plane field on a disc of the
 radius `patch_radius_m`, BEFORE the receive-aperture clip. Store the field at
@@ -55,7 +54,7 @@ the geometry must still be picklable objects at module level.
 Sources:
 - The seed contract, the trial body and the field store:
   olb.waveoptics.turbulence.run.
-- The block fingerprint: olb.waveoptics.turbulence.cache.cache_key.
+- The block fingerprint: olb.waveoptics.turbulence.fingerprint.cache_key.
 - The Term reducer that reads a loaded result: olb.models.waveoptics.
 """
 
@@ -68,7 +67,7 @@ import numpy as np
 
 from ..grid import GridSpec
 from ..threader import Threader
-from .cache import cache_key
+from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
                   _resolve_seed, propagate_turbulent_scenario, recollect,
                   recouple)

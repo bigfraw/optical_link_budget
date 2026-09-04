@@ -99,14 +99,14 @@ scipy only, plus the opt-in `aotools` reference path), `splitstep.py` (the
 propagate-screen-propagate loop and the absorbing boundary mask), `sampling.py`
 (the turbulent grid sizer and the screen-placement planner), `run.py`
 (`propagate_turbulent_scenario`, one atmosphere snapshot for each seed, with the
-`screen_generator="olb"` default and an optional `Threader`), `cache.py` (an
-opt-in, off-by-default disk cache of whole runs), `campaign.py` (a large set of
-trials on disk, see below), and `temporal.py` (the
+`screen_generator="olb"` default and an optional `Threader`), `campaign.py` (a
+large set of trials on disk, see below), `fingerprint.py` (the content key that
+names one campaign), and `temporal.py` (the
 frozen-flow time axis, PLANNED, NOT BUILT). The sub-package keeps the same import
 tiers: `screens.py` and `splitstep.py` read the wave-optics core only,
-`sampling.py`, `run.py`, `cache.py` and `campaign.py` read the rest of olb (a
-scenario, the Cn2 profiles, the Andrews layer), and `temporal.py` imports numpy
-only. A space
+`sampling.py`, `run.py` and `campaign.py` read the rest of olb (a scenario, the
+Cn2 profiles, the Andrews layer), and `fingerprint.py` and `temporal.py` import
+numpy only. A space
 scenario always propagates the DOWNLINK slab; an uplink reads the same field
 through the Shapiro reciprocity overlap, DOI 10.1364/JOSA.61.000492.
 
@@ -140,7 +140,7 @@ over-subscribe the cores (`workers=None` keeps the serial-block, threaded-inside
 route). `sizing_aperture_m` sizes the grid and the stored field patch one time
 for the LARGEST receive aperture of a family, so every smaller aperture is a
 post-hoc crop through `Campaign.recouple`/`recollect`. The dependency direction
-holds: `campaign.py` reads `run.py`, the `cache_key` fingerprint of `cache.py`,
+holds: `campaign.py` reads `run.py`, the `cache_key` fingerprint of `fingerprint.py`,
 `sampling.py`, `grid.py` and the `Threader`, and nothing in olb reads
 `campaign.py` back.
 

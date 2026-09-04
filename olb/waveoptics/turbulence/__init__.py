@@ -12,6 +12,7 @@ The modules are:
     sampling    the turbulent grid sizer, and the screen-placement planner.
     run         the trial runner: one snapshot for each seed.
     campaign    a large set of trials on disk, stored as blocks.
+    fingerprint the content key that names one campaign.
     temporal    the frozen-flow time axis. PLANNED, NOT BUILT.
 
 Sources:

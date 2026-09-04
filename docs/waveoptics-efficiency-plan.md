@@ -463,8 +463,11 @@ the docstring.
 
 Status: DONE, 2026-08-29 (P4). This section reads the results of P0, P1, and
 P3, decides what the layer caches, and records the campaign execution design.
-The disk cache is built: `olb/waveoptics/turbulence/cache.py`. It is opt-in and
-off by default; no budget calls it.
+The P4 disk cache (`cache.py`) was built on 2026-08-29 and RETIRED on
+2026-09-04: `Campaign` (`olb/waveoptics/turbulence/campaign.py`, level 5 below)
+replaces it, and its content key lives on in
+`olb/waveoptics/turbulence/fingerprint.py`. The measured numbers of level 3
+stay in this section as the record. No budget calls either module.
 
 ### 8.1 Two defaults changed (commit e8c7f77) — campaign-relevant facts
 
@@ -482,54 +485,48 @@ off by default; no budget calls it.
 |---|---|---|---|---|
 | 1 | sqrt-PSD filter + subharmonic basis | in-process, `ScreenFactory` | build once per grid (n=2048: 0.19 s); then 7.5x per screen, 12x per stack vs aotools | BUILT (P1). Confirmed: `__init__` caches `_filt`, `_sub_filt`, `_E`; `make` scales by r0^(-5/6). |
 | 2 | vacuum baseline per call | in-process | one trial per call (~0.35 s space standard propagation); a repeated request hits the session memo and skips the whole call | BUILT as a whole-result memo. See note. |
-| 3 | whole `TurbWaveResult` runs | disk (JSON scalars) | 100-trial run 9.2 s; disk hit 21 ms (~400x); grow 100->150 computes only the new 50 (4.6 s, = a fresh 50, not a fresh 150); 150-trial file ~10 KB | BUILT. `cache.py`. |
+| 3 | whole `TurbWaveResult` runs | disk (JSON scalars) | 100-trial run 9.2 s; disk hit 21 ms (~400x); grow 100->150 computes only the new 50 (4.6 s, = a fresh 50, not a fresh 150); 150-trial file ~10 KB | RETIRED 2026-09-04. Level 5 replaces it; the key moved to `fingerprint.py`. |
 | 4 | full screen stacks | disk | 9 screens x 200 trials x 2048^2 float64 ~= 57 GB for one case | RULED OUT. The screens regenerate in ~0.17 s per stack (P1); disk for tens of GB buys nothing. |
 | 5 | the campaign store: the trial scalars PLUS the masked receive-field patch | disk (one `.npz` for each block, plus a JSON manifest) | a 1 m patch at a 5 mm pitch is ~320 KB for each trial, so ~3.2 GB for 10,000 trials; a new receive aperture, obscuration, detector or defocus then costs NO propagation (`recouple`, `recollect`) | BUILT 2026-09-04. `campaign.py`. It supersedes level 3. |
 
-**Level 5 supersedes level 3.** `olb/waveoptics/turbulence/campaign.py` holds
+**Level 5 replaces level 3.** `olb/waveoptics/turbulence/campaign.py` holds
 the blocks of ONE seeded native run (the runner's new `start_index`), so a
 campaign slice is bit-identical to a native run, and it keeps the receive field.
-`cache.py` seeds each block from a sub-seed and stores no field. `cache.py` is
-untouched and no budget calls it; a follow-up task retires it (backlog 2-W4).
+`cache.py` seeded each block from a sub-seed and stored no field. It is DELETED
+(2026-09-04, backlog 2-W4 DONE), with its self-check and
+`validation/waveoptics_speed/cache_check.py`. Its content key moved unchanged to
+`fingerprint.py`.
 
 **Level 2, honestly.** The space vacuum baseline is recomputed INSIDE
 `propagate_turbulent_scenario` (`olb/waveoptics/turbulence/run.py`). A
-load-or-run wrapper cannot inject a precomputed baseline without editing that
-runner, which is out of scope. So the wrapper does not cache the baseline
-alone. Instead it (a) skips the whole call, baseline included, on a disk hit;
-(b) returns from an in-process memo (`_SESSION_MEMO`) on a repeated request in
-one session; and (c) sizes the grid and the plan ONCE and shares them across
-the block runs, so only the cheap baseline split-step repeats per block, not
-the grid sizing. A dedicated baseline cache would need a `baseline=` argument in
-the runner — an owner-gated change, not taken here.
+store around that runner cannot inject a precomputed baseline without editing
+it, which is out of scope. So a `Campaign` does not cache the baseline alone.
+Instead it sizes the grid and the plan ONE time (the manifest keeps them, so a
+resumed campaign never re-sizes), and a `load` of stored blocks makes no call
+at all. Only the cheap baseline split-step repeats for each new block, not the
+grid sizing. A dedicated baseline cache would need a `baseline=` argument in
+the runner, an owner-gated change, not taken here.
 
-### 8.3 The disk cache: key and storage (level 3)
+### 8.3 The content key (`fingerprint.py`), and the retired storage (level 3)
 
-`cached_propagate_turbulent_scenario(scenario, geometry, *, n_trials, seed,
-preset=..., cache_dir=None, block_size=50, screen_generator="olb", ...)` is the
-one entry point. It is a wrapper around the public runner; it edits no runner
-and changes no budget.
-
-- **The key** is a SHA-256 of everything that changes a trial: `repr(scenario)`
-  (dataclass repr, stable), a canonical geometry signature (the object has no
-  stable repr), the preset, the base seed, the screen generator, `CACHE_VERSION`,
-  `L0_m`, the subharmonic switch, hashes of `hs` and `cn2_profile`, the block
-  size, and any caller grid/plan. A change to any input gives a new file.
-- **The storage** is a small JSON: per trial, five scalars
-  (`collected_power`, `smf_eta`, `eta_turb`, `mmf_eta`, `wall_time_s`). That is
-  enough because the Term reducer (`olb.models.waveoptics.waveoptics_turbulence_term`)
-  reads only the per-trial scalars, the preset, and the seed entropy — never
-  the grid, the plan, or the field. A 150-trial run is ~10 KB.
-- **Extendable, by blocks.** A run is stored in fixed BLOCKS of `block_size`
-  trials. Block b is a self-contained runner call seeded from
-  `SeedSequence(base_seed, spawn_key=(CACHE_VERSION, b))`. So a stored run
-  serves any smaller request by a slice, and a grow computes ONLY the missing
-  blocks (measured: grow 100->150 = a fresh 50). The blocks are i.i.d.
-  snapshots, which is exactly what the empirical reducer wants. They are NOT
-  the trials of one native single-seed run: the public runner seeds trial k off
-  (base_seed, k) with no start index, so its tail cannot be computed alone. A
-  true single-seed tail extension would need a start-index argument inside
-  `propagate_turbulent_scenario` (owner-gated, out of scope).
+- **The key** is `cache_key(...)` in `olb/waveoptics/turbulence/fingerprint.py`,
+  a SHA-256 of everything that changes a trial: `repr(scenario)` (dataclass
+  repr, stable), a canonical geometry signature (the object has no stable
+  repr), the preset, the base seed, the screen generator, `KEY_VERSION`, `L0_m`,
+  the subharmonic switch, the Cn2 inputs (a callable is sampled at a fixed set
+  of heights), the block size, and any caller grid/plan. A change to any input
+  gives a new key. `Campaign` stores it in the manifest, and a mismatch raises.
+  The key was born in `cache.py` and it moved here unchanged on 2026-09-04.
+- **The retired storage (the record).** `cache.py` stored a run as a small
+  JSON of five scalars for each trial (`collected_power`, `smf_eta`,
+  `eta_turb`, `mmf_eta`, `wall_time_s`; ~10 KB for 150 trials), in fixed
+  blocks that each ran as a self-contained runner call seeded from
+  `SeedSequence(base_seed, spawn_key=(CACHE_VERSION, b))`. A disk hit was ~400x
+  faster than a cold run, and a grow computed only the missing blocks (measured:
+  grow 100->150 = a fresh 50). Its blocks were i.i.d. snapshots, but NOT the
+  trials of one native single-seed run. The runner's `start_index` (2026-09-04)
+  removed that limit, and `Campaign` (level 5) keeps the native seeding and the
+  field, so the cache is deleted.
 
 ### 8.4 How a verification campaign runs fidelity 2
 
@@ -538,12 +535,13 @@ and changes no budget.
    turbulent `TurbWaveResult`). The budgets never run the sim; they consume the
    bundle. Reuse ONE bundle across every budget of that scenario (uplink,
    downlink, SMF, MMF, and every availability quantile) — the reducer is cheap.
-2. **Cache and extend the turbulent run.** For a long or repeated campaign,
-   fill the turbulent record through `cached_propagate_turbulent_scenario` with
-   a fixed integer seed. A re-run of the same scenario is a disk hit (~400x);
-   a deeper tail (more trials for a deep-fade quantile) grows the stored run and
-   computes only the new blocks. Keep the vacuum run as its own single
-   deterministic call (it is cheap; it is not cached).
+2. **Store and extend the turbulent run.** For a long or repeated campaign,
+   fill the turbulent record through a `Campaign` with a fixed integer seed:
+   `Campaign.run(n)` grows the stored blocks and computes only the missing
+   ones, and `Campaign.load(n)` gives the `TurbWaveResult` for the reducer with
+   no new call. A deeper tail (more trials for a deep-fade quantile) is one
+   more `run(n)`. Keep the vacuum run as its own single deterministic call (it
+   is cheap; it is not stored).
 3. **Pick the execution mode from the P3 table.** For the "olb" generator, the
    P3 reading was that PROCESSES win by about 1.4x over threads. The fair rerun
    of 2026-09-04 REVISES that number to a wall-time TIE for one run; see
@@ -555,14 +553,20 @@ and changes no budget.
    band is the ceiling). The cache and any execution mode give the SAME trial
    statistics (the seed contract).
 4. **Store the evidence in the validation/ pattern.** One script, one results
-   JSON, one run log. `validation/waveoptics_speed/cache_check.py` is the
-   template for a cache-backed measurement.
+   JSON, one run log. `validation/waveoptics_speed/cache_check.py` measured the
+   retired cache (a memo hit, a disk hit, a JSON file size), and it was DELETED
+   with it (2026-09-04): those measurements do not map onto `Campaign`. The
+   campaign self-check (`python -m olb.waveoptics.turbulence.campaign`) proves
+   the grow-only-missing-block behaviour and the bit-identity with a native
+   run, and `examples/waveoptics/campaign_demo.py` shows a resumed campaign.
 
 ### 8.5 Owner-gated follow-ups
 
-- Whether the cache ever backs a budget by default (today: opt-in only).
-- A start-index (or a per-trial scalar entry) in the runner, for a single-seed
-  tail extension that is bit-identical to a native run.
+- Whether a `Campaign` ever backs a budget by default (today: no budget reads
+  one).
+- A start-index in the runner, for a single-seed tail extension that is
+  bit-identical to a native run: DONE (2026-09-04, `start_index`; `Campaign`
+  uses it).
 - An in-process baseline cache, if the runner grows a `baseline=` argument.
 
 ### 8.6 P3 fair rerun (2026-09-04)

@@ -459,8 +459,8 @@ The path forward for each is a second reference or a derivation.
      trials, minutes on the fast `ScreenFactory`) and measure the received-power
      mean and the aperture-averaged index `sigma2_P` empirically.
   2. Draw the fade from the lognormal REFIT to those two measured moments.
-  3. Cache the calibration (the P4 disk cache,
-     `olb/waveoptics/turbulence/cache.py`, exists), so a sweep or an optimiser
+  3. Cache the calibration (a `Campaign`,
+     `olb/waveoptics/turbulence/campaign.py`, keeps a run on disk), so a sweep or an optimiser
      pays the simulation one time and the draw after that.
   The exact static Terms (extinction, geometric, pointing) STAY analytic, and the
   analytic scintillation Term stays as the free sanity anchor and the regime gate.
@@ -597,18 +597,16 @@ The path forward for each is a second reference or a derivation.
   saturation limit, the bit depth) so the output is a real detector signal, not
   an ideal power map. Design it in one pass with the owner before any wiring;
   each parameter changes what "pixel brightness" means.
-- **2-W4. Retire `cache.py` in favour of `Campaign` (a follow-up, flagged
-  2026-09-04).** `olb/waveoptics/turbulence/cache.py` (the opt-in, off-by-default
-  disk cache of scalar runs) is UNTOUCHED and now SUPERSEDED.
-  `campaign.py` does more and it does it better: its blocks are bit-identical
-  slices of ONE seeded native run (the runner's `start_index`), where the cache
-  seeds each block from a SUB-SEED, so a cached run is not the trials of a
-  native run; and the campaign stores the receive-field patch, where the cache
-  stores scalars only. No budget calls either module. THE TASK: move the one
-  piece the campaign still imports (`cache_key`, the fingerprint) to its own
-  home, delete `cache.py`, and clean the references in the docs (this file,
-  docs/architecture.md, docs/api-waveoptics.md, and
-  docs/waveoptics-efficiency-plan.md Section 8, cache level 3).
+- **2-W4. Retire `cache.py` in favour of `Campaign` — DONE (2026-09-04).**
+  `olb/waveoptics/turbulence/cache.py` (the P4 opt-in disk cache of scalar
+  runs, block sub-seeds, no field) is DELETED, with its self-check and
+  `validation/waveoptics_speed/cache_check.py`. `Campaign` replaces it: its
+  blocks are bit-identical slices of ONE seeded native run (the runner's
+  `start_index`), and it stores the receive-field patch. The one piece the
+  campaign imported, the `cache_key` content fingerprint, moved unchanged to
+  `olb/waveoptics/turbulence/fingerprint.py`, so an existing campaign manifest
+  still matches. No budget ever called the cache. The measured numbers of the
+  cache stay as a record in docs/waveoptics-efficiency-plan.md Section 8.
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.

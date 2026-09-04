@@ -260,9 +260,9 @@ README fidelity ladder.
   directly (`resolve_wave` in `olb/models/waveoptics.py` turns it into the
   bundle or the per-arm list), so the campaign is the fidelity-2 wave record of
   the documented one-scenario, one-budget flow; `recouple` is diagnostic),
-  `cache.py` (`cached_propagate_turbulent_scenario`, the OLDER opt-in disk
-  cache with block sub-seeds; `Campaign` supersedes it and a follow-up retires
-  it), and `temporal.py` (the `TemporalScreens` NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
+  `fingerprint.py` (`cache_key`, the SHA-256 content key that names one
+  campaign; it came from the retired P4 `cache.py`), and `temporal.py` (the
+  `TemporalScreens` NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
   axis. The trials are independent, so `propagate_turbulent_scenario` takes an
   optional `threader` (`olb.waveoptics.Threader`, a general thread pool in
   `threader.py`, default `min(16, cores)` workers) that runs them across threads;
@@ -614,12 +614,14 @@ Open items:
   outer scale, and the FADE TAIL. P2 measured and BURIED two grid ideas (coarse
   screens, beam-following grid). P3 measured the parallel scaling (processes beat
   threads; threads saturate at 8 to 16 workers). P4 added an opt-in, off-by-
-  default disk cache (`olb/waveoptics/turbulence/cache.py`), extendable by block.
+  default disk cache of scalar runs (`cache.py`, block sub-seeds), which
+  `Campaign` REPLACED and which is RETIRED (2026-09-04): the module, its
+  self-check and `validation/waveoptics_speed/cache_check.py` are deleted, and
+  its content key lives on as `olb/waveoptics/turbulence/fingerprint.py`.
   The P3 reading "processes beat threads by 1.4x" was REVISED by the fair
   rerun (2026-09-04): a wall-time tie for one run, see the `turbulence/`
   paragraph above. The single-seed tail extension EXISTS: the runner's
-  `start_index` (2026-09-04), which `Campaign` uses; `cache.py` keeps its block
-  sub-seeds and is superseded.
+  `start_index` (2026-09-04), which `Campaign` uses.
 - **The large-campaign data structure is BUILT (2026-09-04).** Thousands of
   trials for fade statistics: the `EmpiricalSampler` tail rule (ten samples
   past the availability) sets 1,000 trials for 99 percent and 10,000 for 99.9
@@ -631,8 +633,9 @@ Open items:
   REJECTED: storing the phase screens (the seed regenerates a screen
   bit-identically in tens of milliseconds; 10,000 trials of screens would take
   200 to 300 GB) and a parametric tail fitted to the simulated bulk to
-  extrapolate deep fades (the owner does not want extrapolation). NEXT: a
-  large-campaign validation run, and the retirement of `cache.py`.
+  extrapolate deep fades (the owner does not want extrapolation). `cache.py` is
+  RETIRED (2026-09-04, see the P4 note above). NEXT: a large-campaign
+  validation run.
 - **The non-focal-plane (defocus) sensing and the received curvature are WIRED
   (2026-08-31, see `validation/defocus/`).** `SMF`/`MMF` carry `defocus_m`; the
   terrestrial coupling Terms grow the spot over `dz_eff = defocus_m - dz_curv`

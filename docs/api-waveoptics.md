@@ -506,7 +506,7 @@ The seven modules are:
 | `sampling.py` | The turbulent grid sizer, and the screen-placement planner. |
 | `run.py` | The trial runner: one snapshot for each seed. |
 | `campaign.py` | A large set of trials on disk, stored as blocks. |
-| `cache.py` | An opt-in, off-by-default disk cache of whole runs. |
+| `fingerprint.py` | The content key that names one campaign (`cache_key`). |
 | `temporal.py` | The frozen-flow time axis. PLANNED, NOT BUILT. |
 
 **Two screen generators.** The DEFAULT is the `olb` generator, the fast
@@ -808,7 +808,7 @@ it. The trials are independent snapshots.
 trials therefore equals the concatenation of its blocks, trial for trial and bit
 for bit: `(start_index=0, n_trials=200)` plus `(start_index=200, n_trials=300)`
 gives exactly the trials of `(start_index=0, n_trials=500)`. So a campaign
-computes its blocks in any order, and on any number of processes. Section 9h
+computes its blocks in any order, and on any number of processes. Section 9g
 builds on that contract.
 
 **THE STORED FIELD (`patch_radius_m`).** The runner writes the UNCLIPPED
@@ -1007,36 +1007,7 @@ For the guide to each of the ten scripts, see
 [examples/waveoptics/README.md](../examples/waveoptics/README.md). See also
 [examples.md](examples.md) for what each one prints and what it shows.
 
-### 9g. The run cache (`olb/waveoptics/turbulence/cache.py`)
-
-**For a CAMPAIGN, use `Campaign` (Section 9h) instead of this cache.** The
-blocks of a campaign are bit-identical SLICES of ONE seeded run, through the
-`start_index` argument of Section 9d, and a campaign also stores the field. This
-cache keeps its block SUB-SEEDS, so its blocks are statistically valid but not
-the trials of a native single-seed run, and it stores no field. The cache stays
-OPT-IN and it does not change.
-
-`cached_propagate_turbulent_scenario(scenario, geometry, *, n_trials, seed, preset="standard", cache_dir=None, block_size=50, screen_generator="olb", ...)`
-is an OPT-IN, off-by-default load-or-run wrapper around
-`propagate_turbulent_scenario()`. It edits no runner and it changes no budget.
-It stores a whole run on disk as a small JSON of the per-trial SCALARS (about
-10 KB for 150 trials), which is all that the empirical reducer reads. The key is
-a SHA-256 of the scenario, a canonical geometry signature, the preset, the seed,
-the `screen_generator`, a `CACHE_VERSION` and the turbulence options; a change to
-any input gives a new file. A disk hit skips the whole call (about 400 times
-faster than a cold run in the measured case).
-
-**Extendable, by blocks.** A run is stored in fixed BLOCKS of `block_size`
-trials, each block a self-contained runner call. So a stored N-trial run serves
-any smaller request by a slice, and a grow computes ONLY the missing blocks (a
-grow from 100 to 150 computes 50 new trials). NOTE: the blocks use spawned
-sub-seeds, so a cached run is statistically valid for the empirical reducer but
-NOT the bit-identical trials of a native single-seed
-`propagate_turbulent_scenario()` run. A true single-seed tail extension needs a
-start-index argument inside the runner, which is owner-gated. No budget calls the
-cache; any wiring is an owner decision.
-
-### 9h. The campaign store (`olb/waveoptics/turbulence/campaign.py`)
+### 9g. The campaign store (`olb/waveoptics/turbulence/campaign.py`)
 
 A fade statistic needs thousands of snapshots. One trial is expensive, so a
 campaign must survive a stopped process, grow later, and give its fields back to
@@ -1071,7 +1042,17 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   same meanings and the same defaults.
 
 Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
-`patch_radius_m`, `grid`, `plan`, `patch`.
+`patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`.
+
+**The fingerprint.** `fingerprint` is `cache_key(...)` from
+`olb/waveoptics/turbulence/fingerprint.py`: one SHA-256 of everything that
+changes a trial (the scenario repr, a canonical geometry signature, the preset,
+the seed, the screen generator, the outer scale, the subharmonic switch, the
+Cn2 inputs, the block size, a caller grid, and `KEY_VERSION`). The manifest
+stores it, and an existing campaign whose fingerprint does not match raises.
+This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
+and which was RETIRED on 2026-09-04; the value of the key did not change, so an
+existing manifest still matches.
 
 #### `Campaign.run(n_trials, *, workers=None, progress=False)`
 

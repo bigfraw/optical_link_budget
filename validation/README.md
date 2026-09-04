@@ -125,5 +125,4 @@ results JSON and one run log; none touches production code.
 | [waveoptics_speed/coarse_screen_experiment.py](waveoptics_speed/coarse_screen_experiment.py) | P2 experiment (a): coarse screens plus interpolation. BURIED (loses the Fresnel-scale phase that builds scintillation). |
 | [waveoptics_speed/beam_grid_experiment.py](waveoptics_speed/beam_grid_experiment.py) | P2 experiment (b): a grid that follows the beam. BURIED for the wired scenarios (the flat grid already wins). |
 | [waveoptics_speed/scaling_study.py](waveoptics_speed/scaling_study.py) | P3: how trials scale across workers (threads, processes, batched split step). Processes beat threads; threads saturate at 8 to 16 workers. |
-| [waveoptics_speed/cache_check.py](waveoptics_speed/cache_check.py) | P4: the opt-in disk cache. A hit returns in about a millisecond; a grow computes only the new blocks. |
 | [waveoptics_speed/make_plots.py](waveoptics_speed/make_plots.py) | Draw one PNG per speed task from its results JSON, into `figures/`. Skips a task whose JSON is absent. |
