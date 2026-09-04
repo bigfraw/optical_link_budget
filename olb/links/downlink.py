@@ -28,7 +28,6 @@ Eq. (40), printed p. 497.
 import warnings
 
 import numpy as np
-from scipy.stats import norm
 
 from ..results import Budget, Term
 from ..assumptions import (trace_assumptions, BEAM_PLANE_WAVE, REGIME_STRONG,
@@ -43,7 +42,11 @@ from ..turbulence.andrews.distributions import (gamma_gamma_mean_log,
                                                 gamma_gamma_params,
                                                 gamma_gamma_quantile,
                                                 gamma_gamma_rvs,
-                                                gamma_gamma_scintillation_index)
+                                                gamma_gamma_scintillation_index,
+                                                lognormal_params,
+                                                lognormal_mean_log,
+                                                lognormal_quantile,
+                                                lognormal_rvs)
 from ..turbulence.andrews.scintillation import (large_scale_log_variance,
                                                 small_scale_log_variance,
                                                 rytov_weak, LOGNORMAL_PDF_LIMIT,
@@ -51,8 +54,6 @@ from ..turbulence.andrews.scintillation import (large_scale_log_variance,
 from ..turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from ..turbulence.plane_wave_scintillation import (plane_wave_scintillation_index,
                                         aperture_averaged_scintillation_index)
-
-_LN10 = np.log(10.0)
 
 
 def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
@@ -83,21 +84,14 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
         A = 1.0
         sigma2_P = sigma2_I
 
-    sigma_l2 = np.log(1.0 + sigma2_P)
-    sigma_l = np.sqrt(sigma_l2)
-    base_shape = np.shape(sigma_l2)
-
-    mean_db = (5.0 / _LN10) * sigma_l2
-
-    def quantile(p):
-        # Loss exceeded a fraction (1 - p) of the time. Phi_inv = norm.ppf.
-        z = norm.ppf(1.0 - p)
-        return -10.0 / _LN10 * (-sigma_l2 / 2.0 + sigma_l * z)
-
-    def sampler(n, rng):
-        P = rng.lognormal(mean=-sigma_l2 / 2.0, sigma=sigma_l,
-                          size=(n, *base_shape))
-        return -10.0 * np.log10(P)
+    # The lognormal fade faces (mean_db, quantile, sampler) come from the ONE
+    # shared adapter olb.models.fade.irradiance_fade_term applied to the andrews
+    # lognormal model. The four dB expressions were duplicated inline here and in
+    # olb.links.terrestrial; they now live in one home (crosscheck G-24 / gap 10).
+    # lognormal_rvs draws shape (n, *shape(sigma_l2)), so an array elevation keeps
+    # its per-elevation distributions.
+    sl2 = lognormal_params(sigma2_P)
+    base_shape = np.shape(sl2)
 
     # This is a LOGNORMAL Term, so its binding validity is the lognormal-PDF
     # house rule on the point index sigma2_I (NOT the aperture-averaged sigma2_P,
@@ -147,12 +141,11 @@ def _lognormal_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
             "Use the gamma-gamma model (model='auto') or the Monte Carlo model."
         )
 
-    return Term(
-        name="scintillation",
-        category="turbulence",
-        mean_db=float(mean_db) if base_shape == () else mean_db,
-        sampler=sampler,
-        quantile=quantile,
+    return irradiance_fade_term(
+        "scintillation", "turbulence",
+        mean_log=lognormal_mean_log(sl2),
+        quantile=lambda p: lognormal_quantile(p, sl2),
+        rvs=lambda n, rng: lognormal_rvs(n, sl2, rng),
         note="plane-wave downlink lognormal scintillation, aperture-averaged",
         meta={
             "model": "lognormal",

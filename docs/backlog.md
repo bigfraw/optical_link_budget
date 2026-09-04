@@ -1,6 +1,9 @@
 # Backlog — the unimplemented and unwired work
 
-Date: 2026-08-26. Two repository sweeps made this list: one sweep of the
+Date: 2026-08-26. Refreshed: 2026-09-04 (a full validation sweep against
+commit 9316ba6; each item was checked against the code, marked DONE or PARTLY
+DONE where the code closed it, and its line references were corrected; no item
+was removed). Two repository sweeps made this list: one sweep of the
 documentation (the READMEs, docs/, CLAUDE.md) and one sweep of the code (the
 stubs, the warning flags, the debt comments). The rule for the next sessions:
 **fix the items on this list before you add a feature.** Each new feature
@@ -30,8 +33,10 @@ are from 2026-08-26 and can drift.
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
    Closed 2026-08-27. See 0-W2.
-5. **The stale docs that contradict the code.** Cheap, and they mislead every
-   later session. See the documentation-debt group.
+5. **PARTLY DONE — the stale docs that contradict the code.** Cheap, and they
+   mislead every later session. DD-3 and DD-6 are closed and DD-2 is half
+   closed (2026-09-04 sweep). DD-1, DD-4, DD-5, DD-7, DD-8 and DD-9 stay open.
+   See the documentation-debt group.
 6. **DONE — olb is self-contained.** The `my_analysis_modules` kernels are
    vendored into olb and `_deps.py` is deleted (2026-08-28). See X-1. The
    kernel-repo commit and the KR-24 constants remain a concern for that repo
@@ -41,6 +46,12 @@ are from 2026-08-26 and can drift.
    DEFAULT. The turbulent fidelity-2 Term is now WIRED as opt-in (2-W1, done
    2026-08-28); the reference-model choice stays open. Next owner-requested
    step: an automatic fidelity selector. See 0-W5, 2-W1.
+8. **Closed since the last refresh (2026-09-04 sweep):** 0-N1 (the shared
+   `rytov_weak` gate), 0-N2 (the Rytov constants), 1-6 (the aperture-averaged
+   lognormal certification), I-3, I-4, I-5, DD-3 and DD-6. Partly closed: 1-3
+   (fidelity 2 is the manual strong-regime route; the AUTOMATIC selection
+   remains), 2-N3 (the grid ideas are measured and buried; the co-moving
+   long-path schedule remains), I-2 and DD-2.
 
 ---
 
@@ -87,27 +98,38 @@ are from 2026-08-26 and can drift.
   the profile form, which is fixed. Docs: docs/physics.md GF-01 note updated;
   crosscheck GF-01.
 - **0-W3. Gap 1: the aperture angle-of-arrival tilt feeds no Term.**
-  `andrews.structure.angle_of_arrival_variance` is built and delegated to;
-  no coupling Term adds contribution C, so the received tip-tilt is a lower
+  `andrews.structure.angle_of_arrival_variance` is built, and
+  `olb.turbulence.angle_of_arrival.aperture_angle_of_arrival_variance`
+  delegates to it. No coupling Term adds contribution C: the terrestrial
+  walk-off Term reads `wander_arrival_angle_variance` only
+  (olb/models/coupling/terrestrial.py:41). So the received tip-tilt is a lower
   bound. Note conflict C-04: olb holds two tilt conventions (gradient 0.174
   vs the Noll route in ao.py); a caller that adds them must say which.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
   consumer.** No Term passes an inner or outer scale. No Term reads the
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
-  Term (README node NT7; also the TODO at
-  olb/models/coupling/terrestrial.py:108).
+  Term (README node NT7; also the deferred TODO at
+  olb/models/coupling/terrestrial.py:254).
 - **0-W5. `downlink_budget` still defaults to `model="lognormal"`.** The
-  `model="auto"` selector exists and is opt-in. The switch moves the
+  `model="auto"` selector exists and is opt-in (olb/links/downlink.py:470 and
+  the budget keyword `scint_model="lognormal"` at :521). The switch moves the
   strong-regime total by several dB. OWNER DECISION.
 - **0-W6. The Andrews aperture-averaging chain is unused.** The downlink
-  Term keeps the numerical Airy-filter integral; the terrestrial Term keeps
-  the Churnside fit (optimistic 5–13 % against the book's exact Eq. (60)).
+  Term keeps the numerical Airy-filter integral
+  (`plane_wave_scintillation.aperture_averaged_scintillation_index`); the
+  terrestrial Term keeps the Churnside fit
+  (`aperture_averaging_factor_weak`, olb/links/terrestrial.py:148; optimistic
+  5–13 % against the book's exact Eq. (60)).
   Conflict C-06: Ch. 12, Eq. (39) is the closed form that should supersede
   the integral when a work package moves the Term over.
 - **0-W7. The K distribution and the lognormal-Rician PDF are unused**
-  (andrews/distributions.py). The three new spectrum labels in
-  olb/assumptions.py (Tatarskii, exponential, modified) have no Term.
+  (andrews/distributions.py). Of the three spectrum labels in
+  olb/assumptions.py, Tatarskii now labels
+  `plane_wave_scintillation.aperture_averaging_factor_weak_inner`
+  (olb/turbulence/plane_wave_scintillation.py:470), but no Term calls that
+  function; the exponential and the modified labels stay inside
+  andrews/spectra.py. So no Term reads any of the three.
 - **0-W8. The Andrews wander route stays on the shelf BY DECISION** (C-01
   closed via Belmonte; the budgets keep the Dios/Belmonte 2.07 kernel; the
   Andrews 7.25 route sits in andrews/wander.py for measurement only). Listed
@@ -116,29 +138,31 @@ are from 2026-08-26 and can drift.
 ### Physics gaps
 
 - **0-P1. Laser guide star: focal (cone) anisoplanatism.** `LaserGuideStar`
-  is a placeholder; `uplink_budget` raises (olb/links/uplink.py:495,
-  olb/scenario.py:77). Its cone anisoplanatism differs from the point-ahead
+  is a placeholder; `uplink_budget` raises (olb/links/uplink.py:648,
+  olb/scenario.py:82). Its cone anisoplanatism differs from the point-ahead
   angular form.
 - **0-P2. The short terrestrial retro link has no module.**
   `retro_space_budget` assumes a long slant range and independent legs. The
   book also gives a backscatter amplification and a coupled double passage
   that olb does not model (crosscheck RT-01..03).
 - **0-P3. The strong / moderate aperture-averaged downlink index.** The
-  gamma-gamma Term is a POINT receiver (olb/links/downlink.py:209); its fade
+  gamma-gamma Term is a POINT receiver (the flag sits in `_gamma_gamma_term`,
+  olb/links/downlink.py:235–247); its fade
   is deeper than the true aperture fade. The book gives no slant
   aperture-averaged strong index; a second source or a derivation is needed.
   (Owner earlier decided to keep point-receiver; see the memory
   `downlink-strong-aperture-decision`.)
 - **0-P4. Gap 8: the annular (obscured) receive aperture.** No book source
   exists; one central-obscuration gap touches many Terms
-  (olb/links/downlink.py:109, uplink.py:122, terrestrial.py:183, the
-  coupling modules). Needs a new reference.
+  (olb/links/downlink.py:126, uplink.py:157,
+  olb/models/coupling/downlink.py:142,
+  olb/models/coupling/terrestrial.py:577). Needs a new reference.
 - **0-P5. The terrestrial scintillation Term carries no pointing jitter.**
   It is on-axis (r=0) only; the jitter-into-beta fold sits in the Monte
-  Carlo path only (TODO at olb/links/terrestrial.py:132). Fold the jitter
+  Carlo path only (TODO at olb/links/terrestrial.py:153). Fold the jitter
   into the off-axis radius, and add the mean-power loss Term.
 - **0-P6. No tracking-loop bandwidth model.** The tip-tilt correction is
-  all-or-nothing (olb/models/coupling/terrestrial.py:108). A finite servo
+  all-or-nothing (olb/models/coupling/terrestrial.py:254). A finite servo
   leaves a residual tilt. Pairs with 0-W4.
 - **0-P7. The AO cutoff `f_c = sqrt(n_modes)/(2D)` is a heuristic with no
   source** (crosscheck AO-06, unmatched).
@@ -150,9 +174,10 @@ are from 2026-08-26 and can drift.
   arithmetic but uncited — label it and compare.
 - **0-P9. The extinction model is one-parameter** (one zenith tau or one
   dB/km). Wavelength-resolved / MODTRAN stays planned (README NA1). The
-  airmass model breaks below 5 deg elevation (olb/models/extinction.py:103).
+  airmass model breaks below 5 deg elevation (olb/models/extinction.py:102).
 - **0-P10. Only one Gaussian transmit beam; `Transmitter.m2` is dead.** No
-  model reads m2. Flat-top beams and incoherent aperture diversity stay
+  model reads m2 (it is declared at olb/terminal.py:75 and read nowhere
+  else). Flat-top beams and incoherent aperture diversity stay
   planned (README TB3, TB4).
 - **0-P11. `eta_max(a)` assumes a uniform, flat-wavefront aperture — the
   CURVATURE half is CLOSED (2026-08-31), the ILLUMINATION half stays open.**
@@ -183,34 +208,47 @@ are from 2026-08-26 and can drift.
   a converging launch needs fidelity 2.
 - **0-P12. The MMF NA gate is a flat factor.** No turbulence re-broadening
   of the focal spot, no mode-count saturation; `optimal_focus` is geometric
-  (docs/physics.md:1134).
+  (docs/physics.md:1354–1358).
 - **0-P13. The uncorrected coupling curve extrapolates past its D/r0
-  limit** and only warns (olb/models/coupling/downlink.py:145,
-  terrestrial.py:323).
+  limit** and only warns (olb/models/coupling/downlink.py:150,
+  olb/models/coupling/terrestrial.py:588).
 - **0-P14. The strong-turbulence effective beam parameters are deferred.**
-  `effective_beam_params` (Theta_e, Lambda_e) is coded and has no caller
-  (gaussian_fried.py:330; crosscheck GF-17). Deliberate, to match the Dios
-  weak regime.
+  `effective_beam_params` (Theta_e, Lambda_e) is coded and has no caller in
+  `links/` or `models/`. The physics now lives in
+  olb/turbulence/andrews/beam.py:163, and
+  olb/turbulence/gaussian_fried.py:181 keeps the old signature and delegates
+  to it (crosscheck GF-17). Deliberate, to match the Dios weak regime.
 
 ### Numerical and validation issues
 
-- **0-N1. TL-05: the terrestrial weak gate tests ONE criterion.** Ch. 5,
-  Eq. (16), printed p. 140 needs `sigma_R^2 < 1` AND
-  `sigma_R^2 Lambda^{5/6} < 1`. A focused or strongly diffracted beam can
-  pass a gate it must fail. Fix with one shared helper (Table 2 row G-20).
-- **0-N2. The strong-fluctuation parameter q carries 1.22 one level too
-  high** at olb/turbulence/plane_wave_scintillation.py:284 (crosscheck
-  ledger line 742). Verify and fix.
+- **0-N1. DONE (2026-08-29). TL-05: the terrestrial weak gate tested ONE
+  criterion.** Ch. 5, Eq. (16), printed p. 140 needs `sigma_R^2 < 1` AND
+  `sigma_R^2 Lambda^{5/6} < 1`. Commit 3470190 added the one shared
+  beam-aware helper `rytov_weak(sigma2_R, Lambda)` in
+  olb/turbulence/andrews/scintillation.py, which applies both conditions
+  through the binding strength `sigma2_R * max(1, Lambda**(5/6))`. The
+  terrestrial Term (olb/links/terrestrial.py) and the uplink coupled-flux
+  path (olb/turbulence/uplink_flux.py, olb/links/uplink.py) call it, so a
+  focused beam now trips the gate. The lognormal-PDF house rule is the
+  distinct `LOGNORMAL_PDF_LIMIT` (Table 2 row G-20; crosscheck TL-05).
+- **0-N2. DONE (2026-08-25). The strong-fluctuation parameter q carried 1.22
+  one level too high.** Commit b0a25a1 corrected the constants. The point
+  plane-wave index now lives in
+  olb/turbulence/andrews/scintillation.py with the book values 0.49, 1.11 and
+  0.51, and `plane_wave_scintillation.plane_wave_scintillation_index_closed`
+  delegates to it. No source file holds 0.54, 1.22 or 0.509 any more
+  (crosscheck ledger PW-09, KR-24).
 - **0-N3. The budget adds dB losses / per-term p-quantiles.** Not a book
   form; it is a conservative upper bound (crosscheck RS-02, RS-03). Record
   the bound; consider a joint-sample check.
 - **0-N4. The near-field truncation flag is not conservative.** The true
   value can sit above or below the far-field form
-  (olb/models/gaussian_efficiency.py:189). The fidelity-2 vacuum layer is
+  (olb/models/gaussian_efficiency.py:186–193). The fidelity-2 vacuum layer is
   the verifier; consider an auto-route.
 - **0-N5. The quasi-frequency has no upper limit of its own** (`b_2` grows
-  as `f_max^{1/3}`). Any caller must set the band from the detector or an
-  inner scale. Pairs with the inner-scale memory.
+  as `f_max^{1/3}`; olb/turbulence/andrews/temporal.py:608). Any caller must
+  set the band from the detector or an inner scale. Pairs with the
+  inner-scale memory.
 - **0-N6. The fade rate and the fade time have no external check** — the
   book gives no worked example; the faces are checked against internal
   identities only.
@@ -218,24 +256,27 @@ are from 2026-08-26 and can drift.
 ### Blocked by the source (documented refusals — need a second source)
 
 Each of these raises `NotImplementedError` with a citation; the book prints
-no form, and olb guesses no coefficient. Full list: docs/physics.md:852–897.
+no form, and olb guesses no coefficient. Full list: docs/physics.md:917–962.
 The path forward for each is a second reference or a derivation.
 
 - The Gaussian two-scale STRONG branch (the unresolved eta_X of Ch. 9,
-  Eq. (109)) and its aperture chain (andrews/scintillation.py:424,
-  andrews/aperture.py:351).
+  Eq. (109)) and its aperture chain (andrews/scintillation.py:609,
+  andrews/aperture.py:422).
 - The weak Gaussian-beam aperture flux variance (Ch. 10, Eq. (78) is a
-  numerical double integral; andrews/aperture.py:368).
+  numerical double integral; andrews/aperture.py:439).
 - The convergent-beam Rytov variance (Theta0 < 1;
-  andrews/scintillation.py:340).
-- Inner/outer scale on any Ch. 12 slant form (andrews/paths.py:401); the
-  full Gaussian-beam downlink index Ch. 12, Eqs. (36)–(37) (row G-133).
+  andrews/scintillation.py:463).
+- Inner/outer scale on any Ch. 12 slant form (andrews/paths.py:485); the
+  full Gaussian-beam downlink index Ch. 12, Eqs. (36)–(37) (row G-133). The
+  aperture-averaged STRONG downlink index is refused in the same module
+  (andrews/paths.py:586; see 0-P3).
 - The temporal spectrum with a finite inner or outer scale; the strong
   spherical/Gaussian temporal spectra; the weak-only aperture-averaged
-  temporal spectrum (andrews/temporal.py:424, :436, :446).
+  temporal spectrum (andrews/temporal.py:538, :550, :560).
 - The Gaussian row of the modified spectrum (App. III, Table III;
-  andrews/structure.py:271).
-- The K distribution below sigma_I^2 = 1.
+  andrews/structure.py:345).
+- The K distribution below sigma_I^2 = 1 (andrews/distributions.py:528; it
+  raises `ValueError`, not `NotImplementedError`).
 
 ---
 
@@ -270,10 +311,14 @@ The path forward for each is a second reference or a derivation.
   defaults (DSUBAP=0.02 m, TLOOP=TEXP=1 ms, ALIAS on) pass through
   unreviewed — override with `fast_params`.
 - **1-3. Strong-fluctuation routing.** The uplink and terrestrial links
-  only WARN when the weak-fluctuation limit is exceeded; the downlink
-  already routes to gamma-gamma. Route the other links to a strong-regime
-  model (a Monte Carlo or the fidelity-2 layer; see the memory
-  `strong-fluctuation-numerical`).
+  only WARN when the weak-fluctuation limit is exceeded. The downlink can route
+  to gamma-gamma, but that route is OPT-IN: `downlink_budget` still defaults to
+  `model="lognormal"`, and only `model="auto"` selects the gamma-gamma Term
+  above `LOGNORMAL_PDF_LIMIT`. Fidelity 2 gives a MANUAL strong-regime route for
+  a terrestrial link and for an uncorrected uplink; a pre-compensated uplink has
+  no fidelity-2 route (it raises). What remains is the AUTOMATIC selection: route
+  the other links to a strong-regime model (a Monte Carlo or the fidelity-2
+  layer; see the memory `strong-fluctuation-numerical`).
 - **1-5. Validate the FAST point-ahead residual against the analytic Stone
   decorrelation (owner-flagged 2026-08-27).** The two routes compute the
   same quantity: the residual phase of a finite-aperture pre-compensation
@@ -293,18 +338,26 @@ The path forward for each is a second reference or a derivation.
   `uplink_fitting_term`), and then the full Terms (the FAST mean against
   the Marechal sum — first reading at AO(60), 60 deg, 1.5 m: 3.1 dB against
   3.79 dB). Sweep the point-ahead angle and the corrected order before the
-  FAST Term is trusted at other operating points.
+  FAST Term is trusted at other operating points. (No validation script for this
+  comparison exists in `validation/` yet.)
 - **1-4. The Dios duplicate (ponytail DEBT).** The analytic
   beam_wave_scintillation path and the coupled-flux MC duplicate the same
-  equations; the jitter correction sits in the MC path only
-  (olb/turbulence/beam_wave_scintillation.py:46). Converge on ONE
+  equations; the jitter correction sits in the MC path only (the `ponytail: DEBT`
+  comment in olb/turbulence/beam_wave_scintillation.py). Converge on ONE
   implementation; do not make a third copy.
-- **1-6. Certify the aperture-averaged lognormal power draw against
-  fidelity 2 (owner-flagged 2026-08-29).** The question: in WEAK turbulence,
+- **1-6. DONE (2026-09-01). Certify the aperture-averaged lognormal power draw
+  against fidelity 2 (owner-flagged 2026-08-29).** The `--full` certification run
+  closed this item. The script is
+  `validation/lognormal_certification/lognormal_certification.py` (commit
+  927c952), and the certification of record is that folder README plus
+  docs/physics.md Section 9e. The verdict is PASS to the 1 percent fade for a
+  weak horizontal path. The record below stays for the history.
+  The question: in WEAK turbulence,
   does the received-power distribution under APERTURE AVERAGING still follow the
   lognormal that the cheap analytic route assumes? The route takes the
   aperture-averaged index sigma2_P = A sigma2_I and draws from a lognormal (see
-  olb/links/terrestrial.py:162, olb/links/downlink.py:88). But an
+  the `sigma2_P = A * sigma2_I` step in olb/links/terrestrial.py and the
+  lognormal build in olb/links/downlink.py). But an
   aperture integrates a correlated lognormal field, and a sum of lognormals is
   NOT lognormal: as D grows the power drifts toward Gaussian (thinner tails), and
   for a finite Gaussian beam any beam wander adds a pointing tail the single
@@ -337,9 +390,7 @@ The path forward for each is a second reference or a derivation.
   (collimated) to 2.7x (diverged) LOW, so the analytic fade is optimistic by 0.24
   to 0.26 dB at the 5 % fade. The analytic on-axis index also takes the waist
   only, so it gives the collimated and the diverged launch the SAME number while
-  the field does not. The item stays OPEN: the `--full` deep-tail run (1500
-  trials, `standard` preset) is still to run, and the aperture-averaging factor A
-  is the quantity to look at next.
+  the field does not.
   UPDATE (2026-09-01, second pass): the script now SPLITS that index error in
   two, and the answer is the FILTER. One propagation for each trial
   (`propagate_turbulent_field`) now serves the whole aperture sweep, so the point
@@ -362,10 +413,7 @@ The path forward for each is a second reference or a derivation.
   FLAGS a case past 0.5 as BEAM-FILLING-LIMITED, in the log, the JSON and the
   figure. That is backlog 2-N2 measured. (b) The ABSOLUTE impact is small: the
   fade spread falls from 1.07 dB (D = 1 cm) to 0.06 to 0.13 dB (D = 40 cm), so
-  the WORST relative index error (2.9x) moves the 5 % fade by 0.26 dB only. The
-  item stays OPEN on the `--full` deep-tail run; the named target is now the weak
-  aperture-averaging factor A over `1 <= D/rho_0 <= 8`, BELOW the beam-filling
-  limit.
+  the WORST relative index error (2.9x) moves the 5 % fade by 0.26 dB only.
   DONE for this path (2026-09-01, the `--full` run: 1500 trials for each
   launch, `standard` preset, about 2.8 hours). VERDICT PASS to the 1 % fade:
   the refit lognormal agrees inside 0.128 dB at the 5 % fade and 0.210 dB at
@@ -452,9 +500,12 @@ The path forward for each is a second reference or a derivation.
   then a modal / zonal higher-order correction, and for the uplink a
   pre-compensation phase applied at the launch plane crossed with the point-ahead
   decorrelation. Each stage changes budget numbers, so each is an owner-gated
-  step. Pairs with 2-P4 (point-ahead anisoplanatism in the reciprocity route) and
-  the reference-model gap of 2-W1 (the field reads less coupling loss than FAST —
-  part of that gap is this missing correction, so the two are NOT yet comparable).
+  step. NOTE (2026-09-02): `olb/waveoptics/camera.py` `spot_metrics` MEASURES the
+  spot centroid, but it is diagnostic only. No runner and no budget uses that
+  measurement to remove the tilt. Pairs with 2-P4 (point-ahead anisoplanatism in
+  the reciprocity route) and the reference-model gap of 2-W1 (the field reads
+  less coupling loss than FAST — part of that gap is this missing correction, so
+  the two are NOT yet comparable).
 - **2-W1. Fidelity-2 is WIRED whole-path via `fidelity=0|1|2` (2026-08-28,
   branch `fidelity2-budget-wiring`). BOTH the turbulent split step AND the
   vacuum core are now consumed.** A fidelity-2 budget shows TWO Terms: a
@@ -467,13 +518,19 @@ The path forward for each is a second reference or a derivation.
   `smf_fidelity`/`precomp_fidelity`) are REMOVED at the budget level and folded
   into `fidelity`. It closes 1-1 (terrestrial fade lock), and addresses 0-P11 /
   Gap-3 and 0-N4 (the field solve sidesteps the analytic `eta_max` and the
-  near-field truncation flag). All in olb/models/coupling/waveoptics.py; see
-  `examples/waveoptics/budget_wiring.py`. STILL OPEN and OWNER-GATED: whether
-  wave optics ever becomes a DEFAULT. That is the reference-model gap — the field
-  reads LESS fibre coupling loss than the incumbents (0.7–2.9 dB less than FAST,
-  ~2.5 dB less than the terrestrial analytic Term). FOLLOW-UP
-  (owner-requested 2026-08-28): an AUTOMATIC fidelity selector, the way
-  `model="auto"` picks a distribution.
+  near-field truncation flag). All in olb/models/waveoptics.py (a FIDELITY-named
+  module at the `models/` level; the coupling package re-exports the two coupling
+  faces); see `examples/waveoptics/budget_wiring.py`. STILL OPEN and
+  OWNER-GATED: whether wave optics ever becomes a DEFAULT. That is the
+  reference-model gap — the field reads LESS fibre coupling loss than the
+  incumbents (0.7–2.9 dB less than FAST, ~2.5 dB less than the terrestrial
+  analytic Term). FOLLOW-UP (owner-requested 2026-08-28): an AUTOMATIC fidelity
+  selector, the way `model="auto"` picks a distribution.
+
+  UPDATE (2026-08-31): a SPACE link now takes the ANALYTIC geometric Term by
+  default (`run_fidelity2(vacuum="analytic")`, so `wave.vacuum` is None), and
+  only a TERRESTRIAL link keeps the wave vacuum Term. `run_fidelity2(vacuum=
+  "wave")` opts a space link back in.
 
   QUANTIFIED for the TERRESTRIAL MMF leg (2026-08-31, validation/defocus/). Most
   of the old terrestrial disagreement was the missing received-curvature defocus,
@@ -490,7 +547,9 @@ The path forward for each is a second reference or a derivation.
   quadratic pupil phase), so a non-focal-plane light bucket is
   simulated. The single-mode leg (`olb/waveoptics/smf.py`, the pupil-mode
   overlap) takes no defocus, so a fidelity-2 SMF budget always reads the
-  focal-plane coupling. A fidelity-2 cross-check of the analytic
+  focal-plane coupling. The trial body says so in place
+  (`olb/waveoptics/turbulence/run.py`, the smf_eta branch: "reads NO defocus
+  (backlog 2-W2)"). A fidelity-2 cross-check of the analytic
   `smf_eta_defocused(a, c)` therefore has no field reference yet. The fix is a
   defocus phase on the back-projected fibre mode, the same quadratic factor the
   MMF path uses.
@@ -525,7 +584,8 @@ The path forward for each is a second reference or a derivation.
   `SamplingReport` does not carry the moment error. The module self-check
   measures it instead, against `olb/waveoptics/schmidt/turbulence.py`, and
   the Cn2-weighted centroid grouping holds every moment inside 1 percent.
-  olb/waveoptics/turbulence/sampling.py:271, :311.
+  `_equal_weight_groups` and `_merge_layers` are in
+  olb/waveoptics/turbulence/sampling.py.
 - **2-I2. Continuous Cn2 profiles — drop the `DEFAULT_HS` crutch (HIGH,
   owner-flagged 2026-08-27).** HV5/7 and the other Cn2 models are continuous
   functions; the 20-layer `DEFAULT_HS` array is a hand-made discretisation,
@@ -542,7 +602,8 @@ The path forward for each is a second reference or a derivation.
   `_plan_space` in olb/waveoptics/turbulence/sampling.py accept a callable
   `cn2(h)` and compute the group integrals, centroids, Rytov shares, and the
   Eq. (9.65) moments by quadrature on the callable; `DEFAULT_HS` stays only
-  as the fallback for an array caller. This also makes the Gauss-quadrature
+  as the fallback for an array caller. (Both still take `hs` and `cn2_profile`
+  as ARRAYS only.) This also makes the Gauss-quadrature
   screen placement (tracker candidate, S-22) implementable. (2) LATER, and
   separately: the fidelity-0/1 modules that integrate over `hs` arrays
   (slant extinction and scintillation, uplink flux, FAST) move to callables;
@@ -591,14 +652,17 @@ The path forward for each is a second reference or a derivation.
   wave-optics code. Do NOT copy the rows here; read Table 2 of
   docs/schmidt-crosscheck.md. The HIGH-priority rows are: S-13 (the
   co-moving route has no book equation; compare it against the scaled flat
-  grid of Eq. (6.65) on the 600 km uplink — the WP5 example now measures
-  1.7e-3 soft and 2.3e-2 hard at m = 247), S-14 (the split step holds ONE
-  flat pitch; Eq. (8.18) gives each step its own, so the grid cannot grow
-  with a diverging beam), S-16 (constraints 1 and 2 of Ch. 7 are
+  grid of Eq. (6.65) — the WP5 example
+  `examples/schmidt/propagator_kernels.py` now measures 1.7e-3 soft and
+  2.3e-2 hard at m = 247, on a 500 m hop of a 1 mm waist; the tracker still
+  asks for the same comparison on the 600 km uplink), S-14 (the split step
+  holds ONE flat pitch; Eq. (8.18) gives each step its own, so the grid
+  cannot grow with a diverging beam), S-16 (constraints 1 and 2 of Ch. 7 are
   implemented nowhere; `guard = 4.0` and `pixels_per_feature = 16` have no
-  source), S-21 (the three turbulent geometry constraints of Eqs. (9.86) to
-  (9.88) are never evaluated), and S-22 (the layer moment rule; the same
-  item as 2-N1). The MEDIUM rows S-15 (the absorber shape), S-17 (the
+  source), and S-21 (the three turbulent geometry constraints of Eqs. (9.86)
+  to (9.88) are never evaluated). S-22 (the layer moment rule; the same item
+  as 2-N1) is now LOW in the tracker, because WP7 measured it. The MEDIUM
+  rows S-15 (the absorber shape), S-17 (the
   Fresnel minimum distance), S-20 (the phase pitch rule) and S-27 (the
   aotools subharmonic screen) are recorded there too. Each one is an owner
   decision, because each one moves a production number.
@@ -607,28 +671,38 @@ The path forward for each is a second reference or a derivation.
   snapshots only — no fade rate, no fade duration. The design note lives in
   the class docstring.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
-  and the `"retro"` direction raise (run.py:111, :252, :393). The two
+  and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
 - **2-P3. No co-moving (spherical) screen.** `split_step` takes a flat grid
   only; a long slant path pays the pixel cost.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
-  docs/api-waveoptics.md:644).
+  docs/api-waveoptics.md:824).
 - **2-I1. `TurbWaveResult` is a minimal scalar record — DO NOT extend it
   piece by piece.** The rich record (the E-field inside the receive
-  aperture) gets its own design session (run.py:83; memory
-  `waveoptics-results-deferred`).
+  aperture) gets its own design session (olb/waveoptics/turbulence/run.py:203;
+  memory `waveoptics-results-deferred`). NOTE (2026-09-02): the one permitted
+  extension is done — `TurbTrial.detector_etas` holds the per-arm coupling
+  efficiencies of a multi-detector run, and it stays None for a single detector.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
   the aperture-averaged analytic factor fails when the aperture holds the
   beam (the 100 mm bucket case); the grid sizer warns past `forvard_max_z`
-  and under the `n_max` clamp (olb/waveoptics/grid.py:181, :200); the
+  and under the `n_max` clamp (olb/waveoptics/grid.py:208, :227); the
   runner warns when the receive aperture reaches the absorbing band
-  (turbulence/run.py:282) — an automatic grid-from-aperture size would
+  (turbulence/run.py:476) — an automatic grid-from-aperture size would
   close that one.
-- **2-N3. Speed: tune the grid size and resolution along the path**,
-  validated against the well-sampled reference runs (memory
-  `waveoptics-speed-exploration`).
+- **2-N3. PARTLY DONE (2026-08-29). Speed: tune the grid size and resolution
+  along the path**, validated against the well-sampled reference runs (memory
+  `waveoptics-speed-exploration`). Speed-plan P2 measured the two obvious ideas
+  and BURIED both for the wired scenarios
+  (`validation/waveoptics_speed/coarse_screen_experiment.py` and
+  `beam_grid_experiment.py`): a coarse-then-interpolate screen loses the
+  Fresnel-scale phase and fails the sigma2_I kill line, and a beam-sized screen
+  or a per-plane-pitch chain (gap S-14) buys no pixel operations on a space slab
+  or a terrestrial path. WHAT REMAINS: a resolution schedule for a long
+  CO-MOVING space path, which the runner avoids today because it simulates the
+  ~20 km slab alone with a plane-wave input.
 - **2-N5. Investigate the auto grid sizer — does it discriminate elevation?
   (owner-flagged 2026-08-29).** In `presentation/gen_data.py` the two hero
   elevations, 90 deg (zenith) and 30 deg, produce the IDENTICAL grid under the
@@ -651,7 +725,8 @@ The path forward for each is a second reference or a derivation.
   and screen caches settle. Per-trial cost tracks the grid, and the grids are
   equal; the presentation numbers reflect which elevation ran first. Pairs with
   2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
-  screen placement). olb/waveoptics/turbulence/sampling.py:494.
+  screen placement). See `turbulent_grid` in
+  olb/waveoptics/turbulence/sampling.py.
 - **2-N4. Run WHOLE fidelity-2 sims in parallel (owner-flagged 2026-08-29).**
   The current campaign parallelises the trials WITHIN one run (the `Threader`
   thread pool, P3 measured that processes beat threads and threads saturate at 8
@@ -676,13 +751,50 @@ The path forward for each is a second reference or a derivation.
 ## Infrastructure and code debt
 
 - **I-1. Scalar-elevation limits.** The gamma-gamma Term
-  (olb/links/downlink.py:185) and the FAST Term
-  (olb/models/fast.py:132) refuse an elevation array. Vectorise or
-  loop internally.
-- **I-2. Duplicate physics copies (Gap 10).** The Rytov standard deviation,
-  the plane-wave coherence radius, and the Fried parameter each exist in
-  three places; the lognormal dB faces exist twice (crosscheck TL-01..04,
-  GF-05, GF-10, KR-23, KR-25). Converge.
+  (`_gamma_gamma_term` in olb/links/downlink.py) and BOTH FAST Terms
+  (`smf_fast_term` and `uplink_fast_term` in olb/models/fast.py) refuse an
+  elevation array. `downlink_scintillation_term` also refuses an array when the
+  auto selector routes to the gamma-gamma Term. Vectorise or loop internally.
+- **I-2. Duplicate physics copies (Gap 10) — DONE for the production paths
+  (2026-09-04).** The four crosscheck forms now each have ONE canonical home
+  that every budget-facing copy reads:
+  1. The lognormal dB FACES (TL-01..04, DL-01..04, crosscheck G-24). The four
+     expressions (mean_db, quantile, sampler, the -sigma_l2/2 offset) were
+     written inline in BOTH `downlink._lognormal_term` and
+     `terrestrial_scintillation_term`. Both now build through the ONE shared
+     adapter `olb/models/fade.py` `irradiance_fade_term` applied to the andrews
+     lognormal model (`lognormal_params`/`_mean_log`/`_quantile`/`_rvs`). The
+     array-elevation downlink path is preserved (`lognormal_rvs` draws
+     `(n, *shape)`). The dead `scipy.stats.norm` and `_LN10` imports were removed
+     from both link modules.
+  2. The plane-wave RYTOV standard deviation (GF-05, KR-23). Two hard-coded
+     production copies were left. `plane_wave_scintillation.sigma1_rytov` (missed
+     when its neighbour `coherence_radius` was delegated) and the inline
+     `olb/links/terrestrial.py` regime-gate now both read
+     `andrews.scintillation.rytov_variance(wave="plane")`. `sigma1_rytov` keeps
+     its `@assumes` weak-regime Constraint, and no production Term traces it, so
+     no assumptions frame moves; the terrestrial call sits outside the factory
+     trace, so it adds no provenance.
+  3+4. The plane-wave COHERENCE RADIUS (GF-10) and single-path FRIED parameter
+     (GF-11, KR-25) were ALREADY converged by the Andrews-foundation refactor and
+     the de-vendoring: `gaussian_fried.plane_wave_coherence_radius`,
+     `gaussian_fried.plane_wave_fried_parameter`, `gaussian_fried.rytov_std`,
+     `plane_wave_scintillation.coherence_radius` and `ao.py` all DELEGATE to
+     `andrews.structure`, and the old `my_analysis_modules` copy is gone.
+  NUMBER-SAFETY PROOF: a full-precision before/after harness over 113 values
+  (mean_db, three quantiles, seeded 1000-draw samples, every meta field and the
+  assumptions frame of the downlink and terrestrial scintillation Terms, plus
+  `sigma1_rytov`) shows mean_db, ALL Monte-Carlo samples, meta and assumptions
+  BIT-IDENTICAL. The only movement is the quantile face, worst 3.6e-15 dB, from
+  the adapter's exp->log10 round-trip (the same rounding `fade.py`'s parity
+  self-check already accepts at `< 1e-12`; the gamma-gamma Term already used the
+  adapter). Every affected module self-check passes.
+  DELIBERATELY LEFT (not a production duplicate): `andrews/wander.py` keeps its
+  own `spherical_fried_parameter` (0.16) and `plane_fried_parameter_slant` (0.42)
+  forms. That module is the parked, measurement-only Andrews wander route (0-W8,
+  Conflict C-01): no budget consumes it, its self-check validates it
+  independently, and its constant convention differs, so it is not a
+  trivially-safe converge. Leave it until the wander route is ever wired.
 - **I-3. The diverged (Theta, Lambda) coupled-flux feed cross-check test —
   DONE (2026-09-01).** The `uplink_flux.py` module self-check now drives the
   `_scintillation_beam` diverged feed through the coupled-flux on-axis kernel
@@ -723,30 +835,38 @@ The path forward for each is a second reference or a derivation.
   so and point to 0-W3 (no Term consumes it). Fixed in docs/architecture.md,
   docs/physics.md, and docs/andrews-crosscheck.md (the batch-2 note, the Table 2
   legend, the G-34 row, and the 2.91 constants-ledger row).
-- **DD-2. DONE (2026-08-28).** The README "Next / planned" graph dropped the
-  two closed nodes NT5 (validate the diverged coupled-flux feed; measured and
-  closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2), and
-  corrected NT1, which flatly said "DTHETA = 0 today" although the uplink now
-  computes the point-ahead offset (1-2). STILL to sweep (found while fixing this,
-  NOT yet done, owner presentation choice): the fidelity-ladder diagram node F2
-  reads "NO Term yet", but 2-W1 wired `waveoptics_turbulence_term`; and NP2
-  frames pre-comp uplink scintillation as a "MAJOR GAP" to fill, although Gap 2
-  is DECIDED (no analytic Term; FAST is the model of record).
+- **DD-2. PARTLY DONE (verified 2026-09-04).** The README "Next / planned" graph
+  dropped the two closed nodes NT5 (validate the diverged coupled-flux feed;
+  measured and closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2),
+  and corrected NT1, which flatly said "DTHETA = 0 today" although the uplink now
+  computes the point-ahead offset (1-2). The fidelity-ladder diagram node F2 is
+  ALSO corrected: it now reads "SMF and MMF Terms", not "NO Term yet". STILL to
+  sweep (owner presentation choice): the README node NP2 frames pre-comp uplink
+  scintillation as a "MAJOR GAP" to fill, although Gap 2 is DECIDED (no analytic
+  Term; FAST is the model of record).
 - **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
   caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
   `QualityPreset` table.
 - **DD-4. Crosscheck Table 3 is partly stale** — the "not found in olb"
-  spectra rows predate WP3's andrews/spectra.py.
-- **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
+  spectra rows predate WP3's andrews/spectra.py. The rows for 5.92, 3.3,
+  1.802 / 0.254 and the k0 = C0/L0 conventions still read "ABSENT from olb",
+  but `olb/turbulence/andrews/spectra.py` now holds all of them
+  (`TATARSKII_KM`, `MODIFIED_KL`, the bump term, `VON_KARMAN_C0` and
+  `EXPONENTIAL_C0`).
+- **DD-5. Citation faults — AO-07 and the C-02 note addressed; PW-05 left,
+  owner-gated.**
   AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
   (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on
   the genuine Kolmogorov phase PSD, which is a correct attribution). The Noll
   residual-coefficient citations (`ao.py` module docstring and the constants
   block) were missing the required DOI; added `10.1364/JOSA.66.000207`
-  (already used elsewhere). STILL OPEN, need owner physics judgment: the
-  aperture-averaged integral cites Ch. 12 where Ch. 9 Eq. (25) / Ch. 10 Eq. (59)
-  may be closer (PW-05); and the C-02 reference-plane docstring note is still
-  owed.
+  (already used elsewhere). The C-02 reference-plane note is now PAID by the
+  assumptions refactor: `gaussian_fried.TX_REFERRED_WEIGHT` and
+  `coupled_flux.PATH_WEIGHT` are named Constraints that state the
+  transmitter-referred path weight and cite Dios Eq. (3),
+  DOI 10.1364/AO.43.003866. STILL OPEN, needs owner physics judgment: the
+  aperture-averaged integral in `plane_wave_scintillation.py` still cites
+  Ch. 12, Eq. (38) where Ch. 9 Eq. (25) / Ch. 10 Eq. (59) may be closer (PW-05).
 - **DD-6. DONE (verified 2026-08-28).** The point-ahead decorrelation framing
   is fixed in BOTH the code and the docs (committed ee23223, 2026-08-24). This
   backlog entry was stale: physics.md 5g (the "NOT a penalty for correcting"
@@ -778,7 +898,9 @@ The path forward for each is a second reference or a derivation.
   bit-for-bit against the `my_analysis_modules` working tree (which held the
   Dios-verified fixes). olb no longer depends on `my_analysis_modules`. The
   kernel-repo owner may still want to commit its own working tree, but that is
-  no longer an olb blocker.
+  no longer an olb blocker. (One stale trace is left: the `pyproject.toml`
+  Pylance block still names the deleted `olb/_deps.py` and keeps
+  `extraPaths = ["../my_analysis_modules"]`. It has no runtime effect.)
 - **X-2. KR-24: the kernel keeps three wrong constants**
   (general_atmospherics.py:23 uses 0.54 / 1.22 / 0.509; the book uses
   0.49 / 1.11 / 0.51). The olb half is fixed; the kernel half is open.
@@ -790,10 +912,13 @@ The path forward for each is a second reference or a derivation.
 ## Big reference buckets (do not work these as one item)
 
 - **Crosscheck Table 2: 166 book-capability gap rows, 84 at priority P1**
-  (docs/andrews-crosscheck.md:365–543). Named still-open rows: G-20, G-41,
-  G-42, G-71, G-75, G-97, G-98, G-125, G-133, G-140, G-151. Mine per work
-  package.
-- **Crosscheck Table 3: about 40 book constants absent from olb** (partly
+  (docs/andrews-crosscheck.md, the rows between the Table 2 heading and Table 3).
+  Named still-open rows: G-41, G-42, G-71, G-75, G-97, G-98, G-125, G-133,
+  G-140, G-151. G-20 (the Gaussian-beam weak-fluctuation gate) is CLOSED in the
+  code: `andrews.scintillation.rytov_weak(sigma2_R, Lambda)` applies both
+  Ch. 5, Eq. (16) conditions, and the terrestrial and uplink Terms call it. The
+  Table 2 row for G-20 is not yet marked. Mine the rest per work package.
+- **Crosscheck Table 3: 40 book constants absent from olb** (partly
   stale, see DD-4).
 - **Inherent limits (recorded, not fixable from this book):** the
   plane-parallel slant atmosphere (zenith-angle limit 60 deg); the

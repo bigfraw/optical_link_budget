@@ -45,6 +45,7 @@ from ..assumptions import (
 from .andrews.aperture import averaged_index as _andrews_averaged_index
 from .andrews.scintillation import (
     scintillation_index as _andrews_scintillation_index,
+    rytov_variance as _andrews_rytov_variance,
     LOGNORMAL_PDF_LIMIT, WEAK_REGIME_LIMIT, rytov_weak,
 )
 from .andrews.structure import coherence_radius as _andrews_coherence_radius
@@ -378,12 +379,13 @@ def sigma1_rytov(cn2, wavelength, path_length_m):
 
     formula:
         sigma_1 = ( 1.23 Cn2 k^(7/6) L^(11/6) )^0.5,   k = 2*pi/lambda
-    The Rytov variance is sigma_1^2. Source: Andrews and Phillips, 2nd ed.
-    (2005), Ch. 5.
+    The Rytov variance is sigma_1^2. This is the square root of the canonical
+    `olb.turbulence.andrews.scintillation.rytov_variance` (wave="plane"), which
+    holds the equation, the DOI, and the spherical-wave and Gaussian-beam forms.
+    Source: Andrews and Phillips, 2nd ed. (2005), Ch. 5.
     '''
-    k = _wavenumber(wavelength)
-    return (1.23 * np.asarray(cn2, dtype=float) * k ** (7.0 / 6.0)
-            * np.asarray(path_length_m, dtype=float) ** (11.0 / 6.0)) ** 0.5
+    return _andrews_rytov_variance(wavelength, path_length_m, cn2,
+                                   wave='plane') ** 0.5
 
 
 def coherence_radius(cn2, wavelength, path_length_m):

@@ -27,7 +27,6 @@ olb.links.downlink._lognormal_term).
 import warnings
 
 import numpy as np
-from scipy.stats import norm
 
 from ..results import Budget, Term
 from ..assumptions import (trace_assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
@@ -39,15 +38,17 @@ from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.beam_wave_scintillation import on_axis_scintillation_index
 from ..turbulence.plane_wave_scintillation import aperture_averaging_factor_weak
 from ..turbulence.andrews.beam import beam_params
-from ..turbulence.andrews.scintillation import (rytov_weak, LOGNORMAL_PDF_LIMIT,
+from ..turbulence.andrews.scintillation import (rytov_weak, rytov_variance,
+                                        LOGNORMAL_PDF_LIMIT,
                                         RYTOV_CONFIDENT_WEAK, WEAK_REGIME_LIMIT)
+from ..turbulence.andrews.distributions import (lognormal_params,
+                                        lognormal_mean_log, lognormal_quantile,
+                                        lognormal_rvs)
+from ..models.fade import irradiance_fade_term
 
 # Below this launch-truncation loss the beam is an untruncated Gaussian, so the
 # transmit Gaussian-efficiency term is skipped [dB]. Matches olb.links.uplink.
 TX_TRUNCATION_MIN_DB = 1e-2
-
-# Natural log of ten, for the dB conversions in the lognormal faces.
-_LN10 = np.log(10.0)
 
 # Points on the constant-Cn2 horizontal grid for the scintillation integral. The
 # on-axis index integrates over the path, so a few hundred points converge it.
@@ -167,20 +168,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     # patch one. See memory dios-scintillation-convergence / pointing-jitter-into-beta.
 
     sigma2_P = A * sigma2_I
-
-    sigma_l2 = np.log(1.0 + sigma2_P)
-    sigma_l = np.sqrt(sigma_l2)
-
-    mean_db = (5.0 / _LN10) * sigma_l2
-
-    def quantile(p):
-        # Loss exceeded a fraction (1 - p) of the time. Phi_inv = norm.ppf.
-        z = norm.ppf(1.0 - p)
-        return -10.0 / _LN10 * (-sigma_l2 / 2.0 + sigma_l * z)
-
-    def sampler(n, rng):
-        P = rng.lognormal(mean=-sigma_l2 / 2.0, sigma=sigma_l, size=n)
-        return -10.0 * np.log10(P)
+    # The lognormal fade faces (mean_db, quantile, sampler) come from the ONE
+    # shared adapter olb.models.fade.irradiance_fade_term applied to the andrews
+    # lognormal model. The four dB expressions were duplicated inline here and in
+    # olb.links.downlink; they now live in one home (crosscheck G-24 / gap 10).
+    sl2 = lognormal_params(sigma2_P)
 
     # TWO separate weak-fluctuation tests (see olb.turbulence.andrews.scintillation
     # and Conflict C-05 / TL-05 in docs/andrews-crosscheck.md):
@@ -196,8 +188,9 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     #  2. The lognormal-PDF house rule: is the fade PDF SHAPE trusted? This is a
     #     tighter test on the index sigma2_I < LOGNORMAL_PDF_LIMIT (0.25, from the
     #     optimistic lognormal tail, Ch. 11.3, printed p. 451), kept SEPARATE.
-    k_wave = 2.0 * np.pi / wavelength
-    sigma2_R = float(1.23 * cn2 * k_wave ** (7.0 / 6.0) * L ** (11.0 / 6.0))
+    # The plane-wave Rytov variance sets the regime gate. Use the canonical
+    # andrews form (this is outside the trace above, so it adds no provenance).
+    sigma2_R = float(rytov_variance(wavelength, L, cn2, wave='plane'))
     regime = rytov_weak(sigma2_R, Lambda)
     pdf_valid = bool(sigma2_I < LOGNORMAL_PDF_LIMIT)
     # The traced physics functions own the beam type, the regime, the spectrum,
@@ -261,12 +254,11 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
             "Use a gamma-gamma or a Monte Carlo model."
         )
 
-    return Term(
-        name="scintillation",
-        category="turbulence",
-        mean_db=float(mean_db),
-        sampler=sampler,
-        quantile=quantile,
+    return irradiance_fade_term(
+        "scintillation", "turbulence",
+        mean_log=lognormal_mean_log(sl2),
+        quantile=lambda p: lognormal_quantile(p, sl2),
+        rvs=lambda n, rng: lognormal_rvs(n, sl2, rng),
         note="horizontal Gaussian-beam lognormal scintillation, aperture-averaged",
         meta={
             "model": "lognormal",
