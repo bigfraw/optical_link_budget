@@ -31,11 +31,18 @@ are from 2026-08-26 and can drift.
    integrates it, and the default fidelity-2 SPACE budgets use the continuous
    plan. Step 2 (the fidelity-0/1 `hs`-array modules move to callables) is
    still open. See 2-I2.
-2a. **VERY IMPORTANT — DO SOON (owner-flagged 2026-09-02): the tail-convergence
-   study.** The continuous planner from step 1 now lets the near-ground
-   resolution be dialled independently. Run the study WP7 could not: does the
-   deep SMF fade tail (p5/p1 — the link availability margin) converge as the
-   near-ground `Cn2` is resolved? See 2-I2T.
+2a. **DONE (2026-09-04) — the tail-convergence study.** 1000 trials for each
+   of eight cases at 30 deg, the grid pinned: the deep tail (p1) and every
+   point quantity are converged at the default count; the SMF mid-tail (p5)
+   softens by about 2 dB from 9 to 25 screens (the safe direction) and its
+   trend past 25 is unresolved. The screen generator is NOT the cause. See
+   2-I2T and 2-N6, and `validation/tail_convergence/`.
+2b. **HIGH (owner-flagged 2026-09-04) — implement the OUTER SCALE.** The
+   fidelity-2 default `L0 = inf` claims an outer scale a 3.5 m grid cannot
+   hold; the screens behave like L0 of 30 to 100 m, and the SMF fade tail
+   pays of the order of 2 dB at p5 for the difference (an estimate, not yet
+   measured). Choose an explicit site L0, thread
+   it to the screens and to the analytic tilt Terms. See 2-P5 and 0-W4.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -113,7 +120,10 @@ are from 2026-08-26 and can drift.
   bound. Note conflict C-04: olb holds two tilt conventions (gradient 0.174
   vs the Noll route in ao.py); a caller that adds them must say which.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
-  consumer.** No Term passes an inner or outer scale. No Term reads the
+  consumer. THE OUTER SCALE IS NOW HIGH (owner-flagged 2026-09-04): see
+  2-P5, the fidelity-2 half, which showed that the `L0 = inf` default claims
+  an outer scale the grid cannot hold and that the SMF fade tail pays about
+  2 dB at p5 for the choice.** No Term passes an inner or outer scale. No Term reads the
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
   Term (README node NT7; also the deferred TODO at
@@ -665,8 +675,31 @@ The path forward for each is a second reference or a derivation.
     over `hs` arrays (slant extinction and scintillation, uplink flux, FAST) move
     to callables; that step is wide, mechanical, and must move no numbers. Still
     NOT built.
-- **2-I2T. The tail-convergence study (VERY IMPORTANT — DO SOON, owner-flagged
-  2026-09-02).** Now that the continuous planner (2-I2 step 1) lets the
+- **2-I2T. The tail-convergence study — DONE (2026-09-04).** The study is
+  `validation/tail_convergence/` (its README holds the table and the verdict;
+  the note of record is in docs/schmidt-crosscheck.md after the post-WP7
+  measurement). Eight `Campaign` cases of 1000 trials at 30 deg on the hero
+  0.7 m uncorrected SMF downlink, the GRID PINNED at 1024 px (the sizer moves
+  the grid with the count, so a naive `min_screens` sweep moves two things):
+  the shipped `standard` and `rapid` presets as they are, 5 / 7 / 9 / 15 / 25
+  screens on the pinned grid, and the 9-screen plan with its 80 m ground screen
+  cut into four equal-Cn2 sub-screens. VERDICT: (1) the grid is a null (512
+  against 1024 px, +0.27 dB at p5, 0.2 sigma); (2) the SMF p5 falls 31.5 ->
+  29.0 dB from 5 to 25 screens (2.5 sigma) and p10 falls 1.3 dB, MORE screens
+  give LESS fade, the ground split lands on the 25-screen line, and the trend
+  past 25 is UNRESOLVED (`pin40` not run, owner decision); (3) p1 does not move
+  (spread 1.1 dB against +-1.5 dB bars), so the 99 percent margin of the
+  default is unchanged and the 95 percent margin is about 2 dB PESSIMISTIC;
+  (4) the POINT irradiance does not move at any count (spread 0.4 dB, index
+  0.23 to 0.26 against the analytic 0.22), so the count effect is the phase
+  the fibre overlap pays, not scintillation; (5) the screen generator is not
+  the cause (`validation/screen_stacking/`, see 2-N2); (6) `rapid` as shipped
+  reads inside the standard spread at 1/30 of the cost, its 10.3 mm pixel
+  softening p5 by 1.6 dB (2 sigma) against the same plan on a 3.4 mm pixel;
+  (7) the post-WP7 hint (more fade with thin near-pupil screens) is REVERSED.
+  No re-tiering is forced; the p5 number goes to the 2-I3 catalogue as the
+  fibre row. NOT run: 20 deg, `pin40`. The original brief follows.
+  Now that the continuous planner (2-I2 step 1) lets the
   near-ground resolution be dialled INDEPENDENTLY of the physics, run the study
   that WP7 could not. THE QUESTION: does the deep SMF fade tail (p5, p1) CONVERGE
   as the near-ground `Cn2` is resolved with more, thinner screens — or is the
@@ -712,6 +745,18 @@ The path forward for each is a second reference or a derivation.
   REFERENCE itself. The knob stays for validation, but the shipped default must
   not ask the user to trade accuracy.
 
+  THE FIBRE ROW IS MEASURED (2026-09-04, 2-I2T): on the 30 deg slab the SMF
+  p5 fade falls about 2 dB from 9 to 25 screens and is not converged at 25,
+  while p1, the mean and every point quantity are flat from 5 screens up. So
+  a fibre receiver's mid-tail is the one quantity that asks for more than the
+  `standard` floor, in the safe direction; the `rapid` floor of 5 holds for
+  the SMF tail inside the standard spread. OWNER FLAG (2026-09-04): `rapid`
+  is PROBABLY the choice for the ONE shipped default. It reads inside the
+  standard spread at every quantile of the SMF and the point fade at 30 deg,
+  at 1/30 of the cost (24 s for 1000 trials), and at low elevation the Rytov
+  cap sets the count for both presets anyway. Run the catalogue before the
+  switch; do not switch unasked.
+
   THE TEST CATALOGUE (2026-08-29). The current floors rest on a NARROW sweep: a
   30 deg slab and a 2 km horizontal path (docs/schmidt-crosscheck.md WP7). That
   is too thin to certify a minimum. Build a bigger catalogue of conditions and
@@ -742,6 +787,51 @@ The path forward for each is a second reference or a derivation.
   Fresnel minimum distance), S-20 (the phase pitch rule) and S-27 (the
   aotools subharmonic screen) are recorded there too. Each one is an owner
   decision, because each one moves a production number.
+- **2-P5. THE OUTER SCALE — HIGH (owner-flagged 2026-09-04).** Production
+  fidelity 2 runs `L0_m = inf` by default (`run_fidelity2`, `Campaign`,
+  `propagate_turbulent_scenario`), but a 3.5 m grid with three subharmonic
+  levels holds scales up to about 27 x side = 95 m and nothing beyond. The
+  screen-stacking test (`validation/screen_stacking/`, 2026-09-04) measured
+  the result against the L0 = inf Kolmogorov reference: the tip-tilt-removed
+  aperture variance is exact (Delta3 = 1.00) and the piston-removed variance
+  is 0.75 to 0.84 of Noll, at every screen count, with the structure function
+  0.70 to 0.79 of Fried at r = 0.7 m and 0.59 to 0.72 at 1.4 m. That "deficit"
+  is the missing scales beyond the subharmonic reach: the von Karman theory
+  (the Noll piston filter over the von Karman PSD, Schmidt Ch. 9, Eq. (9.50))
+  gives a piston-removed aperture variance of 0.630 of Kolmogorov at
+  L0 = 25 m and 0.765 at L0 = 95 m for D = 0.7 m, and `validation/screens/FINDINGS.md` Q1 shows the
+  same screens read 0.92 to 1.04 against a von Karman L0 = 25 m theory. So
+  the production screens BEHAVE like an atmosphere with an effective outer
+  scale of 30 to 100 m while the code CLAIMS infinity, and the difference is
+  the fibre TILT that the SMF fade pays: of the order of 2 dB at p5 on the
+  30 deg hero downlink (an ESTIMATE from the tilt share of the fade of 2-I2T,
+  NOT a measurement; a matched-seed L0 = inf against L0 = 25 m campaign pair
+  would measure it), the largest known bias in the fidelity-2 SMF tail, and a
+  PHYSICS CHOICE, not a numerical limit. For a
+  tracked terminal (2-AO) it matters much less. THE WORK: (1) choose an
+  explicit outer scale for the production screens (a site parameter on
+  `Site`, threaded to `L0_m`; von Karman; a value of order 10 to 100 m near
+  the ground, with a source); (2) DONE (2026-09-04): the stacking test takes
+  `--L0 <m>` and judges the screens against the von Karman theory at that L0
+  (the Noll piston and tilt filters over the von Karman PSD, the Assemat and
+  Wilson covariance; the route reproduces Fried and Noll at L0 = 1e7 m inside
+  1 percent). RESULT: the L0 = inf production screens match the L0 = 95 m
+  theory exactly (Delta1 0.765 against 0.765); at L0 = 25 m one screen reads
+  Delta1 1.000 +-0.026 and D(r) inside 1 to 5 percent to r = 0.7 m, so the
+  generator is faithful to the spectrum it is asked for, with a mild real
+  stacking drift of about 5 percent for a 9- to 25-screen plan (1 to 2
+  sigma) that is a fraction of a dB on the SMF tail; (3) the fidelity-0/1
+  half of 0-W4, so the analytic tilt and wander Terms read the same L0 (the
+  Andrews branches exist and no Term passes them); (4) a sizer check: three
+  subharmonic levels reach 27 x the grid side (95 m standard, 71 m rapid at
+  30 deg), so warn and raise `n_sub_levels` (a factor 3 a level, nearly free)
+  when L0 > 3^n x side, which bites for a SMALL receive aperture, and do not
+  grow the grid for it; (5) MEASURE the outer-scale effect on the fibre tail
+  (owner-requested 2026-09-04): a matched-seed `Campaign` pair on the pinned
+  30 deg grid, `L0_m = inf` against `L0_m = 25` (and the chosen site L0 once
+  step 1 sets it), 1000 trials each, read with the tail-convergence analysis,
+  so the "estimated 2 dB at p5" becomes a number. About 25 minutes on 8
+  workers. Pairs with gap S-27 and 2-N2.
 - **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
   raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
   snapshots only — no fade rate, no fade duration. The design note lives in
@@ -772,6 +862,15 @@ The path forward for each is a second reference or a derivation.
   None for a single detector.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
+  MEASURED AGAIN on the production 1024 px grid (2026-09-04,
+  `validation/screen_stacking/`, phase only): every plan holds 0.75 to 0.84 of
+  the Noll piston-removed variance over a 0.7 m aperture and 1.00 of the
+  tilt-removed variance, so the missing power is ALL tip and tilt, and it is
+  the SAME fraction whether the turbulence sits in 1, 4, 5, 9 or 25 screens
+  (the ground layer as 1 or 4 screens agrees inside 0.3 sigma) — the deficit
+  is a fixed fraction of each screen, so a screen-count sweep carries no
+  generator bias, but every fidelity-2 SMF fade runs on about 20 percent less
+  tilt variance than Kolmogorov, at every count;
   the aperture-averaged analytic factor fails when the aperture holds the
   beam (the 100 mm bucket case); the grid sizer warns past `forvard_max_z`
   and under the `n_max` clamp (olb/waveoptics/grid.py:208, :227); the
@@ -839,7 +938,22 @@ The path forward for each is a second reference or a derivation.
   the block length from the coherence time and the wind, and record the choice.
   Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
   needs the temporal axis (2-P1) first.
-- **2-N6. A large-campaign validation is the NEXT STEP (2026-09-04).** The
+- **2-N6. The large-campaign validation — DONE (2026-09-04), by the
+  tail-convergence study (2-I2T).** Eight campaigns of 1000 trials (1.7 GB).
+  MEASURED: 1000 trials at 512 px take 172 s on 16 workers (0.17 s/trial), at
+  256 px 24 s, at 1024 px 0.78 s/trial on 16 workers and 0.6 to 1.35 s/trial
+  on 8 workers for 5 to 25 screens (the cost is near linear in the screen
+  count); disk 262 MB for 1000 trials at 1024 px with the 0.7 m field patch,
+  66 MB at 512 px; a 16-worker pool at 1024 px with 15 screens ran OUT OF
+  MEMORY (about 1 GB a worker against 9 GB free), every finished block stayed,
+  and an 8-worker call RESUMED with no rerun (the three complete cases
+  returned in 0.0 s) — so the resume after a kill works and `Campaign.run` has
+  no memory guard, the caller sizes the pool; the load of one case holds
+  262 MB of fields. The tail settles as the count grows: p1 wanders over 5 dB
+  between 100 and 800 trials and reaches +-1.5 dB at 1000, p5 +-1 dB, so the
+  ten-past-p1 rule is the right floor. `Campaign` gained a `plan=` kwarg
+  (mirroring `grid=`, fingerprinted) for the pinned-grid cases. The original
+  brief follows. The
   campaign store is built and its self-check and demo run at tens of trials
   only. Nobody has run thousands of trials through it yet. Measure: the wall
   time and the disk size of a real campaign, the resume after a kill, the

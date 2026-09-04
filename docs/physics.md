@@ -1910,7 +1910,11 @@ run log, a memory note or a backlog aside is not documented.
 - **VERDICT.** The production SNAPSHOT route needs no change: the subharmonic
   screen matches the oversized screen on every measured metric. Select a finite
   outer scale from the physics, then size the screen side to one or two outer
-  scales. Do NOT build the temporal layer on the extruded screen: under frozen
+  scales. UPDATE (2026-09-04, Section 9k): the subharmonic screen already
+  reaches 27 x its side, so the rule is `L0 <= 27 x side` with three levels
+  (raise the level count when a small grid breaks it), not a side of one or
+  two outer scales; and a screen drawn with `L0 = inf` IS, in its measured
+  statistics, a von Karman screen at `L0 = 27 x side`. Do NOT build the temporal layer on the extruded screen: under frozen
   flow (Taylor, DOI 10.1098/rspa.1938.0032) a row lag IS a time lag, so the
   extrusion defect smooths the temporal axis exactly, and a fade duration reads
   too benign. Prefer a shifted large screen.
@@ -1974,7 +1978,9 @@ run log, a memory note or a backlog aside is not documented.
   count of 7: its slant index runs about 10 percent low, and its mean power holds
   inside 0.11 dB. No preset may go under 4. The screen count follows the PRESET
   and not the layer count, so a 20-layer and a 200-layer profile of the same
-  atmosphere give the same plan.
+  atmosphere give the same plan. Section 9k extends this sweep to the FADE
+  TAIL at 1000 trials: the deep tail and every point quantity are flat from 5
+  screens up, and the SMF p5 softens about 2 dB from 9 to 25 screens.
 - **Script.** The sweep tables are in
   [schmidt-crosscheck.md](schmidt-crosscheck.md), the WP7 note.
 
@@ -2028,6 +2034,74 @@ run log, a memory note or a backlog aside is not documented.
   (`--full` for the run of record); write-up
   [validation/fast_stone_pointahead/README.md](../validation/fast_stone_pointahead/README.md).
   See backlog 1-5.
+
+### 9k. Does the fidelity-2 fade tail converge with the screen count, and what outer scale do the screens hold?
+
+- **Question.** Section 9i converged the MEAN and the aperture index. The fade
+  TAIL (p5, p1) sets the availability margin, and the post-WP7 re-test saw a
+  2 dB p5 hint at 200 trials. Does the deep SMF fade tail converge as the
+  near-ground `Cn2` is resolved with more screens? And, because the owner
+  suspected the screen generator (a stack of N screens might lose more of the
+  low-frequency band than one screen), does the generator itself depend on
+  the count? Backlog 2-I2T, 2-N6, 2-P5.
+- **Model under test.** The split-step layer of Section 7 end to end
+  (`propagate_turbulent_scenario` through `Campaign`), on the 30 deg hero
+  downlink (1550 nm, 500 km, a 0.7 m ground telescope with an UNCORRECTED SMF,
+  no tip-tilt and no AO), with the GRID PINNED at 1024 px / 3.43 mm, because
+  the sizer moves the grid with the screen count. Then the screen generator
+  alone (`ScreenFactory`, no propagation), stacking the same per-screen `r0`
+  lists.
+- **Reference.** The tail has no analytic reference; the cases check each
+  other with 68 percent bootstrap bars at 1000 trials (about +-0.7 dB at p5,
+  +-1.5 dB at p1). The point index checks against the plane-wave Rytov
+  variance of the slab (0.22). The screens check against Fried
+  `D(r) = 6.88 (r/r0)^(5/3)`, DOI 10.1364/JOSA.56.001372, the Noll
+  piston-removed and tilt-removed aperture variances 1.0299 and 0.134
+  `(D/r0)^(5/3)`, DOI 10.1364/JOSA.66.000207, Table IV, and, at a finite outer
+  scale, the same Noll filters integrated over the von Karman PSD (Schmidt,
+  DOI 10.1117/3.866274, Ch. 9, Eq. (9.50)) with the Assemat and Wilson
+  covariance, DOI 10.1364/OE.14.000988, Eq. (5).
+- **Measured (2026-09-04, eight campaigns of 1000 trials).** The grid is a
+  null: 512 against 1024 px on the same 9-screen plan agree at every quantile
+  (p5 +0.27 dB, 0.2 sigma). On the pinned grid the SMF p5 falls 31.5 -> 31.0
+  -> 31.2 -> 30.5 -> 29.0 dB from 5 to 25 screens (2.5 sigma), p10 falls
+  1.3 dB, and the 9-screen plan with its 80 m ground screen cut into four
+  equal-`Cn2` sub-screens lands on the 25-screen line (p5 29.8). p1 does not
+  move (37.6 to 38.7 dB, 0.7 sigma). The POINT irradiance (one pixel) does not
+  move at any count (quantile spread 0.4 dB; the index 0.23 to 0.26), and a
+  re-bin of the stored fields shows the 512 and 1024 px grids agree exactly at
+  a matched averaging area. `rapid` as shipped (256 px, 5 screens) reads
+  inside the standard spread at 1/30 of the cost. The generator, phase only:
+  against Kolmogorov (`L0 = inf`) every stack holds 0.75 to 0.84 of the Noll
+  piston-removed variance and 1.00 of the tilt-removed variance, and the
+  count changes it by -0.024 +-0.034 (5 -> 25 screens) and +0.015 +-0.049
+  (the ground layer, 1 -> 4 screens). That deficit is the OUTER SCALE: three
+  subharmonic levels reach 27 x the grid side (95 m), and the same screens
+  match the von Karman theory at `L0 = 95 m` exactly (0.765 against 0.765).
+  Drawn with `L0 = 25 m` and judged against the theory at 25 m, one screen
+  reads 1.000 +-0.026 and a 5 / 9 / 25-screen plan 0.974 / 0.946 / 0.942.
+- **VERDICT.** The default 9-screen plan is converged for the mean, the deep
+  tail (p1) and every point quantity; its SMF p5 is about 2 dB PESSIMISTIC
+  against 25 screens and the converged p5 is not known (40 screens not run).
+  The count effect is the PHASE the fibre overlap pays (the ground-layer tilt
+  and low orders), not scintillation, and it is NOT the generator, which
+  misses the same fraction at every count with a mild few-percent stacking
+  drift at a finite `L0`. The production `L0_m = inf` claims an outer scale
+  the grid does not hold; the screens ARE a von Karman `L0 = 27 x side`
+  atmosphere. The von Karman theory (the Noll piston filter over the von
+  Karman PSD) gives a piston-removed aperture variance of 0.630 of the
+  Kolmogorov value at `L0 = 25 m` and 0.765 at `L0 = 95 m`, for `D = 0.7 m`,
+  so the fibre tilt that the SMF tail pays moves with the choice by an amount
+  of the order of 2 dB at p5 (an ESTIMATE from the tilt share of the fade,
+  not a measurement). Choose an explicit site `L0` and keep
+  `L0 <= 27 x side` (backlog 2-P5, HIGH). NOT run: 20 deg, 40 screens.
+- **Script.** `validation/tail_convergence/tail_convergence.py` and
+  `validation/screen_stacking/screen_stacking.py [--L0 25]`; write-ups
+  [validation/tail_convergence/README.md](../validation/tail_convergence/README.md)
+  and
+  [validation/screen_stacking/README.md](../validation/screen_stacking/README.md);
+  the tracker note is in [schmidt-crosscheck.md](schmidt-crosscheck.md) after
+  the post-WP7 measurement. See backlog 2-I2T, 2-N6, 2-P5.
 
 ---
 

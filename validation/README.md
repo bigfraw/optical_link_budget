@@ -98,6 +98,42 @@ See [lognormal_certification/README.md](lognormal_certification/README.md).
 | --- | --- |
 | [lognormal_certification/lognormal_certification.py](lognormal_certification/lognormal_certification.py) | The certification run: a `D/rho_0` sweep from a point-like aperture to strong averaging, for a collimated and a diverged launch. ONE propagation for each trial serves the whole aperture sweep (`propagate_turbulent_field`), so every aperture reads the same atmosphere; a matched-seed check against `propagate_turbulent_scenario` proves the two agree bit for bit. It reports the point index, the effective averaging factor, the beam-fill fraction and the absolute fade spread. It writes a results JSON, a run log and `figures/lognormal_certification.png`. `--full` raises the trial count for the 1 % fade tail. |
 
+## tail_convergence/
+
+The fidelity-2 single-mode-fibre fade-tail convergence study (backlog 2-I2T),
+with the large-campaign measurements of backlog 2-N6. THE QUESTION: does the
+deep SMF fade tail (p10, p5, p1) of a fidelity-2 downlink CONVERGE as the
+near-ground `Cn2` is resolved with more, thinner phase screens? The mean is
+already validated flat (`docs/schmidt-crosscheck.md`, work package 7), so the
+tail is the open risk: it sets the link availability margin. The study PINS the
+grid and it moves the screens only, because the shipped sizer refines the grid
+with the screen count. Each case is one resumable `Campaign`.
+See [tail_convergence/README.md](tail_convergence/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [tail_convergence/tail_convergence.py](tail_convergence/tail_convergence.py) | The study itself. Six cases: the shipped default, four pinned-grid screen counts (9, 15, 25, 40), and a near-ground refinement that splits the bottom screen into four equal-`Cn2` sub-screens. It reports p50 / p10 / p5 / p1 of the composite SMF loss with bootstrap intervals, the fade depth, the aperture and the point scintillation index, and the 2-N6 campaign numbers (wall time, seconds per trial, disk bytes, load memory, and the growth of the tail estimate with the trial count). It writes a results JSON, a run log and three figures. |
+
+## screen_stacking/
+
+The phase-screen STACKING test, phase only. Does a stack of N screens hold the
+statistics of one screen of the same composite `r0`? It is the generator half
+of the tail-convergence study, and it answers the owner's hypothesis that a
+many-screen plan loses more of the tip-tilt band than one screen. VERDICT
+(2026-09-04): not at L0 = inf, where every count misses the SAME 16 to 25
+percent of the aperture phase variance (all tip and tilt, `Delta3` = 1.00) —
+and that deficit is the OUTER SCALE, not the generator: the grid holds scales
+to 27 x its side (95 m) and the screens match a von Karman L0 = 95 m theory
+exactly. At L0 = 25 m, judged against the von Karman theory, one screen reads
+1.00 +-0.03 and a 5- to 25-screen plan 0.97 to 0.94 (a mild few-percent
+stacking drift). The production `L0 = inf` default therefore claims an outer
+scale it cannot deliver, worth an estimated (not measured) 2 dB at p5 of the SMF fade (backlog 2-P5,
+HIGH). See [screen_stacking/README.md](screen_stacking/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [screen_stacking/screen_stacking.py](screen_stacking/screen_stacking.py) | Draws 100 stacks for each of five per-screen `r0` lists (the ground layer as 1 or 4 screens; the whole plan as 5, 9 or 25) on the pinned 1024 px grid, sums them, and measures the structure function and the Noll `Delta1` / `Delta3` aperture variances as ratios to theory with standard errors. |
+
 ## vacuum_loss/
 
 The fidelity-2 vacuum (no-turbulence) geometric loss against the analytic

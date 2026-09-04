@@ -1298,3 +1298,64 @@ plan with the bottom screen moved onto the pupil). Findings:
    aperture's 10 percent. The preset docstring now carries the caveat.
 
 Per-trial samples: the session scratchpad, `expA_eta.npz` (not committed).
+
+**The tail-convergence study (2026-09-04) — the post-WP7 tail question is
+ANSWERED, and finding 2 above is REVERSED.** The study is
+`validation/tail_convergence/` (backlog 2-I2T and 2-N6; its README holds the
+full table). Eight `Campaign` cases of 1000 trials each on the 30 deg hero
+downlink (0.7 m uncorrected SMF, no tip-tilt, no AO), with the GRID PINNED at
+1024 px / 3.43 mm, because the sizer moves the grid with the screen count (512
+px at 9 screens, 1024 px at 15 to 40, back to 256 px at 60 when every screen
+falls under `fresnel_weight_min`, gap S-25). The cases: the shipped `standard`
+(512 px, 9 screens) and `rapid` (256 px, 5 screens) as they are; 5 / 7 / 9 /
+15 / 25 screens on the pinned grid; and the 9-screen plan with its 80 m ground
+screen (73 percent of the Cn2) cut into four equal-Cn2 sub-screens at 174 / 89
+/ 44 / 13 m. The SMF loss exceeded 5 and 1 percent of the time, in dB
+(68 percent bootstrap half-widths about +-0.7 at p5 and +-1.5 at p1):
+
+| case | screens | px | p50 | p5 | p1 | point sigma2_I |
+|---|---|---|---|---|---|---|
+| `rapid` as shipped | 5 | 256 | 17.14 | 29.90 | 38.11 | 0.214 |
+| `standard` as shipped | 9 | 512 | 17.96 | 31.47 | 37.64 | 0.239 |
+| pinned | 5 | 1024 | 17.90 | 31.51 | 38.74 | 0.239 |
+| pinned | 7 | 1024 | 17.69 | 30.95 | 38.03 | 0.243 |
+| pinned | 9 | 1024 | 17.59 | 31.20 | 37.71 | 0.259 |
+| pinned | 15 | 1024 | 17.71 | 30.45 | 38.02 | 0.234 |
+| pinned | 25 | 1024 | 17.37 | 29.04 | 37.60 | 0.232 |
+| pinned, ground split x4 | 12 | 1024 | 17.45 | 29.79 | 36.75 | 0.255 |
+
+Findings. (1) The grid is a null: 512 against 1024 px on the same plan agree
+at every quantile (p5 +0.27 dB, 0.2 sigma). (2) The SMF p5 falls 2.5 dB from 5
+to 25 screens (2.5 sigma), p10 falls 1.3 dB, and the ground split lands on the
+25-screen line: MORE screens give LESS fade, and the live variable is the
+resolution of the GROUND layer, as decision 3 supposed. The trend past 25 is
+unresolved (40 screens not run). (3) p1 does not move (spread 1.1 dB, 0.7
+sigma): the 99 percent margin of the default is unchanged, its 95 percent
+margin is about 2 dB pessimistic. (4) The POINT irradiance does not move at
+any count (quantile spread 0.4 dB; the index 0.23 to 0.26 against the analytic
+plane-wave 0.22), so the effect is the PHASE the fibre overlap pays, not
+scintillation. A "point" is one pixel: a re-bin of the stored fields showed the
+512 and 1024 px grids agree exactly at a matched averaging area, and the index
+falls 5 percent for each pixel doubling, because the bottom screen puts real
+irradiance structure at its ~1.6 cm Fresnel scale. (5) The screen generator is
+NOT the cause: `validation/screen_stacking/` (phase only) holds 0.75 to 0.84 of
+the Noll piston-removed variance and 1.00 of the tilt-removed variance at every
+count, and 5 -> 25 screens changes it by -0.024 +-0.034. That deficit is the
+OUTER SCALE, not the generator: three subharmonic levels reach 27 x the grid
+side (95 m), the L0 = inf reference has no limit, and the same screens match
+the von Karman L0 = 95 m theory exactly (Delta1 0.765 against 0.765). Asked
+for L0 = 25 m and judged against the von Karman theory at 25 m, one screen
+reads Delta1 1.000 +-0.026 and D(r) inside 1 to 5 percent to r = 0.7 m, and
+a 5- to 25-screen plan 0.97 to 0.94 (a mild real stacking drift, a fraction
+of a dB on the fibre tail). So the production `L0_m = inf` default claims an
+outer scale the grid does not hold, and the fibre TILT that the SMF tail pays
+moves with that choice by an estimated (not measured) 2 dB at p5: backlog
+2-P5, HIGH (gap S-27). The
+count trend comes from the propagation and placement side. (6) `rapid` as shipped reads inside
+the standard spread at 1/30 of the cost; its 10.3 mm pixel softens p5 by 1.6
+dB (2 sigma) against the same plan at 3.43 mm, where 6.86 mm does not.
+Finding 2 of the post-WP7 re-test (more fade with thin near-pupil screens) is
+therefore REVERSED by a matched-grid series with five times the trials. The
+2-N6 measurements (0.17 s/trial at 512 px on a warm 16-worker pool, 262 MB for
+1000 trials at 1024 px, an out-of-memory kill at 16 workers and a clean
+resume) are in the study README.
