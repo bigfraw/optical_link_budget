@@ -87,7 +87,8 @@ FRESNEL_ZONE = Constraint(
 
 @assumes(RADIAL_TILT, beam_type=BEAM_GAUSSIAN, turbulence_regime=REGIME_WEAK,
          spectrum=SPECTRUM_KOLMOGOROV)
-def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs):
+def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs, *,
+                                  wavelength=None):
     '''
     Return the received beam-wander tip-tilt variance (radial, 2-axis) [rad^2].
 
@@ -108,12 +109,17 @@ def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs):
             Free-space beam radius w(z) along the path on the hs grid [m].
         hs : numpy.ndarray
             Distance along the path from the transmitter [m].
+        wavelength : float, optional
+            Optical wavelength [m]. It does NOT change the result. It passes on
+            to the wander kernel and turns ON its weak-regime runtime check, so
+            a strong path gives a traced violation. None leaves the check off.
 
     Returns:
         float
             Radial (2-axis) received tip-tilt variance [rad^2].
     '''
-    r_c2 = beam_wander_variance(L, cn2_slant, w_profile, hs)
+    r_c2 = beam_wander_variance(L, cn2_slant, w_profile, hs,
+                                wavelength=wavelength)
     return float(np.squeeze(r_c2)) / float(L) ** 2
 
 
@@ -256,6 +262,18 @@ if __name__ == '__main__':
     wander_kinds = {c.kind for c in
                     tr.records[f"{mod}.wander_arrival_angle_variance"].constraints}
     assert "variance-convention" in wander_kinds, wander_kinds
+
+    # (2b) The optional wavelength passes to the kernel and turns on its
+    #      weak-regime check. It does NOT change the value.
+    strong = np.full_like(grid, 1e-13)
+    plain = wander_arrival_angle_variance(L, strong, w_grid, grid)
+    with_lam = wander_arrival_angle_variance(L, strong, w_grid, grid,
+                                             wavelength=lam)
+    assert plain == with_lam, (plain, with_lam)
+    with trace_assumptions() as tr_hard:
+        wander_arrival_angle_variance(L, strong, w_grid, grid, wavelength=lam)
+    assert any("beam-wander model is not trusted" in v
+               for v in tr_hard.violations), tr_hard.violations
 
     # (3) No decorator check in this module warns. Neither validity condition is
     #     a runtime callable here: the tilt-convention is a labelling assumption,

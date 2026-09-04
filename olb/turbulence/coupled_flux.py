@@ -32,6 +32,9 @@ from scipy.special import gamma, hyp1f1
 
 from ..assumptions import (assumes, Constraint, BEAM_GAUSSIAN,
                            BEAM_SPHERICAL_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV)
+from .andrews.beam import beam_params
+from .andrews.scintillation import (rytov_variance, rytov_weak,
+                                    WEAK_REGIME_LIMIT)
 
 # ----------------------------------------------------------------------------
 # The module assumptions, as shared Constraint instances (see the docstring).
@@ -96,6 +99,66 @@ CORRECTION_RANGE = Constraint(
     "launch radius.",
     "10.1364/AO.43.003866", "Eqs. (4) to (6), printed p. 3868",
     check=_correction_range_check)
+
+
+def _wander_weak_regime_check(args, result):
+    '''Return a reason when the beam-wander path leaves the weak regime.
+
+    The Dios beam-wander variance is a WEAK-fluctuation model. The gate needs
+    the wavelength, which the kernel signature does not carry, so the check runs
+    only when the caller gives the optional `wavelength`. Without it the check
+    returns None and the call is unchanged.
+
+    The gate is the shared, beam-aware `rytov_weak`. It reads BOTH weak
+    conditions of a Gaussian beam, sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1
+    (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 5, Eq. (16),
+    printed p. 140), so a focused beam trips a gate that a plane-wave test
+    passes. Only the "hard" tier is a violation. The "soft" tier (past
+    RYTOV_CONFIDENT_WEAK but inside the book limit) stays a factory warning,
+    because a Constraint check must not warn.
+
+    The plane-wave Rytov variance is
+        sigma_R^2 = 1.23 Cn2 k^(7/6) L^(11/6)                (constant Cn2)
+        sigma_R^2 = 2.25 k^(7/6) INT Cn2(z) (L-z)^(5/6) dz   (a profile)
+    Source: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 8,
+    Eq. (10), printed p. 262; the path-weighted form is Ch. 12, Eq. (38),
+    printed p. 495, with the weight measured from the RECEIVER at z = L. The two
+    agree for a constant Cn2 (2.25 * 6/11 = 1.227). The check never warns and
+    never raises.
+    '''
+    wavelength = args["wavelength"]
+    if wavelength is None:
+        return None
+    L = float(args["L"])
+    z_grid = np.asarray(args["z"], dtype=float)
+    cn2_vals = np.asarray(args["cn2"], dtype=float)
+    w0 = float(np.asarray(args["ws"], dtype=float).reshape(-1)[0])
+    flat = cn2_vals.reshape(-1)
+    if flat.size < 2 or np.all(flat == flat[0]):
+        # The constant-Cn2 shortcut, the same call the terrestrial factory made.
+        sigma2_R = float(rytov_variance(wavelength, L, float(flat[0])))
+    else:
+        k = 2.0 * np.pi / float(wavelength)
+        weight = np.maximum(L - z_grid, 0.0) ** (5.0 / 6.0)
+        sigma2_R = float(2.25 * k ** (7.0 / 6.0)
+                         * np.trapezoid(cn2_vals * weight, z_grid))
+    Lambda = float(beam_params(w0, wavelength, L).lam)
+    if rytov_weak(sigma2_R, Lambda) == 'hard':
+        return (f"sigma2_R={sigma2_R:.3f} (Lambda={Lambda:.3f}) meets or exceeds "
+                f"the Gaussian-beam weak limit {WEAK_REGIME_LIMIT}; the "
+                "beam-wander model is not trusted. Use the fidelity-2 Monte "
+                "Carlo.")
+    return None
+
+
+WANDER_WEAK_REGIME = Constraint(
+    "regime",
+    "The beam-wander variance is a weak-fluctuation model. It holds while "
+    "sigma_R^2 < 1 AND sigma_R^2 Lambda^(5/6) < 1. Give the optional "
+    "`wavelength` and the check runs; without it the gate is the caller's duty.",
+    "10.1117/3.626196",
+    "Ch. 5, Eq. (16), printed p. 140; Ch. 8, Eq. (10), printed p. 262",
+    check=_wander_weak_regime_check)
 
 
 def _lambda_function(L, k0, wL):
@@ -203,9 +266,9 @@ def short_term_beam_waist(W0, L, Z0, k, r0s, return_squared=False, w_free=None):
     return np.sqrt(np.maximum(w_st_squared, 0.0))
 
 
-@assumes(RADIAL_VARIANCE, C01_WANDER, beam_type=BEAM_GAUSSIAN,
+@assumes(RADIAL_VARIANCE, C01_WANDER, WANDER_WEAK_REGIME, beam_type=BEAM_GAUSSIAN,
          turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
-def beam_wander_variance(L, cn2, ws, z):
+def beam_wander_variance(L, cn2, ws, z, *, wavelength=None):
     '''
     Beam-wander variance <beta^2>.
 
@@ -248,6 +311,10 @@ def beam_wander_variance(L, cn2, ws, z):
         cn2 (numpy.ndarray) : Cn2 profile sampled at `z`.
         ws (numpy.ndarray) : Beam radius profile Ws(z) [m], sampled at `z`.
         z (numpy.ndarray) : Path coordinates [m].
+        wavelength (float, optional) : Optical wavelength [m]. It does NOT
+            change the result. It turns ON the weak-regime runtime check
+            (WANDER_WEAK_REGIME), which needs the Rytov variance. None (the
+            default) leaves the check off, so every old call is unchanged.
 
     Returns:
         float : Beam-wander variance <beta^2> [m^2].
@@ -499,6 +566,46 @@ if __name__ == '__main__':
     assert any(v.startswith(f"[{mod}.short_term_beam_waist]")
                for v in tr_bad.violations), tr_bad.violations
     assert len(caught) == 0, "a decorator check must not warn"
+
+    # (4) The function-owned weak-regime gate of the beam wander (2026-09-04).
+    #     The optional `wavelength` turns the check on. It does NOT change the
+    #     value. A horizontal 3 km path with a 2 cm launch waist is the
+    #     terrestrial case: weak at Cn2 = 1e-16, hard at Cn2 = 1e-13.
+    lam_h = 1550e-9
+    L_h = 3e3
+    zs_h = np.linspace(0.0, L_h, 64)
+    ws_h = np.full_like(zs_h, 0.02)
+
+    plain = beam_wander_variance(L_h, np.full_like(zs_h, 1e-13), ws_h, zs_h)
+    with_lam = beam_wander_variance(L_h, np.full_like(zs_h, 1e-13), ws_h, zs_h,
+                                    wavelength=lam_h)
+    assert plain == with_lam, (plain, with_lam)     # the value does not move
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with trace_assumptions() as tr_weak:
+            beam_wander_variance(L_h, np.full_like(zs_h, 1e-16), ws_h, zs_h,
+                                 wavelength=lam_h)
+        with trace_assumptions() as tr_hard:
+            beam_wander_variance(L_h, np.full_like(zs_h, 1e-13), ws_h, zs_h,
+                                 wavelength=lam_h)
+        with trace_assumptions() as tr_off:
+            beam_wander_variance(L_h, np.full_like(zs_h, 1e-13), ws_h, zs_h)
+    assert not any("beam-wander model is not trusted" in v
+                   for v in tr_weak.violations), tr_weak.violations
+    assert any(v.startswith(f"[{mod}.beam_wander_variance]")
+               and "beam-wander model is not trusted" in v
+               for v in tr_hard.violations), tr_hard.violations
+    assert not tr_off.violations, "no wavelength -> no regime check"
+    assert len(caught) == 0, "the regime check must not warn"
+
+    # A Cn2 PROFILE takes the path-weighted form. It agrees with the
+    # constant-Cn2 shortcut to the book rounding (2.25*6/11 = 1.227 vs 1.23).
+    with trace_assumptions() as tr_prof:
+        beam_wander_variance(L_h, np.full(zs_h.shape, 1e-13) * (1.0 + 1e-12 * zs_h),
+                             ws_h, zs_h, wavelength=lam_h)
+    assert any("beam-wander model is not trusted" in v
+               for v in tr_prof.violations), tr_prof.violations
 
     print("coupled_flux assumptions self-check passed")
     print("coupled_flux self-check passed")

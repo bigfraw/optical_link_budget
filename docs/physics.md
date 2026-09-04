@@ -1345,12 +1345,15 @@ focal spot (that would need a re-truncated aperture).
   is a lower bound. See `docs/andrews-crosscheck.md` batch 2 and backlog 0-W3.
 - The beam-wander tilt is a weak-fluctuation model, so `sigma2_theta` is valid in
   weak turbulence only. The walk-off mapping itself has no upper limit. The SMF
-  walk-off Term declared the weak regime and never flagged; the assumptions
-  refactor CLOSES that gap, but through a FACTORY regime flag, NOT an automatic
-  function-owned check. The reason is honest: the walk-off reads the vendored Dios
-  wander kernel `coupled_flux.beam_wander_variance`, which carries no runtime
-  check to inherit through the trace. A function-owned weak-regime check in that
-  kernel is the proper fix and stays an OPEN follow-up.
+  walk-off Term declared the weak regime and never flagged; that gap is CLOSED
+  (2026-09-04) by a FUNCTION-OWNED check. The vendored Dios wander kernel
+  `coupled_flux.beam_wander_variance` now takes an optional `wavelength` and runs
+  the shared beam-aware `rytov_weak` gate itself, `wander_arrival_angle_variance`
+  passes the keyword on, and the Term inherits the violation through the trace.
+  The kernel value does not change: with no wavelength the check does not run.
+  The MMF coupling Term reads the same wander model and asks for the check
+  too (owner decision, 2026-09-04): a strong path now flags it, where before
+  it read ok.
 - The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap
   optimum: a shorter focal length captures more, up to the numerical-aperture gate.
 - The MMF numerical-aperture gate is a flat power-transmission factor. It does not
@@ -1785,8 +1788,10 @@ run log, a memory note or a backlog aside is not documented.
   with the received curvature charged, which they now do. Expect them to read
   about 1 to 1.5 dB MORE loss than the field, because of the spot shape. A space link
   is unaffected: `R_rx` is enormous there, so `dz_curv` is about zero. The
-  fidelity-2 single-mode leg still takes no defocus, so the aberrated
-  single-mode closed form has no field reference yet (backlog 2-W2).
+  fidelity-2 single-mode leg now takes the defocus too (backlog 2-W2, DONE
+  2026-09-04), so the aberrated single-mode closed form HAS a field reference:
+  the `olb/waveoptics/smf.py` self-check matches `smf_eta_defocused(a=1.12, c)`
+  to four decimals at c = 0, 1, 2 and 4.
 - **Script.** `validation/defocus/defocus_sensing.py`; write-up
   [validation/defocus/fidelity2_mmf_coupling_gap.md](../validation/defocus/fidelity2_mmf_coupling_gap.md).
 

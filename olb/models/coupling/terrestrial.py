@@ -40,9 +40,6 @@ from ...beam import (free_space_radius, launch_curvature, gaussz,
 from ...turbulence.gaussian_fried import gaussian_fried_parameter_profile
 from ...turbulence.angle_of_arrival import wander_arrival_angle_variance
 from ...turbulence.ao import apply_compensation
-from ...turbulence.andrews.beam import beam_params
-from ...turbulence.andrews.scintillation import (rytov_weak, rytov_variance,
-                                                 WEAK_REGIME_LIMIT)
 from ._common import (_smf_eta_max, _smf_coupling_efficiency, _effective_dr0,
                      _smf_static_term, smf_eta_defocused, SMF_OPTIMAL_A,
                      SMF_DEEP_TURBULENCE_DR0)
@@ -240,7 +237,8 @@ def _flag_curvature(assumptions, R_rx, f, dz_curv, defocus_m):
 
 # --- received tip-tilt and the focal-plane walk-off fade ---------------------
 
-def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True):
+def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
+                               regime_check=False):
     '''
     Return the radial (2-axis) received tip-tilt variance at the fibre [rad^2].
 
@@ -267,6 +265,12 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True):
     the receive mechanical jitter reaches the fibre, so the fibre walk-off fade is
     the jitter alone. See the master turbulence switch on the link budgets.
 
+    The weak-regime gate of the wander model is FUNCTION-OWNED: the kernel
+    olb.turbulence.coupled_flux.beam_wander_variance holds it, and it runs only
+    when the caller gives the wavelength. `regime_check=True` gives it. The SMF
+    walk-off Term and the MMF coupling Term both ask for it (the MMF check is
+    an owner decision of 2026-09-04: the two Terms read the same wander model).
+
     Returns:
         tuple
             (sigma2_theta_radial, meta) : the radial variance [rad^2] and a meta
@@ -290,11 +294,17 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True):
         hs = np.linspace(0.0, L, int(n_grid))
         cn2_slant = np.full_like(hs, cn2)
         w_profile = free_space_radius(w0, hs, divergence, wavelength)
-        sigma2_wander = wander_arrival_angle_variance(L, cn2_slant, w_profile, hs)
-
         # A tip-tilt (or AO, which includes tilt) tracking loop removes the wander
         # arrival tilt. The all-or-nothing gate is the ponytail model (no bandwidth).
         tracks = any(isinstance(s, (TipTilt, AO)) for s in rx.compensation)
+        # The wavelength does NOT change the value. It turns ON the weak-regime
+        # runtime check inside the wander kernel, so a strong path flags through
+        # the trace. Give it only when the caller asks (regime_check) AND the
+        # wander tilt reaches the detector (it is not tracked out). That is the
+        # same gate the old factory patch used.
+        check_wavelength = wavelength if (regime_check and not tracks) else None
+        sigma2_wander = wander_arrival_angle_variance(
+            L, cn2_slant, w_profile, hs, wavelength=check_wavelength)
         if tracks:
             sigma2_wander = 0.0
     else:
@@ -703,7 +713,8 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
     # carries traced provenance.
     with trace_assumptions() as trace:
         sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
-                                                        turbulence=turbulence)
+                                                        turbulence=turbulence,
+                                                        regime_check=True)
     # Per-axis spot offset at the detector plane: the (f+dz) tilt lever (see
     # _spot_offset_sigma). At focus (dz=0) this reduces to f*sqrt(sigma2_theta/2),
     # the focal-plane displacement.
@@ -756,31 +767,10 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
             "MMF (light bucket) or fidelity-2 model.",
             source="factory:models.coupling.terrestrial",
         )
-    # Close the known gap (the walk-off Term declared REGIME_WEAK but never
-    # flagged). The beam-wander arrival tilt is a WEAK-turbulence model, but the
-    # vendored kernel (olb.turbulence.coupled_flux.beam_wander_variance) carries
-    # NO runtime weak-regime check, so the trace alone does not flag a strong
-    # path. Flag it here as a scenario-level regime fact (source tagged), only
-    # when the wander tilt actually contributes (turbulence on and not tracked
-    # out, so sigma2_wander > 0). The gate is the same beam-aware Rytov test the
-    # scintillation Term uses (Andrews and Phillips 2005, Ch. 5, Eq. (16), DOI
-    # 10.1117/3.626196).
-    if meta["sigma2_wander"] > 0.0:
-        L = float(scenario.channel.path_length_m)
-        cn2 = float(scenario.channel.cn2)
-        w0 = scenario.tx_terminal.transmitter.waist_m
-        # Read the plane-wave Rytov variance from the andrews kernel, do not
-        # re-derive it: sigma_R^2 = 1.23 Cn2 k^(7/6) L^(11/6), Andrews and
-        # Phillips 2005, Ch. 8, Eq. (10), printed p. 262, DOI 10.1117/3.626196.
-        sigma2_R = float(rytov_variance(rx.wavelength_m, L, cn2))
-        Lambda = float(beam_params(w0, rx.wavelength_m, L).lam)
-        if rytov_weak(sigma2_R, Lambda) == 'hard':
-            assumptions.flag(
-                f"sigma2_R={sigma2_R:.3f} (Lambda={Lambda:.3f}) meets or exceeds "
-                f"the Gaussian-beam weak limit {WEAK_REGIME_LIMIT}; the beam-wander "
-                "arrival-tilt model is not trusted. Use the fidelity-2 Monte Carlo.",
-                source="factory:models.coupling.terrestrial",
-            )
+    # The weak-regime gate of the beam-wander arrival tilt is FUNCTION-OWNED
+    # (2026-09-04). The kernel olb.turbulence.coupled_flux.beam_wander_variance
+    # holds the check, and _received_tiptilt_variance gives it the wavelength, so
+    # a strong path flags through the trace above. The old factory patch is gone.
     return Term(
         name="SMF tip-tilt walk-off",
         category="pointing",
@@ -951,7 +941,8 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
     # inherits its assumptions and carries traced provenance.
     with trace_assumptions() as trace:
         sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
-                                                        turbulence=turbulence)
+                                                        turbulence=turbulence,
+                                                        regime_check=True)
     sigma_d = _spot_offset_sigma(f, dz, sigma2_theta)   # spot offset [m]
     eta_static = na_factor * float(_mmf_encircled_efficiency(0.0, w_det, a_core))
     static_db = -10.0 * np.log10(eta_static)
@@ -1256,9 +1247,10 @@ if __name__ == '__main__':
                                              hpath)
     assert mmf_prov.assumptions.provenance, "MMF coupling must carry provenance"
 
-    # (2) THE GAP CLOSED. The walk-off Term declared REGIME_WEAK but NEVER
-    #     flagged. In strong turbulence it now reads not-ok; in genuinely weak
-    #     turbulence it stays ok. No spurious field-region violation reaches it:
+    # (2) THE GAP CLOSED, and the check is FUNCTION-OWNED (2026-09-04): the
+    #     violation comes from the wander kernel through the trace, not from a
+    #     factory patch. In strong turbulence the Term reads not-ok; in genuinely
+    #     weak turbulence it stays ok. No spurious field-region violation:
     #     the walk-off reads wander_arrival_angle_variance, NOT the z=1.0-carrier
     #     aperture_arrival_angle_variance, so the delegate Fresnel-zone check is
     #     never on the trace.
@@ -1271,9 +1263,12 @@ if __name__ == '__main__':
     assert wo_weak.assumptions.ok, wo_weak.assumptions.violations
     assert not wo_strong.assumptions.ok, \
         "the walk-off Term must flag in strong turbulence (gap closed)"
-    assert any("beam-wander arrival-tilt model is not trusted" in v
+    assert any("beam-wander model is not trusted" in v
                for v in wo_strong.assumptions.violations), \
         wo_strong.assumptions.violations
+    assert any(v.startswith("[olb.turbulence.coupled_flux.beam_wander_variance]")
+               for v in wo_strong.assumptions.violations), \
+        "the regime violation must be sourced at the kernel, not the factory"
     assert not any("field-region" in v.lower() or "Fresnel" in v
                    for v in wo_strong.assumptions.violations), \
         "no spurious field-region violation must reach the walk-off Term"

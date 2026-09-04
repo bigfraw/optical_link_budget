@@ -187,7 +187,9 @@ README fidelity ladder.
   and the spherical (co-moving) coordinate route, which moves the grid with the
   beam so a long space link stays sampled on a small pixel count). Five
   olb-native modules sit on that core: `smf.py` (the fibre mode
-  and the overlap coupling efficiency; it takes NO defocus, see backlog 2-W2),
+  and the overlap coupling efficiency; it takes a `defocus_m` and a
+  `focal_length_m` and it applies the SAME quadratic pupil phase as the
+  multimode leg, through `mmf.defocus_phase`),
   `mmf.py` (the multimode light-bucket
   coupling: `focal_intensity` and `mmf_coupling_efficiency`, both of which take a
   `defocus_m` (the plane z = f + defocus_m, a quadratic pupil phase of SIGN
@@ -344,13 +346,15 @@ Honest status items:
 - The 0.25 house rule keeps ONE canonical definition, `LOGNORMAL_PDF_LIMIT = 0.25`
   in `andrews/scintillation.py`. The old `WEAK_FLUCTUATION_LIMIT` name is fully
   retired: no source file references it.
-- The terrestrial SMF walk-off weak-limit gap is CLOSED by a FACTORY regime flag,
-  not by a function-owned check, because the vendored Dios wander kernel
-  `coupled_flux.beam_wander_variance` has no runtime check to inherit. A
-  function-owned weak-regime check in that kernel is an OPEN follow-up.
-- `MARECHAL_SIGMA2_MAX = 1.0` is DUPLICATED in `olb/turbulence/ao.py` and
-  `olb/links/uplink.py` (the one-way `turbulence <- links` dependency forbids
-  importing up). A centralise-down is an OPEN follow-up.
+- The terrestrial SMF walk-off weak-limit gap is CLOSED (2026-09-04) by a
+  FUNCTION-OWNED check: `coupled_flux.beam_wander_variance` takes an optional
+  `wavelength` that turns on its own weak-regime `Constraint`, the factory patch
+  is deleted, and the Term inherits the violation through the trace. The MMF
+  coupling Term asks for the same check (owner decision, 2026-09-04), so a
+  strong path now flags it where it read ok before.
+- `MARECHAL_SIGMA2_MAX = 1.0` is CENTRALISED (2026-09-04): it lives only in
+  `olb/turbulence/ao.py`, and `olb/links/uplink.py` imports it down the one-way
+  `turbulence <- links` dependency.
 - The terrestrial scintillation hard-flag MIGRATED from the `sigma_R^2 >= 1.0`
   axis to the beam-wave index axis (`sigma_I^2 >= 2.4`, owned by
   `beam_wave_scintillation.on_axis_scintillation_index`). The two coincide on the
@@ -586,8 +590,12 @@ Open items:
   keeps the PHYSICAL dz.
   The fidelity-2 `defocus_m` SIGN was inverted and is FIXED. The SMF MEAN defocus
   penalty is now MODELLED (`smf_eta_defocused`), so only the SMF walk-off
-  DISPLACEMENT response stays geometric (a loud flag, backlog 0-P15). OPEN: the
-  fidelity-2 SMF leg reads no defocus (backlog 2-W2); a converging monostatic
+  DISPLACEMENT response stays geometric (a loud flag, backlog 0-P15). The
+  fidelity-2 SMF leg NOW reads `SMF.defocus_m` too (backlog 2-W2, DONE
+  2026-09-04): `olb.waveoptics.smf.coupling_efficiency` takes `defocus_m` and
+  `focal_length_m`, `olb.waveoptics.mmf.defocus_phase` is the ONE shared phase
+  factor, and the `smf.py` self-check matches the analytic
+  `smf_eta_defocused(a, c)`. OPEN: a converging monostatic
   launch is outside the bidirectional model (backlog 0-P16); the deterministic
   (non-jitter) pointing offset is still not modelled.
 - **`examples/andrews/`** demonstrates the layer script by script; its

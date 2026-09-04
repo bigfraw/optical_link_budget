@@ -403,20 +403,25 @@ NOT trace `andrews.paths`. They trace the parallel feeders
 is wired to the `andrews.paths` slant integrators (or in the paths.py
 self-check). It is a latent guard, not a live budget-flipper today.
 
-Three status items stay open and honest:
+One status item stays open and honest, and two are now closed:
 
 - The 0.25 house rule has ONE canonical definition,
   `LOGNORMAL_PDF_LIMIT = 0.25` in `andrews/scintillation.py`. The old name
   `WEAK_FLUCTUATION_LIMIT` is fully retired: no source file references it. The
   PDF-shape axis (`sigma2_I`) and the regime axis (`sigma2_R`) stay separate.
-- The terrestrial SMF walk-off weak-limit gap is closed by a FACTORY regime flag,
-  NOT by an automatic function-owned check, because the vendored Dios wander
-  kernel `coupled_flux.beam_wander_variance` has no runtime check to inherit. A
-  function-owned weak-regime check in that kernel is an OPEN follow-up.
-- `MARECHAL_SIGMA2_MAX = 1.0` is defined twice, in `olb/turbulence/ao.py` AND in
-  `olb/links/uplink.py`, because the one-way `turbulence <- links` dependency
-  forbids the link module importing the value up. A centralise-down is a
-  follow-up.
+- CLOSED (2026-09-04). The terrestrial SMF walk-off weak-limit gap is now a
+  FUNCTION-OWNED check. `coupled_flux.beam_wander_variance` takes an optional
+  `wavelength`; give it and the kernel runs the shared beam-aware `rytov_weak`
+  gate and returns the violation itself. `angle_of_arrival`
+  `wander_arrival_angle_variance` passes the keyword on, and the terrestrial
+  factory gives `rx.wavelength_m`, so the Term inherits the violation through
+  the trace. The old factory patch is deleted. The value never changes: with no
+  wavelength the check does not run. The MMF coupling Term reads the same wander
+  model and asks for the check too (owner decision, 2026-09-04), so a strong
+  path flags the MMF Term where it was silent before.
+- CLOSED (2026-09-04). `MARECHAL_SIGMA2_MAX = 1.0` has ONE home,
+  `olb/turbulence/ao.py`. `olb/links/uplink.py` imports it from there (the
+  one-way `turbulence <- links` dependency allows a link module to import down).
 
 ### The fidelity ladder and the fidelity-0 fade lock
 
