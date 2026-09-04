@@ -275,13 +275,17 @@ def smf_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
     # so the provenance is not empty and the untraced guard is satisfied.
     assumptions.provenance.append("untraced: fast-aosim")
     # First-cut limitation: no point-ahead. A scenario-level fact the traced
-    # physics never sees, so it stays a factory flag.
-    assumptions.flag(
-        "Point-ahead is off (DTHETA=0): the up-leg / down-leg anisoplanatism of a "
-        "moving satellite is not modelled. Pass fast_params={'DTHETA': [x, y]} in "
-        "arcsec to include it.",
-        source="factory:models.fast"
-    )
+    # physics never sees, so it stays a factory flag. Point-ahead anisoplanatism
+    # only matters for a PRE-COMPENSATED beam (the corrected modes decorrelate
+    # over the point-ahead angle); a plain receive coupling never uses it, so the
+    # flag only trips when the scenario carries a precompensation source.
+    if getattr(scenario, "precompensation", None) is not None:
+        assumptions.flag(
+            "Point-ahead is off (DTHETA=0): the up-leg / down-leg anisoplanatism "
+            "of a moving satellite is not modelled. Pass fast_params={'DTHETA': "
+            "[x, y]} in arcsec to include it.",
+            source="factory:models.fast"
+        )
     # AMPLITUDE saturation: only here does FAST's log-normal scintillation break.
     # A large coupled-power fade (deep 99% tail) does NOT trip this -- that fade is
     # phase-driven and modelled correctly by the screens.
@@ -665,7 +669,8 @@ if __name__ == '__main__':
     assert term_vk.assumptions.spectrum == SPECTRUM_VON_KARMAN
     assert term_vk.meta["L0_m"] == 25.0
     assert "von Karman" in term_vk.assumptions.validity
-    assert any("Point-ahead" in v for v in term.assumptions.violations)
+    # No precompensation on a downlink, so the point-ahead caveat stays silent.
+    assert not any("Point-ahead" in v for v in term.assumptions.violations)
     # No correction -> NOAO, no ZMAX.
     assert term.meta["ao_mode"] == "NOAO" and term.meta["zmax"] is None
 
