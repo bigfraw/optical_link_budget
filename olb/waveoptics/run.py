@@ -39,6 +39,16 @@ from .sources import CircAperture, CircScreen, GaussBeam
 # Fresnel convolution applies. See Schmidt, DOI 10.1117/3.866274.
 PURE_GAUSS_CLIP = 1e-6
 
+# The optimal single-mode-fibre coupling parameter a = pi*(D/2)*w_m/(lambda*f).
+# It gives the eta_max peak 0.8145. Source: Shaklan and Roddier, Appl. Opt. 27
+# (1988) 2334, DOI 10.1364/AO.27.002334.
+SMF_OPTIMAL_A = 1.12
+
+# The default fibre mode field RADIUS, in m: SMF-28 at 1550 nm (mode field
+# diameter 10.4 um). It is the same default as
+# olb.models.coupling.terrestrial.SMF28_MODE_FIELD_RADIUS_M.
+SMF28_MODE_FIELD_RADIUS_M = 5.2e-6
+
 
 @dataclass(frozen=True)
 class WaveResult:
@@ -106,6 +116,65 @@ def _clip(Fin, aperture_m, obscuration_ratio):
     if obscuration_ratio > 0:
         Fout = CircScreen(Fout, obscuration_ratio * aperture_m / 2)
     return Fout
+
+
+def _smf_focal_length(detector, aperture_m, lam):
+    """Give the focal length of the single-mode-fibre coupling optic, in m.
+
+    An explicit SMF.focal_length_m wins. Else SMF.optimal_focus derives the
+    focal length from the a = 1.12 coupling parameter,
+    f = pi*(D/2)*w_m/(lambda*1.12), with the SMF-28 mode field radius as the
+    default w_m. Source: Shaklan and Roddier, Appl. Opt. 27 (1988) 2334,
+    DOI 10.1364/AO.27.002334. This is the SAME rule as
+    olb.models.coupling.terrestrial._smf_optics. The one-way dependency
+    (waveoptics does not import models) is the reason for the second copy.
+
+    Args:
+        detector:   the SMF detector.
+        aperture_m: the receive aperture diameter, in m.
+        lam:        the wavelength, in m.
+
+    Returns:
+        The focal length in m, or None when the detector sets neither an
+        explicit focal length nor optimal_focus.
+    """
+    if detector.focal_length_m is not None:
+        return float(detector.focal_length_m)
+    if detector.optimal_focus:
+        w_m = detector.mode_field_radius_m
+        if w_m is None:
+            w_m = SMF28_MODE_FIELD_RADIUS_M
+        return np.pi * (aperture_m / 2.0) * w_m / (lam * SMF_OPTIMAL_A)
+    return None
+
+
+def _smf_eta(detector, collected, aperture_m, lam):
+    """Give the single-mode-fibre coupling efficiency of a collected field.
+
+    The overlap reads the detector defocus: the fibre tip sits at
+    z = f + SMF.defocus_m. A non-zero defocus needs a focal length, so the
+    function resolves it with _smf_focal_length. See olb.waveoptics.smf.
+
+    Args:
+        detector:   the SMF detector.
+        collected:  the clipped receive-plane Field.
+        aperture_m: the receive aperture diameter, in m.
+        lam:        the wavelength, in m.
+
+    Returns:
+        The coupling efficiency, a float between 0 and 1.
+
+    Raises:
+        ValueError: the detector sets a defocus but no focal length.
+    """
+    f_smf = _smf_focal_length(detector, aperture_m, lam)
+    if detector.defocus_m != 0.0 and f_smf is None:
+        raise ValueError(
+            "SMF.defocus_m needs a focal length to make the defocus phase. "
+            "Set SMF.focal_length_m, or set SMF.optimal_focus=True.")
+    return float(coupling_efficiency(collected, aperture_m,
+                                     defocus_m=detector.defocus_m,
+                                     focal_length_m=f_smf))
 
 
 def propagate_scenario(scenario, geometry, grid=None):
@@ -196,7 +265,8 @@ def propagate_scenario(scenario, geometry, grid=None):
     # ---- the fibre coupling ----
     smf_coupling_db = None
     if isinstance(rx.detector, SMF):
-        eta = coupling_efficiency(collected, rx.aperture_m)
+        # The overlap reads SMF.defocus_m: the fibre tip sits at z = f + dz.
+        eta = _smf_eta(rx.detector, collected, rx.aperture_m, collected.lam)
         smf_coupling_db = _loss_db(eta, 1.0)
 
     stages = [("launch", launch), ("after tx clip", clipped),

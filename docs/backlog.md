@@ -567,17 +567,22 @@ The path forward for each is a second reference or a derivation.
   whose slow rings a Gaussian spot model omits. The gap is NOT closed: the SPACE
   half (downlink SMF against FAST, the 0.7–2.9 dB rows above) is untested against
   this correction, and the residual ~1 dB spot-shape term is not chased.
-- **2-W2. The fidelity-2 SMF path ignores `defocus_m` (2026-08-31).** The
-  fidelity-2 MMF leg now reads `MMF.defocus_m` (the plane `z = f + defocus_m`, a
-  quadratic pupil phase), so a non-focal-plane light bucket is
-  simulated. The single-mode leg (`olb/waveoptics/smf.py`, the pupil-mode
-  overlap) takes no defocus, so a fidelity-2 SMF budget always reads the
-  focal-plane coupling. The trial body says so in place
-  (`olb/waveoptics/turbulence/run.py`, the smf_eta branch: "reads NO defocus
-  (backlog 2-W2)"). A fidelity-2 cross-check of the analytic
-  `smf_eta_defocused(a, c)` therefore has no field reference yet. The fix is a
-  defocus phase on the back-projected fibre mode, the same quadratic factor the
-  MMF path uses.
+- **2-W2. The fidelity-2 SMF path ignores `defocus_m` — DONE (2026-09-04).**
+  `olb.waveoptics.smf.coupling_efficiency` now takes `defocus_m` and
+  `focal_length_m`. It multiplies the received field with the SAME quadratic
+  pupil phase the multimode leg uses, `exp(-i*pi*defocus_m*rho^2/(lam*f^2))`,
+  which moved into the shared helper `olb.waveoptics.mmf.defocus_phase`. So the
+  two fidelity-2 legs read ONE defocus convention: a DIVERGING received beam
+  couples best at a POSITIVE `defocus_m`. `olb.waveoptics.run._smf_eta` resolves
+  the focal length (an explicit `SMF.focal_length_m` wins, else
+  `SMF.optimal_focus` gives `f = pi*(D/2)*w_m/(lambda*1.12)`) and it feeds
+  `SMF.defocus_m` to every call site: the vacuum run, the turbulent trials, and
+  the multi-arm `detector_etas` path. A defocus with no focal length raises. The
+  default `defocus_m=0.0` keeps every old number bit-identical. The `smf.py`
+  self-check now measures the field overlap against the closed form
+  `smf_eta_defocused(a=1.12, c)` (D = 0.1 m, f = 0.5 m): 0.8145/0.8145 at
+  c = 0, 0.7537/0.7537 at c = 1, 0.5936/0.5936 at c = 2 and 0.2076/0.2076 at
+  c = 4. So the aberrated single-mode closed form HAS a field reference now.
 - **2-W3. The power-to-pixel-brightness conversion for the Camera detector is
   NOT built (owner-deferred 2026-09-02).** The pieces exist: the `Camera`
   dataclass (olb/terminal.py: `pixel_pitch_m`, `n_pixels`, `focal_length_m`,

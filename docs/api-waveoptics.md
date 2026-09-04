@@ -174,10 +174,18 @@ radius agrees with the analytic ABCD value to 0.4 percent
 - `smf_mode(grid_size_m, wavelength_m, n, aperture_m)` — the back-propagated
   single-mode-fibre mode in the pupil plane. It is a Gaussian of the radius
   `aperture_m / MODE_RADIUS_RATIO`. The intensity sum is 1.0.
-- `coupling_efficiency(field, aperture_m, mask=None)` — the power fraction that
+- `coupling_efficiency(field, aperture_m, mask=None, defocus_m=0.0,
+  focal_length_m=None)` — the power fraction that
   couples into the fibre, a float between 0 and 1. It is the normalised overlap
   of the field with the mode. `aperture_m` is the pupil DIAMETER. An optional
   `mask` multiplies the field first. A field with no power raises `ValueError`.
+  `defocus_m` puts the fibre tip at `z = f + defocus_m`: the function then
+  multiplies the field with the quadratic pupil phase of
+  `mmf.defocus_phase` (Section 4a), so a non-zero `defocus_m` needs
+  `focal_length_m` and raises `ValueError` without it. The closed form of this
+  overlap is `olb.models.coupling.smf_eta_defocused`, and the module self-check
+  matches it to four decimals. `defocus_m=0.0` (the default) is the
+  focal-plane overlap, unchanged.
 - `MODE_RADIUS_RATIO = 2.24` — the best ratio of the pupil diameter to the
   pupil-plane mode radius (Ruilier, DOI 10.1117/12.317094). A flat pupil then
   couples at the maximum of 0.8145.
@@ -217,6 +225,13 @@ spot inside the core.
   Parseval exact. `dx_focal = field.lam * focal_length_m / field.siz` is the
   focal pixel size, in m. It applies the mask, the numerical-aperture pupil
   gate, and the defocus before the focus.
+- `defocus_phase(field, defocus_m, focal_length_m)` — the quadratic pupil phase
+  of the plane `z = f + defocus_m`,
+  `exp(-i*pi*defocus_m*rho^2/(lambda*f^2))` (Goodman,
+  ISBN 978-0974707723). It is the ONE shared defocus factor: `focal_intensity`
+  and `olb.waveoptics.smf.coupling_efficiency` both call it, so the two
+  fidelity-2 coupling legs read one sign convention. A `focal_length_m` of
+  `None` raises `ValueError`.
 
 #### The non-focal-plane detector: `defocus_m`
 
@@ -391,7 +406,7 @@ A frozen dataclass. All the losses are positive dB.
 | `grid` | `GridSpec` | The grid that the propagation used. |
 | `tx_truncation_db` | float | The power that the launch aperture takes. |
 | `geometric_loss_db` | float | The power that the receive aperture does not collect. |
-| `smf_coupling_db` | float or None | The single-mode-fibre coupling loss. `None` when the receive terminal has no `SMF` detector. |
+| `smf_coupling_db` | float or None | The single-mode-fibre coupling loss. It reads `SMF.defocus_m` (the fibre tip at `z = f + defocus_m`). `None` when the receive terminal has no `SMF` detector. |
 | `propagator` | str | The name of the propagator that ran: `"GForvard"`, `"Fresnel"` or `"LensFresnel"`. |
 
 `PURE_GAUSS_CLIP = 1e-6` is the dispatch threshold. See Section 7.
@@ -1153,6 +1168,12 @@ wins; else `MMF.optimal_focus` matches the spot to the core through the
 `aperture_m` is the receive aperture DIAMETER, in m. The Term meta holds
 `mmf_eta`, `focal_length_m` and `defocus_m`.
 
-**The SMF leg still reads NO defocus** (backlog 2-W2). `olb.waveoptics.smf`
-takes no `defocus_m`, so the fidelity-2 single-mode coupling stays a
-focal-plane overlap.
+**The SMF leg reads the defocus too** (backlog 2-W2, DONE 2026-09-04).
+`olb.waveoptics.smf.coupling_efficiency` takes `defocus_m` and
+`focal_length_m`, and it applies the SAME quadratic pupil phase through the
+shared helper `olb.waveoptics.mmf.defocus_phase`. So a fidelity-2 SMF budget
+charges `SMF.defocus_m`, with the same sign as the multimode leg: a diverging
+received beam couples best at a POSITIVE `defocus_m`. The focal length comes
+from `SMF.focal_length_m`, or from `SMF.optimal_focus`
+(`f = pi*(D/2)*w_m/(lambda*1.12)`); a defocus with neither raises `ValueError`.
+`defocus_m=0.0` (the default) keeps the old focal-plane overlap exactly.

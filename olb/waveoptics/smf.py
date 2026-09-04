@@ -8,9 +8,14 @@ mode.
 The module transcribes two helpers from the shared kernel repository
 (my_analysis_modules: lightpipes_atmospherics.smf, coupling_efficiency, and
 the overlap and power kernels of general_atmospherics). The transcription keeps
-the package self-contained: it imports numpy and the local field module only.
+the package self-contained: it imports numpy and the local field, source and
+multimode modules only.
 
 Sources:
+- Shaklan and Roddier, Appl. Opt. 27, 2334 (1988),
+  DOI 10.1364/AO.27.002334, and Ruilier and Cassaing, JOSA A 18, 143 (2001),
+  DOI 10.1364/JOSAA.18.000143. The closed form of the defocused overlap, the
+  reference of the defocus leg (see olb.models.coupling.smf_eta_defocused).
 - Ruilier, A study of degraded light coupling into single-mode fibers,
   DOI 10.1117/12.317094. The mode radius that gives the largest overlap with a
   uniformly illuminated circular pupil, and the 0.8145 maximum.
@@ -23,6 +28,7 @@ Sources:
 import numpy as np
 
 from .field import Begin, Intensity, SubIntensity
+from .mmf import defocus_phase
 from .sources import GaussBeam
 
 # The best ratio of the pupil diameter to the fibre-mode radius. The source
@@ -56,7 +62,8 @@ def smf_mode(grid_size_m, wavelength_m, n, aperture_m):
     return SubIntensity(F, I / I.sum())
 
 
-def coupling_efficiency(field, aperture_m, mask=None):
+def coupling_efficiency(field, aperture_m, mask=None, defocus_m=0.0,
+                        focal_length_m=None):
     """Calculate the power fraction that couples into a single-mode fibre.
 
     eta = |sum(E * conj(M))|^2 / sum(|E|^2), with M the fibre mode of
@@ -68,15 +75,34 @@ def coupling_efficiency(field, aperture_m, mask=None):
     the zero-shift sample. Parseval makes that sample equal to the plain inner
     product, so this transcription uses the inner product.
 
+    defocus_m models a non-focal-plane fibre tip. The tip sits at
+    z = f + defocus_m, which is a QUADRATIC PHASE across the pupil (see
+    olb.waveoptics.mmf.defocus_phase). This leg applies the SAME factor with the
+    SAME sign as the multimode leg, so a DIVERGING received beam couples best at
+    a POSITIVE defocus_m. The closed form of this overlap for a uniformly
+    illuminated pupil is olb.models.coupling.smf_eta_defocused (Shaklan and
+    Roddier, DOI 10.1364/AO.27.002334; Ruilier and Cassaing,
+    DOI 10.1364/JOSAA.18.000143), and the module self-check measures this field
+    result against it. defocus_m=0.0 is the focal plane (unchanged).
+
     Args:
-        field:      the received Field. The grid, the wavelength and the pixel
-                    count of the mode come from this field.
-        aperture_m: the pupil DIAMETER, in m.
-        mask:       an optional N x N array. The function multiplies the field
-                    with the mask before the overlap. None applies no mask.
+        field:          the received Field. The grid, the wavelength and the
+                        pixel count of the mode come from this field.
+        aperture_m:     the pupil DIAMETER, in m.
+        mask:           an optional N x N array. The function multiplies the
+                        field with the mask before the overlap. None applies no
+                        mask.
+        defocus_m:      the fibre-tip offset from the focal plane, in m
+                        (z = f + defocus_m). 0.0 is the focal plane.
+        focal_length_m: the focal length of the coupling optic, in m. It is
+                        needed for a non-zero defocus_m only.
 
     Returns:
         The coupling efficiency, a float between 0 and 1.
+
+    Raises:
+        ValueError: the field carries no power, or defocus_m is non-zero and
+                    focal_length_m is None.
 
     Note:
         The source kernel takes a LIST of fields and gives the ratio of the
@@ -87,6 +113,12 @@ def coupling_efficiency(field, aperture_m, mask=None):
     E = field.field
     if mask is not None:
         E = E * mask
+    # The fibre tip at z = f + defocus_m. The displaced plane is a quadratic
+    # pupil phase, the same factor and the same sign as the multimode leg. See
+    # olb.waveoptics.mmf.defocus_phase and Goodman, ISBN 978-0974707723. A phase
+    # keeps the power, so the denominator does not change.
+    if defocus_m != 0.0:
+        E = E * defocus_phase(field, defocus_m, focal_length_m)
     M = smf_mode(field.siz, field.lam, field.N, aperture_m).field
     denominator = (np.abs(E) ** 2).sum()
     if denominator == 0.0:
@@ -136,6 +168,54 @@ if __name__ == '__main__':
     eta_mask = coupling_efficiency(flat, D, mask=blocked)
     assert eta_mask < eta_flat, (eta_mask, eta_flat)
 
+    # --- defocus: the field overlap against the closed form -----------------
+    # The fibre tip at z = f + dz makes the edge defocus coefficient
+    # c = pi*dz*(D/2)^2/(lambda*f^2) rad, and the closed form of this overlap is
+    # smf_eta_defocused(a, c) with a = 1.12 (the mode is D/2.24). Shaklan and
+    # Roddier, DOI 10.1364/AO.27.002334; Ruilier and Cassaing,
+    # DOI 10.1364/JOSAA.18.000143. The import is a SELF-CHECK reference only; the
+    # module itself imports nothing from olb.models.
+    from ..models.coupling._common import smf_eta_defocused
+
+    f_smf = 0.5                                   # the coupling focal length
+    a_smf = 1.12                                  # the mode is D/2.24
+    c_per_m = np.pi * (D / 2.0) ** 2 / (lam * f_smf ** 2)
+    rows = []
+    for c in (0.0, 1.0, 2.0, 4.0):
+        dz = c / c_per_m
+        eta_f = coupling_efficiency(flat, D, defocus_m=dz, focal_length_m=f_smf)
+        eta_a = float(smf_eta_defocused(a_smf, c))
+        rows.append((c, dz, eta_f, eta_a))
+        assert abs(eta_f - eta_a) / eta_a < 0.02, (c, eta_f, eta_a)
+    # A defocus can only lose power, and more defocus loses more.
+    assert all(rows[i][2] > rows[i + 1][2] for i in range(len(rows) - 1)), rows
+    # defocus_m=0.0 reproduces the focal-plane value EXACTLY (unchanged path).
+    assert coupling_efficiency(flat, D, defocus_m=0.0) == eta_flat
+
+    # The SIGN of defocus_m. A DIVERGING input (phase-front radius R > 0, so the
+    # pupil carries exp(+i*k*rho^2/2R); see olb.waveoptics.propagators.GForvard)
+    # focuses BEYOND the focal length, at z = f + f^2/(R-f) (S. A. Self, Appl.
+    # Opt. 22, 658 (1983), DOI 10.1364/AO.22.000658). So the best coupling sits
+    # at a POSITIVE defocus_m, the same as the multimode leg (olb.waveoptics.mmf).
+    R_test = 200.0                                 # a diverging pupil, R > 0
+    dz_true = f_smf ** 2 / (R_test - f_smf)
+    curved = SubIntensity(flat, Intensity(flat))
+    curved.field = flat.field * np.exp(1j * (2 * np.pi / lam)
+                                       * flat.mgrid_Rsquared / (2.0 * R_test))
+    eta_true = coupling_efficiency(curved, D, defocus_m=dz_true,
+                                   focal_length_m=f_smf)
+    eta_at_f = coupling_efficiency(curved, D)
+    eta_mirror = coupling_efficiency(curved, D, defocus_m=-dz_true,
+                                     focal_length_m=f_smf)
+    assert eta_true > eta_at_f > eta_mirror, (eta_true, eta_at_f, eta_mirror)
+
+    # A defocus with no focal length is refused.
+    try:
+        coupling_efficiency(flat, D, defocus_m=1e-4)
+        raise AssertionError('a defocus with no focal length must raise')
+    except ValueError:
+        pass
+
     print(f"pupil diameter D        {D * 1e3:9.2f} mm")
     print(f"mode radius D/2.24      {D / MODE_RADIUS_RATIO * 1e3:9.4f} mm")
     print(f"mode radius, read back  {w_read * 1e3:9.4f} mm")
@@ -146,4 +226,9 @@ if __name__ == '__main__':
     print(f"  one-wave tilt         {eta_tilt:9.4f}")
     print(f"  obscured top hat      {eta_mask:9.4f}")
     print(f"  masked pupil power    {Power(flat):9.3e} W")
+    print("")
+    print("defocus (a = 1.12, f = 0.5 m): field against the closed form")
+    print("     c [rad]     dz [um]   eta field   eta closed form")
+    for c, dz, eta_f, eta_a in rows:
+        print(f"  {c:10.2f} {dz * 1e6:11.3f} {eta_f:11.4f} {eta_a:17.4f}")
     print("self-check passed")

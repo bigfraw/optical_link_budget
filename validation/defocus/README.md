@@ -48,5 +48,7 @@ Run it from the repository root:
   OPTIMISTIC off focus and it carries a loud assumptions flag. Use a multimode
   fibre (a light bucket), fidelity 2, or the full modal model above.
 - The fidelity-2 wave-optics layer reads `MMF.defocus_m`, so it cross-checks the
-  multimode defocus trend. The fidelity-2 single-mode leg takes no defocus, so the
-  single-mode closed form has no field reference yet (backlog 2-W2).
+  multimode defocus trend. It reads `SMF.defocus_m` too (backlog 2-W2, DONE
+  2026-09-04), so the single-mode closed form has a field reference: the
+  `olb/waveoptics/smf.py` self-check matches `smf_eta_defocused(a=1.12, c)` to
+  four decimals at c = 0, 1, 2 and 4.

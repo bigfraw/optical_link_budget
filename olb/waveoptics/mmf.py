@@ -33,6 +33,42 @@ import warnings
 import numpy as np
 
 
+def defocus_phase(field, defocus_m, focal_length_m):
+    """Give the quadratic pupil phase of the plane z = f + defocus_m.
+
+    A displaced observation plane is a QUADRATIC PHASE across the pupil,
+    W(rho) = -pi*defocus_m*rho^2/(lambda*f^2) rad. Goodman, Introduction to
+    Fourier Optics, ISBN 978-0974707723 (defocus as a quadratic pupil
+    aberration). The MINUS sign is the phase convention of this port: a
+    DIVERGING beam carries exp(+i*k*r^2/2R) (see
+    olb.waveoptics.propagators.GForvard) and a lens applies exp(-i*k*r^2/2f)
+    (see olb.waveoptics.lenses.Lens). So a DIVERGING received beam couples best
+    at a POSITIVE defocus_m.
+
+    Both the multimode light bucket (focal_intensity) and the single-mode
+    overlap (olb.waveoptics.smf.coupling_efficiency) apply this SAME factor with
+    this SAME sign, so the two legs read one defocus convention.
+
+    Args:
+        field:          the PUPIL-plane Field. The grid and the wavelength come
+                        from this field.
+        defocus_m:      the detector offset from the focal plane, in m.
+        focal_length_m: the focal length of the coupling optic, in m.
+
+    Returns:
+        An N x N complex array of unit modulus.
+
+    Raises:
+        ValueError: focal_length_m is None.
+    """
+    if focal_length_m is None:
+        raise ValueError(
+            'defocus_phase: a non-zero defocus needs a focal length. Set the '
+            'detector focal_length_m, or set optimal_focus=True.')
+    return np.exp(-1j * np.pi * defocus_m * field.mgrid_Rsquared
+                  / (field.lam * focal_length_m ** 2))
+
+
 def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
                     defocus_m=0.0):
     """Focus a pupil field to the detector plane and give the intensity.
@@ -106,9 +142,7 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
     # (diverging = +i*k*r^2/2R, lens = -i*k*r^2/2f; see propagators.GForvard and
     # lenses.Lens). defocus_m=0.0 leaves the focal-plane field unchanged.
     if defocus_m != 0.0:
-        rho2 = field.mgrid_Rsquared
-        Eg = Eg * np.exp(-1j * np.pi * defocus_m * rho2
-                         / (field.lam * focal_length_m ** 2))
+        Eg = Eg * defocus_phase(field, defocus_m, focal_length_m)
 
     # Focus the pupil field to the focal plane. The focal-plane amplitude is the
     # 2-D Fourier transform of the pupil field (Fraunhofer diffraction, Goodman,

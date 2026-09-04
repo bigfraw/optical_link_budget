@@ -44,8 +44,7 @@ from ...terminal import Aperture, Camera, SMF, MMF
 from ..field import Begin, Power
 from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard
-from ..run import _clip, _launch_aperture, _normalised_gauss
-from ..smf import coupling_efficiency
+from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
 from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
 from .screens import ScreenFactory, phase_screen
@@ -137,9 +136,11 @@ def _detector_eta(detector, collected, aperture_m, lam):
         # olb.terminal.Camera and olb.waveoptics.camera.
         return None
     if isinstance(detector, SMF):
-        # The overlap of the focal field with the fibre mode. NOTE: this leg
-        # reads NO defocus (backlog 2-W2). See olb.waveoptics.smf.
-        return float(coupling_efficiency(collected, aperture_m))
+        # The overlap of the field with the back-projected fibre mode. The fibre
+        # tip sits at z = f + defocus_m, which is a quadratic pupil phase, the
+        # same convention as the multimode leg. See olb.waveoptics.smf and
+        # olb.waveoptics.mmf.defocus_phase.
+        return _smf_eta(detector, collected, aperture_m, lam)
     if isinstance(detector, MMF):
         # A non-focal-plane detector (z = f + defocus_m). The AXIAL displacement
         # grows the spot (defocus_m); the field already carries the turbulent
