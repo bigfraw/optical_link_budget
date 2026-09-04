@@ -24,7 +24,8 @@ from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.anisoplanatism import (anisoplanatic_phase_variance,
                                          max_radial_order)
-from ..turbulence.ao import plane_wave_fried_parameter_profile, apply_compensation
+from ..turbulence.ao import (plane_wave_fried_parameter_profile,
+                            apply_compensation, MARECHAL_SIGMA2_MAX)
 from ..turbulence.uplink_flux import _flux_result
 from ..turbulence.andrews.scintillation import UPLINK_SIGMA2X_LIMIT
 from ..turbulence.plane_wave_scintillation import plane_wave_scintillation_index
@@ -36,12 +37,12 @@ from ..scenario import DownlinkBeacon, LaserGuideStar
 # transmit Gaussian-efficiency term is skipped [dB].
 TX_TRUNCATION_MIN_DB = 1e-2
 
-# Above this residual phase variance [rad^2] the extended Marechal mean
-# eta = exp(-sigma2) departs from the true on-axis mean. The real far field
-# breaks into a speckled core plus a halo, and the exponential decays faster
-# than the real core, so the Term overstates the loss. Source: T. S. Ross,
-# Appl. Opt. 48(10), 1812 (2009), DOI 10.1364/AO.48.001812.
-MARECHAL_SIGMA2_MAX = 1.0
+# MARECHAL_SIGMA2_MAX comes from olb.turbulence.ao (the ONE home of the
+# extended-Marechal limit and its source citation). Above that residual phase
+# variance [rad^2] the extended Marechal mean eta = exp(-sigma2) departs from the
+# true on-axis mean: the real far field breaks into a speckled core plus a halo,
+# and the exponential decays faster than the real core, so the Term overstates
+# the loss.
 
 
 def _flag_marechal(assumptions, sigma2):
