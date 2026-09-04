@@ -78,9 +78,10 @@ single whole-path `fidelity` argument on the budget (`fidelity=0|1|2`):
   Monte Carlo fade (the FAST modal coupling, the coupled-flux uplink).
 - Fidelity 2 is wave optics. It appears as two Terms: a deterministic
   vacuum-optics Term (the full no-turbulence loss) and a stochastic turbulence
-  Term (the fade). It needs a precomputed `wave` bundle from
-  `olb.models.waveoptics.run_fidelity2`. The budget never runs the split-step
-  simulation itself.
+  Term (the fade). It needs a precomputed `wave` record: a bundle from
+  `olb.models.waveoptics.run_fidelity2`, or a `Campaign` from
+  `olb.waveoptics.turbulence` for thousands of trials on disk. The budget never
+  runs the split-step simulation itself.
 
 Fidelity 1 does not exist for a terrestrial link.
 

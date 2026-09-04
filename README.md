@@ -77,8 +77,10 @@ on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
 Set `fidelity=0`, `1`, or `2` on each budget. **Fidelity 1 does not exist for a
 terrestrial link** (FAST is a far-field plane-wave-source model; a near-field
 finite Gaussian beam needs fidelity 2). Fidelity 2 needs a precomputed `wave`
-bundle from `olb.models.waveoptics.run_fidelity2` — the budget never runs the
-split-step propagation itself. See `examples/waveoptics/budget_wiring.py`.
+record: a bundle from `olb.models.waveoptics.run_fidelity2`, or an on-disk
+`olb.waveoptics.turbulence.Campaign` of thousands of trials — the budget never
+runs the split-step propagation itself. See `examples/waveoptics/budget_wiring.py`
+and `examples/waveoptics/campaign_demo.py`.
 
 ## Structure
 
@@ -215,8 +217,10 @@ number comes from the Shapiro reciprocity overlap. A fidelity-2 budget shows two
 Terms: a deterministic vacuum-optics Term (the full no-turbulence loss, which also
 validates the near-field and far-field limits of the analytic Terms) and a
 stochastic turbulence Term. The caller precomputes both with
-`olb.models.waveoptics.run_fidelity2`. The temporal mode and the rich results record
-stay planned.
+`olb.models.waveoptics.run_fidelity2`, or passes a `Campaign` (2026-09-04): an
+on-disk, resumable store of thousands of trials that keeps the receive-plane
+field of each trial, so any detector inside the stored patch is a post-hoc
+question. The temporal mode stays planned.
 
 A **temporal** side-step runs across the fidelity tiers, not along them (planned,
 NT6). Each statistical tier draws independent snapshots today, which give the

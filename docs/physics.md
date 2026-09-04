@@ -1168,7 +1168,10 @@ an empty stack maps to `AO_MODE="NOAO"`. Subharmonics capture the low-order tilt
 - Scalar elevation only in this first cut. An elevation array needs one FAST run
   per elevation.
 - Point-ahead is off (`DTHETA=0`): the up-leg and down-leg anisoplanatism of a
-  moving satellite is not modelled. The Term flags this.
+  moving satellite is not modelled. The Term flags this only when the scenario
+  carries a `precompensation` source, because the point-ahead decorrelation
+  applies to a pre-compensated beam. A plain downlink receive coupling never
+  uses it, so it gets no flag.
 - The default scales (L0 = inf, l0 = 1 um) are the Kolmogorov limit. A finite L0 or
   a large l0 from `fast_params` makes it a von Karman spectrum, and the Term reads
   the label from the resolved scales.
