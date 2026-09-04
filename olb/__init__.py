@@ -32,6 +32,7 @@ from .terminal import Terminal, Transmitter, Aperture, SMF, MMF, Camera, TipTilt
 from .links import (uplink_budget, downlink_budget, retro_space_budget,
                     retro_budget, terrestrial_budget)
 from .multidetector import multi_detector_budgets
+from .sweep import budgets_vs_elevation
 from . import units
 
 __all__ = [
@@ -46,5 +47,6 @@ __all__ = [
     "uplink_budget", "downlink_budget", "retro_space_budget", "retro_budget",
     "terrestrial_budget",
     "multi_detector_budgets",
+    "budgets_vs_elevation",
     "units",
 ]

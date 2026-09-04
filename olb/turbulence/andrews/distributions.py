@@ -920,15 +920,15 @@ if __name__ == '__main__':
     a0, b0 = 4.0, 1.8
     grid = np.logspace(-10, 2, 200_001)
     pdf0 = gamma_gamma_pdf(grid, a0, b0)
-    mass = np.trapz(pdf0, grid)
-    mean_I = np.trapz(pdf0 * grid, grid)
+    mass = np.trapezoid(pdf0, grid)
+    mean_I = np.trapezoid(pdf0 * grid, grid)
     print(f"[physics] gamma-gamma mass      err = {abs(mass - 1.0):.3e}")
     print(f"[physics] gamma-gamma E[I]      err = {abs(mean_I - 1.0):.3e}")
     assert abs(mass - 1.0) < 1e-4 and abs(mean_I - 1.0) < 1e-4
 
     # Eq. (139), printed 371: the consistency identity ties alpha and beta back
     # to the scintillation index.
-    var_I = np.trapz(pdf0 * (grid - 1.0) ** 2, grid)
+    var_I = np.trapezoid(pdf0 * (grid - 1.0) ** 2, grid)
     s2_eq139 = gamma_gamma_scintillation_index(a0, b0)
     print(f"[physics] Eq.(139) index        err = "
           f"{abs(var_I - s2_eq139) / s2_eq139:.3e}")
@@ -963,11 +963,11 @@ if __name__ == '__main__':
     lr_grid = np.linspace(1e-6, 40.0, 8001)
     lr = lognormal_rician_pdf(lr_grid, r=2.0, sigma_z2=0.3)
     print(f"[physics] Eq.(133) mass         err = "
-          f"{abs(np.trapz(lr, lr_grid) - 1.0):.3e}")
+          f"{abs(np.trapezoid(lr, lr_grid) - 1.0):.3e}")
     print(f"[physics] Eq.(133) E[I]         err = "
-          f"{abs(np.trapz(lr * lr_grid, lr_grid) - 1.0):.3e}")
-    assert abs(np.trapz(lr, lr_grid) - 1.0) < 1e-3
-    assert abs(np.trapz(lr * lr_grid, lr_grid) - 1.0) < 1e-3
+          f"{abs(np.trapezoid(lr * lr_grid, lr_grid) - 1.0):.3e}")
+    assert abs(np.trapezoid(lr, lr_grid) - 1.0) < 1e-3
+    assert abs(np.trapezoid(lr * lr_grid, lr_grid) - 1.0) < 1e-3
 
     # Eq. (25), printed 451: the fade threshold relation.
     print(f"[physics] Eq.(25) threshold     err = "

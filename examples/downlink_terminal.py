@@ -74,8 +74,11 @@ def main():
                        channel=Channel(site=site, altitude_m=altitude_m))
         budget = downlink_budget(scn, geom)
 
-        # The receive-coupling Term carries the receive-side turbulence.
-        coupling = next(t for t in budget.terms if t.category == "coupling")
+        # The receive-side turbulence Term: a bucket (Aperture) gives a
+        # scintillation Term (category "turbulence"); an SMF gives a coupling Term
+        # (category "coupling").
+        coupling = next(t for t in budget.terms
+                        if t.category in ("coupling", "turbulence"))
 
         print("=" * 62)
         print(label)

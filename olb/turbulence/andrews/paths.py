@@ -306,7 +306,7 @@ def rms_wind(slew_deg_s=0.0, ground_wind_m_s=10.0, points=2001):
     '''
     hs = np.linspace(5.0e3, 20.0e3, int(points))
     v = bufton_wind(hs, slew_deg_s, ground_wind_m_s)
-    return float(np.sqrt(np.trapz(v ** 2, hs) / 15.0e3))
+    return float(np.sqrt(np.trapezoid(v ** 2, hs) / 15.0e3))
 
 
 # The two SCIDAR outer-scale models, as (peak L0 [m], peak altitude [m]). The
@@ -456,13 +456,13 @@ def mu(hs, cn2_profile, order, *, direction='uplink', beam=None,
     cn2 = np.asarray(cn2_profile, dtype=float)
     order = int(order)
     if order == 0:
-        return float(np.trapz(cn2, hs))
+        return float(np.trapezoid(cn2, hs))
     if order not in (1, 2, 3):
         raise ValueError(f'order must be 0, 1, 2 or 3, not {order}')
 
     xi = _xi(hs, altitude_m, direction, h0)
     if order == 2:
-        return float(np.trapz(cn2 * xi ** (5.0 / 3.0), hs))
+        return float(np.trapezoid(cn2 * xi ** (5.0 / 3.0), hs))
 
     if beam is None:
         raise ValueError(f'order {order} needs beam=BeamParams(...)')
@@ -472,11 +472,11 @@ def mu(hs, cn2_profile, order, *, direction='uplink', beam=None,
 
     if order == 1:
         weight = np.abs(theta + theta_bar * (1.0 - xi)) ** (5.0 / 3.0)
-        return float(np.trapz(cn2 * weight, hs))
+        return float(np.trapezoid(cn2 * weight, hs))
 
     inner = (lam * xi + 1j * (1.0 - theta_bar * xi)) ** (5.0 / 6.0)
     integrand = xi ** (5.0 / 6.0) * inner - lam ** (5.0 / 6.0) * xi ** (5.0 / 3.0)
-    return float(np.trapz(cn2 * np.real(integrand), hs))
+    return float(np.trapezoid(cn2 * np.real(integrand), hs))
 
 
 def _refuse_two_scale(l0, L0):
@@ -573,7 +573,7 @@ def downlink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     dh = hs - hs[0]
 
     point = (_POINT_CONSTANT * k ** (7.0 / 6.0) * sec ** (11.0 / 6.0)
-             * np.trapz(cn2 * dh ** (5.0 / 6.0), hs))
+             * np.trapezoid(cn2 * dh ** (5.0 / 6.0), hs))
 
     if regime not in ('weak', 'strong', 'auto'):
         raise ValueError(f'regime must be "weak", "strong" or "auto", '
@@ -601,7 +601,7 @@ def downlink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     a_arr = np.atleast_1d(np.asarray(a, dtype=float))
     kernel = ((a_arr[None, :] + 1j * dh[:, None]) ** (5.0 / 6.0)
               - a_arr[None, :] ** (5.0 / 6.0))
-    integral = np.trapz(cn2[:, None] * np.real(kernel), hs, axis=0)
+    integral = np.trapezoid(cn2[:, None] * np.real(kernel), hs, axis=0)
     out = (_MU3_CONSTANT * k ** (7.0 / 6.0)
            * np.atleast_1d(sec) ** (11.0 / 6.0) * integral)
     return float(out[0]) if np.ndim(sec) == 0 else out.reshape(np.shape(sec))
@@ -896,7 +896,7 @@ def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0, *,
     cos_zeta = 1.0 / sec_zeta(elevation_deg)
 
     if beam is None:
-        integral = np.trapz(cn2 * (hs - hs[0]) ** (5.0 / 3.0), hs)
+        integral = np.trapezoid(cn2 * (hs - hs[0]) ** (5.0 / 3.0), hs)
         return float(cos_zeta ** (8.0 / 5.0)
                      * (_ISOPLANATIC_CONSTANT * k ** 2 * integral)
                      ** (-3.0 / 5.0))
@@ -1155,7 +1155,7 @@ if __name__ == '__main__':
 
     # 8. The two readings of mu_1. See the mu docstring.
     xi_d = _xi(hs, H_GEO, 'downlink', None)
-    literal = float(np.trapz(cn2 * np.abs(bp.theta + bp.theta_bar * xi_d)
+    literal = float(np.trapezoid(cn2 * np.abs(bp.theta + bp.theta_bar * xi_d)
                              ** (5.0 / 3.0), hs))
     used = mu(hs, cn2, 1, direction='downlink', beam=bp, altitude_m=H_GEO)
     print(f'MEASURED mu_1d two readings : (1 - xi) reading = {used:.4e} '

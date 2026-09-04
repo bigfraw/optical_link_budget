@@ -1970,6 +1970,57 @@ run log, a memory note or a backlog aside is not documented.
 - **Script.** The sweep tables are in
   [schmidt-crosscheck.md](schmidt-crosscheck.md), the WP7 note.
 
+### 9j. Do FAST and the Stone law agree on the point-ahead residual?
+
+- **Question.** The pre-compensated uplink holds two models of the point-ahead
+  decorrelation residual: the fidelity-1 FAST route (`uplink_fast_term`, the
+  model of record; the PAOLA filter `G_AO_PAOLA`, Farley,
+  DOI 10.1364/OE.458659) and the fidelity-0 Stone modal law
+  (`uplink_point_ahead_term`; Stone, DOI 10.1364/JOSAA.11.000347). They compute
+  the same quantity. Do they give the same number? Backlog 1-5.
+- **Model under test.** Both routes at once, at matched conditions: the same
+  HV5/7 profile, aperture (1.5 m), corrected order, and point-ahead angle, with
+  the FAST servo and sensor effects OFF (`TLOOP=0`, `TEXP=0`, zero wind,
+  `ALIAS=False`, `NOISE=0`), where the PAOLA filter reduces exactly to the pure
+  two-path kernel `2 - 2 cos(delta_r . kappa)`.
+- **Reference.** Each route checks the other; an independent whole-plane polar
+  quadrature of the FAST filter breaks the tie, because the FAST grid truncates
+  the low-frequency band. The mode sets are matched: the FAST modal mask keeps
+  the piston and the tilts, so its analytic partner is the Stone band with NO
+  mode removed, not the production `piston_tilt` form.
+- **Measured (2026-09-02, FULL run: grid 1024 x 0.01 m, 3000 draws).**
+  - The mode-matched ratio reads 1.044 to 1.055 across the whole sweep
+    (point-ahead 0.25x to 2x nominal, ZMAX 1 to 66, elevation 30 to 90 deg);
+    the single-layer case reads 0.991. The uncorrected anchor (ZMAX = 0) is
+    exactly zero on both routes: with no corrected mode, nothing decorrelates. The fitting sides agree to 0.6 percent
+    (FAST band integral 0.3334 rad^2 against Noll 0.3354 rad^2 at 55 modes).
+  - The production pairing reads 3.5x at the production point, and the whole
+    factor is the mode set: 2.08 rad^2 of piston plus 0.41 rad^2 of tilt
+    decorrelation that `uplink_point_ahead_term` removes by design.
+  - Two FAST cautions. The shipped `sim.aniso_servo_error` leaks
+    `mask (1 - mask)` of the uncorrected band (0.061 rad^2 at a ZERO
+    point-ahead angle, where the truth is 0). And the FAST grid misses 29 to
+    48 percent of the whole-plane Kolmogorov residual (no support below `df`;
+    the integral converges as `kappa^(1/3)`); the shipped Term's auto grid
+    (`df` = 3.11 rad/m) misses more. The missing scales sit far above the
+    aperture, so their effect on the coupled flux is damped; that damping is
+    not quantified. OPEN follow-up.
+  - The Term level: the fidelity-1 Monte Carlo mean reads 0.6 to 1.7 dB below
+    the fidelity-0 pair at all five operating points (3.04 against 3.79 dB at
+    AO(60), 60 deg — the backlog first reading, reproduced). The attribution
+    ladder decomposes the gap into the mode-set convention, the auto-grid
+    truncation, and the Marechal-against-Monte-Carlo mapping.
+- **VERDICT.** MATCH — both routes are validated. At matched mode sets the
+  PAOLA spatial-frequency filter and the Stone Zernike projection agree to
+  about 5 percent across the swept angles, orders, and elevations, and the
+  fitting sides agree to under 1 percent. The Term-level spread is a
+  composition of measured conventions, not a physics disagreement. The FAST
+  Term keeps its model-of-record role at the swept operating points.
+- **Script.** `validation/fast_stone_pointahead/fast_stone_pointahead.py`
+  (`--full` for the run of record); write-up
+  [validation/fast_stone_pointahead/README.md](../validation/fast_stone_pointahead/README.md).
+  See backlog 1-5.
+
 ---
 
 ## Source summary

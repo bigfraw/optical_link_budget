@@ -66,7 +66,9 @@ and do not change between the families. A channel holds no hardware.
 The geometry is separate from the scenario. Use `CircularOrbit(altitude_m,
 elevation_deg)` for a space link, or `HorizontalPath(path_length_m)` for a
 terrestrial link. A budget function takes a scenario and a geometry, and returns
-a `Budget`.
+a `Budget`. For a space link, `budgets_vs_elevation(scenario, elevations)` builds
+one budget for each elevation in one call, and returns the
+`(elevation_deg, Budget)` pairs.
 
 Each budget is built at one of three levels of rigour. Select the level with a
 single whole-path `fidelity` argument on the budget (`fidelity=0|1|2`):

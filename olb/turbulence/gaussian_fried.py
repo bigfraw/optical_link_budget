@@ -436,8 +436,8 @@ def gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
 
     xi = (L - z) / L                                      # 1 at tx, 0 at rx
 
-    mu1 = np.trapz(cn2 * (theta + theta_bar * xi) ** (5.0 / 3.0), hs)
-    mu2 = np.trapz(cn2 * xi ** (5.0 / 3.0), hs)
+    mu1 = np.trapezoid(cn2 * (theta + theta_bar * xi) ** (5.0 / 3.0), hs)
+    mu2 = np.trapezoid(cn2 * xi ** (5.0 / 3.0), hs)
 
     rho0 = (1.46 * k ** 2 * sec_z
             * (mu1 + 0.62 * lam ** (11.0 / 6.0) * mu2)) ** (-3.0 / 5.0)
@@ -497,7 +497,7 @@ if __name__ == '__main__':
     hs_w = np.linspace(1.0, 20e3, 400)
     ground_heavy = 1e-15 * np.exp(-hs_w / 500.0)
     top_heavy = 1e-15 * np.exp(-(hs_w[-1] - hs_w) / 500.0)
-    ground_heavy *= np.trapz(top_heavy, hs_w) / np.trapz(ground_heavy, hs_w)
+    ground_heavy *= np.trapezoid(top_heavy, hs_w) / np.trapezoid(ground_heavy, hs_w)
     r0_ground = gaussian_fried_parameter_profile(hs_w, ground_heavy, 5e-4, lam,
                                                  path='uplink')
     r0_top = gaussian_fried_parameter_profile(hs_w, top_heavy, 5e-4, lam,
@@ -511,7 +511,7 @@ if __name__ == '__main__':
     r0_geo = gaussian_fried_parameter_profile(hs_w, hv, 0.01, lam,
                                               path='uplink', path_length_m=36e6)
     r0_geo_plane = 2.1 * (1.46 * (2 * np.pi / lam) ** 2
-                          * np.trapz(hv, hs_w)) ** (-3.0 / 5.0)
+                          * np.trapezoid(hv, hs_w)) ** (-3.0 / 5.0)
     assert np.isclose(r0_geo, r0_geo_plane, rtol=5e-2), (r0_geo, r0_geo_plane)
 
     # Terrestrial path: hs is horizontal distance, no airmass. Constant Cn2 over

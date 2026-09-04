@@ -53,7 +53,7 @@ from ...turbulence.andrews.beam import (beam_params, effective_beam_params,
                                         wavenumber)
 from ...turbulence.andrews.paths import sec_zeta
 from ...turbulence.andrews.scintillation import rytov_variance
-from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile
+from ...turbulence.profiles import DEFAULT_HS, default_cn2_profile, get_c2n
 from ..grid import N_MIN, GridSpec, _features, beam_magnification, forvard_max_z
 from .screens import screen_r0
 
@@ -66,6 +66,19 @@ PIXELS_PER_FEATURE = 8
 # The largest screen count that the planner builds. A path that asks for more
 # gets the cap and a warning.
 MAX_SCREENS = 500
+
+# The top of the atmosphere, in m. The continuous planner integrates the Cn2
+# callable from the ground to this height. It matches DEFAULT_HS[-1], and the
+# Hufnagel-Valley Cn2 is negligible above it (the boundary term dies over 100 m
+# and the tropopause bump over 1500 m). See olb.turbulence.profiles.
+DEFAULT_H_TOP_M = 20e3
+
+# The number of points of the internal integration grid of the continuous
+# planner. This is a NUMERICAL INTEGRATION detail, not a physics choice: the
+# grid is log-spaced (fine near the ground boundary layer, coarse up high) and
+# fine enough that a finer grid does not move the plan. It is NOT the screen
+# count and NOT a discretisation of the atmosphere. See _integration_heights.
+_N_QUAD = 512
 
 
 @dataclass(frozen=True)
@@ -290,6 +303,32 @@ def _composite_r0(r0_m):
                  ** (-3.0 / 5.0))
 
 
+def _cumtrapz(y, x):
+    """Give the running trapezoid integral of y over x, starting at 0.
+
+    The result has the same length as x. It is np.cumsum on the trapezoid
+    areas of each interval, with a leading 0. numpy has no cumulative
+    trapezoid, and scipy is not imported here, so this is the two-line form.
+    """
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    area = 0.5 * (y[1:] + y[:-1]) * np.diff(x)
+    return np.concatenate(([0.0], np.cumsum(area)))
+
+
+def _integration_heights(h_top):
+    """Give the internal integration grid of the continuous planner.
+
+    The grid is log-spaced from the ground to h_top, with the ground point
+    h = 0 added, so it resolves the near-ground boundary layer (the
+    Hufnagel-Valley ground term dies over 100 m) and still reaches 20 km with a
+    few hundred points. It is a NUMERICAL INTEGRATION grid, not a layering of
+    the atmosphere: the screen count and the screen positions do not depend on
+    it, only the accuracy of the integrals does. See _plan_space_continuous.
+    """
+    return np.concatenate(([0.0], np.geomspace(0.1, float(h_top), _N_QUAD)))
+
+
 def _equal_weight_groups(weights, n_groups):
     """Cut the layers into EXACTLY n_groups contiguous groups of equal weight.
 
@@ -420,8 +459,147 @@ def _plan_terrestrial(scenario, geometry, preset, lam):
     return plan, r_beam, feature
 
 
-def _plan_space(scenario, geometry, preset, lam, hs, cn2_profile, warns):
-    """Build the screen plan and the physical extent of the atmosphere slab.
+def _plan_space(scenario, geometry, preset, lam, cn2, hs, cn2_profile, h_top,
+                warns):
+    """Build the space screen plan. Dispatch on the profile kind.
+
+    The DEFAULT and the callable route go to the CONTINUOUS planner, which
+    integrates the Cn2 function directly. An explicit hs / cn2_profile array
+    goes to the ARRAY planner, the legacy fallback that groups the given
+    layers. See docs/backlog.md, item 2-I2: DEFAULT_HS is now the fallback for
+    an array caller only, not the physics grid of the default budget.
+    """
+    if hs is not None or cn2_profile is not None:
+        return _plan_space_array(scenario, geometry, preset, lam, hs,
+                                 cn2_profile, warns)
+    if cn2 is None:
+        site = scenario.channel.site
+
+        def cn2(h):
+            """The site Hufnagel-Valley zenith Cn2(h). See profiles.get_c2n."""
+            return get_c2n(h, site.wind_rms_m_s, site.cn2_ground)
+    return _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top,
+                                  warns)
+
+
+def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
+    """Build the space screen plan by integrating a continuous Cn2 callable.
+
+    The gridded path is the DOWNLINK slab only. The satellite is outside the
+    atmosphere, so the vacuum part of the path carries no turbulence. An uplink
+    reads the same slab through reciprocity. See
+    olb.waveoptics.turbulence.run.
+
+    THE PLACEMENT IS EQUAL RYTOV WEIGHT. The path is cut into N slabs that each
+    carry the SAME share of the total plane-wave Rytov variance, and each screen
+    sits at the Cn2-weighted centroid of its slab. Because turbulence is
+    front-loaded (the ground boundary layer holds most of the integrated Cn2,
+    the tropopause bump most of the scintillation), the equal-weight slabs come
+    out thin where the air is dense and fat where it is empty, so the screen
+    resolution tracks the physics and not an arbitrary height grid. The screen
+    count is the smallest that keeps every screen under the Rytov cap, floored at
+    the preset min_screens:
+
+        N = max(min_screens, ceil(sigma2_R_total / sigma2_r_screen_max))
+
+    An equal cut then gives sigma2_R_total / N per screen, which is at or under
+    the cap by construction (turbulent_grid warns if N hits MAX_SCREENS and a
+    screen still passes the cap). This is the continuous form of the
+    _merge_layers / _equal_weight_groups pair of the array planner.
+
+    Args:
+        cn2:    a callable cn2(h) -> the zenith Cn2 at height h [m], in
+                m^(-2/3). Vectorised over an ndarray of heights.
+        h_top:  the top of the integrated atmosphere, in m.
+    """
+    p = preset
+    k = wavenumber(lam)
+    ground = scenario.ground
+
+    # The sizer takes the LOWEST elevation of the geometry, because that is the
+    # longest slant path and the worst sampling case.
+    elevation = float(np.min(np.asarray(geometry.elevation_deg, dtype=float)))
+    sec = float(sec_zeta(elevation))
+    z_total = float(h_top) * sec
+
+    # The internal integration grid. See _integration_heights: it is a
+    # numerical detail, not a layering of the atmosphere.
+    h = _integration_heights(h_top)
+    cn2_h = np.asarray(cn2(h), dtype=float)
+
+    # The two densities per unit height, on the SLANT path.
+    #   m(h) = Cn2(h) sec           -> the slant integrated Cn2 (r0, centroid)
+    #   w(h) = 2.25 k^(7/6) Cn2(h) sec (h sec)^(5/6)  -> the Rytov weight
+    # The (h sec)^(5/6) factor is the distance from the layer to the ground
+    # receiver. See _screen_rytov and Andrews and Phillips,
+    # DOI 10.1117/3.626196, Ch. 12, Eq. (14) (the slant airmass) and Ch. 8,
+    # Eq. (20) (the Rytov path weight). z_of_h is the distance from the INPUT
+    # plane (the top of the slab), so a small z is a high layer.
+    z_of_h = (float(h_top) - h) * sec
+    dist_to_rx = h * sec
+    m_dens = cn2_h * sec
+    w_dens = _screen_rytov(k, cn2_h * sec, np.maximum(dist_to_rx, 0.0))
+
+    # The cumulative integrals, in ascending h. np.interp needs an increasing
+    # x, so the inversion below reads W_cum against h.
+    w_cum = _cumtrapz(w_dens, h)
+    m_cum = _cumtrapz(m_dens, h)
+    zm_cum = _cumtrapz(z_of_h * m_dens, h)
+    w_total = float(w_cum[-1])
+
+    # The screen count, then the equal-weight boundaries. A weak path (w_total
+    # under the cap) takes the floor; a strong path raises the count until each
+    # equal slab is under the cap.
+    if w_total <= 0.0 or p.sigma2_r_screen_max <= 0.0:
+        n_s = int(p.min_screens)
+    else:
+        n_s = max(int(p.min_screens),
+                  int(np.ceil(w_total / p.sigma2_r_screen_max)))
+    n_s = int(min(n_s, MAX_SCREENS))
+
+    targets = w_total * np.arange(1, n_s) / n_s
+    h_inner = np.interp(targets, w_cum, h)
+    h_edges = np.concatenate(([0.0], h_inner, [float(h_top)]))   # ascending
+
+    # Each slab [h_edges[j], h_edges[j+1]] gives one screen. The slabs run from
+    # the ground (j = 0, the far z) to the top (j = n-1, z = 0), so the reverse
+    # order puts the screens at INCREASING z, the order that split_step wants.
+    def _seg(cum, lo, hi):
+        return np.interp(hi, h, cum) - np.interp(lo, h, cum)
+
+    cn2_int = np.empty(n_s)
+    z = np.empty(n_s)
+    s2 = np.empty(n_s)
+    for j in range(n_s):
+        lo, hi = h_edges[j], h_edges[j + 1]
+        i = n_s - 1 - j                                   # z-ascending index
+        m_slab = _seg(m_cum, lo, hi)
+        cn2_int[i] = m_slab
+        z[i] = (_seg(zm_cum, lo, hi) / m_slab if m_slab > 0.0
+                else (float(h_top) - 0.5 * (lo + hi)) * sec)
+        s2[i] = _seg(w_cum, lo, hi)
+
+    r0 = screen_r0(cn2_int, lam)
+    r0_total = _composite_r0(r0)
+
+    d_ground = ground.aperture_m
+    t = ground.transmitter
+    if t is not None and t.aperture_m is not None:
+        d_ground = max(d_ground, t.aperture_m)
+    r_beam = d_ground / 2
+    feature = min(_features(d_ground, ground.obscuration_ratio))
+
+    plan = ScreenPlan(z_m=z, cn2_int_m13=cn2_int, r0_m=r0, sigma2_r=s2,
+                      z_total_m=z_total, r0_total_m=r0_total, direction="down")
+    return plan, r_beam, feature
+
+
+def _plan_space_array(scenario, geometry, preset, lam, hs, cn2_profile, warns):
+    """Build the space screen plan by grouping a discrete Cn2 layer array.
+
+    This is the LEGACY fallback for a caller that passes an explicit hs grid
+    and cn2_profile. The default budget uses _plan_space_continuous instead.
+    See docs/backlog.md, item 2-I2.
 
     The gridded path is the DOWNLINK slab only. The satellite is outside the
     atmosphere, so the vacuum part of the path carries no turbulence. An uplink
@@ -491,8 +669,8 @@ def _plan_space(scenario, geometry, preset, lam, hs, cn2_profile, warns):
     return plan, r_beam, feature
 
 
-def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
-                   cn2_profile=None, L0_m=np.inf):
+def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
+                   cn2_profile=None, h_top_m=None, L0_m=np.inf):
     """Size a turbulent split-step grid, and plan the screens.
 
     THE EXTENT RULE. The grid holds the beam AND the light that the turbulence
@@ -544,10 +722,20 @@ def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
                      elevation_deg (space). The sizer takes the worst case: the
                      longest range, or the lowest elevation.
         preset:      the name of a preset in PRESETS, or a QualityPreset.
-        hs:          the height grid of the Cn2 profile, in m. None takes
-                     DEFAULT_HS. Space only.
-        cn2_profile: the zenith Cn2 profile on hs. None takes the site profile.
-                     Space only.
+        cn2:         a callable cn2(h) -> the zenith Cn2 at height h [m], in
+                     m^(-2/3), vectorised over an ndarray. None (and no hs /
+                     cn2_profile) takes the site Hufnagel-Valley profile, and
+                     the planner INTEGRATES it (the continuous default; see
+                     item 2-I2). Space only. Ignored when hs or cn2_profile is
+                     given.
+        hs:          the height grid of a DISCRETE Cn2 profile, in m. Give it
+                     (with or without cn2_profile) to take the LEGACY array
+                     planner instead of the continuous one. Space only.
+        cn2_profile: the zenith Cn2 profile on hs. None with hs takes the site
+                     profile on that grid. Space only.
+        h_top_m:     the top of the atmosphere for the continuous integral, in
+                     m. None takes DEFAULT_H_TOP_M (20 km). Space only; ignored
+                     by the array planner (it uses hs[-1]).
         L0_m:        the outer scale, in m. The SIZER does not read it. The
                      runner passes it to phase_screen. It stays here so that
                      one call site holds all the turbulence options.
@@ -570,11 +758,12 @@ def turbulent_grid(scenario, geometry, *, preset="standard", hs=None,
         preset = PRESETS[preset]
     p = preset
     lam = scenario.tx_terminal.wavelength_m
+    h_top_m = DEFAULT_H_TOP_M if h_top_m is None else float(h_top_m)
     warns = []
 
     if hasattr(scenario, "ground"):          # a space scenario; terrestrial has near/far
         plan, r_beam, feature = _plan_space(
-            scenario, geometry, p, lam, hs, cn2_profile, warns)
+            scenario, geometry, p, lam, cn2, hs, cn2_profile, h_top_m, warns)
     else:
         plan, r_beam, feature = _plan_terrestrial(scenario, geometry, p, lam)
 
@@ -701,7 +890,7 @@ if __name__ == '__main__':
     assert (rx_half := (1 - p_std.boundary_width_frac) * g1.size_m / 2) > 0.10, \
         rx_half
 
-    # ---- 2. a space case: r0_total against the analytic profile ----
+    # ---- 2. the continuous default: r0_total against the analytic profile ----
     hs = DEFAULT_HS
     orbit30 = CircularOrbit(altitude_m=600e3, elevation_deg=[30.0])
     space = SpaceScenario(
@@ -711,12 +900,17 @@ if __name__ == '__main__':
         direction="downlink", channel=Channel(altitude_m=600e3))
     with warnings.catch_warnings(record=True) as caught2:
         warnings.simplefilter("always")
-        g2, plan2, rep2 = turbulent_grid(space, orbit30)
-    cn2_prof = default_cn2_profile(space.channel.site, hs)
-    r0_analytic = plane_wave_fried_parameter_profile(cn2_prof, hs, lam, 30.0)
+        g2, plan2, rep2 = turbulent_grid(space, orbit30)     # continuous default
+    # The reference is the analytic Fried parameter on a FINE grid, the true
+    # continuous value. The continuous planner INTEGRATES the same Cn2 callable,
+    # so the two agree tightly. A coarse DEFAULT_HS trapezoid is biased LOW in
+    # r0 by about 2 percent (it over-integrates the convex near-ground layer);
+    # that bias is the DEFAULT_HS crutch that item 2-I2 removes. See below.
+    hs_fine = np.concatenate(([0.0], np.geomspace(0.1, DEFAULT_HS[-1], 4000)))
+    cn2_fine = default_cn2_profile(space.channel.site, hs_fine)
+    r0_analytic = plane_wave_fried_parameter_profile(cn2_fine, hs_fine, lam, 30.0)
     # The plan r0 uses the Fried constant 0.423, and the Andrews chain uses
-    # 0.4240. The layer sum uses np.gradient, and the analytic value uses
-    # np.trapz. The two differences are small, and they partly cancel.
+    # 0.4240, so a small constant offset stays.
     assert abs(plan2.r0_total_m / r0_analytic - 1.0) < 0.01, \
         (plan2.r0_total_m, r0_analytic)
     assert plan2.direction == "down"
@@ -724,6 +918,34 @@ if __name__ == '__main__':
     assert abs(plan2.z_total_m - hs[-1] * 2.0) < 1e-6      # sec(60 deg) = 2
     # The top screen is at the top of the slab, and no screen is past the end.
     assert plan2.z_m[0] >= 0.0 and plan2.z_m[-1] <= plan2.z_total_m
+    # Every screen carries an equal share of the Rytov variance, at or under the
+    # cap. The equal-weight cut is the continuous placement rule.
+    assert plan2.sigma2_r.max() <= PRESETS["standard"].sigma2_r_screen_max
+    assert plan2.sigma2_r.std() / plan2.sigma2_r.mean() < 1e-6, plan2.sigma2_r
+
+    # ---- 2b. the continuous default drops the DEFAULT_HS crutch ----
+    # The continuous plan does not read a height grid, so it is grid-free by
+    # construction. It agrees with a WELL-RESOLVED array plan (200 layers), and
+    # it differs from the coarse 20-layer DEFAULT_HS array plan by the trapezoid
+    # bias only. An explicit hs still routes to the legacy array planner.
+    prof_20 = default_cn2_profile(space.channel.site, DEFAULT_HS)
+    prof_200 = default_cn2_profile(
+        space.channel.site, np.geomspace(DEFAULT_HS[0], DEFAULT_HS[-1], 200))
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        _, plan_arr20, _ = turbulent_grid(space, orbit30, hs=DEFAULT_HS,
+                                          cn2_profile=prof_20)
+        _, plan_arr200, _ = turbulent_grid(
+            space, orbit30, hs=np.geomspace(DEFAULT_HS[0], DEFAULT_HS[-1], 200),
+            cn2_profile=prof_200)
+    # The total integrated Cn2 (the driver of r0) converges from the array to
+    # the continuous value as the grid refines.
+    cont_mu = plan2.cn2_int_m13.sum()
+    err_20 = abs(plan_arr20.cn2_int_m13.sum() / cont_mu - 1.0)
+    err_200 = abs(plan_arr200.cn2_int_m13.sum() / cont_mu - 1.0)
+    assert err_20 > err_200, (err_20, err_200)          # 200 layers is closer
+    assert err_200 < 0.01, err_200                      # and it converges
+    assert err_20 < 0.05, err_20                         # the crutch bias is small
 
     # ---- 3. the presets are monotone ----
     # A strong 3 km path, so that no preset hits the 256-pixel floor.
@@ -755,15 +977,21 @@ if __name__ == '__main__':
     # The report stays honest: the numbers are the ACHIEVED ones.
     assert abs(rep4.pixels_per_r0 - plan4.r0_total_m / g4.pixel_m) < 1e-9
 
-    # ---- 5. a weak screen near the receiver is exempt ----
-    # A 10 deg slant path gives 11 screens, and the last one sits about 80 m
-    # from the ground receiver. Its Fresnel scale is 11 mm, so the Fresnel rule
-    # would ask for a 5.6 mm pixel on an 8 m grid. That screen carries less
-    # than fresnel_weight_min of the Rytov variance, so the plan ignores it.
+    # ---- 5. a weak screen near the receiver is exempt (ARRAY planner) ----
+    # The Fresnel exemption lives in turbulent_grid and it keys on the Rytov
+    # SHARE of a screen. The legacy array planner keeps the near-ground screen
+    # of the profile, which sits about 80 m from the receiver and carries a
+    # tiny share, so the exemption fires. (The continuous planner spreads that
+    # weight over a fat bottom slab, so it has no such near-receiver spike; its
+    # sampling is checked in case 5b.) A 10 deg slant path with DEFAULT_HS gives
+    # a near screen whose Fresnel scale would ask for a sub-cm pixel on an 8 m
+    # grid; its share is below fresnel_weight_min, so the plan ignores it.
     orbit10 = CircularOrbit(altitude_m=600e3, elevation_deg=[10.0])
+    prof10 = default_cn2_profile(space.channel.site, DEFAULT_HS)
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
-        g5, plan5, rep5 = turbulent_grid(space, orbit10)
+        g5, plan5, rep5 = turbulent_grid(space, orbit10, hs=DEFAULT_HS,
+                                         cn2_profile=prof10)
     z_to_rx5 = plan5.z_total_m - plan5.z_m
     share5 = plan5.sigma2_r / plan5.sigma2_r.sum()
     near_i = int(np.argmin(z_to_rx5))
@@ -774,6 +1002,21 @@ if __name__ == '__main__':
     assert g5.pixel_m > dx_if_forced, (g5.pixel_m, dx_if_forced)
     # The screens that DO pass the threshold are still sampled.
     assert rep5.fresnel_pixels_min >= 2.0, rep5.fresnel_pixels_min
+
+    # ---- 5b. the continuous default stays well sampled at every elevation ----
+    # The equal-weight bottom slab is fat, so the nearest screen sits well off
+    # the ground and its Fresnel demand is mild. No exemption is needed, and the
+    # grid holds the coherence and the Fresnel scales at 10, 30 and 90 degrees.
+    for el in (10.0, 30.0, 90.0):
+        with warnings.catch_warnings(record=True) as caught5b:
+            warnings.simplefilter("always")
+            g5b, plan5b, rep5b = turbulent_grid(
+                space, CircularOrbit(altitude_m=600e3, elevation_deg=[el]))
+        assert not caught5b, (el, [str(w.message) for w in caught5b])
+        assert rep5b.fresnel_pixels_min >= 2.0, (el, rep5b.fresnel_pixels_min)
+        assert rep5b.pixels_per_r0 >= PRESETS["standard"].pixels_per_r0, \
+            (el, rep5b.pixels_per_r0)
+        assert not rep5b.n_clamped, el
 
     # ---- 6. the screen-count floor is a preset choice, not a profile artefact
     # A weak slab passes the Rytov cap with one group, so min_screens sets the
@@ -845,6 +1088,20 @@ if __name__ == '__main__':
     assert abs(err_clamp[0]) < 0.02, err_clamp
     assert abs(err_clamp).max() < 0.01, err_clamp
     assert abs(err_old).max() < 0.01, err_old
+
+    # The CONTINUOUS default plan also matches the profile moments. The
+    # equal-weight cut with the Cn2-weighted centroid holds every moment of the
+    # zenith slab to better than 1 percent, with 9 screens and no height grid.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        _, plan_cont, _ = turbulent_grid(space, zenith)      # continuous, sec = 1
+    h_ref = np.concatenate(([0.0], np.geomspace(0.1, DEFAULT_H_TOP_M, 4000)))
+    order_ref = np.argsort(-h_ref)
+    z_ref = DEFAULT_H_TOP_M - h_ref[order_ref]               # zenith: sec = 1
+    cn2_ref = default_cn2_profile(space.channel.site, h_ref)[order_ref]
+    err_cont = moment_error(cn2_ref, z_ref, plan_cont.cn2_int_m13, plan_cont.z_m)
+    assert plan_cont.z_m.size == PRESETS["standard"].min_screens, plan_cont.z_m.size
+    assert abs(err_cont).max() < 0.01, err_cont
 
     # ---- the printed tables ----
     print("case 1, terrestrial, 2 km, Cn2 = 5e-15, standard preset:")

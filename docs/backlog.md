@@ -26,9 +26,16 @@ are from 2026-08-26 and can drift.
    pre-compensated scenario). See 0-W1 for the decision record and 1-2 for the
    remaining FAST limits.
 2. **HIGH (owner-flagged, 2026-08-27) — stop the reliance on the
-   `DEFAULT_HS` 20-layer array.** HV5/7 is a continuous profile; the planner
-   and the physics must take a callable, not a hand-discretised grid. See
-   2-I2.
+   `DEFAULT_HS` 20-layer array. STEP 1 DONE (2026-09-02).** HV5/7 is a
+   continuous profile; the turbulent planner now takes a callable and
+   integrates it, and the default fidelity-2 SPACE budgets use the continuous
+   plan. Step 2 (the fidelity-0/1 `hs`-array modules move to callables) is
+   still open. See 2-I2.
+2a. **VERY IMPORTANT — DO SOON (owner-flagged 2026-09-02): the tail-convergence
+   study.** The continuous planner from step 1 now lets the near-ground
+   resolution be dialled independently. Run the study WP7 could not: does the
+   deep SMF fade tail (p5/p1 — the link availability margin) converge as the
+   near-ground `Cn2` is resolved? See 2-I2T.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -320,7 +327,25 @@ The path forward for each is a second reference or a derivation.
   the other links to a strong-regime model (a Monte Carlo or the fidelity-2
   layer; see the memory `strong-fluctuation-numerical`).
 - **1-5. Validate the FAST point-ahead residual against the analytic Stone
-  decorrelation (owner-flagged 2026-08-27).** The two routes compute the
+  decorrelation — DONE (2026-09-02). VERDICT: MATCH, both routes validated.**
+  The study is `validation/fast_stone_pointahead/` and the entry of record is
+  physics.md Section 9j. With the servo off (`TLOOP=0`, `TEXP=0`, zero wind)
+  the PAOLA filter reduces exactly to `2 - 2cos(delta_r . kappa)` (verified to
+  9e-16), and at MATCHED MODE SETS the two routes agree to about 5 % across
+  the full sweep (point-ahead 0.25x to 2x, ZMAX 1 to 66 plus the exact-zero
+  uncorrected anchor, elevation 30 to 90 deg); the fitting sides agree to
+  0.6 %. THE MODE SETS MATTER: the FAST modal
+  mask keeps the piston and the tilts, so its analytic partner is Stone
+  `remove='none'`; the production pairing (against `piston_tilt`) reads 3.5x
+  and the whole factor is that convention. The backlog first reading is
+  reproduced (3.04 vs 3.79 dB) and the Term-level gap decomposes into the mode
+  set, the FAST auto-grid truncation, and the Marechal-vs-Monte-Carlo mapping.
+  Two OPEN FAST cautions, measured: `sim.aniso_servo_error` leaks
+  `mask(1-mask)` of the uncorrected band (0.061 rad^2 at theta = 0, truth 0),
+  and the FAST grid misses 29 to 48 % of the whole-plane Kolmogorov residual
+  (the shipped Term's auto grid, `df` = 3.11 rad/m, misses more); the missing
+  scales sit far above the aperture, so the coupled-flux effect is damped, and
+  that damping is not quantified. The original recipe follows. The two routes compute the
   same quantity: the residual phase of a finite-aperture pre-compensation
   that measures off-axis by the point-ahead angle. FAST integrates the
   PAOLA aniso-servo filter over the corrected spatial-frequency mask and
@@ -587,28 +612,64 @@ The path forward for each is a second reference or a derivation.
   `_equal_weight_groups` and `_merge_layers` are in
   olb/waveoptics/turbulence/sampling.py.
 - **2-I2. Continuous Cn2 profiles — drop the `DEFAULT_HS` crutch (HIGH,
-  owner-flagged 2026-08-27).** HV5/7 and the other Cn2 models are continuous
-  functions; the 20-layer `DEFAULT_HS` array is a hand-made discretisation,
-  and it leaks into the physics wherever a decision reads the grid instead of
-  the profile. Work package 7 removed the worst leak (the screen count), but
-  the screen PLACEMENT still comes from the array. The post-WP7 matched-seed
-  measurement (the WP7 note in docs/schmidt-crosscheck.md) sharpened the
-  question: the bottom screen HEIGHT is a null, and the live variable is
-  whether the near-ground `Cn2` is spread over many thin screens or lumped
-  into one — a resolution question that only the continuous ground layer can
-  answer. The same measurement shows the placement moves the deep SMF fade
-  tail (about 2 dB at p5, direction consistent, not yet resolved above the
-  Monte-Carlo noise at 200 trials). The change, in two separate steps: (1) `turbulent_grid` and
-  `_plan_space` in olb/waveoptics/turbulence/sampling.py accept a callable
-  `cn2(h)` and compute the group integrals, centroids, Rytov shares, and the
-  Eq. (9.65) moments by quadrature on the callable; `DEFAULT_HS` stays only
-  as the fallback for an array caller. (Both still take `hs` and `cn2_profile`
-  as ARRAYS only.) This also makes the Gauss-quadrature
-  screen placement (tracker candidate, S-22) implementable. (2) LATER, and
-  separately: the fidelity-0/1 modules that integrate over `hs` arrays
-  (slant extinction and scintillation, uplink flux, FAST) move to callables;
-  that step is wide, mechanical, and must move no numbers. The owner decided
-  on 2026-08-27 to flag this here and NOT build it yet.
+  owner-flagged 2026-08-27). STEP 1 DONE (2026-09-02).** HV5/7 and the other
+  Cn2 models are continuous functions; the 20-layer `DEFAULT_HS` array is a
+  hand-made discretisation, and it leaks into the physics wherever a decision
+  reads the grid instead of the profile. Work package 7 removed the worst leak
+  (the screen count), but the screen PLACEMENT still came from the array. The
+  post-WP7 matched-seed measurement (the WP7 note in docs/schmidt-crosscheck.md)
+  sharpened the question: the bottom screen HEIGHT is a null, and the live
+  variable is whether the near-ground `Cn2` is spread over many thin screens or
+  lumped into one — a resolution question that only the continuous ground layer
+  can answer. The same measurement showed a hint that the placement moves the
+  deep SMF fade tail (about 2 dB at p5, direction consistent, NOT resolved above
+  the Monte-Carlo noise at 200 trials; the mean is a null, 0.23 +/- 0.48 dB).
+  The change, in two separate steps:
+  - **(1) DONE (2026-09-02).** `turbulent_grid` and `_plan_space` in
+    olb/waveoptics/turbulence/sampling.py now take a callable `cn2(h)` and
+    INTEGRATE it. The DEFAULT (no hs/cn2_profile) builds the site HV5/7 callable
+    and integrates it; `DEFAULT_HS` is now the fallback for an explicit array
+    caller ONLY (`_plan_space_array`, frozen behaviour). The continuous planner
+    (`_plan_space_continuous`) places screens by EQUAL RYTOV WEIGHT
+    (N = max(min_screens, ceil(sigma2_R_total / cap)) equal-weight slabs) with a
+    Cn2-weighted centroid per slab. It is grid-free by construction: a finer
+    internal integration grid does not move the plan. Validated in the module
+    self-check — the continuous r0 matches a fine-grid analytic to <1% (the
+    coarse 20-layer trapezoid is biased ~2% low in r0, the crutch bias), every
+    profile moment holds inside 1% (Schmidt Eq. (9.65)), and the sampling stays
+    good at 10/30/90 deg. `cn2` and `h_top_m` are threaded through
+    `propagate_turbulent_scenario`, `propagate_turbulent_field`, `run_waveoptics`,
+    `run_fidelity2`, and the opt-in cache (the cache fingerprints the callable by
+    sampling it). The default fidelity-2 SPACE budgets now use the continuous
+    plan; only the screen PLACEMENT moves (the total turbulence is conserved),
+    and the mean is validated flat. The Gauss-quadrature screen placement
+    (tracker candidate, S-22) is now implementable on this base. FOLLOW-UP: the
+    TAIL-CONVERGENCE STUDY — see 2-I2T, flagged VERY IMPORTANT / DO SOON by the
+    owner on 2026-09-02.
+  - **(2) OPEN, LATER, and separately:** the fidelity-0/1 modules that integrate
+    over `hs` arrays (slant extinction and scintillation, uplink flux, FAST) move
+    to callables; that step is wide, mechanical, and must move no numbers. Still
+    NOT built.
+- **2-I2T. The tail-convergence study (VERY IMPORTANT — DO SOON, owner-flagged
+  2026-09-02).** Now that the continuous planner (2-I2 step 1) lets the
+  near-ground resolution be dialled INDEPENDENTLY of the physics, run the study
+  that WP7 could not. THE QUESTION: does the deep SMF fade tail (p5, p1) CONVERGE
+  as the near-ground `Cn2` is resolved with more, thinner screens — or is the
+  ~2 dB p5 sensitivity seen in the post-WP7 matched-seed re-test (docs/schmidt-
+  crosscheck.md:1273) a real, convergent effect that the default screen count
+  under-resolves? WHY IT MATTERS: the fade tail sets the LINK AVAILABILITY
+  margin, so an under-resolved tail biases the availability the budget reports;
+  the mean is already validated flat, so the tail is the open risk in the
+  fidelity-2 space budgets. THE METHOD: hold the grid and the seed set fixed,
+  sweep the effective near-ground screen resolution (e.g. raise `min_screens`,
+  or add a near-ground refinement to the equal-weight cut), and measure p50 /
+  p10 / p5 / p1 of the SMF (point-receiver) fade against screen count at 30 deg
+  and a low elevation. Resolve the p5 gap ABOVE the Monte-Carlo noise — the
+  re-test showed that needs about 4x the 200 trials (so about 800), which the
+  fast `ScreenFactory` now makes cheap. Record the convergence curve and, if the
+  tail moves, RE-TIER the default screen count for the tail (this feeds 2-I3,
+  the per-channel preset revision, and the receiver-kind floor question). Land it
+  as a `validation/` study with a written note in docs/schmidt-crosscheck.md.
 - **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27;
   scope widened 2026-08-29).**
   One preset table serves two channel families that measure differently, and
@@ -750,45 +811,60 @@ The path forward for each is a second reference or a derivation.
 
 ## Infrastructure and code debt
 
-- **I-1. Scalar-elevation limits.** The gamma-gamma Term
-  (`_gamma_gamma_term` in olb/links/downlink.py) and BOTH FAST Terms
-  (`smf_fast_term` and `uplink_fast_term` in olb/models/fast.py) refuse an
-  elevation array. `downlink_scintillation_term` also refuses an array when the
-  auto selector routes to the gamma-gamma Term. Vectorise or loop internally.
+- **I-1. Scalar-elevation limits — RESOLVED by a sweep helper (2026-09-02).**
+  The gamma-gamma Term (olb/links/downlink.py) and the FAST Term
+  (olb/models/fast.py) each model ONE line of sight, so an internal
+  vectorisation is not possible: FAST runs one Monte Carlo per geometry, and the
+  gamma-gamma Term carries one (alpha, beta) pair. This was CONFIRMED against the
+  fast-aosim source, whose own multi-elevation driver
+  (`complete_orbit_simulation.py`) builds one `fast.Fast(...)` per zenith angle in
+  a loop. So the correct fix is a LOOP, not vectorisation. The new top-level
+  helper `olb.budgets_vs_elevation(scenario, elevations, **kwargs)`
+  (`olb/sweep.py`) builds a scalar-elevation `CircularOrbit` for each angle from
+  `scenario.channel.altitude_m`, calls the family/direction budget function
+  (reusing `multidetector._budget_function`), and returns
+  `list[(elevation_deg, Budget)]`. It mirrors `multi_detector_budgets` and sits
+  ABOVE `olb.links`. A `TerrestrialScenario` has no elevation axis and raises.
+  The self-check asserts the I-1 regression: a gamma-gamma array-elevation call
+  raises, but the sweep runs it one angle at a time. Docs: docs/api-budget.md.
 - **I-2. Duplicate physics copies (Gap 10) — DONE for the production paths
-  (2026-09-04).** The four crosscheck forms now each have ONE canonical home
-  that every budget-facing copy reads:
+  (lognormal faces 2026-09-02, Rytov std 2026-09-04).** The four crosscheck forms
+  now each have ONE canonical home that every budget-facing copy reads:
   1. The lognormal dB FACES (TL-01..04, DL-01..04, crosscheck G-24). The four
      expressions (mean_db, quantile, sampler, the -sigma_l2/2 offset) were
      written inline in BOTH `downlink._lognormal_term` and
-     `terrestrial_scintillation_term`. Both now build through the ONE shared
-     adapter `olb/models/fade.py` `irradiance_fade_term` applied to the andrews
-     lognormal model (`lognormal_params`/`_mean_log`/`_quantile`/`_rvs`). The
-     array-elevation downlink path is preserved (`lognormal_rvs` draws
-     `(n, *shape)`). The dead `scipy.stats.norm` and `_LN10` imports were removed
-     from both link modules.
+     `terrestrial_scintillation_term`. Both now route through the ONE shared
+     adapter `olb/models/fade.py` `irradiance_fade_term` with the andrews
+     lognormal helpers (`lognormal_params`/`_mean_log`/`_quantile`/`_rvs`), the
+     SAME path the gamma-gamma Term already used. The mean and the sampler are
+     BYTE identical to the retired inline code; the quantile matches to machine
+     precision (~1e-16 dB: the adapter takes -10 log10(exp(x)), the inline code
+     took -10 x / ln10 directly). A raw-formula parity guard in each module's
+     self-check (and in `fade.py`) enforces this mechanically. The dead
+     `scipy.stats.norm` and `_LN10` imports were removed from both link modules.
   2. The plane-wave RYTOV standard deviation (GF-05, KR-23). Two hard-coded
      production copies were left. `plane_wave_scintillation.sigma1_rytov` (missed
      when its neighbour `coherence_radius` was delegated) and the inline
-     `olb/links/terrestrial.py` regime-gate now both read
-     `andrews.scintillation.rytov_variance(wave="plane")`. `sigma1_rytov` keeps
-     its `@assumes` weak-regime Constraint, and no production Term traces it, so
-     no assumptions frame moves; the terrestrial call sits outside the factory
-     trace, so it adds no provenance.
+     `olb/links/terrestrial.py` regime gate now both read
+     `andrews.scintillation.rytov_variance(wave="plane")`. This MOVES NO NUMBERS:
+     the Rytov constant 1.23 is book-identical in the copies and in andrews (the
+     0.423-vs-0.4240 constant question is a FRIED matter, not a Rytov one). A
+     full-precision before/after harness over 113 values (mean_db, three
+     quantiles, seeded 1000-draw samples, every meta field and the assumptions
+     frame of the downlink and terrestrial scintillation Terms, plus
+     `sigma1_rytov`) shows mean_db, ALL samples, meta and assumptions
+     BIT-IDENTICAL; the only movement is the quantile face, worst 3.6e-15 dB (the
+     shared-adapter round-trip of point 1). `sigma1_rytov` keeps its `@assumes`
+     weak-regime Constraint, no production Term traces it, and the terrestrial
+     call sits outside the factory trace, so no assumptions frame moves.
   3+4. The plane-wave COHERENCE RADIUS (GF-10) and single-path FRIED parameter
      (GF-11, KR-25) were ALREADY converged by the Andrews-foundation refactor and
      the de-vendoring: `gaussian_fried.plane_wave_coherence_radius`,
      `gaussian_fried.plane_wave_fried_parameter`, `gaussian_fried.rytov_std`,
      `plane_wave_scintillation.coherence_radius` and `ao.py` all DELEGATE to
-     `andrews.structure`, and the old `my_analysis_modules` copy is gone.
-  NUMBER-SAFETY PROOF: a full-precision before/after harness over 113 values
-  (mean_db, three quantiles, seeded 1000-draw samples, every meta field and the
-  assumptions frame of the downlink and terrestrial scintillation Terms, plus
-  `sigma1_rytov`) shows mean_db, ALL Monte-Carlo samples, meta and assumptions
-  BIT-IDENTICAL. The only movement is the quantile face, worst 3.6e-15 dB, from
-  the adapter's exp->log10 round-trip (the same rounding `fade.py`'s parity
-  self-check already accepts at `< 1e-12`; the gamma-gamma Term already used the
-  adapter). Every affected module self-check passes.
+     `andrews.structure` (the 0.4240 book chain), and the old
+     `my_analysis_modules` copy is gone. So there is NO open production Fried or
+     coherence duplicate.
   DELIBERATELY LEFT (not a production duplicate): `andrews/wander.py` keeps its
   own `spherical_fried_parameter` (0.16) and `plane_fried_parameter_slant` (0.42)
   forms. That module is the parked, measurement-only Andrews wander route (0-W8,
@@ -847,14 +923,20 @@ The path forward for each is a second reference or a derivation.
 - **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
   caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
   `QualityPreset` table.
-- **DD-4. Crosscheck Table 3 is partly stale** — the "not found in olb"
-  spectra rows predate WP3's andrews/spectra.py. The rows for 5.92, 3.3,
-  1.802 / 0.254 and the k0 = C0/L0 conventions still read "ABSENT from olb",
-  but `olb/turbulence/andrews/spectra.py` now holds all of them
-  (`TATARSKII_KM`, `MODIFIED_KL`, the bump term, `VON_KARMAN_C0` and
-  `EXPONENTIAL_C0`).
-- **DD-5. Citation faults — AO-07 and the C-02 note addressed; PW-05 left,
-  owner-gated.**
+- **DD-4. DONE (2026-09-02).** The Ch. 3 spectrum-model rows of Crosscheck
+  Table 3 that read "not found in olb" are reconciled against
+  `olb/turbulence/andrews/spectra.py` (WP3). Four rows now point at the code and
+  read IMPLEMENTED, with a "Reconciled 2026-09-02" tag: the Tatarskii inner-scale
+  wavenumber (`TATARSKII_KM = 5.92`), the modified-atmospheric inner-scale
+  wavenumber (`MODIFIED_KL = 3.3`), the high-wavenumber bump terms (`1.802`,
+  `0.254` in `modified_atmospheric`), and the outer-scale conventions
+  (`VON_KARMAN_C0 = 2 pi`, `EXPONENTIAL_C0 = 4 pi`, `MODIFIED_EQ23_C0 = 4 pi`).
+  A dated header note records the reconciliation. Rows that are still genuinely
+  absent from the code are unchanged. NOTE (a follow-up, not DD-4): the
+  structure-function / coherence-radius constants (2.914/1.093, 1.64/1.87,
+  0.55/0.62) now live in `andrews/structure.py`, not `spectra.py`, so they were
+  left for a separate structure.py reconciliation.
+- **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
   AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
   (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on
   the genuine Kolmogorov phase PSD, which is a correct attribution). The Noll

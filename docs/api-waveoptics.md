@@ -603,12 +603,21 @@ The vacuum sizer `GridSpec.for_scenario()` is not sufficient for a turbulent
 path. Turbulence spreads the beam, so the grid needs a wider side, and it adds
 coherence structure at the Fried scale `r0`, so the grid needs a finer pixel.
 
-#### `turbulent_grid(scenario, geometry, *, preset="standard", hs=None, cn2_profile=None, L0_m=np.inf)`
+#### `turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf)`
 
 It returns the tuple `(GridSpec, ScreenPlan, SamplingReport)`. The geometry gives
 `slant_range_m` (terrestrial) or `elevation_deg` (space), and the sizer takes the
-WORST case: the longest range, or the lowest elevation. `hs` and `cn2_profile`
-are space only; `None` takes `DEFAULT_HS` and the site profile. `L0_m` sits here
+WORST case: the longest range, or the lowest elevation.
+
+For a SPACE link the planner is CONTINUOUS by default (item 2-I2 step 1): with no
+`hs`/`cn2_profile` it builds the site Hufnagel-Valley callable, INTEGRATES it, and
+cuts the atmosphere slab into equal-Rytov-weight screens at the Cn2-weighted
+centroid of each slab. `cn2` overrides that callable (a `cn2(h) -> Cn2` function,
+vectorised over an ndarray); `h_top_m` sets the integration top (`None` takes 20
+km). The result is grid-free: a finer internal integration grid does not move the
+plan. Pass an explicit `hs` (with or without `cn2_profile`) to take the LEGACY
+array planner instead; `DEFAULT_HS` is now the fallback for that array caller
+ONLY. `cn2`, `hs`, `cn2_profile`, `h_top_m` are all space only. `L0_m` sits here
 so that one call site holds all the turbulence options; the SIZER does not read
 it, and the runner passes it to `phase_screen()`.
 
@@ -734,7 +743,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -742,6 +751,10 @@ it. The trials are independent snapshots.
 
 - `grid` and `plan` come together, or neither comes. `None` for both calls
   `turbulent_grid()`, and the result then carries the report.
+- `cn2` (a continuous `cn2(h)` callable), `hs`/`cn2_profile` (the legacy array),
+  and `h_top_m` are the space profile options; they pass through to
+  `turbulent_grid()`. `None` everywhere takes the continuous site profile. See
+  `turbulent_grid()` above.
 - The geometry must give ONE range. More than one raises `ValueError`. Loop in
   the caller.
 - A `"retro"` direction raises `NotImplementedError`.
@@ -1055,7 +1068,7 @@ passes them in. See [api-budget.md](api-budget.md) for the budget side.
 | `waveoptics_vacuum_term(result, ...)` | The deterministic vacuum-optics Term (launch to detector, no fade). |
 | `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
 
-### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, hs=None, cn2_profile=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None)`
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None)`
 
 It runs the wave-optics propagations that a fidelity-2 budget needs, one time
 each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence

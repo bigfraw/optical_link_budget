@@ -215,7 +215,14 @@ README fidelity ladder.
   the opt-in `aotools` wrapper as the reference path, a lazy LGPL import),
   `splitstep.py` (`super_gaussian_boundary`, `split_step`), `sampling.py` (the
   turbulent grid sizer and screen planner: `QualityPreset`, `PRESETS`
-  reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`),
+  reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`.
+  The DEFAULT space planner is CONTINUOUS (item 2-I2 step 1): it INTEGRATES a
+  Cn2 callable `cn2(h)` (the site HV5/7 when none is given) and cuts the slab
+  into equal-Rytov-weight screens at Cn2-weighted centroids. An explicit
+  `hs`/`cn2_profile` array takes the LEGACY discrete planner; `DEFAULT_HS` is
+  the fallback for that array caller ONLY, no longer the physics grid of the
+  default budget. `cn2`/`h_top_m` thread through `run_waveoptics`,
+  `run_fidelity2`, the runners, and the cache),
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
   for a plot; it does NOT extend the scalar record); both take
@@ -248,6 +255,17 @@ README fidelity ladder.
   module sits ABOVE `links/` in the one-way dependency order: it imports
   `olb.links`, `olb.models` and `olb.terminal`, and nothing in `links/` or
   `models/` imports it back. `olb/__init__.py` exports it.
+- `olb/sweep.py` — the top-level elevation-sweep helper,
+  `budgets_vs_elevation(scenario, elevations, geometry_factory=None, **kwargs)`.
+  It gives one `(elevation_deg, Budget)` pair for each angle: it builds a
+  scalar-elevation `CircularOrbit` from `scenario.channel.altitude_m` (or a
+  supplied `geometry_factory`), and it calls the family/direction budget function
+  (it reuses `multidetector._budget_function`). It exists because some Terms model
+  ONE line of sight and refuse an elevation ARRAY (FAST runs one Monte Carlo per
+  geometry; the gamma-gamma Term carries one `(alpha, beta)` pair), so the correct
+  fix is a LOOP, not vectorisation (backlog I-1). A `TerrestrialScenario` has no
+  elevation axis and raises. Like `multidetector.py` it is CROSS-CUTTING and sits
+  ABOVE `links/`. `olb/__init__.py` exports it.
 - `olb/results.py` — `Term` (three faces: mean_db, quantile, sampler) and
   `Budget`. Monte Carlo is not a separate path. The Budget asks each Term for
   samples, not means.
@@ -347,6 +365,16 @@ The downlink budget now selects its distribution:
 sigma2_I = 0.25 and the gamma-gamma Term at or above it. The gamma-gamma Term is
 valid at every fluctuation strength, but it models a POINT receiver, because the
 book gives no aperture-averaged downlink index in that regime.
+
+A downlink or retro BUCKET receiver -- no detector or a plain `Aperture()` -- is
+ONE case (2026-09-02): `Aperture()` defaults to `sensitivity_dbm=None`, so it
+holds no receiver, exactly like None, and there is NO "no detector" special case.
+`downlink_budget` and `retro_space_budget` route BOTH to the aperture-averaged
+scintillation Term (category `turbulence`, honouring `scint_model`), so a bucket's
+row is `scintillation`, NOT `receive coupling (aperture)`. An SMF detector still
+takes the receive-coupling Term; MMF and Camera raise at fidelity 0/1. Terrestrial
+already treated the two the same. A tx-only terminal keeps `detector=None` (no
+meaningless receiver).
 
 The Schmidt foundation layer EXISTS on the branch `schmidt`.
 `olb/waveoptics/schmidt/` holds four modules of pure book physics:
