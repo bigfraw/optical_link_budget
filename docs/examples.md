@@ -253,13 +253,14 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds ten scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds eleven scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure next to the
 script. The first three have NO turbulence. The next three add the turbulent
 split step of `olb/waveoptics/turbulence/`. The seventh wires the layer into the
-three link budgets. Two draw the focused spot on a multimode-fibre core, and one
-bins the focal spot onto a tracking-camera pixel grid.
+three link budgets. Two draw the focused spot on a multimode-fibre core, one
+bins the focal spot onto a tracking-camera pixel grid, and one stores a campaign
+of trials on disk.
 
 The vacuum scripts:
 
@@ -391,6 +392,31 @@ The camera tracking script:
   `Camera` is a diagnostic front end. The figure goes to
   `examples/waveoptics/figures/camera_tracking.png`.
   - Run: `python -m examples.waveoptics.camera_tracking`
+
+The campaign script:
+
+- `campaign_demo.py` — a set of turbulent trials on disk, in blocks, read as a
+  fidelity-2 BUDGET. It builds 1000 downlink snapshots (600 km, 30 deg, rapid
+  preset) as ten blocks of 100, with `workers=4` (ONE warm process pool, and
+  each block runs serially inside its process), into
+  `examples/waveoptics/_campaign_demo2/`. A second run of the script computes
+  NOTHING: the blocks sit on disk. The script then shows the canonical flow: ONE
+  scenario and ONE orbit serve the campaign AND the budgets, and the campaign
+  goes straight into the `wave` slot. `downlink_budget(scenario, orbit,
+  fidelity=2, wave=campaign)` gives 45.60 dB (extinction 0.43 dB + geometric
+  spreading 31.48 dB + wave-optics turbulence 13.68 dB, with no pointing
+  jitter), and `multi_detector_budgets(scenario, orbit, arms, fidelity=2,
+  wave=campaign)` gives 47.15 dB for the `SMF` arm (splitter 1.55 dB) and
+  37.23 dB for the `MMF` light-bucket arm (splitter 5.23 dB). The last section
+  is DIAGNOSTIC, outside the budget flow: `campaign.recouple(SMF(),
+  aperture_m=0.20)` couples the SAME stored fields into a smaller receive
+  aperture with no new propagation (mean eta 0.27681). The first run takes about
+  50 s, the second about 18 s.
+  - API: `Campaign(scenario, geometry, root, seed=..., preset=...,
+    block_size=..., sizing_aperture_m=...)`, then `campaign.run(1000, workers=4)`
+    and `wave=campaign` on a budget. `campaign.recouple(detector,
+    aperture_m=...)` is the diagnostic face.
+  - Run: `python examples/waveoptics/campaign_demo.py`
 
 The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
 wave-optics layer only when the caller sets `fidelity=2` and gives it a bundle.

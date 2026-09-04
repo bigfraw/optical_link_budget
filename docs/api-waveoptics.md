@@ -497,7 +497,7 @@ from olb.waveoptics.turbulence import (propagate_turbulent_scenario,
                                        turbulent_grid)
 ```
 
-The six modules are:
+The seven modules are:
 
 | Module | What it holds |
 |---|---|
@@ -505,6 +505,7 @@ The six modules are:
 | `splitstep.py` | The propagate-screen-propagate loop, and the boundary mask. |
 | `sampling.py` | The turbulent grid sizer, and the screen-placement planner. |
 | `run.py` | The trial runner: one snapshot for each seed. |
+| `campaign.py` | A large set of trials on disk, stored as blocks. |
 | `cache.py` | An opt-in, off-by-default disk cache of whole runs. |
 | `temporal.py` | The frozen-flow time axis. PLANNED, NOT BUILT. |
 
@@ -758,7 +759,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -794,6 +795,31 @@ it. The trials are independent snapshots.
 - `detectors` is an optional sequence of detector objects, the arms behind a
   receive beamsplitter. See the paragraph below. `None` (the default) keeps the
   single-detector record, bit for bit.
+- `start_index` is the index of the FIRST trial. The run covers the trials
+  `start_index .. start_index + n_trials - 1`, and each `TurbTrial.seed_key`
+  holds the TRUE index. `0` (the default) is the old behaviour.
+- `patch_radius_m` stores the receive-plane field on a disc of that radius, in
+  m. `None` (the default) stores no field, and the record is bit for bit the old
+  record. A float fills `TurbWaveResult.fields` and `TurbWaveResult.patch`. See
+  the paragraph below.
+
+**THE BLOCK CONTRACT (`start_index`).** The runner seeds trial `k` off
+`(seed, k)`, so a block of trials is a SLICE of one long run. A run of `n`
+trials therefore equals the concatenation of its blocks, trial for trial and bit
+for bit: `(start_index=0, n_trials=200)` plus `(start_index=200, n_trials=300)`
+gives exactly the trials of `(start_index=0, n_trials=500)`. So a campaign
+computes its blocks in any order, and on any number of processes. Section 9h
+builds on that contract.
+
+**THE STORED FIELD (`patch_radius_m`).** The runner writes the UNCLIPPED
+receive-plane field at the pixels inside the radius, one row for each trial. The
+disc uses the SAME pixel-centre convention as
+`olb.waveoptics.sources.CircAperture`, so a patch of the radius `D/2` holds
+exactly the pixels that a `CircAperture` of the diameter `D` keeps. The rows are
+`complex64`. A radius larger than half the grid side raises `ValueError`. The
+memory is small: a 1 m patch at a 5 mm pixel pitch is about 200 x 200
+`complex64`, which is about 320 KB for each trial. The scalars do not change.
+Read a stored field back with `recouple()` and `recollect()` below.
 
 **ONE RUN, MANY ARMS (`detectors`).** With `detectors`, each trial computes the
 coupling efficiency of EVERY arm on the SAME clipped receive field, and it
@@ -887,13 +913,65 @@ A frozen dataclass. The result of a set of trials.
 | `report` | `SamplingReport` or None | `None` when the caller gives its own grid and plan. |
 | `preset` | str | The name of the quality preset. |
 | `seed_entropy` | int | The integer that seeds every trial. Give it back to repeat the set. |
+| `fields` | `np.ndarray` or None | The stored receive-plane field on the patch, a `complex64` array of the shape `(n_trials, n_patch)`. The row order is the trial order. `None` when the caller asks for no patch. |
+| `patch` | `FieldPatch` or None | The `FieldPatch` of those columns, or `None`. |
 
-**This is a MINIMAL record, on purpose.** The rich per-trial record is a known
-need. Most of all it must hold the electric field inside the receive aperture,
-which serves later ad-hoc analysis. The design of that record is DEFERRED to a
-dedicated results-processing session. Do not extend this record piece by piece.
-`turbulent_terrestrial.py` works around the limit: it passes the SAME grid, the
-SAME plan and the SAME seeds again, and it changes only the receive aperture.
+**The record holds the per-trial SCALARS, and, when the caller asks for it, the
+OPTIONAL masked receive field (`fields` and `patch`).** The field capture is an
+owner decision of 2026-09-04: a large campaign must recouple a stored field to a
+new detector, without a new propagation. The scalars stay exactly as they are,
+and a budget never reads the fields.
+
+#### `FieldPatch`
+
+A frozen dataclass. The mask that selects the stored receive-plane pixels. The
+patch is a disc at the centre of the grid, in the pixel-centre convention of
+`olb.waveoptics.sources.CircAperture`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `radius_m` | float | The radius of the disc, in m. |
+| `n` | int | The number of grid pixels along one side. |
+| `pixel_m` | float | The distance between two pixels, in m. |
+| `indices` | `np.ndarray` | The flat indices of the disc pixels, an `int32` array. The order is the C order of the `n` x `n` grid. |
+
+#### `recouple(result, detector, aperture_m, obscuration_ratio, lam, *, trials=None)`
+
+It couples a STORED receive field into a detector, after the run. The function
+rebuilds the receive-plane field of each stored trial, it clips that field at
+the receive aperture, and it gives the coupling efficiency of the detector. So a
+campaign tries a NEW detector, a new focal length or a new defocus with NO new
+propagation. The physics is the physics of the run: the function calls the same
+internal helper on the same clipped field.
+
+The reconstruction keeps the FULL grid. It scatters the stored patch values into
+a zero array of the whole grid, because a crop would change the zero padding,
+and the focal-plane pixel scale of a fibre coupling reads that padding. So the
+value equals the in-run value. The rebuild gives ONE grid at a time, so the
+memory holds one field only.
+
+- `detector` is an `SMF`, an `MMF`, an `Aperture`, a `Camera`, or `None`. A
+  detector with no coupling model (a `Camera`, or `None`) gives `NaN`.
+- `trials` is an optional sequence of trial row indices. `None` takes every
+  stored trial.
+- It returns a float array, one value for each selected trial.
+- A result that holds no field raises `ValueError`. A receive aperture larger
+  than the stored patch also raises `ValueError`.
+
+#### `recollect(result, aperture_m, obscuration_ratio, *, trials=None)`
+
+It gives the collected power of each STORED trial, in grid units. The value is
+the power of the clipped rebuilt field, and it is NOT normalised: the runner
+divides its `collected_power` by a vacuum reference, and this function does not
+know that reference. So divide by your OWN reference, or take the RATIO of two
+trials, which needs no reference. The rebuild is the full-grid rebuild of
+`recouple()` above.
+
+- `trials` is an optional sequence of trial row indices. `None` takes every
+  stored trial.
+- It returns a float array, one value for each selected trial.
+- A result that holds no field raises `ValueError`. A receive aperture larger
+  than the stored patch also raises `ValueError`.
 
 ### 9e. The stubs
 
@@ -931,6 +1009,13 @@ For the guide to each of the ten scripts, see
 
 ### 9g. The run cache (`olb/waveoptics/turbulence/cache.py`)
 
+**For a CAMPAIGN, use `Campaign` (Section 9h) instead of this cache.** The
+blocks of a campaign are bit-identical SLICES of ONE seeded run, through the
+`start_index` argument of Section 9d, and a campaign also stores the field. This
+cache keeps its block SUB-SEEDS, so its blocks are statistically valid but not
+the trials of a native single-seed run, and it stores no field. The cache stays
+OPT-IN and it does not change.
+
 `cached_propagate_turbulent_scenario(scenario, geometry, *, n_trials, seed, preset="standard", cache_dir=None, block_size=50, screen_generator="olb", ...)`
 is an OPT-IN, off-by-default load-or-run wrapper around
 `propagate_turbulent_scenario()`. It edits no runner and it changes no budget.
@@ -950,6 +1035,212 @@ NOT the bit-identical trials of a native single-seed
 `propagate_turbulent_scenario()` run. A true single-seed tail extension needs a
 start-index argument inside the runner, which is owner-gated. No budget calls the
 cache; any wiring is an owner decision.
+
+### 9h. The campaign store (`olb/waveoptics/turbulence/campaign.py`)
+
+A fade statistic needs thousands of snapshots. One trial is expensive, so a
+campaign must survive a stopped process, grow later, and give its fields back to
+a NEW detector with no new propagation. `Campaign` is that store: it keeps the
+trials on disk in fixed BLOCKS, it is resumable, and it runs its blocks on ONE
+warm process pool.
+
+Import it from the sub-package:
+
+```python
+from olb.waveoptics.turbulence import Campaign
+```
+
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb")`
+
+It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
+one scenario, one geometry, one grid, one screen plan, one seed.
+
+- `seed` is REQUIRED, and it must be an integer: a campaign grows over more than
+  one session, so its trials must repeat. `None` or a numpy `Generator` raises
+  `ValueError`.
+- `block_size` is the number of trials in one block. Block `b` holds the trials
+  `b*block_size .. (b+1)*block_size - 1` of ONE native run.
+- `patch_radius_m` is the radius of the stored field disc, in m. `None` takes
+  `sizing_aperture_m / 2` when a sizing aperture is given, else the receive
+  aperture / 2.
+- `sizing_aperture_m` is an optional LARGER receive aperture that sizes the
+  grid. See the rule below.
+- `grid` is an optional `GridSpec`. The plan still comes from the `Cn2` inputs.
+- `cn2`, `hs`, `cn2_profile`, `h_top_m`, `L0_m`, `subharmonics` and
+  `screen_generator` pass to the sizer and the runner of Section 9d, with the
+  same meanings and the same defaults.
+
+Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
+`patch_radius_m`, `grid`, `plan`, `patch`.
+
+#### `Campaign.run(n_trials, *, workers=None, progress=False)`
+
+It computes and stores the MISSING blocks up to `n_trials` trials, and it
+returns the number of trials on disk. The call rounds `n_trials` up to a whole
+number of blocks. A block that already sits on disk is NOT recomputed.
+`progress=True` prints one line for each finished block.
+
+#### `Campaign.load(n_trials=None, *, fields=True)`
+
+It assembles a `TurbWaveResult` from the stored blocks. The record is the record
+of a native run: the trial order is the trial order, and `seed_key` holds the
+TRUE trial index, so
+`olb.models.waveoptics.waveoptics_turbulence_term` reads it unchanged.
+`n_trials=None` takes every stored trial. `fields=False` leaves
+`TurbWaveResult.fields` and `TurbWaveResult.patch` `None`, so a budget-only load
+stays small.
+
+#### `Campaign.recouple(detector, aperture_m=None, obscuration_ratio=None, n_trials=None)`
+
+It couples the STORED fields into a detector, with no new propagation, and it
+returns a float array of the coupling efficiency of each trial. `aperture_m` and
+`obscuration_ratio` of `None` take the values of the scenario receive terminal.
+The call STREAMS: it reads one block at a time, so ten thousand trials never sit
+in RAM at the same time. The physics is `recouple()` of Section 9d.
+
+#### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None)`
+
+It gives the collected power of each STORED trial, in grid units, as a float
+array. The value is NOT normalised: it holds no vacuum reference, so take the
+RATIO of two trials, or divide by your own reference. It streams the same way.
+
+#### `Campaign.n_stored`
+
+A property. The number of trials on disk, counted from block 0 with no gap.
+
+#### The file layout
+
+| File | What it holds |
+|---|---|
+| `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. |
+| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the olb version, the scenario text, the grid, the plan and the patch shape. |
+| `patch_indices.npy` | The flat pixel indices of the `FieldPatch`. |
+
+A block file holds ONE block, and the parent writes it with an atomic replace.
+So a stopped campaign keeps every finished block.
+
+**The manifest rebuild.** An EXISTING `root_dir` is checked, and the grid and
+the plan then come from the manifest, NOT from a new sizing call. So a resumed
+campaign NEVER re-sizes, and the atmosphere of a new block is the atmosphere of
+the old blocks.
+
+**The mismatch rule.** The fingerprint, the seed, the preset, the block size,
+the patch radius and the sizing aperture must match the stored manifest. A
+different value raises `ValueError`, and the message names the field. A stored
+campaign is ONE physics case: use a new directory, or match the stored settings.
+
+#### `workers`: ONE level of parallelism
+
+- `workers=None` (the default) runs the blocks ONE AFTER THE OTHER in this
+  process, and each block threads inside with the default `Threader` of
+  Section 9d.
+- `workers=W` opens ONE `ProcessPoolExecutor` of `W` processes for the WHOLE
+  `run` call. A module-level initializer fills the worker state ONE time for
+  each process, so the scenario, the geometry, the `GridSpec` and the
+  `ScreenPlan` cross the process boundary once, not once for each block. A block
+  then runs SERIALLY inside its process.
+
+Never both: threads inside processes over-subscribe the cores. The parent writes
+each block file as soon as that block arrives, so a killed campaign keeps every
+finished block.
+
+**The measured facts behind the rule**
+(`validation/waveoptics_speed/fair_scaling_rerun.py`, 2026-09-04). Threads and
+processes TIE on wall time for ONE 200-trial run, because a Windows process pool
+costs 2.5 to 4.4 s to spawn. Processes beat threads by 1.15x to 1.7x in steady
+state. So a process pool pays ONLY when it stays WARM across many blocks, which
+is exactly the campaign case.
+
+**PICKLING.** `workers=W` sends the scenario, the geometry, the `GridSpec` and
+the `ScreenPlan` to each process. Those are dataclasses, so they pickle. The
+`cn2` callable is NOT sent: the parent plans the screens one time and the
+workers get the finished plan, so a lambda `cn2` is safe here. The scenario and
+the geometry must still be picklable objects at module level.
+
+#### `sizing_aperture_m`: size the grid one time for a family
+
+Each trial stores the receive-plane field BEFORE the receive-aperture clip.
+Store that field at the LARGEST receive aperture of the family ONE time. Then a
+smaller receive aperture, a central obscuration, a different detector, a
+different focal length and a different defocus are all a POST-HOC crop of the
+stored field, through `recouple()` and `recollect()`, with NO new propagation.
+
+`sizing_aperture_m` serves that plan: the grid is sized on a COPY of the
+scenario whose RECEIVE terminal carries the larger aperture, and the trials then
+run on THAT grid with the ORIGINAL scenario. So one campaign covers every
+receive aperture up to the sizing aperture.
+
+This is EXACT for a SPACE downlink, because the propagated slab does not read
+the receive terminal at all: the input is a plane wave, and the receive terminal
+enters only at the clip. The SPACE uplink reciprocity overlap reads the SAME
+field. A TERRESTRIAL path does read the TRANSMIT terminal, so only the receive
+side is free: a changed launch, or a changed path, needs a rerun.
+
+#### Budgets from a campaign
+
+A `Campaign` IS a fidelity-2 wave record, so it goes straight into the `wave`
+slot of a budget:
+
+```python
+from olb import multi_detector_budgets
+from olb.links import downlink_budget
+
+campaign = Campaign(scenario, orbit, root, seed=2024).run(1000, workers=4)
+
+# one budget of the scenario receive path
+budget = downlink_budget(scenario, orbit, fidelity=2, wave=campaign)
+
+# one budget for each beamsplitter arm, from the SAME campaign
+arms = [SMF(frac=0.7), MMF(core_radius_m=25e-6, focal_length_m=0.5)]
+budgets = multi_detector_budgets(scenario, orbit, arms, fidelity=2,
+                                 wave=campaign)
+```
+
+`downlink_budget`, `uplink_budget`, `terrestrial_budget` and
+`multi_detector_budgets` all accept it. Each one calls
+`olb.models.waveoptics.resolve_wave(wave, detectors=None)`, the ONE adapter: it
+returns a `Fidelity2Bundle` or a list of them unchanged, and it turns a
+`Campaign` into the record the caller needs.
+
+The two EXPLICIT forms do the same work, and a budget takes their output the
+same way:
+
+- `campaign_bundle(campaign, *, n_trials=None, vacuum=None)` gives ONE
+  `Fidelity2Bundle`. The stored trials already carry the `smf_eta` or the
+  `mmf_eta` of the scenario detector, so it reads the scalars only: no field is
+  loaded and no re-coupling runs.
+- `campaign_bundles(campaign, detectors, *, n_trials=None, vacuum=None)` gives a
+  LIST, one bundle for each arm, in the `detectors` order. It is the POST-HOC
+  twin of `run_fidelity2(..., detectors=[...])`: the campaign is the shared
+  Monte Carlo, and each arm re-couples the SAME stored fields into its own
+  detector, with no new propagation. The `frac` of a detector is IGNORED here;
+  it enters one time, as the fixed splitter Term of `multi_detector_budgets`.
+
+`vacuum` is the selector of `run_fidelity2`: `None` takes "analytic" for a space
+link and "wave" for a terrestrial link.
+
+`recouple` and `recollect` are DIAGNOSTIC, in the way a `Camera` is diagnostic.
+They answer a "what if" question about the stored field (a smaller aperture, a
+different focal length, a detector that was never on the terminal). They are NOT
+the budget path: a budget reads the campaign itself.
+
+A fidelity-2 budget takes ONE line of sight, so `geometry` must give one
+elevation. A one-element elevation array is accepted (it IS one line of sight);
+a true multi-element array raises. See
+`examples/waveoptics/campaign_demo.py`.
+
+#### Why the store keeps fields, and not screens
+
+A phase screen is NOT stored. The seed regenerates a screen bit-identically in
+tens of milliseconds, and ten thousand trials of screens would take 200 to
+300 GB. The masked receive field is much smaller:
+
+| Quantity | Value |
+|---|---|
+| The stored type | `complex64` |
+| A 1 m patch at a 5 mm pixel pitch | about 200 x 200 pixels |
+| The disk of one trial | about 320 KB |
+| The disk of 10,000 trials | about 3.2 GB |
 
 ---
 

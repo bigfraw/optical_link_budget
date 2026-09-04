@@ -20,8 +20,9 @@ Term for a SPACE link (the default; a ground-space link is far field, so the
 full-path wave vacuum run is skipped — it is slow and grid-noise-limited;
 `run_fidelity2(vacuum="wave")` opts back in). Fidelity 1 does not exist for a
 terrestrial link (FAST is far-field; a near-field Gaussian beam needs fidelity 2).
-Fidelity 2 needs a precomputed `wave` bundle from
-`olb.models.waveoptics.run_fidelity2`; the budget never runs the sim itself. See the
+Fidelity 2 needs a precomputed `wave` record from
+`olb.models.waveoptics.run_fidelity2`, or an `olb.waveoptics.turbulence.Campaign`
+passed as `wave=campaign`; the budget never runs the sim itself. See the
 README fidelity ladder.
 
 ## Architecture (one-way dependency: turbulence <- models and links)
@@ -134,6 +135,10 @@ README fidelity ladder.
   olb.models.coupling import <name>` still works for every coupling Term.
 - `olb/links/` — per-link Terms and budget assembly. Every budget takes one
   whole-path `fidelity=0|1|2` argument (the fidelity ladder; see `## Purpose`).
+  A fidelity-2 budget takes ONE line of sight, so it needs a scalar elevation; a
+  one-element array is accepted (it IS one line of sight), and a true
+  multi-element array raises (loop with `olb/sweep.py`). Its `wave` argument is a
+  `Fidelity2Bundle`, a list of them, or a `Campaign`.
   `uplink.py` (`uplink_turbulence_term`, `uplink_point_ahead_term`,
   `uplink_fitting_term`, `uplink_budget`; the budget dispatches on the scenario
   `precompensation` source crossed with `fidelity`. A DownlinkBeacon + AO
@@ -227,17 +232,48 @@ README fidelity ladder.
   `run_fidelity2`, the runners, and the cache),
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
-  for a plot; it does NOT extend the scalar record); both take
+  for a plot); both take
   `screen_generator="olb"` (the default) | "aotools"; the two draw DIFFERENT
   atmospheres for the same seed, and the statistics agree; the
-  `folded_terrestrial` stub), `cache.py` (`cached_propagate_turbulent_scenario`,
-  an opt-in, off-by-default disk cache of whole runs, extendable by block; no
-  budget calls it), and `temporal.py` (the `TemporalScreens`
-  NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
+  `folded_terrestrial` stub. The runner takes `start_index=0`: trial k seeds
+  off (entropy, k), so a run of n trials equals the concatenation of its
+  blocks, trial for trial, bit-identically. It takes `patch_radius_m=None`:
+  when set, each trial stores the UNCLIPPED receive-plane field at the pixels
+  inside that radius as complex64, in `TurbWaveResult.fields` (n_trials x
+  n_patch) with `TurbWaveResult.patch` (a `FieldPatch`: radius, n, pixel,
+  indices). That is the owner-decided (2026-09-04) rich record: the scalars
+  stay, and a budget never reads the fields. `recouple(result, detector,
+  aperture_m, obscuration_ratio, lam)` and `recollect(result, aperture_m,
+  obscuration_ratio)` rebuild the FULL grid from the patch (a crop would move
+  the focal-plane pixel scale) and give the post-hoc coupling efficiency and
+  the unnormalised collected power of ANY receive aperture, obscuration,
+  detector, or defocus inside the patch), `campaign.py` (`Campaign`, the
+  on-disk campaign of thousands of trials: npz blocks that are bit-identical
+  slices of one seeded run through `start_index`, a manifest that rebuilds
+  the grid and the plan so a resume never re-sizes, `run(n, workers=None|W)`
+  where W opens ONE warm `ProcessPoolExecutor` for the whole call with the
+  blocks serial inside a process (ONE level of parallelism), `load`, the
+  streaming `recouple`/`recollect`, and `sizing_aperture_m`, which sizes the
+  grid and the patch ONE time for the largest receive aperture of a family so
+  every smaller aperture is a post-hoc crop; the space downlink field does not
+  depend on the receive terminal at all. A budget takes `wave=campaign`
+  directly (`resolve_wave` in `olb/models/waveoptics.py` turns it into the
+  bundle or the per-arm list), so the campaign is the fidelity-2 wave record of
+  the documented one-scenario, one-budget flow; `recouple` is diagnostic),
+  `cache.py` (`cached_propagate_turbulent_scenario`, the OLDER opt-in disk
+  cache with block sub-seeds; `Campaign` supersedes it and a follow-up retires
+  it), and `temporal.py` (the `TemporalScreens` NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
   axis. The trials are independent, so `propagate_turbulent_scenario` takes an
   optional `threader` (`olb.waveoptics.Threader`, a general thread pool in
   `threader.py`, default `min(16, cores)` workers) that runs them across threads;
-  the FFT releases the GIL, so the threads give a real speed-up. A space scenario
+  the FFT releases the GIL, so the threads give a real speed-up. Threads stay
+  the SINGLE-RUN default and there is NO thread/process auto selector: the fair
+  rerun (2026-09-04, `validation/waveoptics_speed/fair_scaling_rerun.py`)
+  shows threads and processes TIE on wall time for one run (the Windows pool
+  spawn costs 2.5 to 4.4 s; processes win 1.15x to 1.7x in steady state only),
+  the plateau at 8 to 16 workers is the machine (memory bandwidth, hybrid P/E
+  cores), not the GIL, and a BLAS thread pin does nothing here. A process pool
+  pays only when it stays warm across many blocks, which is `Campaign`. A space scenario
   always propagates the DOWNLINK slab, and an uplink reads the same field through
   the Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492). Neither part
   builds a Term, and neither changes a budget.
@@ -555,8 +591,7 @@ Open items:
   The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
   stub). Its DEFAULT screen generator is self-contained (numpy and scipy only);
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
-  `screens` extra). Deliberately deferred: the results record is minimal scalars
-  (do NOT extend `TurbWaveResult` piece by piece), the temporal frozen-flow axis,
+  `screens` extra). Deliberately deferred: the temporal frozen-flow axis,
   a co-moving (spherical) screen, and the folded/retro double pass (correlated
   screens). `examples/waveoptics/` demonstrates the layer with seven scripts
   (three vacuum, three turbulent, and the budget-wiring demo).
@@ -580,9 +615,24 @@ Open items:
   screens, beam-following grid). P3 measured the parallel scaling (processes beat
   threads; threads saturate at 8 to 16 workers). P4 added an opt-in, off-by-
   default disk cache (`olb/waveoptics/turbulence/cache.py`), extendable by block.
-  OWNER FOLLOW-UP: a true single-seed tail extension needs a start-index argument
-  in the runner (the cache uses block sub-seeds, so a cached run is not the
-  bit-identical trials of a native run).
+  The P3 reading "processes beat threads by 1.4x" was REVISED by the fair
+  rerun (2026-09-04): a wall-time tie for one run, see the `turbulence/`
+  paragraph above. The single-seed tail extension EXISTS: the runner's
+  `start_index` (2026-09-04), which `Campaign` uses; `cache.py` keeps its block
+  sub-seeds and is superseded.
+- **The large-campaign data structure is BUILT (2026-09-04).** Thousands of
+  trials for fade statistics: the `EmpiricalSampler` tail rule (ten samples
+  past the availability) sets 1,000 trials for 99 percent and 10,000 for 99.9
+  percent; 99.99 percent is OUT of scope. `Campaign` (see the architecture
+  paragraph) stores the scalars and the masked receive-field PATCH of every
+  trial (complex64; a 1 m patch at 5 mm pitch is about 320 KB per trial, 3.2 GB
+  per 10,000 trials) so any receive aperture, obscuration, detector, or defocus
+  inside the patch is a post-hoc `recouple` with no rerun. Two things were
+  REJECTED: storing the phase screens (the seed regenerates a screen
+  bit-identically in tens of milliseconds; 10,000 trials of screens would take
+  200 to 300 GB) and a parametric tail fitted to the simulated bulk to
+  extrapolate deep fades (the owner does not want extrapolation). NEXT: a
+  large-campaign validation run, and the retirement of `cache.py`.
 - **The non-focal-plane (defocus) sensing and the received curvature are WIRED
   (2026-08-31, see `validation/defocus/`).** `SMF`/`MMF` carry `defocus_m`; the
   terrestrial coupling Terms grow the spot over `dz_eff = defocus_m - dz_curv`

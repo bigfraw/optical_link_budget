@@ -405,7 +405,8 @@ UNCORRECTED (no source, or a tip-tilt-only `DownlinkBeacon`):
   stochastic turbulence Term from the reciprocity overlap `eta_turb` (Shapiro,
   DOI 10.1364/JOSA.61.000492). They replace the geometric, launch-truncation, and
   coupled-flux Terms. The reciprocity overlap holds no jitter, so the standalone
-  pointing Term stays. It needs the precomputed `wave` bundle.
+  pointing Term stays. It needs the precomputed `wave` record: a
+  `Fidelity2Bundle` or a `Campaign`.
 
 PRE-COMPENSATED (`DownlinkBeacon` with an `AO` stage):
 
@@ -516,7 +517,7 @@ The `fidelity` maps to the receive-side turbulence model:
   full slant range) and a stochastic turbulence Term (the slab penalty). They
   replace the geometric and the scintillation or coupling Terms. Only the
   analytic extinction and pointing Terms stay. It needs the precomputed `wave`
-  bundle.
+  record: a `Fidelity2Bundle` or a `Campaign`.
 
 An `MMF` (light-bucket) receive detector is a special case. At fidelity 0 and
 fidelity 1 the downlink receive-coupling raises `NotImplementedError`: olb has no
@@ -655,7 +656,7 @@ The `fidelity` maps to the turbulence model:
   the COLLECTED power, so it does not double-count the aperture capture, and it
   already holds the detector defocus. An
   `Aperture` receiver gets the aperture-power penalty only. It needs the
-  precomputed `wave` bundle. A `fidelity` other than 0, 1, or 2 raises
+  precomputed `wave` record: a `Fidelity2Bundle` or a `Campaign`. A `fidelity` other than 0, 1, or 2 raises
   `ValueError`.
 
 At fidelity 0 the Terms are the geometric spreading, the horizontal
@@ -809,8 +810,12 @@ Parameters:
   Each detector carries its own `frac`; see the fraction rule below.
 - `wave` — the precomputed wave-optics record(s) for `fidelity=2`. Give a LIST,
   one bundle for each arm in the `detectors` order, from
-  `olb.models.waveoptics.run_fidelity2(..., detectors=[...])`. A single bundle
-  goes to every arm unchanged. `None` passes no `wave` to the budget function.
+  `olb.models.waveoptics.run_fidelity2(..., detectors=[...])`. `wave` also
+  accepts a `Campaign`, which gives the same per-arm bundles from the stored
+  trials with no new propagation (the explicit form is
+  `olb.models.waveoptics.campaign_bundles(campaign, detectors)`). A
+  single bundle goes to every arm unchanged. `None` passes no `wave` to the
+  budget function.
 - `**kwargs` — passed to the budget function unchanged (for example `fidelity`,
   `turbulence`, `scintillation`, `tau_zenith`).
 

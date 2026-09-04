@@ -201,14 +201,69 @@ class TurbTrial:
 
 
 @dataclass(frozen=True)
+class FieldPatch:
+    """The mask that selects the stored receive-plane pixels.
+
+    The patch is a disc at the centre of the grid. It uses the pixel-centre
+    convention of olb.waveoptics.sources.CircAperture, so a patch of the radius
+    D/2 holds exactly the pixels that a CircAperture of the diameter D keeps.
+
+    Attributes:
+        radius_m: the radius of the disc, in m.
+        n:        the number of grid pixels along one side.
+        pixel_m:  the distance between two pixels, in m.
+        indices:  the flat indices of the disc pixels, an int32 array. The
+                  order is the C order of the n x n grid.
+    """
+
+    radius_m: float
+    n: int
+    pixel_m: float
+    indices: np.ndarray
+
+
+def _field_patch(grid, radius_m):
+    """Make the FieldPatch of one grid.
+
+    The mask uses the coordinate construction of
+    olb.waveoptics.sources.CircAperture: the pixel (int(n/2), int(n/2)) is the
+    axis, and the mask keeps the pixels with r^2 <= radius^2.
+
+    Args:
+        grid:     the GridSpec.
+        radius_m: the radius of the disc, in m.
+
+    Returns:
+        A FieldPatch.
+
+    Raises:
+        ValueError: the radius does not fit on the grid.
+    """
+    half = grid.size_m / 2.0
+    if radius_m > half:
+        raise ValueError(
+            f"propagate_turbulent_scenario: patch_radius_m ({radius_m:.4g} m) "
+            f"is larger than half the grid side ({half:.4g} m). The patch must "
+            "fit on the grid. Use a smaller radius, or a wider grid.")
+    n = int(grid.n)
+    c = int(n / 2)
+    Y, X = np.mgrid[:n, :n]
+    dist_sq = ((X - c) * grid.pixel_m) ** 2 + ((Y - c) * grid.pixel_m) ** 2
+    mask = dist_sq <= radius_m ** 2
+    return FieldPatch(radius_m=float(radius_m), n=n,
+                      pixel_m=float(grid.pixel_m),
+                      indices=np.flatnonzero(mask).astype(np.int32))
+
+
+@dataclass(frozen=True)
 class TurbWaveResult:
     """The result of a set of turbulent trials.
 
-    NOTE. This is a MINIMAL record. The rich per-trial record is a known need.
-    Most of all it must hold the electric field inside the receive aperture,
-    which serves later ad-hoc analysis. The design of that record is DEFERRED
-    to a dedicated results-processing session. Do not extend this record piece
-    by piece.
+    NOTE. The record holds the per-trial SCALARS, and, when the caller asks for
+    it, the OPTIONAL masked receive field (`fields` and `patch`). The field
+    capture is an owner decision of 2026-09-04: a large campaign must recouple
+    a stored field to a new detector, without a new propagation. The scalars
+    stay exactly as they are, and a budget never reads the fields.
 
     Attributes:
         trials:       a list of TurbTrial, one for each trial.
@@ -219,6 +274,11 @@ class TurbWaveResult:
         preset:       the name of the quality preset.
         seed_entropy: the integer that seeds every trial. Give it back to
                       repeat the same set.
+        fields:       the stored receive-plane field on the patch, a complex64
+                      array of the shape (n_trials, n_patch). The row order is
+                      the trial order. It is None when the caller asks for no
+                      patch.
+        patch:        the FieldPatch of those columns, or None.
     """
 
     trials: list
@@ -227,6 +287,8 @@ class TurbWaveResult:
     report: object
     preset: str
     seed_entropy: int
+    fields: np.ndarray = None
+    patch: FieldPatch = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -368,7 +430,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  h_top_m=None, L0_m=np.inf,
                                  subharmonics=True, threader=None,
                                  screen_generator="olb", progress=False,
-                                 detectors=None):
+                                 detectors=None, start_index=0,
+                                 patch_radius_m=None):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -387,7 +450,18 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     untouched interior of the mask, and this function checks that.
 
     SEEDS. Trial k is bit-identical for one seed, and the trial count does not
-    change it. So a longer run repeats the trials of a shorter run.
+    change it. So a longer run repeats the trials of a shorter run. The run
+    covers the trials k = start_index .. start_index + n_trials - 1, and
+    TurbTrial.seed_key holds the TRUE k. So a run of 500 trials equals the
+    concatenation of (start_index=0, n_trials=200) and (start_index=200,
+    n_trials=300), trial for trial and bit for bit. A campaign therefore
+    computes its blocks in any order, or on more than one process.
+
+    THE STORED FIELD. patch_radius_m stores the receive-plane field on a disc
+    at the centre of the grid, BEFORE the receive-aperture clip. The scalars do
+    not change. The memory is small: a 1 m patch at a 5 mm pixel pitch is about
+    200 x 200 complex64, which is about 320 kB for each trial. Use `recouple`
+    and `recollect` to read a stored field with a NEW detector.
 
     Args:
         scenario:     a SpaceScenario or a TerrestrialScenario.
@@ -439,13 +513,21 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       fraction is a separate fixed dB Term (see
                       olb.models.splitter). None (the default) keeps the
                       single-detector record, bit for bit.
+        start_index:  the index of the FIRST trial. The run covers the trials
+                      start_index .. start_index + n_trials - 1. The default 0
+                      is the old behaviour.
+        patch_radius_m: the radius of the stored receive-field disc, in m. None
+                      (the default) stores no field, and the record is bit for
+                      bit the old record. A float fills TurbWaveResult.fields
+                      and TurbWaveResult.patch.
 
     Returns:
         A TurbWaveResult.
 
     Raises:
-        ValueError:         the geometry gives more than one range, or only one
-                            of grid and plan is given.
+        ValueError:         the geometry gives more than one range, only one
+                            of grid and plan is given, or the patch radius does
+                            not fit on the grid.
         NotImplementedError: the scenario direction is "retro".
     """
     is_space = hasattr(scenario, "ground")
@@ -516,6 +598,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     n_screens = int(plan.z_m.size)
     build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics)
 
+    # The optional field capture. One mask serves every trial, and each trial
+    # writes ONE row. So the threads touch no shared row, and no lock is
+    # necessary.
+    patch = fields = None
+    if patch_radius_m is not None:
+        patch = _field_patch(grid, float(patch_radius_m))
+        fields = np.empty((int(n_trials), patch.indices.size),
+                          dtype=np.complex64)
+
     def run_one(k):
         """Run trial k. It touches only its own state and read-only setup."""
         t0 = time.perf_counter()
@@ -524,6 +615,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         F_start = Begin(grid.size_m, lam, grid.n) if is_space else F_in
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
                           boundary=mask)
+
+        if patch is not None:
+            # The UNCLIPPED field, on the patch only. The clip below is
+            # unchanged, so every scalar keeps its value.
+            fields[k - start_index] = (
+                F_rx.field.ravel()[patch.indices].astype(np.complex64))
 
         collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
         collected_power = float(Power(collected) / p_reference)
@@ -554,21 +651,23 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
     bar = _progress_bar(progress, n_trials, "turbulent trials")
     try:
+        ks = range(int(start_index), int(start_index) + int(n_trials))
         if threader is None:
             trials = []
-            for k in range(n_trials):
+            for k in ks:
                 trials.append(run_one(k))
                 if bar is not None:
                     bar.update(1)
         else:
             cb = (lambda done, total: bar.update(1)) if bar is not None else None
-            trials = threader.map(run_one, range(n_trials), progress=cb)
+            trials = threader.map(run_one, ks, progress=cb)
     finally:
         if bar is not None:
             bar.close()
 
     return TurbWaveResult(trials=trials, grid=grid, plan=plan, report=report,
-                          preset=p.name, seed_entropy=seed_entropy)
+                          preset=p.name, seed_entropy=seed_entropy,
+                          fields=fields, patch=patch)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -652,6 +751,122 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     return F_rx, grid, plan
 
 
+def _rebuilt_fields(result, aperture_m, trials):
+    """Give the stored trials back as FULL-GRID fields, one at a time.
+
+    The generator scatters the stored patch values into a zero array of the
+    FULL grid. A crop would change the zero padding, and the focal-plane pixel
+    scale of a fibre coupling reads that padding. So the reconstruction keeps
+    the full grid, and the coupling value equals the in-run value.
+
+    The generator makes ONE grid at a time. It never stacks them, so the memory
+    holds one field only.
+
+    Args:
+        result:     a TurbWaveResult with a stored patch.
+        aperture_m: the receive aperture diameter, in m.
+        trials:     a sequence of trial row indices, or None for every row.
+
+    Yields:
+        The (row, N x N complex array) pair of each selected trial.
+
+    Raises:
+        ValueError: the result holds no field, or the aperture is larger than
+                    the stored patch.
+    """
+    if result.fields is None or result.patch is None:
+        raise ValueError(
+            "this TurbWaveResult holds no field. Run "
+            "propagate_turbulent_scenario with patch_radius_m to store one.")
+    patch = result.patch
+    if aperture_m / 2.0 > patch.radius_m:
+        raise ValueError(
+            f"the receive aperture radius ({aperture_m / 2.0:.4g} m) is larger "
+            f"than the stored patch radius ({patch.radius_m:.4g} m). The "
+            "aperture must sit inside the patch. Store a wider patch.")
+    rows = range(result.fields.shape[0]) if trials is None else trials
+    for row in rows:
+        full = np.zeros(patch.n * patch.n, dtype=np.complex128)
+        full[patch.indices] = result.fields[row]
+        yield row, full.reshape(patch.n, patch.n)
+
+
+def _patch_field(patch, array, lam):
+    """Wrap a full-grid array as a Field on the grid of the patch."""
+    F = Begin(patch.n * patch.pixel_m, lam, patch.n)
+    F.field = array
+    return F
+
+
+def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
+             trials=None):
+    """Couple a STORED receive field into a detector, after the run.
+
+    The function rebuilds the receive-plane field of each stored trial, it
+    clips that field at the receive aperture, and it gives the coupling
+    efficiency of the detector. So a campaign tries a new detector, a new
+    focal length or a new defocus with NO new propagation.
+
+    The physics is the physics of the run: the function calls the same
+    `_detector_eta` on the same clipped field.
+
+    Args:
+        result:            a TurbWaveResult with a stored patch.
+        detector:          an SMF, an MMF, an Aperture, a Camera, or None.
+        aperture_m:        the receive aperture diameter, in m.
+        obscuration_ratio: the central obscuration of that aperture.
+        lam:               the wavelength, in m.
+        trials:            an optional sequence of trial row indices. None
+                           takes every stored trial.
+
+    Returns:
+        A float array of the coupling efficiency of each selected trial. A
+        detector with no coupling model (a Camera, or None) gives NaN.
+
+    Raises:
+        ValueError: the result holds no field, or the aperture is larger than
+                    the stored patch.
+    """
+    out = []
+    for _, array in _rebuilt_fields(result, aperture_m, trials):
+        F = _patch_field(result.patch, array, lam)
+        collected = _clip(F, aperture_m, obscuration_ratio)
+        eta = _detector_eta(detector, collected, aperture_m, lam)
+        out.append(np.nan if eta is None else float(eta))
+    return np.array(out, dtype=float)
+
+
+def recollect(result, aperture_m, obscuration_ratio, *, trials=None):
+    """Give the collected power of each STORED trial, in grid units.
+
+    The value is Power(clipped) of the rebuilt field. It is NOT normalised:
+    the runner divides its collected_power by a vacuum reference, and this
+    function does not know that reference. So the caller divides by its OWN
+    reference, or it takes the RATIO of two trials, which needs no reference.
+
+    Args:
+        result:            a TurbWaveResult with a stored patch.
+        aperture_m:        the receive aperture diameter, in m.
+        obscuration_ratio: the central obscuration of that aperture.
+        trials:            an optional sequence of trial row indices. None
+                           takes every stored trial.
+
+    Returns:
+        A float array of the power inside the aperture, one value for each
+        selected trial.
+
+    Raises:
+        ValueError: the result holds no field, or the aperture is larger than
+                    the stored patch.
+    """
+    out = []
+    for _, array in _rebuilt_fields(result, aperture_m, trials):
+        # The wavelength does not enter a power, so any value serves here.
+        F = _patch_field(result.patch, array, 1.0)
+        out.append(float(Power(_clip(F, aperture_m, obscuration_ratio))))
+    return np.array(out, dtype=float)
+
+
 if __name__ == '__main__':
     from ...geometry import CircularOrbit, HorizontalPath
     from ...scenario import (Channel, SpaceScenario, TerrestrialChannel,
@@ -677,8 +892,9 @@ if __name__ == '__main__':
     except ImportError:
         pass                                   # aotools is optional.
 
-    # ---- 6. the deferred-record NOTE is present ----
-    assert "deferred" in TurbWaveResult.__doc__.lower()
+    # ---- 6. the record NOTE names the optional stored field ----
+    assert "fields" in TurbWaveResult.__doc__ and \
+        "patch" in TurbWaveResult.__doc__
 
     # ---- 5. the documented failure modes, asserted AS failures ----
     hs = DEFAULT_HS
@@ -920,6 +1136,90 @@ if __name__ == '__main__':
     except ValueError as exc:
         assert "unknown detector" in str(exc), str(exc)
 
+    # ---- 7a. the blocks are bit-identical to one long run ----
+    # A run of 10 trials equals the two blocks 0..5 and 6..9, trial for trial.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        whole = propagate_turbulent_scenario(down_scn, orbit30, n_trials=10,
+                                             seed=99, preset="rapid")
+        blk_a = propagate_turbulent_scenario(down_scn, orbit30, n_trials=6,
+                                             seed=99, preset="rapid",
+                                             start_index=0)
+        blk_b = propagate_turbulent_scenario(down_scn, orbit30, n_trials=4,
+                                             seed=99, preset="rapid",
+                                             start_index=6)
+    parts = list(blk_a.trials) + list(blk_b.trials)
+    assert len(parts) == len(whole.trials)
+    for k, (a, b) in enumerate(zip(whole.trials, parts)):
+        assert a.seed_key == b.seed_key == (99, k), (a.seed_key, b.seed_key, k)
+        assert a.collected_power == b.collected_power, (a, b)
+
+    # ---- 7b. the stored patch, and the SMF round trip ----
+    # terr_scn holds an SMF at the far terminal. The patch must hold the whole
+    # receive aperture, so its radius is a bit more than aperture_m / 2.
+    rx_terr = terr_scn.rx_terminal
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        kept = propagate_turbulent_scenario(
+            terr_scn, path, n_trials=2, seed=1, preset="standard",
+            patch_radius_m=0.6 * rx_terr.aperture_m)
+    assert kept.fields.dtype == np.complex64
+    assert kept.fields.shape == (2, kept.patch.indices.size)
+    assert kept.patch.n == kept.grid.n
+    # The patch mask IS the CircAperture mask of the same radius.
+    _F_probe = Begin(kept.grid.size_m, lam, kept.grid.n)
+    _keep = (_clip(_F_probe, 2 * kept.patch.radius_m, 0.0).field != 0.0)
+    assert np.array_equal(np.flatnonzero(_keep.ravel()),
+                          kept.patch.indices), "the patch must match CircAperture"
+    # The stored run must not change one scalar.
+    for a, b in zip(kept.trials, multi.trials):
+        assert a.collected_power == b.collected_power, (a, b)
+        assert a.smf_eta == b.smf_eta, (a, b)
+    eta_back = recouple(kept, rx_terr.detector, rx_terr.aperture_m,
+                        rx_terr.obscuration_ratio, lam)
+    eta_run = np.array([tr.smf_eta for tr in kept.trials])
+    assert np.all(np.abs(eta_back / eta_run - 1.0) < 1e-5), (eta_back, eta_run)
+    # The collected power: take the RATIO of two trials. That is the lazier
+    # check, because a ratio needs no vacuum reference.
+    pw = recollect(kept, rx_terr.aperture_m, rx_terr.obscuration_ratio)
+    run_pw = np.array([tr.collected_power for tr in kept.trials])
+    assert abs((pw[0] / pw[1]) / (run_pw[0] / run_pw[1]) - 1.0) < 1e-5, \
+        (pw, run_pw)
+
+    # ---- 7c. the MMF round trip ----
+    rx_mmf = mmf_scn.rx_terminal
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        kept_mmf = propagate_turbulent_scenario(
+            mmf_scn, path, n_trials=2, seed=1, preset="standard",
+            patch_radius_m=0.6 * rx_mmf.aperture_m)
+    mmf_back = recouple(kept_mmf, rx_mmf.detector, rx_mmf.aperture_m,
+                        rx_mmf.obscuration_ratio, lam)
+    mmf_run = np.array([tr.mmf_eta for tr in kept_mmf.trials])
+    assert np.all(np.abs(mmf_back / mmf_run - 1.0) < 1e-5), (mmf_back, mmf_run)
+
+    # ---- 7d. no patch means no change at all ----
+    assert multi.fields is None and multi.patch is None
+    try:
+        recouple(multi, rx_terr.detector, rx_terr.aperture_m,
+                 rx_terr.obscuration_ratio, lam)
+        raise AssertionError("a result with no field must raise ValueError")
+    except ValueError as exc:
+        assert "no field" in str(exc), str(exc)
+    # An aperture larger than the patch raises.
+    try:
+        recouple(kept, rx_terr.detector, 4 * kept.patch.radius_m, 0.0, lam)
+        raise AssertionError("an aperture past the patch must raise")
+    except ValueError as exc:
+        assert "patch" in str(exc), str(exc)
+    # A patch larger than the grid raises.
+    try:
+        propagate_turbulent_scenario(terr_scn, path, n_trials=1, seed=1,
+                                     preset="rapid", patch_radius_m=1e6)
+        raise AssertionError("a patch past the grid must raise")
+    except ValueError as exc:
+        assert "grid side" in str(exc), str(exc)
+
     # ---- the printed tables ----
     print("terrestrial vacuum limit, 1 km, Cn2 = 1e-20, standard preset:")
     print(f"  grid                    {vac.grid.n:11d} px, "
@@ -953,6 +1253,16 @@ if __name__ == '__main__':
     print(f"  ratio                   {sigma2_meas / sigma2_theory:11.3f}")
     print(f"  sigma2_I, aotools gen   {sigma2_aot:11.5f}  "
           f"(mean power {power_aot.mean():.5f})")
+    print("")
+    print("blocks and the stored field:")
+    print(f"  6 + 4 equals 10         {'yes':>11s}")
+    print(f"  patch radius            {kept.patch.radius_m * 1e2:11.2f} cm")
+    print(f"  patch pixels            {kept.patch.indices.size:11d}")
+    print(f"  stored bytes per trial  {kept.fields[0].nbytes / 1024:11.1f} kB")
+    print(f"  SMF eta, in run         {eta_run[0]:11.6f}")
+    print(f"  SMF eta, recoupled      {eta_back[0]:11.6f}")
+    print(f"  MMF eta, in run         {mmf_run[0]:11.6f}")
+    print(f"  MMF eta, recoupled      {mmf_back[0]:11.6f}")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")

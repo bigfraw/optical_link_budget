@@ -507,6 +507,9 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
     from ..models.waveoptics import (waveoptics_vacuum_term,
                                      waveoptics_turbulence_term)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
+    if elev.size == 1:
+        # A one-element array IS one line of sight, so accept it as a scalar.
+        elev = elev.reshape(())
     if elev.ndim != 0:
         raise ValueError(
             "the fidelity-2 uplink takes a scalar elevation (one range per "
@@ -621,9 +624,12 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             and the FAST draw count (fidelity 1 pre-compensated).
         cn2_profile : numpy.ndarray, optional
             Explicit zenith Cn2 profile. Defaults to default_cn2_profile.
-        wave : Fidelity2Bundle, optional
-            The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.waveoptics.run_fidelity2.
+        wave : Fidelity2Bundle, list, or Campaign, optional
+            The precomputed wave-optics record for fidelity=2: a
+            Fidelity2Bundle, a list of them, or a Campaign. Run it with
+            olb.models.waveoptics.run_fidelity2, or store it with
+            olb.waveoptics.turbulence.Campaign and pass the campaign itself
+            (olb.models.waveoptics.resolve_wave turns it into the bundle).
 
     Returns:
         Budget
@@ -656,6 +662,9 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                and any(isinstance(c, AO) for c in tx.compensation))
 
     if fidelity == 2:
+        # A Campaign is a wave record too: turn it into the bundle it holds.
+        from ..models.waveoptics import resolve_wave
+        wave = resolve_wave(wave)
         if precomp:
             raise ValueError(
                 "fidelity=2 does not model a PRE-COMPENSATED uplink. The "

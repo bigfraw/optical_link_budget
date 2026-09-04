@@ -28,6 +28,11 @@ gives a LIST of Fidelity2Bundle in the arm order, and pass that list as `wave`.
 The clipped receive field is computed one time, and each arm is one more cheap
 focal-plane calculation on that same array.
 
+A STORED campaign gives the same list, with no new propagation. Pass the
+campaign itself as `wave`: olb.models.waveoptics.resolve_wave turns it into the
+per-arm list. olb.models.waveoptics.campaign_bundles(campaign, detectors) is the
+explicit form of that step, and it is accepted the same way.
+
 WHY THIS MODULE IS AT THE TOP LEVEL. The split is CROSS-CUTTING: it is not the
 physics of one link. olb.links holds the per-link physics, so this module sits
 ABOVE it in the dependency order. It may read olb.links, olb.models, and
@@ -78,12 +83,15 @@ def multi_detector_budgets(scenario, geometry, detectors, *, wave=None,
             carries an optional `frac`, the fraction of the received power in
             that arm. At most one may leave `frac` at None; that arm takes the
             remainder. See olb.models.splitter.resolve_fracs.
-        wave : Fidelity2Bundle or list, optional
+        wave : Fidelity2Bundle, list, or Campaign, optional
             The precomputed wave-optics record(s) for fidelity=2. Give a LIST
             (one bundle for each arm, in the `detectors` order) from
             olb.models.waveoptics.run_fidelity2(..., detectors=[...]), so every
-            arm reads ONE shared Monte Carlo. A single bundle goes to every arm
-            unchanged. None passes no `wave` to the budget function.
+            arm reads ONE shared Monte Carlo. A Campaign gives the SAME list
+            with no new propagation: this function calls
+            olb.models.waveoptics.resolve_wave, which calls campaign_bundles
+            with these detectors. A single bundle goes to every arm unchanged.
+            None passes no `wave` to the budget function.
         **kwargs :
             Passed to the budget function unchanged (for example fidelity,
             turbulence, scintillation, tau_zenith).
@@ -111,6 +119,9 @@ def multi_detector_budgets(scenario, geometry, detectors, *, wave=None,
     dets = list(detectors)
     fracs = resolve_fracs(dets)
     budget_of = _budget_function(scenario)
+    # A Campaign is a wave record too: turn it into the per-arm bundle list.
+    from .models.waveoptics import resolve_wave
+    wave = resolve_wave(wave, dets)
     is_list = isinstance(wave, (list, tuple))
     if is_list and len(wave) != len(dets):
         raise ValueError(
@@ -222,6 +233,37 @@ if __name__ == '__main__':
         raise AssertionError("a short wave list must raise")
     except ValueError as exc:
         assert "bundles" in str(exc), str(exc)
+
+    # --- a Campaign IS a wave record: wave=campaign gives the per-arm list ----
+    # A tiny stored campaign (4 rapid trials) keeps this check under a few
+    # seconds. resolve_wave turns it into one bundle for each arm.
+    import shutil
+    import tempfile
+    import warnings
+
+    import numpy as np
+
+    from .waveoptics.turbulence import Campaign
+
+    root = tempfile.mkdtemp(prefix="olb_md_selfcheck_")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            camp = Campaign(down, orbit, root, seed=11, preset="rapid",
+                            block_size=4)
+            camp.run(4)
+            c_arms = multi_detector_budgets(
+                down, orbit, [Aperture(frac=0.5), Aperture(frac=0.5)],
+                fidelity=2, wave=camp)
+        assert len(c_arms) == 2
+        for _, b in c_arms:
+            assert abs(_splitter_db(b) - 3.0103) < 1e-3, _splitter_db(b)
+            assert any(t.meta.get("model") == "waveoptics" for t in b.terms)
+        print(f"campaign arms (downlink, 4 rapid trials): total "
+              f"{float(np.ravel(c_arms[0][1].total_loss_db())[0]):.3f} dB "
+              "for each 50/50 arm")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
     print("terrestrial beamsplitter arms, 3 km:")
     for det, b in arms:

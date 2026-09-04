@@ -9,3 +9,5 @@ dist/
 .ipynb_checkpoints/
 *.png
 *.pdf
+examples/waveoptics/_campaign_demo/
+examples/waveoptics/_campaign_demo2/

@@ -100,11 +100,13 @@ propagate-screen-propagate loop and the absorbing boundary mask), `sampling.py`
 (the turbulent grid sizer and the screen-placement planner), `run.py`
 (`propagate_turbulent_scenario`, one atmosphere snapshot for each seed, with the
 `screen_generator="olb"` default and an optional `Threader`), `cache.py` (an
-opt-in, off-by-default disk cache of whole runs), and `temporal.py` (the
+opt-in, off-by-default disk cache of whole runs), `campaign.py` (a large set of
+trials on disk, see below), and `temporal.py` (the
 frozen-flow time axis, PLANNED, NOT BUILT). The sub-package keeps the same import
 tiers: `screens.py` and `splitstep.py` read the wave-optics core only,
-`sampling.py`, `run.py` and `cache.py` read the rest of olb (a scenario, the Cn2
-profiles, the Andrews layer), and `temporal.py` imports numpy only. A space
+`sampling.py`, `run.py`, `cache.py` and `campaign.py` read the rest of olb (a
+scenario, the Cn2 profiles, the Andrews layer), and `temporal.py` imports numpy
+only. A space
 scenario always propagates the DOWNLINK slab; an uplink reads the same field
 through the Shapiro reciprocity overlap, DOI 10.1364/JOSA.61.000492.
 
@@ -116,6 +118,31 @@ N. The default `detectors=None` leaves `detector_etas` None, so the
 single-detector record is bit-identical. The shared field is exact, because a
 beamsplitter multiplies the field of an arm by a constant and every coupling
 efficiency is power-normalised (see Section 3).
+
+The runner also takes `start_index` (the index of the FIRST trial, so a slice of
+one seeded run computes alone and stays bit-identical) and `patch_radius_m` (the
+radius of a receive-plane disc whose UNCLIPPED field each trial stores, as
+`TurbWaveResult.fields` plus the `FieldPatch` in `TurbWaveResult.patch`; None
+keeps the old, field-free record). The module functions `recouple` and
+`recollect` read those stored fields back into a detector or an aperture, so a
+smaller receive aperture, an obscuration, another detector or another defocus
+costs no new propagation.
+
+`campaign.py` builds on those two arguments. A `Campaign` names ONE physics case
+(one scenario, one geometry, one grid, one screen plan, one seed) and it keeps
+its trials on disk in fixed BLOCKS, one `.npz` for each block, plus a JSON
+manifest that rebuilds the grid and the plan, so a resumed campaign never
+re-sizes. The blocks are bit-identical slices of one native run, so a campaign
+computes them in any order. `Campaign.run(n, workers=W)` opens ONE warm process
+pool for the whole call and runs each block SERIALLY inside its process:
+the parallelism lives at ONE level, because threads inside processes
+over-subscribe the cores (`workers=None` keeps the serial-block, threaded-inside
+route). `sizing_aperture_m` sizes the grid and the stored field patch one time
+for the LARGEST receive aperture of a family, so every smaller aperture is a
+post-hoc crop through `Campaign.recouple`/`recollect`. The dependency direction
+holds: `campaign.py` reads `run.py`, the `cache_key` fingerprint of `cache.py`,
+`sampling.py`, `grid.py` and the `Threader`, and nothing in olb reads
+`campaign.py` back.
 
 Both parts are built and each module holds a self-check. The modules of this
 package build no Term themselves, but their records ARE wired into the budgets

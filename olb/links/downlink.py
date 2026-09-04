@@ -308,6 +308,9 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
     is_smf = isinstance(rx.detector, SMF)
     is_mmf = isinstance(rx.detector, MMF)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
+    if elev.size == 1:
+        # A one-element array IS one line of sight, so accept it as a scalar.
+        elev = elev.reshape(())
     if elev.ndim != 0:
         raise ValueError(
             "the fidelity-2 downlink takes a scalar elevation (one range per "
@@ -571,9 +574,12 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
             The analytic scintillation MODEL for an APERTURE receiver:
             "lognormal" (the default), "gamma_gamma", or "auto". It is not a
             fidelity axis; it applies at fidelity 0/1 only.
-        wave : Fidelity2Bundle, optional
-            The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.waveoptics.run_fidelity2.
+        wave : Fidelity2Bundle, list, or Campaign, optional
+            The precomputed wave-optics record for fidelity=2: a
+            Fidelity2Bundle, a list of them, or a Campaign. Run it with
+            olb.models.waveoptics.run_fidelity2, or store it with
+            olb.waveoptics.turbulence.Campaign and pass the campaign itself
+            (olb.models.waveoptics.resolve_wave turns it into the bundle).
 
     A receive detector is opt-in. A BUCKET receiver -- no detector or a plain
     Aperture -- gets the aperture-averaged scintillation Term (with the
@@ -596,6 +602,9 @@ def downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None,
     tau = DEFAULT_TAU_ZENITH if tau_zenith is None else tau_zenith
 
     if fidelity == 2:
+        # A Campaign is a wave record too: turn it into the bundle it holds.
+        from ..models.waveoptics import resolve_wave
+        wave = resolve_wave(wave)
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "

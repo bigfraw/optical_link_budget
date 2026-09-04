@@ -597,6 +597,18 @@ The path forward for each is a second reference or a derivation.
   saturation limit, the bit depth) so the output is a real detector signal, not
   an ideal power map. Design it in one pass with the owner before any wiring;
   each parameter changes what "pixel brightness" means.
+- **2-W4. Retire `cache.py` in favour of `Campaign` (a follow-up, flagged
+  2026-09-04).** `olb/waveoptics/turbulence/cache.py` (the opt-in, off-by-default
+  disk cache of scalar runs) is UNTOUCHED and now SUPERSEDED.
+  `campaign.py` does more and it does it better: its blocks are bit-identical
+  slices of ONE seeded native run (the runner's `start_index`), where the cache
+  seeds each block from a SUB-SEED, so a cached run is not the trials of a
+  native run; and the campaign stores the receive-field patch, where the cache
+  stores scalars only. No budget calls either module. THE TASK: move the one
+  piece the campaign still imports (`cache_key`, the fingerprint) to its own
+  home, delete `cache.py`, and clean the references in the docs (this file,
+  docs/architecture.md, docs/api-waveoptics.md, and
+  docs/waveoptics-efficiency-plan.md Section 8, cache level 3).
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.
@@ -744,12 +756,22 @@ The path forward for each is a second reference or a derivation.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
   docs/api-waveoptics.md:824).
-- **2-I1. `TurbWaveResult` is a minimal scalar record — DO NOT extend it
-  piece by piece.** The rich record (the E-field inside the receive
-  aperture) gets its own design session (olb/waveoptics/turbulence/run.py:203;
-  memory `waveoptics-results-deferred`). NOTE (2026-09-02): the one permitted
-  extension is done — `TurbTrial.detector_etas` holds the per-arm coupling
-  efficiencies of a multi-detector run, and it stays None for a single detector.
+- **2-I1. `TurbWaveResult` — the rich record is DONE (2026-09-04).** The rule
+  was: a minimal scalar record, do NOT extend it piece by piece; the E-field
+  inside the receive aperture gets its own design session
+  (memory `waveoptics-results-deferred`). That session ran. THE DECISION: the
+  per-trial SCALARS stay exactly as they are, and the record gains ONE optional
+  field pair — `TurbWaveResult.fields` (the masked receive-plane field of each
+  trial, complex64, BEFORE the receive clip) and `TurbWaveResult.patch` (the
+  `FieldPatch` that says which grid pixels those values are). The runner stores
+  them only when the caller gives `patch_radius_m`, so the old record is
+  bit-identical and a budget never reads a field. The store pays for
+  `recouple`/`recollect`: a smaller receive aperture, an obscuration, another
+  detector, another focal length and another defocus are then a POST-HOC crop,
+  with no new propagation. See olb/waveoptics/turbulence/run.py and
+  `Campaign` (campaign.py). EARLIER (2026-09-02): `TurbTrial.detector_etas`
+  holds the per-arm coupling efficiencies of a multi-detector run, and it stays
+  None for a single detector.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
   the aperture-averaged analytic factor fails when the aperture holds the
@@ -793,24 +815,43 @@ The path forward for each is a second reference or a derivation.
   2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
   screen placement). See `turbulent_grid` in
   olb/waveoptics/turbulence/sampling.py.
-- **2-N4. Run WHOLE fidelity-2 sims in parallel (owner-flagged 2026-08-29).**
-  The current campaign parallelises the trials WITHIN one run (the `Threader`
-  thread pool, P3 measured that processes beat threads and threads saturate at 8
-  to 16 workers). But the observed CPU AND memory load stays far below the
-  machine capacity, so a whole sim (a full `propagate_turbulent_scenario` call)
-  can run in parallel with other whole sims to fill the machine. Two cases:
-  1. NON-TEMPORAL (the snapshot layer of today): the trials are independent, so
-     there is NO limit. Run many whole sims side by side (different scenarios,
-     seeds, or blocks), across processes.
-  2. TEMPORAL (2-P1, still a stub): a frozen-flow time axis needs the screen
-     arrays in a fixed order, so a naive whole-sim parallel split breaks the time
-     correlation. Two ways out: (a) build the screen arrays BEFORE the parallel
-     fan-out, then hand each worker its ready arrays; or (b) the leaning choice —
-     simulate about 1 second of link time per worker (this holds MANY coherence
-     times), and still multiprocess across the 1-second blocks. Decide the block
-     length from the coherence time and the wind, and record the choice.
+- **2-N4a. Run WHOLE fidelity-2 sims in parallel, the NON-TEMPORAL case — DONE
+  (2026-09-04).** The snapshot trials are independent, so there is no limit.
+  `olb.waveoptics.turbulence.campaign.Campaign` is the answer: it keeps the
+  trials on disk in fixed BLOCKS, and `Campaign.run(n, workers=W)` opens ONE
+  warm `ProcessPoolExecutor` for the whole call and runs each block SERIALLY
+  inside its process. The parallelism lives at ONE level only, because threads
+  inside processes over-subscribe the cores. The blocks are bit-identical SLICES
+  of one seeded native run, through the runner's new `start_index`, and a
+  manifest rebuilds the grid and the plan, so a resumed campaign never re-sizes.
+  The fair P3 rerun (2026-09-04) says WHY a pool must stay warm: threads and
+  processes TIE on the wall time of ONE run (0.99x space, 1.04x terrestrial),
+  and processes win 1.14x to 1.74x in steady state only, because the Windows
+  spawn costs 2.5 to 4.4 s. So there is NO automatic selector between the two
+  routes, and threads stay the default of one run. See
+  docs/waveoptics-efficiency-plan.md Section 8.6 and
+  `validation/waveoptics_speed/fair_scaling_rerun.py`.
+- **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — STILL
+  OPEN.** A frozen-flow time axis (2-P1, still a stub) needs the screen arrays
+  in a fixed order, so a naive whole-sim parallel split breaks the time
+  correlation. Two ways out: (a) build the screen arrays BEFORE the parallel
+  fan-out, then hand each worker its ready arrays; or (b) the leaning choice —
+  simulate about 1 second of link time for each worker (this holds MANY
+  coherence times), and still multiprocess across the 1-second blocks. Decide
+  the block length from the coherence time and the wind, and record the choice.
   Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
-  needs the temporal axis (2-P1) before case 2 is real.
+  needs the temporal axis (2-P1) first.
+- **2-N6. A large-campaign validation is the NEXT STEP (2026-09-04).** The
+  campaign store is built and its self-check and demo run at tens of trials
+  only. Nobody has run thousands of trials through it yet. Measure: the wall
+  time and the disk size of a real campaign, the resume after a kill, the
+  behaviour of the fade quantiles as the trial count grows, and the memory of
+  the streamed `recouple`/`recollect`. The `EmpiricalSampler` tail rule (ten
+  samples past the availability) sets the count: 1,000 trials for 99 percent
+  and 10,000 for 99.9 percent. NO numbers yet. NOTE the owner REFUSAL: a
+  parametric tail fitted to the simulated bulk, to extrapolate a deeper fade, is
+  rejected. The owner does not want extrapolation, and 99.99 percent
+  availability is out of scope.
 
 ---
 

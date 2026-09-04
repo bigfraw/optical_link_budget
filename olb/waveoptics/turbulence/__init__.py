@@ -11,6 +11,7 @@ The modules are:
     splitstep   the propagate-screen-propagate loop, and the boundary mask.
     sampling    the turbulent grid sizer, and the screen-placement planner.
     run         the trial runner: one snapshot for each seed.
+    campaign    a large set of trials on disk, stored as blocks.
     temporal    the frozen-flow time axis. PLANNED, NOT BUILT.
 
 Sources:
@@ -18,6 +19,7 @@ Sources:
   MATLAB, DOI 10.1117/3.866274, Ch. 9. The split-step method.
 """
 
+from .campaign import Campaign
 from .run import (TurbTrial, TurbWaveResult, folded_terrestrial,
                   propagate_turbulent_field, propagate_turbulent_scenario)
 from .sampling import (PRESETS, QualityPreset, SamplingReport, ScreenPlan,
@@ -27,6 +29,7 @@ from .splitstep import split_step, super_gaussian_boundary
 from .temporal import TemporalScreens
 
 __all__ = [
+    'Campaign',
     'PRESETS',
     'QualityPreset',
     'SamplingReport',

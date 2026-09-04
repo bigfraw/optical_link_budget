@@ -697,6 +697,76 @@ def _arm_turbulent(result, index, detector):
     return replace(result, trials=trials)
 
 
+def _resolve_vacuum(vacuum, is_space):
+    '''
+    Check the `vacuum` selector and give the effective value.
+
+    Parameters:
+        vacuum : "analytic", "wave", or None
+            None takes "analytic" for a space link and "wave" for a terrestrial
+            link.
+        is_space : bool
+            True for a SpaceScenario.
+
+    Returns:
+        str
+            "analytic" or "wave".
+
+    Raises:
+        ValueError
+            The name is not known, or "analytic" is asked for a terrestrial
+            link.
+    '''
+    if vacuum is None:
+        vacuum = "analytic" if is_space else "wave"
+    if vacuum not in ("analytic", "wave"):
+        raise ValueError(
+            f"vacuum must be 'analytic', 'wave', or None, got {vacuum!r}.")
+    if vacuum == "analytic" and not is_space:
+        raise ValueError(
+            "vacuum='analytic' is not available for a terrestrial link. The "
+            "near-field turbulence penalty is turbulent / vacuum on the SAME "
+            "flat grid, so the wave vacuum run is required. Use vacuum='wave'.")
+    return vacuum
+
+
+def _vacuum_record(scenario, geometry, grid, vacuum, is_space):
+    '''
+    Give the no-turbulence propagation of one scenario, or None.
+
+    This is the ONE vacuum-baseline rule of the fidelity-2 layer. Both
+    run_fidelity2 and campaign_bundles call it, so a live run and a post-hoc
+    campaign give the same baseline.
+
+    Parameters:
+        scenario : SpaceScenario or TerrestrialScenario
+            The link case of this arm.
+        geometry : the link geometry.
+        grid : GridSpec or None
+            The turbulent grid. A terrestrial vacuum run shares it.
+        vacuum : "analytic" or "wave"
+            The selector, already resolved by _resolve_vacuum.
+        is_space : bool
+            True for a SpaceScenario.
+
+    Returns:
+        WaveResult or None
+            None for "analytic".
+    '''
+    from ..waveoptics.run import propagate_scenario
+    if vacuum == "analytic":
+        # SPACE far field: the budget uses the analytic geometric Term. No
+        # full-path field solve (it is slow and grid-noise-limited here).
+        return None
+    if is_space:
+        # SPACE, opted in: the vacuum run needs its own co-moving grid over the
+        # full slant range.
+        return propagate_scenario(scenario, geometry)
+    # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
+    # turbulence penalty (turbulent / vacuum) is exact.
+    return propagate_scenario(scenario, geometry, grid=grid)
+
+
 def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
                   h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
@@ -794,33 +864,13 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
     '''
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
-    from ..waveoptics.run import propagate_scenario
     is_space = hasattr(scenario, "ground")   # a terrestrial scenario has near/far
-    if vacuum is None:
-        vacuum = "analytic" if is_space else "wave"
-    if vacuum not in ("analytic", "wave"):
-        raise ValueError(
-            f"vacuum must be 'analytic', 'wave', or None, got {vacuum!r}.")
-    if vacuum == "analytic" and not is_space:
-        raise ValueError(
-            "vacuum='analytic' is not available for a terrestrial link. The "
-            "near-field turbulence penalty is turbulent / vacuum on the SAME "
-            "flat grid, so the wave vacuum run is required. Use vacuum='wave'.")
+    vacuum = _resolve_vacuum(vacuum, is_space)
     from .splitter import arm_scenario
 
     def vacuum_run(scn, grid):
         '''The no-turbulence propagation of one scenario, or None.'''
-        if vacuum == "analytic":
-            # SPACE far field: the budget uses the analytic geometric Term. No
-            # full-path field solve (it is slow and grid-noise-limited here).
-            return None
-        if is_space:
-            # SPACE, opted in: the vacuum run needs its own co-moving grid over
-            # the full slant range.
-            return propagate_scenario(scn, geometry)
-        # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
-        # turbulence penalty (turbulent / vacuum) is exact.
-        return propagate_scenario(scn, geometry, grid=grid)
+        return _vacuum_record(scn, geometry, grid, vacuum, is_space)
 
     if not turbulence:
         # VACUUM-ONLY: make no screens and no trials. A terrestrial link still
@@ -859,6 +909,142 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
     return [Fidelity2Bundle(vacuum=vacuum_run(arm_scenario(scenario, d), grid),
                             turbulent=_arm_turbulent(turbulent, i, d))
             for i, d in enumerate(detectors)]
+
+
+def campaign_bundles(campaign, detectors, *, n_trials=None, vacuum=None):
+    '''
+    Build the per-arm fidelity-2 bundles from a STORED campaign.
+
+    This is the POST-HOC twin of run_fidelity2(..., detectors=[...]). The
+    campaign is the shared Monte Carlo: its stored receive fields are one set of
+    atmosphere snapshots, and each arm re-couples those same fields into its own
+    detector (olb.waveoptics.turbulence.Campaign.recouple), with NO new
+    propagation. So the two functions give the same shape of answer, and the
+    campaign gives it without running the simulation again.
+
+    The `frac` of a detector is IGNORED here, exactly as in run_fidelity2. A
+    beamsplitter scales the field of an arm by a constant, and every coupling
+    efficiency is power-normalised, so the split ratio enters ONE time, as the
+    fixed splitter Term that olb.multidetector.multi_detector_budgets adds.
+
+    Pass the returned list straight to
+    multi_detector_budgets(..., wave=<this list>, fidelity=2).
+
+    Parameters:
+        campaign : olb.waveoptics.turbulence.Campaign
+            The stored trials. Its scenario, geometry and grid drive every arm.
+        detectors : sequence
+            The detector of each arm (Aperture, SMF, MMF, or Camera). An SMF or
+            an MMF is re-coupled from the stored fields. An Aperture or a Camera
+            has no coupling model, so its loss is the collected power of the
+            shared run.
+        n_trials : int, optional
+            The number of stored trials to read. None takes every stored trial.
+        vacuum : "analytic", "wave", or None
+            The geometric-loss selector of run_fidelity2. None (the default)
+            takes "analytic" for a space link (the budget then uses the analytic
+            geometric Term) and "wave" for a terrestrial link.
+
+    Returns:
+        list of Fidelity2Bundle
+            One bundle for each arm, in the `detectors` order.
+    '''
+    from dataclasses import replace
+
+    from ..terminal import MMF, SMF
+    from .splitter import arm_scenario
+
+    dets = list(detectors)
+    scenario = campaign.scenario
+    is_space = hasattr(scenario, "ground")
+    vacuum = _resolve_vacuum(vacuum, is_space)
+
+    # ONE load of the scalars. The fields stay on disk: recouple streams them
+    # block by block, so a large campaign never sits in memory.
+    result = campaign.load(n_trials, fields=False)
+    n = len(result.trials)
+    etas = [campaign.recouple(d, n_trials=n) if isinstance(d, (SMF, MMF))
+            else None for d in dets]
+    # Put the per-arm efficiencies on the SAME face a live multi-detector run
+    # uses, so _arm_turbulent reads the record with no change.
+    trials = [replace(t, detector_etas=tuple(
+                  None if e is None else float(e[k]) for e in etas))
+              for k, t in enumerate(result.trials)]
+    shared = replace(result, trials=trials)
+
+    return [Fidelity2Bundle(
+                vacuum=_vacuum_record(arm_scenario(scenario, d),
+                                      campaign.geometry, campaign.grid,
+                                      vacuum, is_space),
+                turbulent=_arm_turbulent(shared, i, d))
+            for i, d in enumerate(dets)]
+
+
+def campaign_bundle(campaign, *, n_trials=None, vacuum=None):
+    '''
+    Build the ONE fidelity-2 bundle of a STORED campaign.
+
+    This is the single-detector twin of campaign_bundles, and the post-hoc twin
+    of run_fidelity2 with no `detectors`. The campaign ran with the detector of
+    its own scenario, so its stored trials ALREADY carry the smf_eta or the
+    mmf_eta of that detector. No re-coupling is needed, and no field is read.
+
+    Pass the returned bundle straight to a budget at fidelity 2, or pass the
+    campaign itself: the budgets call resolve_wave, which calls this function.
+
+    Parameters:
+        campaign : olb.waveoptics.turbulence.Campaign
+            The stored trials. Its scenario, geometry and grid drive the bundle.
+        n_trials : int, optional
+            The number of stored trials to read. None takes every stored trial.
+        vacuum : "analytic", "wave", or None
+            The geometric-loss selector of run_fidelity2. None (the default)
+            takes "analytic" for a space link (the budget then uses the analytic
+            geometric Term) and "wave" for a terrestrial link.
+
+    Returns:
+        Fidelity2Bundle
+            The turbulent record of the stored trials, plus the vacuum record.
+    '''
+    scenario = campaign.scenario
+    is_space = hasattr(scenario, "ground")
+    vacuum = _resolve_vacuum(vacuum, is_space)
+    return Fidelity2Bundle(
+        vacuum=_vacuum_record(scenario, campaign.geometry, campaign.grid,
+                              vacuum, is_space),
+        turbulent=campaign.load(n_trials, fields=False))
+
+
+def resolve_wave(wave, detectors=None):
+    '''
+    Turn a `wave` argument into the record(s) a fidelity-2 budget reads.
+
+    A Campaign IS a wave record, so a budget takes wave=campaign directly. This
+    adapter is the ONE place that translates it. Every other value passes
+    through unchanged, so a Fidelity2Bundle, a list of bundles, and None all
+    behave as before.
+
+    The four fidelity-2 consumers call it: downlink_budget, uplink_budget,
+    terrestrial_budget (with no detectors), and
+    olb.multidetector.multi_detector_budgets (with the arm detectors).
+
+    Parameters:
+        wave : Fidelity2Bundle, list, Campaign, or None
+            The `wave` argument of the caller.
+        detectors : sequence, optional
+            The beamsplitter arms. With a Campaign it selects the per-arm list
+            (campaign_bundles); None selects the single bundle
+            (campaign_bundle).
+
+    Returns:
+        The unchanged value, a Fidelity2Bundle, or a list of Fidelity2Bundle.
+    '''
+    from ..waveoptics.turbulence import Campaign
+    if not isinstance(wave, Campaign):
+        return wave
+    if detectors is None:
+        return campaign_bundle(wave)
+    return campaign_bundles(wave, detectors)
 
 
 if __name__ == '__main__':
@@ -1083,4 +1269,119 @@ if __name__ == '__main__':
 
     print(f"terrestrial SMF fidelity 2 (3 km, rapid, 16 trials): "
           f"vacuum {vac.mean_db:.2f} dB + turbulence {pen.mean_db:.2f} dB")
+
+    # --- Part C: a STORED campaign feeds the same per-arm budgets ------------
+    # A live multi-detector run and a post-hoc campaign must give the SAME
+    # bundles. The campaign field is complex64, so the coupling agrees to a
+    # relative 1e-5, not bit for bit.
+    import shutil
+    import tempfile
+
+    from ..geometry import CircularOrbit
+    from ..multidetector import multi_detector_budgets
+    from ..scenario import Channel, SpaceScenario
+    from ..terminal import Aperture
+    from ..waveoptics.turbulence import Campaign
+
+    from ..links import downlink_budget
+
+    lam = 1550e-9
+    # The space terminal carries a TRANSMITTER: a downlink scenario needs one at
+    # every fidelity, because the analytic geometric Term reads its waist.
+    down = SpaceScenario(
+        ground=Terminal(aperture_m=0.40, wavelength_m=lam, detector=SMF(),
+                        transmitter=Transmitter(waist_m=0.06)),
+        space=Terminal(aperture_m=0.30, wavelength_m=lam,
+                       transmitter=Transmitter(waist_m=0.05, power_dbm=30.0)),
+        direction="downlink", channel=Channel())
+    # ONE orbit object serves the campaign AND the budget.
+    orbit = CircularOrbit(altitude_m=600e3, elevation_deg=30.0)
+    arms3 = [SMF(frac=0.5),
+             MMF(core_radius_m=25e-6, focal_length_m=0.5, frac=0.4),
+             Aperture()]                       # frac None: the remainder, 0.1
+
+    root = tempfile.mkdtemp(prefix="olb_wo_selfcheck_")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            live = run_fidelity2(down, orbit, n_trials=12, seed=7,
+                                 preset="rapid", detectors=arms3, progress=False)
+            camp = Campaign(down, orbit, root, seed=7, preset="rapid",
+                            block_size=4)
+            assert camp.run(12) == 12, camp.n_stored
+            stored = campaign_bundles(camp, arms3)
+
+        # The two grids must match, or the trials are a different atmosphere.
+        assert camp.grid.n == live[0].turbulent.grid.n, \
+            (camp.grid.n, live[0].turbulent.grid.n)
+        assert len(stored) == len(live) == 3
+        for i, (a, b) in enumerate(zip(stored, live)):
+            assert (a.vacuum is None) and (b.vacuum is None)   # space: analytic
+            for ta, tb in zip(a.turbulent.trials, b.turbulent.trials):
+                assert abs(ta.collected_power / tb.collected_power - 1.0) < 1e-5
+                for face in ("smf_eta", "mmf_eta"):
+                    ea, eb = getattr(ta, face), getattr(tb, face)
+                    assert (ea is None) == (eb is None), (i, face, ea, eb)
+                    if ea is not None:
+                        assert abs(ea / eb - 1.0) < 1e-5, (i, face, ea, eb)
+
+        # The per-arm budgets agree, and the splitter rows are identical.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            b_live = multi_detector_budgets(down, orbit, arms3, wave=live,
+                                            fidelity=2)
+            b_camp = multi_detector_budgets(down, orbit, arms3, wave=stored,
+                                            fidelity=2)
+        print("campaign_bundles vs run_fidelity2 (downlink 30 deg, rapid, "
+              "12 trials, 3 arms):")
+        for (det, bl), (_, bc) in zip(b_live, b_camp):
+            tl, tc = float(bl.total_loss_db()), float(bc.total_loss_db())
+            assert abs(tl - tc) < 0.01, (type(det).__name__, tl, tc)
+            sl = [t.mean_db for t in bl.terms if t.name == "beamsplitter"]
+            sc = [t.mean_db for t in bc.terms if t.name == "beamsplitter"]
+            assert sl == sc, (sl, sc)
+            print(f"  {type(det).__name__:<8s} splitter "
+                  f"{(sl[0] if sl else 0.0):5.2f} dB   live {tl:8.3f} dB   "
+                  f"campaign {tc:8.3f} dB")
+
+        # --- wave=campaign IS the documented flow ------------------------
+        # A budget takes the campaign directly (resolve_wave), and it must
+        # give the bundle answer and the live-run answer.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            live_one = run_fidelity2(down, orbit, n_trials=12, seed=7,
+                                     preset="rapid", progress=False)
+            b_direct = downlink_budget(down, orbit, fidelity=2, wave=camp)
+            b_bundle = downlink_budget(down, orbit, fidelity=2,
+                                       wave=campaign_bundle(camp))
+            b_run = downlink_budget(down, orbit, fidelity=2, wave=live_one)
+            # multi_detector_budgets takes the campaign directly too.
+            b_arms = multi_detector_budgets(down, orbit, arms3, wave=camp,
+                                            fidelity=2)
+            # A ONE-ELEMENT elevation array is one line of sight, so it passes.
+            b_list = downlink_budget(
+                down, CircularOrbit(altitude_m=600e3, elevation_deg=[30.0]),
+                fidelity=2, wave=camp)
+        t_direct = float(b_direct.total_loss_db())
+        t_bundle = float(b_bundle.total_loss_db())
+        t_run = float(b_run.total_loss_db())
+        assert t_direct == t_bundle, (t_direct, t_bundle)
+        assert abs(t_direct - t_run) < 0.01, (t_direct, t_run)
+        # The other Terms stay vectorised, so a one-element geometry gives a
+        # one-element total. The value is the scalar-geometry value.
+        assert abs(float(np.ravel(b_list.total_loss_db())[0]) - t_direct) < 1e-9
+        for (da, ba), (db_, bb) in zip(b_arms, b_camp):
+            assert type(da) is type(db_)
+            assert abs(float(ba.total_loss_db())
+                       - float(bb.total_loss_db())) < 1e-9
+        print("wave=campaign (the documented flow), downlink 30 deg:")
+        print(f"  wave=campaign            {t_direct:8.3f} dB")
+        print(f"  wave=campaign_bundle()   {t_bundle:8.3f} dB")
+        print(f"  wave=run_fidelity2()     {t_run:8.3f} dB")
+        print("  multi_detector_budgets(wave=campaign) == "
+              "wave=campaign_bundles(...)")
+        print("  a one-element elevation array is accepted")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
     print("self-check passed")

@@ -476,7 +476,7 @@ off by default; no budget calls it.
 - **`Threader` defaults to `min(16, cores)` workers.** The scaling study (P3)
   saturates near 8 to 16 workers; more workers only add contention.
 
-### 8.2 The four cache levels
+### 8.2 The five cache levels
 
 | Level | What | Where | Measured cost / saving | Ruling |
 |---|---|---|---|---|
@@ -484,6 +484,13 @@ off by default; no budget calls it.
 | 2 | vacuum baseline per call | in-process | one trial per call (~0.35 s space standard propagation); a repeated request hits the session memo and skips the whole call | BUILT as a whole-result memo. See note. |
 | 3 | whole `TurbWaveResult` runs | disk (JSON scalars) | 100-trial run 9.2 s; disk hit 21 ms (~400x); grow 100->150 computes only the new 50 (4.6 s, = a fresh 50, not a fresh 150); 150-trial file ~10 KB | BUILT. `cache.py`. |
 | 4 | full screen stacks | disk | 9 screens x 200 trials x 2048^2 float64 ~= 57 GB for one case | RULED OUT. The screens regenerate in ~0.17 s per stack (P1); disk for tens of GB buys nothing. |
+| 5 | the campaign store: the trial scalars PLUS the masked receive-field patch | disk (one `.npz` for each block, plus a JSON manifest) | a 1 m patch at a 5 mm pitch is ~320 KB for each trial, so ~3.2 GB for 10,000 trials; a new receive aperture, obscuration, detector or defocus then costs NO propagation (`recouple`, `recollect`) | BUILT 2026-09-04. `campaign.py`. It supersedes level 3. |
+
+**Level 5 supersedes level 3.** `olb/waveoptics/turbulence/campaign.py` holds
+the blocks of ONE seeded native run (the runner's new `start_index`), so a
+campaign slice is bit-identical to a native run, and it keeps the receive field.
+`cache.py` seeds each block from a sub-seed and stores no field. `cache.py` is
+untouched and no budget calls it; a follow-up task retires it (backlog 2-W4).
 
 **Level 2, honestly.** The space vacuum baseline is recomputed INSIDE
 `propagate_turbulent_scenario` (`olb/waveoptics/turbulence/run.py`). A
@@ -537,8 +544,10 @@ and changes no budget.
    a deeper tail (more trials for a deep-fade quantile) grows the stored run and
    computes only the new blocks. Keep the vacuum run as its own single
    deterministic call (it is cheap; it is not cached).
-3. **Pick the execution mode from the P3 table.** For the "olb" generator,
-   PROCESSES win by about 1.4x over threads. Use a `ProcessPoolExecutor` with
+3. **Pick the execution mode from the P3 table.** For the "olb" generator, the
+   P3 reading was that PROCESSES win by about 1.4x over threads. The fair rerun
+   of 2026-09-04 REVISES that number to a wall-time TIE for one run; see
+   Section 8.6. Use a `ProcessPoolExecutor` with
    8 to 16 workers: terrestrial and space rapid saturate at 16 (~17 trials/s),
    space standard at 8 (~5.9 trials/s). Threads (`Threader`, default 16) are the
    built-in, no-pickle fallback. Beyond 16 workers the rate falls (spawn and
@@ -555,3 +564,48 @@ and changes no budget.
 - A start-index (or a per-trial scalar entry) in the runner, for a single-seed
   tail extension that is bit-identical to a native run.
 - An in-process baseline cache, if the runner grows a `baseline=` argument.
+
+### 8.6 P3 fair rerun (2026-09-04)
+
+Script: `validation/waveoptics_speed/fair_scaling_rerun.py`. Log:
+`fair_scaling_rerun_run.log`. The rerun corrects four defects of P3: it runs
+200 trials for each point (P3 ran 32, so one straggler trial moved a point), it
+pins the BLAS thread count to 1 in BOTH routes, it gives each process a chunk of
+n/W trials instead of one trial for each task, and it counts the pool SPAWN
+inside the wall time. It adds a pure-`fft2` process ceiling with NO Python work
+between the transforms, as the machine limit.
+
+| Case (grid) | Route | Best W | Wall, 200 trials | Steady ratio |
+|---|---|---|---|---|
+| space downlink 30 deg, standard (N=512) | threads | 16 | 31.92 s | — |
+| space downlink 30 deg, standard (N=512) | processes | 16 | 32.20 s (spawn 4.22 s, steady 27.98 s) | 1.14x |
+| terrestrial 2 km, standard (N=256) | threads | 8 | 7.77 s | — |
+| terrestrial 2 km, standard (N=256) | processes | 12 | 7.50 s (spawn 2.57 s, steady 4.93 s) | 1.74x |
+
+Processes over threads on WALL time: 0.99x on the space case and 1.04x on the
+terrestrial case. So the two routes TIE for one run. Processes win 1.14x and
+1.74x in STEADY state, and the Windows pool spawn (2.5 to 4.4 s) cancels that
+win.
+
+**The fft2 ceiling is the machine, not the GIL.** With no Python between the
+transforms, the process speed-up plateaus at 5 to 6x on N=512 (5.36x at W=8,
+5.77x at W=24) and at 8x on N=256 (8.40x at W=12). The threads reach 4.23x and
+3.82x. So the plateau comes from the memory bandwidth and the hybrid P/E cores
+of the i9-14900HX, and the GIL costs only on the small grid.
+
+**The BLAS pin does nothing here.** `threadpoolctl` finds no BLAS pool in this
+numpy build, and an alternating A/B of the environment pin against no pin is
+flat inside the noise. A wired pin was tried and reverted.
+
+**Noise.** The timing noise on this laptop is +/-10 percent, and it drifts down
+over a session. The owner sees the same swing when the window moves to the
+foreground (Windows 11 throttles the power of a background process on a hybrid
+CPU). So only alternating A/B pairs count as evidence.
+
+**The decision.** There is NO automatic selector between threads and processes:
+a selector between two options that tie inside the noise is not worth a branch.
+Threads stay the default of ONE run. A process pool pays only when it stays WARM
+across many blocks, and that is the `Campaign`
+(`olb/waveoptics/turbulence/campaign.py`, `Campaign.run(n, workers=W)`): ONE
+pool for the whole call, and the blocks run serially inside each process, so the
+parallelism lives at one level only.

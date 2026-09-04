@@ -444,9 +444,12 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             and the transmit pointing jitter stay at both rungs. At fidelity 2
             pair it with olb.models.waveoptics.run_fidelity2(turbulence=False),
             which makes no screens and no trials.
-        wave : Fidelity2Bundle, optional
-            The precomputed wave-optics records for fidelity=2. Run it with
-            olb.models.waveoptics.run_fidelity2.
+        wave : Fidelity2Bundle, list, or Campaign, optional
+            The precomputed wave-optics record for fidelity=2: a
+            Fidelity2Bundle, a list of them, or a Campaign. Run it with
+            olb.models.waveoptics.run_fidelity2, or store it with
+            olb.waveoptics.turbulence.Campaign and pass the campaign itself
+            (olb.models.waveoptics.resolve_wave turns it into the bundle).
 
     Returns:
         Budget
@@ -468,6 +471,9 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             "(analytic) or fidelity=2 (wave optics)."
         )
     if fidelity == 2:
+        # A Campaign is a wave record too: turn it into the bundle it holds.
+        from ..models.waveoptics import resolve_wave
+        wave = resolve_wave(wave)
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "

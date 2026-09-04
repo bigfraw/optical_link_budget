@@ -26,13 +26,14 @@ index (`_block_entropy`). So:
 The blocks are independent, identically distributed snapshots, which is what
 the empirical Term reducer wants (`olb.models.waveoptics`). They are NOT the
 trials of ONE native `propagate_turbulent_scenario(seed=base_seed)` run: that
-runner seeds trial k off (base_seed, k) with no start index, so the public API
-cannot compute its tail 200..499 alone. This cache trades that bit-identity for
-a real compute saving on a grow, the same way the "olb" and "aotools"
-generators trade bit-identity for speed. A single-seed tail extension would
-need a start-index argument inside
-`olb.waveoptics.turbulence.run.propagate_turbulent_scenario`; that is an
-owner-gated change, out of this module's scope.
+runner seeds trial k off (base_seed, k), and this cache seeds each block off a
+sub-seed instead. This cache trades that bit-identity for a real compute saving
+on a grow, the same way the "olb" and "aotools" generators trade bit-identity
+for speed. A single-seed tail extension is now POSSIBLE:
+`olb.waveoptics.turbulence.run.propagate_turbulent_scenario` HAS a
+`start_index` argument, so a caller computes the trials 200..499 of one seed
+alone. This module does NOT use it: the block sub-seeds stay, and the cache
+behaviour does not change. A later campaign module uses `start_index`.
 
 WHY SCALARS SUFFICE. The Term reducer (`olb.models.waveoptics`,
 `waveoptics_turbulence_term`) reads ONLY the per-trial scalars
