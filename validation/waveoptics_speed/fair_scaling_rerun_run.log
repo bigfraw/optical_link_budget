@@ -1,0 +1,90 @@
+environment:
+  numpy              1.26.4
+  scipy              1.11.4
+  cpu                Intel64 Family 6 Model 183 Stepping 1, GenuineIntel
+  cores              32
+  platform           Windows-10-10.0.26200-SP0
+  blas_env           {'OPENBLAS_NUM_THREADS': '1', 'MKL_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'}
+  generator          olb
+  n_trials           200
+  baseline_trials    40
+  workers            [4, 8, 12, 16, 24]
+  fft_workers        [1, 4, 8, 12, 16, 24]
+  k_fft              20
+  smoke              False
+  seed               2026
+  baseline_note      W=1 is a SEPARATE serial baseline of 40 trials, extrapolated to a rate, so the 200-trial sweeps do not pay a one-worker run
+
+case space downlink 30deg standard: baseline ...
+case space downlink 30deg standard: threads ...
+case space downlink 30deg standard: processes ...
+case space downlink 30deg standard: fft2 ceiling (N=512) ...
+case terrestrial 2km standard: baseline ...
+case terrestrial 2km standard: threads ...
+case terrestrial 2km standard: processes ...
+case terrestrial 2km standard: fft2 ceiling (N=256) ...
+
+==========================================================================
+space downlink 30deg standard   (N=512, 200 trials, generator olb)
+  serial baseline: 1.482 trials/s (40 trials)
+==========================================================================
+(a) THREADS      W    wall_s   trials/s  speedup    eff
+                 4     48.88       4.09     2.76   0.69
+                 8     36.78       5.44     3.67   0.46
+                12     33.71       5.93     4.00   0.33
+                16     31.92       6.27     4.23   0.26
+                24     32.21       6.21     4.19   0.17
+(b) PROCESSES    W  chunk  spawn_s  steady_s   wall_s  steady/s    eff
+                 4     50     2.45     46.88    49.33      4.27   0.72
+                 8     25     2.67     31.07    33.74      6.44   0.54
+                12     17     3.55     30.23    33.78      6.62   0.37
+                16     13     4.22     27.98    32.20      7.15   0.30
+                24      9     4.40     31.39    35.79      6.37   0.18
+(c) FFT2         W    wall_s     fft2/s  speedup    eff
+                 1      0.12     171.11     1.00   1.00
+                 4      0.14     564.47     3.30   0.82
+                 8      0.17     917.42     5.36   0.67
+                12      0.28     872.07     5.10   0.42
+                16      0.37     857.09     5.01   0.31
+                24      0.49     987.40     5.77   0.24
+
+==========================================================================
+terrestrial 2km standard   (N=256, 200 trials, generator olb)
+  serial baseline: 6.746 trials/s (40 trials)
+==========================================================================
+(a) THREADS      W    wall_s   trials/s  speedup    eff
+                 4     11.87      16.85     2.50   0.62
+                 8      7.77      25.75     3.82   0.48
+                12      7.85      25.48     3.78   0.31
+                16      7.91      25.30     3.75   0.23
+                24      8.10      24.68     3.66   0.15
+(b) PROCESSES    W  chunk  spawn_s  steady_s   wall_s  steady/s    eff
+                 4     50     1.93      8.82    10.74     22.68   0.84
+                 8     25     2.30      5.55     7.86     36.02   0.67
+                12     17     2.57      4.93     7.50     40.58   0.50
+                16     13     3.19      4.47     7.66     44.76   0.41
+                24      9     3.93      5.21     9.14     38.37   0.24
+(c) FFT2         W    wall_s     fft2/s  speedup    eff
+                 1      0.02     958.10     1.00   1.00
+                 4      0.02    3392.39     3.54   0.89
+                 8      0.03    5614.49     5.86   0.73
+                12      0.03    8049.23     8.40   0.70
+                16      0.04    7949.26     8.30   0.52
+                24      0.06    7607.37     7.94   0.33
+
+==========================================================================
+RECOMMENDATION  (wall time decides; the steady ratio is shown too)
+==========================================================================
+  space downlink 30deg standard
+     best wall: threads at W=16 (31.92 s for 200 trials)
+     threads best W=16 31.92 s | processes best W=16 32.20 s
+     processes/threads: wall 0.99x, steady 1.14x (>1 means processes win)
+     plateau W: processes 16, fft2 ceiling 24 -> DIFFERENT
+  terrestrial 2km standard
+     best wall: processes at W=12 (7.50 s for 200 trials)
+     threads best W=8 7.77 s | processes best W=12 7.50 s
+     processes/threads: wall 1.04x, steady 1.74x (>1 means processes win)
+     plateau W: processes 16, fft2 ceiling 12 -> DIFFERENT
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_speed\fair_scaling_rerun_results.json
+(elapsed 521.5 s)
