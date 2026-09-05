@@ -387,8 +387,10 @@ def _field_row(scn, geom, elevation_deg, n_trials, seed, preset, l0, workers,
     if mode == "process":
         # The Campaign takes the length-1 array orbit directly (it does not hit
         # the run_fidelity2 recap).
+        # The stored campaigns are DOUBLE precision (2026-09-05).
         camp = Campaign(scn, geom, root, seed=int(seed), preset=preset,
-                        block_size=int(block_size), L0_m=float(l0))
+                        block_size=int(block_size), L0_m=float(l0),
+                        precision="double")
         camp.run(int(n_trials), workers=int(workers), progress=True)
         trials = camp.load(int(n_trials), fields=False).trials
     elif mode in ("thread", "serial"):

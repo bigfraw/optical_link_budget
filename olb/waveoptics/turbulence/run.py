@@ -41,7 +41,7 @@ import numpy as np
 
 from ...beam import virtual_waist
 from ...terminal import Aperture, Camera, SMF, MMF
-from ..field import Begin, Power
+from ..field import Begin, Power, field_dtype
 from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard
 from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
@@ -324,7 +324,8 @@ def _screen_seed(entropy, trial, screen):
     return int(ss.generate_state(1)[0])
 
 
-def _screen_builder(screen_generator, grid, L0_m, subharmonics):
+def _screen_builder(screen_generator, grid, L0_m, subharmonics,
+                    dtype=np.complex128):
     """Give a function build(seed_int, r0_m) -> phase screen.
 
     The two generators give DIFFERENT random draws for the same integer seed.
@@ -346,6 +347,9 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics):
         grid:             the GridSpec.
         L0_m:             the outer scale of the screens, in m.
         subharmonics:     True adds the three subharmonic levels.
+        dtype:            the complex type of the field. numpy.complex64 makes
+                          float32 screens, so the screen and the field carry
+                          the same number of bytes.
 
     Returns:
         A callable build(seed_int, r0_m) that gives one n x n phase screen.
@@ -353,14 +357,17 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics):
     Raises:
         ValueError: the generator name is unknown.
     """
+    single = dtype == np.complex64
     if screen_generator == "aotools":
         def build(seed_int, r0_m):
-            return phase_screen(r0_m, grid.n, grid.pixel_m, L0_m=L0_m,
-                                seed=seed_int, subharmonics=subharmonics)
+            scr = phase_screen(r0_m, grid.n, grid.pixel_m, L0_m=L0_m,
+                               seed=seed_int, subharmonics=subharmonics)
+            return scr.astype(np.float32) if single else scr
         return build
     if screen_generator == "olb":
         factory = ScreenFactory(grid.n, grid.pixel_m, L0_m=L0_m,
-                                subharmonics=subharmonics)
+                                subharmonics=subharmonics,
+                                dtype=np.float32 if single else np.float64)
 
         def build(seed_int, r0_m):
             return factory.make(r0_m, np.random.default_rng(seed_int))
@@ -370,7 +377,7 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics):
         f"'olb', not {screen_generator!r}.")
 
 
-def _start_field(scenario, grid, lam, is_space):
+def _start_field(scenario, grid, lam, is_space, dtype=np.complex128):
     """Make the field that enters the split step.
 
     The space slab starts from a unit PLANE WAVE that fills the grid: the
@@ -383,22 +390,24 @@ def _start_field(scenario, grid, lam, is_space):
         grid:     the GridSpec.
         lam:      the wavelength, in m.
         is_space: True for a space slab, False for a terrestrial path.
+        dtype:    the complex type of the field.
 
     Returns:
         A Field.
     """
     if is_space:
-        return Begin(grid.size_m, lam, grid.n)
+        return Begin(grid.size_m, lam, grid.n, dtype=dtype)
     tx = scenario.tx_terminal
     t = tx.transmitter
     w_v, offset = virtual_waist(t.waist_m, t.divergence_rad, lam)
-    F0 = _normalised_gauss(GaussBeam(Begin(grid.size_m, lam, grid.n), w_v))
+    F0 = _normalised_gauss(GaussBeam(Begin(grid.size_m, lam, grid.n,
+                                           dtype=dtype), w_v))
     if offset > 0:
         F0 = GForvard(F0, offset)
     return _clip(F0, *_launch_aperture(tx))
 
 
-def _ground_transmit_mode(ground, grid):
+def _ground_transmit_mode(ground, grid, dtype=np.complex128):
     """Make the normalised transmit mode of the ground terminal.
 
     The recipe is the launch recipe of olb.waveoptics.run.propagate_scenario:
@@ -409,6 +418,7 @@ def _ground_transmit_mode(ground, grid):
     Args:
         ground: the ground Terminal. It needs a Transmitter.
         grid:   the GridSpec.
+        dtype:  the complex type of the field.
 
     Returns:
         An N x N complex array.
@@ -416,7 +426,8 @@ def _ground_transmit_mode(ground, grid):
     t = ground.transmitter
     lam = ground.wavelength_m
     w_v, offset = virtual_waist(t.waist_m, t.divergence_rad, lam)
-    F = _normalised_gauss(GaussBeam(Begin(grid.size_m, lam, grid.n), w_v))
+    F = _normalised_gauss(GaussBeam(Begin(grid.size_m, lam, grid.n,
+                                          dtype=dtype), w_v))
     if offset > 0:
         F = GForvard(F, offset)
     aperture_m, obscuration = _launch_aperture(ground)
@@ -431,7 +442,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  subharmonics=True, threader=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None, start_index=0,
-                                 patch_radius_m=None):
+                                 patch_radius_m=None, precision="single"):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -520,16 +531,29 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       (the default) stores no field, and the record is bit for
                       bit the old record. A float fills TurbWaveResult.fields
                       and TurbWaveResult.patch.
+        precision:    "single" (the default) or "double". "single" runs the
+                      whole propagation in complex64, with float32 phase
+                      screens and a float32 boundary mask. WHY: a large
+                      campaign is memory-bandwidth bound, so half the bytes for
+                      each element gives a real speed-up. CAUTION: a
+                      single-precision campaign is a DIFFERENT record. The
+                      trials are not bit-identical to a double-precision run,
+                      and the arithmetic carries about 7 digits, not 16.
+                      Validate a single-precision run against a
+                      double-precision run of the same seed before a budget
+                      reads it. See validation/precision.
 
     Returns:
         A TurbWaveResult.
 
     Raises:
         ValueError:         the geometry gives more than one range, only one
-                            of grid and plan is given, or the patch radius does
-                            not fit on the grid.
+                            of grid and plan is given, the patch radius does
+                            not fit on the grid, or the precision name is
+                            unknown.
         NotImplementedError: the scenario direction is "retro".
     """
+    cdtype = field_dtype(precision)
     is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
         raise NotImplementedError(
@@ -579,24 +603,25 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # output below is exactly 1.0, and every number is a pure turbulence
         # penalty. The flat screens share one array, because Screen() does not
         # change its input.
-        F_plane = Begin(grid.size_m, lam, grid.n)
+        F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
         flat = np.zeros((grid.n, grid.n))
         F_vac = split_step(F_plane, plan.z_m, [flat] * int(plan.z_m.size),
                            plan.z_total_m, boundary=mask)
         p_reference = Power(_clip(F_vac, rx.aperture_m, rx.obscuration_ratio))
         psi_tx = o_vac = None
         if scenario.direction == "uplink":
-            psi_tx = _ground_transmit_mode(scenario.ground, grid)
+            psi_tx = _ground_transmit_mode(scenario.ground, grid, dtype=cdtype)
             # The free-space baseline. It puts eta_turb on the same reference
             # as the (w_free/w_st)^2 rescale of olb.turbulence.uplink_flux.
             o_vac = float(np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2)
     else:
-        F_in = _start_field(scenario, grid, lam, is_space=False)
+        F_in = _start_field(scenario, grid, lam, is_space=False, dtype=cdtype)
         p_reference = Power(F_in)
 
     seed_entropy = _resolve_seed(seed)
     n_screens = int(plan.z_m.size)
-    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics)
+    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
+                                   dtype=cdtype)
 
     # The optional field capture. One mask serves every trial, and each trial
     # writes ONE row. So the threads touch no shared row, and no lock is
@@ -612,7 +637,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         t0 = time.perf_counter()
         stack = [build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
                  for j in range(n_screens)]
-        F_start = Begin(grid.size_m, lam, grid.n) if is_space else F_in
+        F_start = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
+                   else F_in)
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
                           boundary=mask)
 
@@ -674,7 +700,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               preset="standard", grid=None, plan=None,
                               cn2=None, hs=None, cn2_profile=None,
                               h_top_m=None, L0_m=np.inf,
-                              subharmonics=True, screen_generator="olb"):
+                              subharmonics=True, screen_generator="olb",
+                              precision="single"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -711,15 +738,24 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         screen_generator: "olb" (the default) or "aotools". See
                       propagate_turbulent_scenario. The two give different draws
                       for the same seed.
+        precision:    "single" (the default) or "double". "single" runs the
+                      propagation in complex64, with float32 screens. WHY: half
+                      the bytes for each element, which a memory-bandwidth
+                      bound run feels. CAUTION: a single-precision snapshot is
+                      not bit-identical to the double-precision snapshot of the
+                      same seed. Validate before a budget reads it. See
+                      validation/precision.
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field.
 
     Raises:
-        ValueError:          the geometry gives more than one range, or only
-                             one of grid and plan is given.
+        ValueError:          the geometry gives more than one range, only one
+                             of grid and plan is given, or the precision name
+                             is unknown.
         NotImplementedError: the scenario direction is "retro".
     """
+    cdtype = field_dtype(precision)
     is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
         raise NotImplementedError(
@@ -743,10 +779,11 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
     entropy = _resolve_seed(seed)
-    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics)
+    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
+                                   dtype=cdtype)
     stack = [build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
              for j in range(int(plan.z_m.size))]
-    F_start = _start_field(scenario, grid, lam, is_space)
+    F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
     F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m, boundary=mask)
     return F_rx, grid, plan
 
@@ -1066,7 +1103,8 @@ if __name__ == '__main__':
     field_power = float(_Power_check(_clip_check(
         F_rx, down_scn.ground.aperture_m,
         down_scn.ground.obscuration_ratio)) / p_ref_check)
-    assert abs(field_power / mc.trials[0].collected_power - 1.0) < 1e-9, \
+    # The default is single precision, so the two agree to about 1e-7.
+    assert abs(field_power / mc.trials[0].collected_power - 1.0) < 1e-5, \
         (field_power, mc.trials[0].collected_power)
 
     # ---- 4c. the opt-in "aotools" screen generator runs and agrees ----
@@ -1220,6 +1258,40 @@ if __name__ == '__main__':
     except ValueError as exc:
         assert "grid side" in str(exc), str(exc)
 
+    # ---- 8. the precision switch ----
+    # The default is "single" (owner decision 2026-09-05), so every result
+    # above ran in single precision. A "double" run of the same seed gives the
+    # SAME physics to about six digits, and its snapshot is not bit-identical,
+    # because the arithmetic differs.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        double = propagate_turbulent_scenario(
+            down_scn, orbit30, n_trials=6, seed=99, preset="rapid",
+            precision="double")
+    d_power = np.array([abs(a.collected_power / b.collected_power - 1.0)
+                        for a, b in zip(double.trials, whole.trials)])
+    assert d_power.max() < 1e-3, d_power
+    assert d_power.max() > 0.0, "the precision must change the last digits"
+    # The field entry point takes the same switch, and its default is single.
+    F_s, _, _ = propagate_turbulent_field(down_scn, orbit30, seed=2024,
+                                          trial=0, preset="rapid")
+    assert F_s.field.dtype == np.complex64, F_s.field.dtype
+    F_d, _, _ = propagate_turbulent_field(down_scn, orbit30, seed=2024,
+                                          trial=0, preset="rapid",
+                                          precision="double")
+    assert F_d.field.dtype == np.complex128, F_d.field.dtype
+    # An unknown name raises.
+    for call in (lambda: propagate_turbulent_scenario(
+                     down_scn, orbit30, n_trials=1, preset="rapid",
+                     precision="half"),
+                 lambda: propagate_turbulent_field(
+                     down_scn, orbit30, preset="rapid", precision="half")):
+        try:
+            call()
+            raise AssertionError("an unknown precision must raise ValueError")
+        except ValueError as exc:
+            assert "single" in str(exc), str(exc)
+
     # ---- the printed tables ----
     print("terrestrial vacuum limit, 1 km, Cn2 = 1e-20, standard preset:")
     print(f"  grid                    {vac.grid.n:11d} px, "
@@ -1263,6 +1335,9 @@ if __name__ == '__main__':
     print(f"  SMF eta, recoupled      {eta_back[0]:11.6f}")
     print(f"  MMF eta, in run         {mmf_run[0]:11.6f}")
     print(f"  MMF eta, recoupled      {mmf_back[0]:11.6f}")
+    print("")
+    print("single against double precision, 6 downlink trials:")
+    print(f"  max relative difference {d_power.max():11.2e}")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")

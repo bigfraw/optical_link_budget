@@ -97,7 +97,7 @@ class Fidelity2Bundle:
 def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
                    seed=None, threader=None, grid=None, plan=None, cn2=None,
                    hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
-                   subharmonics=True):
+                   subharmonics=True, precision="single"):
     '''
     Run the turbulent split-step propagation ONE time.
 
@@ -138,6 +138,14 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
             The turbulence outer scale [m]. Infinite is the Kolmogorov limit.
         subharmonics : bool
             Add the aotools subharmonic low-frequency screen content.
+        precision : str
+            "single" (the default) or "double". "single" runs the propagation
+            in complex64, with float32 phase screens. WHY: a large run is
+            memory-bandwidth bound, so half the bytes for each element gives a
+            real speed-up. CAUTION: a single-precision run is a DIFFERENT
+            record; it is not bit-identical to a double-precision run of the
+            same seed. Validate it against a double-precision run before a
+            budget reads it. See validation/precision.
 
     Returns:
         TurbWaveResult
@@ -153,7 +161,7 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader)
+        threader=threader, precision=precision)
 
 
 def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
@@ -730,7 +738,8 @@ def _resolve_vacuum(vacuum, is_space):
     return vacuum
 
 
-def _vacuum_record(scenario, geometry, grid, vacuum, is_space):
+def _vacuum_record(scenario, geometry, grid, vacuum, is_space,
+                   precision="single"):
     '''
     Give the no-turbulence propagation of one scenario, or None.
 
@@ -748,6 +757,9 @@ def _vacuum_record(scenario, geometry, grid, vacuum, is_space):
             The selector, already resolved by _resolve_vacuum.
         is_space : bool
             True for a SpaceScenario.
+        precision : str
+            "single" (the default) or "double". It matches the precision of
+            the turbulent run, so the two records share one arithmetic.
 
     Returns:
         WaveResult or None
@@ -761,16 +773,18 @@ def _vacuum_record(scenario, geometry, grid, vacuum, is_space):
     if is_space:
         # SPACE, opted in: the vacuum run needs its own co-moving grid over the
         # full slant range.
-        return propagate_scenario(scenario, geometry)
+        return propagate_scenario(scenario, geometry, precision=precision)
     # TERRESTRIAL: the vacuum run shares the flat turbulent grid, so the
     # turbulence penalty (turbulent / vacuum) is exact.
-    return propagate_scenario(scenario, geometry, grid=grid)
+    return propagate_scenario(scenario, geometry, grid=grid,
+                              precision=precision)
 
 
 def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
                   h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
-                  vacuum=None, turbulence=True, detectors=None):
+                  vacuum=None, turbulence=True, detectors=None,
+                  precision="single"):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -854,6 +868,17 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             vacuum run at all; vacuum="wave" makes one full-path solve for each
             arm, which is slow (about 14 s each).
 
+        precision : str
+            "single" (the default) or "double". "single" runs the TURBULENT
+            Monte Carlo in complex64, with float32 phase screens. WHY: the
+            Monte Carlo is memory-bandwidth bound, so half the bytes for each
+            element gives a real speed-up. The vacuum run keeps the same
+            switch, so the two records match. CAUTION: a single-precision
+            bundle is a DIFFERENT record; it is not bit-identical to a
+            double-precision bundle of the same seed. Validate it against a
+            double-precision run before a budget reads it. See
+            validation/precision.
+
     Returns:
         Fidelity2Bundle, or list of Fidelity2Bundle
             With detectors=None (the default), ONE bundle: the turbulent
@@ -870,7 +895,8 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
 
     def vacuum_run(scn, grid):
         '''The no-turbulence propagation of one scenario, or None.'''
-        return _vacuum_record(scn, geometry, grid, vacuum, is_space)
+        return _vacuum_record(scn, geometry, grid, vacuum, is_space,
+                              precision=precision)
 
     if not turbulence:
         # VACUUM-ONLY: make no screens and no trials. A terrestrial link still
@@ -900,7 +926,8 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader, progress=progress, detectors=detectors)
+        threader=threader, progress=progress, detectors=detectors,
+        precision=precision)
     if detectors is None:
         return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
                                turbulent=turbulent)

@@ -429,10 +429,16 @@ def Screen(Fin, phase_rad):
         raise ValueError('Screen: the field is in spherical coordinates. '
                          'Use Convert() first. A co-moving screen is not '
                          'implemented.')
-    phase_rad = np.asarray(phase_rad, dtype=float)
+    phase_rad = np.asarray(phase_rad)
     if phase_rad.shape != (Fin.N, Fin.N):
         raise ValueError(f'Screen: the phase array is {phase_rad.shape}, '
                          f'but the field is ({Fin.N}, {Fin.N})')
+    # THE SCREEN TAKES THE PRECISION OF THE FIELD. A float64 screen on a
+    # complex64 field would make a complex128 temporary at each screen. The
+    # phase stays inside [-pi, pi] after the exponential, so single precision
+    # holds it well.
+    rdtype = np.float32 if Fin.field.dtype == np.complex64 else np.float64
+    phase_rad = phase_rad.astype(rdtype, copy=False)
     Fout = Field.copy(Fin)
     Fout.field = Fout.field * np.exp(1j * phase_rad)
     Fout._IsGauss = False

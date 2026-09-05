@@ -5,6 +5,10 @@ disk over more than one session. Before it reads or grows a stored campaign, it
 must know that the stored trials are the trials of THIS physics case. This
 module gives that test: one SHA-256 of everything that changes a trial.
 
+THE PRECISION RULE. `precision="double"` adds NOTHING to the key, so every key
+that an existing campaign manifest holds stays valid. `precision="single"` adds
+one line, so a single-precision campaign gets its own key.
+
 WHAT ENTERS THE KEY. The scenario hardware (its dataclass repr, which is
 stable), a canonical geometry signature (a geometry object has no stable repr),
 the preset, the base seed, the screen generator (the "olb" and "aotools"
@@ -80,7 +84,8 @@ def _cn2_fingerprint(cn2, h_top_m):
 
 def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               L0_m, subharmonics, hs, cn2_profile, block_size,
-              cn2=None, h_top_m=None, grid=None, plan=None):
+              cn2=None, h_top_m=None, grid=None, plan=None,
+              precision="double"):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -103,10 +108,16 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         h_top_m:          the atmosphere top for the continuous integral, or None.
         block_size:       the block size.
         grid, plan:       an optional caller-supplied grid and plan.
+        precision:        "single" (the default) or "double".
 
     Returns:
         A 64-character hex string.
     """
+    # THE PRECISION ENTERS THE KEY ONLY WHEN IT IS NOT "double". A
+    # single-precision run gives different trials, so it must get a new key.
+    # The default adds NO line, so every key that a stored campaign holds
+    # stays valid.
+    tail = [] if precision == "double" else [f"precision={precision}"]
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([
@@ -125,7 +136,7 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         f"block_size={int(block_size)}",
         f"grid={grid!r}",
         f"plan={plan!r}",
-    ])
+    ] + tail)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -168,6 +179,11 @@ if __name__ == '__main__':
     assert kc != cache_key(scn, geom, seed=7,
                            cn2=lambda h: 2e-15 * np.ones_like(h), **common)
     assert kc != k0
+
+    # ---- the precision enters the key only when it is not "double" ----
+    assert k0 == cache_key(scn, geom, seed=7, precision="double", **common), \
+        "the default precision must not change an existing key"
+    assert k0 != cache_key(scn, geom, seed=7, precision="single", **common)
 
     print(f"key {k0[:16]}... is stable; the seed, the hardware, the preset, "
           "the generator, the block size, the geometry and the Cn2 each "

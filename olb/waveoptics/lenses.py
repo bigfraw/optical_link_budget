@@ -115,6 +115,9 @@ def Lens(Fin, f, x_shift=0.0, y_shift=0.0):
     xx = xx - x_shift
     yy = yy - y_shift
     fi = -k * (xx**2 + yy**2) / (2 * f)
+    # THE LENS PHASE STAYS IN DOUBLE PRECISION. It reaches millions of radians
+    # over the grid, so single precision loses it. The in-place multiply keeps
+    # the precision of the field.
     Fout.field *= np.exp(1j * fi)
     Fout._IsGauss = False
     return Fout
@@ -181,7 +184,8 @@ def LensForvard(Fin, f, z):
         Fout.field /= ampl_scale
     else:
         # A backward internal step also mirrors the grid.
-        ftemp = np.zeros_like(Fout.field, dtype=complex)
+        # The mirrored copy keeps the precision of the field.
+        ftemp = np.zeros_like(Fout.field, dtype=Fout.field.dtype)
         ftemp.flat[:] = Fout.field.flat[::-1]
         Fout.field = ftemp
         Fout.field /= ampl_scale
@@ -282,6 +286,8 @@ def Convert(Fin):
     f = -1. / curvature
     k = _2PI_LEGACY / Fin.lam
     kf = k / (2 * f)
+    # The phase stays in double precision, as in Lens(). The in-place multiply
+    # keeps the precision of the field.
     Fout.field *= np.exp(1j * kf * Fout.mgrid_Rsquared)
     Fout._curvature = 0.0
     Fout._IsGauss = False
@@ -402,6 +408,18 @@ if __name__ == '__main__':
     w_v = read_w(Convert(Fv))
     assert abs(w_v - w0 * m_s) / (w0 * m_s) < 0.01, (w_v, w0 * m_s)
 
+    # ---- 5. the single-precision route through the three-call recipe ----
+    # A complex64 field keeps complex64 through Lens -> LensFresnel -> Convert,
+    # and it agrees with the complex128 route to about 1e-6.
+    F0_32 = GaussBeam(Begin(size0, lam, N, dtype=np.complex64), w0)
+    Fz32 = Convert(LensFresnel(Lens(F0_32, fA), -fA, z))
+    assert Fz32.field.dtype == np.complex64, Fz32.field.dtype
+    assert Fz32._curvature == 0.0
+    e_32 = float(np.sqrt(np.mean(np.abs(Fz32.field - Fz.field) ** 2))
+                 / np.abs(Fz.field).max())
+    assert e_32 < 1e-5, e_32
+    assert abs(Power(Fz32) / Power(Fz) - 1.0) < 1e-5
+
     print("1. thin lens, focal spot")
     print(f"   waist w0                {w0_l * 1e3:12.3f} mm")
     print(f"   focal length f          {f_lens * 1e3:12.3f} mm")
@@ -432,4 +450,7 @@ if __name__ == '__main__':
     print("3. LensForvard, 300 m, the bookkeeping only")
     print(f"   grid magnification      {Fv.siz / size0:12.6f}  (set {m_s:.6f})")
     print(f"   power ratio             {Power(Fv) / Power(F0):12.9f}")
+    print("")
+    print("4. complex64 through Lens -> LensFresnel -> Convert")
+    print(f"   relative rms of field   {e_32:12.2e}")
     print("self-check passed")

@@ -22,8 +22,15 @@ import numpy as np
 class Field:
     """A scalar complex field on a square, zero-centred grid.
 
+    THE PRECISION. The field holds complex128 by default. A caller asks for
+    complex64 with dtype=numpy.complex64. The `field` setter casts each new
+    array to that type, so the field keeps its precision after any operation.
+    Single precision halves the bytes of each element. A large Monte Carlo is
+    memory-bandwidth bound, so it runs faster. See the `precision` argument of
+    olb.waveoptics.turbulence.run.propagate_turbulent_scenario.
+
     Attributes:
-        field: the N x N complex amplitude array (complex128).
+        field: the N x N complex amplitude array (complex128 or complex64).
         siz:   the physical side of the grid, in m.
         lam:   the wavelength, in m.
         N:     the number of pixels along one side.
@@ -31,9 +38,9 @@ class Field:
     """
 
     @classmethod
-    def begin(cls, grid_size, wavelength, N):
+    def begin(cls, grid_size, wavelength, N, dtype=np.complex128):
         """Make a new field. The amplitude is 1.0 at each pixel."""
-        return cls(None, grid_size, wavelength, N)
+        return cls(None, grid_size, wavelength, N, dtype=dtype)
 
     @classmethod
     def copy(cls, Fin):
@@ -45,9 +52,19 @@ class Field:
         """Make a shallow copy of a field. The copy shares the array."""
         return _copy.copy(Fin)
 
-    def __init__(self, Fin=None, grid_size=1.0, wavelength=1.0, N=0):
-        """Private. Use Begin() or the class methods."""
-        self._dtype = np.complex128
+    def __init__(self, Fin=None, grid_size=1.0, wavelength=1.0, N=0,
+                 dtype=np.complex128):
+        """Private. Use Begin() or the class methods.
+
+        Raises:
+            ValueError: dtype is not numpy.complex64 or numpy.complex128.
+        """
+        if np.dtype(dtype) not in (np.dtype(np.complex64),
+                                   np.dtype(np.complex128)):
+            raise ValueError(
+                f"Field: dtype must be numpy.complex64 or numpy.complex128, "
+                f"not {dtype!r}.")
+        self._dtype = np.dtype(dtype).type
         if Fin is None:
             if not N:
                 raise ValueError('Cannot create zero size field (N=0)')
@@ -157,18 +174,43 @@ class Field:
         return np.sqrt(self.mgrid_Rsquared)
 
 
-def Begin(size, labda, N):
+def Begin(size, labda, N, dtype=np.complex128):
     """Make a new field of N x N pixels. The amplitude is 1.0.
 
     Args:
         size:  the physical side of the grid, in m.
         labda: the wavelength, in m.
         N:     the number of pixels along one side.
+        dtype: numpy.complex128 (the default) or numpy.complex64. The field
+               keeps this precision after each operation.
 
     Returns:
         A new Field.
     """
-    return Field.begin(size, labda, N)
+    return Field.begin(size, labda, N, dtype=dtype)
+
+
+def field_dtype(precision):
+    """Give the complex type of one precision name.
+
+    The wave-optics runners take a `precision` keyword. This function is the
+    ONE place that turns that name into a numpy type.
+
+    Args:
+        precision: "double" (numpy.complex128) or "single" (numpy.complex64).
+
+    Returns:
+        numpy.complex128 or numpy.complex64.
+
+    Raises:
+        ValueError: the name is not "double" or "single".
+    """
+    if precision == "double":
+        return np.complex128
+    if precision == "single":
+        return np.complex64
+    raise ValueError(
+        f"precision must be 'double' or 'single', not {precision!r}.")
 
 
 def Power(Fin):
@@ -284,6 +326,36 @@ if __name__ == '__main__':
     # SubIntensity keeps the phase and replaces the intensity.
     F2 = SubIntensity(FN, np.ones((N, N)))
     assert abs(Power(F2) - size**2) < 1e-12
+
+    # ---- the single-precision switch ----
+    # A complex64 field keeps complex64 after each operation, because the
+    # `field` setter casts every new array to the stored type.
+    F32 = Begin(size, lam, N, dtype=np.complex64)
+    assert F32.field.dtype == np.complex64
+    assert Field.copy(F32)._dtype == np.complex64
+    assert Field.shallowcopy(F32)._dtype == np.complex64
+    assert Normal(F32).field.dtype == np.complex64
+    assert SubIntensity(Normal(F32),
+                        np.ones((N, N))).field.dtype == np.complex64
+    # A float64 array that a caller assigns comes back as complex64.
+    F32.field = np.ones((N, N), dtype=np.complex128)
+    assert F32.field.dtype == np.complex64
+    # The two precisions agree on the power to about 1e-7.
+    assert abs(Power(Normal(F32)) - 1.0) < 1e-5
+    # field_dtype maps the two precision names, and it refuses each other name.
+    assert field_dtype('double') is np.complex128
+    assert field_dtype('single') is np.complex64
+    try:
+        field_dtype('half')
+        raise AssertionError('field_dtype must refuse an unknown name')
+    except ValueError as exc:
+        assert 'single' in str(exc), str(exc)
+    # An unknown dtype raises.
+    try:
+        Begin(size, lam, N, dtype=np.float64)
+        raise AssertionError('Begin must refuse a real dtype')
+    except ValueError as exc:
+        assert 'complex64' in str(exc), str(exc)
 
     print(f"grid side          {size * 1e3:8.3f} mm")
     print(f"pixels per side    {N:8d}")

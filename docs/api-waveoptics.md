@@ -63,8 +63,16 @@ copy keeps it. See Section 3a.
 
 ### The field functions
 
-- `Begin(size, labda, N)` — make a new `Field` of `N` x `N` pixels. The amplitude
-  is 1.0 at each pixel.
+- `Begin(size, labda, N, dtype=np.complex128)` — make a new `Field` of `N` x `N`
+  pixels. The amplitude is 1.0 at each pixel. `dtype` is `numpy.complex128`
+  (the default) or `numpy.complex64`; another type raises `ValueError`. The
+  `field` setter casts every assignment to that type, so a field keeps its
+  precision through every propagator. Each propagator builds its work arrays
+  in the precision of the field it receives. `Forvard` keeps the phase wrap
+  `Ir - Bus` in float64 on purpose, because that subtraction takes the
+  fractional part of a number in the thousands, and it casts only the finished
+  transfer function. `field_dtype(precision)` maps the name `"double"` or
+  `"single"` to the numpy type.
 - `Power(Fin)` — the total power, `P = sum(|E|^2) * dx^2`.
 - `Normal(Fin)` — a new field that carries a total power of 1.0.
 - `Intensity(Fin, flag=0)` — the intensity array `|E|^2`. `flag=1` normalises to
@@ -381,7 +389,7 @@ sample, so `Forvard` aliases. See Schmidt, DOI 10.1117/3.866274, Ch. 6.
 
 ## 6. One end-to-end propagation (`olb/waveoptics/run.py`)
 
-### `propagate_scenario(scenario, geometry, grid=None)`
+### `propagate_scenario(scenario, geometry, grid=None, precision="single")`
 
 Propagate the transmit beam of a scenario to the receive aperture. The steps are:
 the launch, the launch-aperture clip, the free-space propagation, the
@@ -775,7 +783,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single")`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -796,6 +804,23 @@ it. The trials are independent snapshots.
   `"aotools"` (the reference path). The two give DIFFERENT draws for the same
   seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
   unknown name raises `ValueError`. `propagate_turbulent_field()` takes the same
+  argument, with the same default.
+- `precision` is `"single"` (the DEFAULT since 2026-09-05: a complex64 field
+  and float32 screens from `ScreenFactory(dtype=np.float32)`, or an aotools
+  screen cast to float32) or `"double"` (a complex128 field and float64
+  screens). Another value raises `ValueError`. WHY: a campaign on a many-core machine is
+  memory-bandwidth bound, and single precision halves the bytes each FFT
+  moves. Measured (2026-09-05, `validation/campaign_resources/`): 12 workers
+  on a 512 px grid give 11.2 trials/s single against 8.5 double, 1.32x, with
+  FEWER busy threads. The physics agrees to parts per million: the collected
+  power to 6e-7, the SMF eta to 3e-6 and the receive field rms to 2e-6
+  relative, at the rapid and the standard presets
+  (`validation/precision/`). CAUTION: a single-precision run is a DIFFERENT
+  record. Its trials are not bit-identical to a double run of the same seed.
+  `precision="double"` reproduces every run made before 2026-09-05 bit for
+  bit; the studies that reopen those stored campaigns pass it explicitly. The stored patch is
+  complex64 in both modes. `recouple()` and `recollect()` rebuild the grid in
+  complex128 whatever the mode. `propagate_turbulent_field()` takes the same
   argument, with the same default.
 - `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one
   by one. A `Threader` runs them across threads and it keeps the trial order; the
@@ -1037,7 +1062,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single")`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1063,6 +1088,12 @@ one scenario, one geometry, one grid, one screen plan, one seed.
 - `cn2`, `hs`, `cn2_profile`, `h_top_m`, `L0_m`, `subharmonics` and
   `screen_generator` pass to the sizer and the runner of Section 9d, with the
   same meanings and the same defaults.
+- `precision` passes to the runner (Section 9d). It enters the manifest and
+  the fingerprint ONLY when it is `"single"`, so every key and every manifest
+  of a campaign stored before 2026-09-05 (all double) stays valid; a manifest
+  with no `precision` key reads as `"double"`. A single-precision campaign is
+  its own store, and a reopen with the other precision raises, so pass
+  `precision="double"` to reopen an old store.
 
 Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
 `patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`.
@@ -1378,7 +1409,7 @@ passes them in. See [api-budget.md](api-budget.md) for the budget side.
 | `waveoptics_vacuum_term(result, ...)` | The deterministic vacuum-optics Term (launch to detector, no fade). |
 | `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
 
-### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None)`
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single")`
 
 It runs the wave-optics propagations that a fidelity-2 budget needs, one time
 each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence

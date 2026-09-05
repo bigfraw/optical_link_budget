@@ -178,7 +178,8 @@ def _run_block(b):
         patch_radius_m=_W["kwargs"]["patch_radius_m"],
         L0_m=_W["kwargs"]["L0_m"],
         subharmonics=_W["kwargs"]["subharmonics"],
-        screen_generator=_W["kwargs"]["screen_generator"])
+        screen_generator=_W["kwargs"]["screen_generator"],
+        precision=_W["kwargs"]["precision"])
     return int(b), _columns_of(res)
 
 
@@ -196,13 +197,15 @@ class Campaign:
         grid:           the GridSpec of every trial.
         plan:           the ScreenPlan of every trial.
         patch:          the FieldPatch of the stored columns.
+        precision:      "double" or "single", the arithmetic of every trial.
     """
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
                  preset="standard", block_size=100, patch_radius_m=None,
                  sizing_aperture_m=None, grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
-                 subharmonics=True, screen_generator="olb"):
+                 subharmonics=True, screen_generator="olb",
+                 precision="single"):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -240,11 +243,28 @@ class Campaign:
             L0_m:          the outer scale of the screens, in m.
             subharmonics:  True adds the three subharmonic levels.
             screen_generator: "olb" (the default) or "aotools".
+            precision:     "single" (the default) or "double". "single" runs
+                           every trial in complex64, with float32 phase
+                           screens. WHY: a campaign is memory-bandwidth bound,
+                           so half the bytes for each element gives a real
+                           speed-up. The manifest stores the value, and a
+                           reopen with a different value raises. The value also
+                           enters the fingerprint, so a single-precision
+                           campaign is a separate store. CAUTION: a
+                           single-precision campaign is a DIFFERENT record.
+                           Validate it against a double-precision run of the
+                           same seed before a budget reads it. See
+                           validation/precision.
 
         Raises:
-            ValueError: the seed is not an integer, or an existing campaign in
-                        this directory holds different settings.
+            ValueError: the seed is not an integer, the precision name is
+                        unknown, or an existing campaign in this directory
+                        holds different settings.
         """
+        if precision not in ("double", "single"):
+            raise ValueError(
+                f"Campaign: precision must be 'double' or 'single', not "
+                f"{precision!r}.")
         if seed is None or isinstance(seed, np.random.Generator):
             raise ValueError(
                 "Campaign needs an integer seed. A campaign grows over more "
@@ -256,6 +276,7 @@ class Campaign:
         self.preset = preset if isinstance(preset, str) else preset.name
         self.block_size = int(block_size)
         self.screen_generator = screen_generator
+        self.precision = precision
         self.L0_m = float(L0_m)
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
@@ -272,7 +293,8 @@ class Campaign:
             screen_generator=screen_generator, L0_m=L0_m,
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
-            block_size=self.block_size, grid=grid, plan=plan)
+            block_size=self.block_size, grid=grid, plan=plan,
+            precision=self.precision)
 
         os.makedirs(self.root_dir, exist_ok=True)
         manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
@@ -325,9 +347,13 @@ class Campaign:
                 "block_size": self.block_size,
                 "patch_radius_m": self.patch_radius_m,
                 "sizing_aperture_m": self.sizing_aperture_m,
+                "precision": self.precision,
                 "fingerprint": self.fingerprint}
+        # A manifest that a version before the precision switch wrote holds no
+        # "precision" key. It is a double-precision store, so read it as one.
+        defaults = {"precision": "double"}
         for field, value in want.items():
-            got = man.get(field)
+            got = man.get(field, defaults.get(field))
             if got != value:
                 raise ValueError(
                     f"the campaign in {self.root_dir} was made with "
@@ -349,6 +375,7 @@ class Campaign:
             "patch_radius_m": self.patch_radius_m,
             "sizing_aperture_m": self.sizing_aperture_m,
             "screen_generator": self.screen_generator,
+            "precision": self.precision,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -409,7 +436,8 @@ class Campaign:
                 "preset": self.preset,
                 "patch_radius_m": self.patch_radius_m, "L0_m": self.L0_m,
                 "subharmonics": self.subharmonics,
-                "screen_generator": self.screen_generator}
+                "screen_generator": self.screen_generator,
+                "precision": self.precision}
 
     def run(self, n_trials, *, workers=None, progress=False):
         """Compute and store the MISSING blocks up to n_trials trials.
@@ -445,7 +473,8 @@ class Campaign:
                     preset=self.preset, grid=self.grid, plan=self.plan,
                     patch_radius_m=self.patch_radius_m, L0_m=self.L0_m,
                     subharmonics=self.subharmonics,
-                    screen_generator=self.screen_generator, threader=threader)
+                    screen_generator=self.screen_generator,
+                    precision=self.precision, threader=threader)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "
@@ -617,6 +646,7 @@ if __name__ == '__main__':
     root2 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck2_")
     root3 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck3_")
     root4 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck4_")
+    root5 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck5_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -709,6 +739,26 @@ if __name__ == '__main__':
             except ValueError as exc:
                 assert "fingerprint" in str(exc), str(exc)
 
+            # ---- 8. the precision is stored, checked and fingerprinted ----
+            # The default is "single" (owner decision 2026-09-05), and the
+            # manifest records it. "double" keeps the OLD key, so a campaign
+            # stored before that date still opens with precision="double".
+            import json as _json
+            with open(os.path.join(root, MANIFEST_NAME), encoding="utf-8") as fh:
+                assert _json.load(fh)["precision"] == "single"
+            camp5 = Campaign(scn, orbit, root5, precision="double", **common)
+            assert camp5.fingerprint != camp.fingerprint, "precision must key"
+            try:
+                Campaign(scn, orbit, root5, **common)
+                raise AssertionError("a changed precision must raise")
+            except ValueError as exc:
+                assert "precision" in str(exc), str(exc)
+            try:
+                Campaign(scn, orbit, root5, precision="half", **common)
+                raise AssertionError("an unknown precision must raise")
+            except ValueError as exc:
+                assert "single" in str(exc), str(exc)
+
         print("campaign self-check, downlink 30 deg, rapid preset, "
               f"block_size {common['block_size']}:")
         print(f"  grid                    {camp.grid.n:11d} px, "
@@ -728,5 +778,5 @@ if __name__ == '__main__':
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
-        for d in (root, root2, root3, root4):
+        for d in (root, root2, root3, root4, root5):
             shutil.rmtree(d, ignore_errors=True)
