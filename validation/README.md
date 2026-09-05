@@ -114,6 +114,41 @@ See [tail_convergence/README.md](tail_convergence/README.md).
 | --- | --- |
 | [tail_convergence/tail_convergence.py](tail_convergence/tail_convergence.py) | The study itself. Six cases: the shipped default, four pinned-grid screen counts (9, 15, 25, 40), and a near-ground refinement that splits the bottom screen into four equal-`Cn2` sub-screens. It reports p50 / p10 / p5 / p1 of the composite SMF loss with bootstrap intervals, the fade depth, the aperture and the point scintillation index, and the 2-N6 campaign numbers (wall time, seconds per trial, disk bytes, load memory, and the growth of the tail estimate with the trial count). It writes a results JSON, a run log and three figures. |
 
+## outer_scale_tail/
+
+The fidelity-2 SMF outer-scale fade-tail study (backlog 2-P5, 2-I3, 0-W4). It
+answers two questions with one matched-seed 2 x 2 of `config` (a well-resolved
+reference against the shipped `rapid` preset) by `L0` (`inf` against `25 m`).
+MEASURED (2026-09-05, 30 and 20 deg, 1000 trials each): the finite outer scale
+gives 2.5 dB (30 deg, 3.0 sigma) to 2.8 dB (20 deg, 2.4 sigma) LESS SMF p5 fade
+than `L0 = inf`, and the point fade does not move, so the bias is the fibre TILT
+and the `L0 = inf` default is that much PESSIMISTIC. At the physical `L0 = 25 m`,
+`rapid` tracks the reference inside about 0.3 dB at the mean, p50, p5 and p1
+(both elevations), with one small p10 wrinkle at 20 deg (+0.86 dB, safe), so
+rapid is a defensible default on this scenario. Owner decision: run fidelity 2 at
+a FIXED `L0 = 25 m`. See [outer_scale_tail/README.md](outer_scale_tail/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [outer_scale_tail/outer_scale_tail.py](outer_scale_tail/outer_scale_tail.py) | The study. Two configs (`ref`, `rapid`) crossed with the outer-scale values, a matched-seed L0 pair within each config on ONE grid and plan. It reports p50 / p10 / p5 / p1 of the composite SMF loss and the point fade with bootstrap intervals, the within-config outer-scale delta, the rapid-against-reference comparison, and a rapid-as-default verdict. It writes a results JSON and a run log for each elevation, and figures to `figures/`. |
+
+## waveoptics_vs_fast/
+
+The fidelity-2 field against FAST and the analytic model: the space-downlink SMF
+coupling-loss gap (backlog 2-W1, 2-AO). It runs all three models UNCORRECTED
+(NOAO) and like-for-like at a matched outer scale, and it reports the gap
+FAST-minus-field against elevation. MEASURED (2026-09-05): the 0.7-2.9 dB gap of
+the older informal comparison is an OUTER-SCALE artifact. At the physical
+`L0 = 25 m` FAST and the field AGREE (gap -0.34 to +0.12 dB, 20 to 90 deg, all
+within 1 sigma of zero); the gap only reopens at the grid-dependent `L0 = inf`
+(+0.35 to +1.17 dB), because FAST is more outer-scale-sensitive. The analytic
+term stays 1 to 2.5 dB optimistic. This certifies the uncorrected rung only.
+See [waveoptics_vs_fast/README.md](waveoptics_vs_fast/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [waveoptics_vs_fast/waveoptics_vs_fast.py](waveoptics_vs_fast/waveoptics_vs_fast.py) | The study. FAST (`smf_fast_term`, NOAO), the field (a `Campaign` process pool), and the analytic term, per elevation, at a matched `L0`. An NPXLS convergence guard pins the FAST grid first. `--L0`, `--field-mode` (process / thread / serial), `--workers` and `--block-size` (the effective process count is `min(workers, ceil(n_trials/block_size))`). It writes a results JSON and a run log tagged by outer scale and field mode, and figures to `figures/`. |
+
 ## screen_stacking/
 
 The phase-screen STACKING test, phase only. Does a stack of N screens hold the
@@ -127,8 +162,9 @@ to 27 x its side (95 m) and the screens match a von Karman L0 = 95 m theory
 exactly. At L0 = 25 m, judged against the von Karman theory, one screen reads
 1.00 +-0.03 and a 5- to 25-screen plan 0.97 to 0.94 (a mild few-percent
 stacking drift). The production `L0 = inf` default therefore claims an outer
-scale it cannot deliver, worth an estimated (not measured) 2 dB at p5 of the SMF fade (backlog 2-P5,
-HIGH). See [screen_stacking/README.md](screen_stacking/README.md).
+scale it cannot deliver, worth a MEASURED 2.5 to 2.8 dB at p5 of the SMF fade
+(30 and 20 deg; see `outer_scale_tail/`, backlog 2-P5). See
+[screen_stacking/README.md](screen_stacking/README.md).
 
 | File | Purpose |
 | --- | --- |

@@ -2091,10 +2091,14 @@ run log, a memory note or a backlog aside is not documented.
   atmosphere. The von Karman theory (the Noll piston filter over the von
   Karman PSD) gives a piston-removed aperture variance of 0.630 of the
   Kolmogorov value at `L0 = 25 m` and 0.765 at `L0 = 95 m`, for `D = 0.7 m`,
-  so the fibre tilt that the SMF tail pays moves with the choice by an amount
-  of the order of 2 dB at p5 (an ESTIMATE from the tilt share of the fade,
-  not a measurement). Choose an explicit site `L0` and keep
-  `L0 <= 27 x side` (backlog 2-P5, HIGH). NOT run: 20 deg, 40 screens.
+  so the fibre tilt that the SMF tail pays moves with the choice. MEASURED
+  (2026-09-05, `validation/outer_scale_tail/`, a matched-seed `L0 = inf` against
+  `L0 = 25 m` pair, 1000 trials): the SMF p5 fade moves by 2.49 dB at 30 deg
+  (3.0 sigma) and 2.83 dB at 20 deg (2.4 sigma), the point fade flat (so it is
+  the tilt), so the `L0 = inf` default is about 2.5 to 2.8 dB PESSIMISTIC on the
+  SMF p5 tail. Owner decision (2026-09-05): run fidelity 2 at a FIXED
+  `L0 = 25 m`. Still to do: thread an explicit site `L0` to the analytic tilt
+  Terms and keep `L0 <= 27 x side` (backlog 2-P5, 0-W4, HIGH).
 - **Script.** `validation/tail_convergence/tail_convergence.py` and
   `validation/screen_stacking/screen_stacking.py [--L0 25]`; write-ups
   [validation/tail_convergence/README.md](../validation/tail_convergence/README.md)

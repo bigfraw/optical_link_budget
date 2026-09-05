@@ -1260,6 +1260,15 @@ agreement numbers moved, and the doc statements were updated with them.
 The two space scripts now run in about one minute each, against several minutes
 before. No sampling warning appears in any of the three runs.
 
+**UPDATE (2026-09-05): the downlink "FAST above the field" gap is an OUTER-SCALE
+artifact.** The `turbulent_downlink.py` row above (FAST 0.7 to 2.9 dB above the
+field) was measured at `L0 = inf`. A like-for-like sweep
+(`validation/waveoptics_vs_fast/`, both UNCORRECTED / NOAO, matched Cn2,
+mean-of-dB) shows the gap COLLAPSES at the physical `L0 = 25 m`: FAST minus field
+is -0.34 to +0.12 dB across 20 to 90 deg (all within 1 sigma of zero). It only
+reopens to +0.35 to +1.17 dB at `L0 = inf`, because FAST is more
+outer-scale-sensitive than the field (see backlog 2-W1, 2-P5).
+
 **One effect to watch.** The downlink fibre-coupling loss moved by about 1.2 dB
 at 30 degrees when the plan went from 20 screens to 5. The sweep shows that a
 properly grouped plan does NOT move that number with the count (the `smf` column
@@ -1349,8 +1358,9 @@ reads Delta1 1.000 +-0.026 and D(r) inside 1 to 5 percent to r = 0.7 m, and
 a 5- to 25-screen plan 0.97 to 0.94 (a mild real stacking drift, a fraction
 of a dB on the fibre tail). So the production `L0_m = inf` default claims an
 outer scale the grid does not hold, and the fibre TILT that the SMF tail pays
-moves with that choice by an estimated (not measured) 2 dB at p5: backlog
-2-P5, HIGH (gap S-27). The
+moves with that choice by a MEASURED 2.5 dB (30 deg) to 2.8 dB (20 deg) at p5
+(2026-09-05, `validation/outer_scale_tail/`, matched-seed pair; owner decision:
+run fidelity 2 at a fixed `L0 = 25 m`): backlog 2-P5, HIGH (gap S-27). The
 count trend comes from the propagation and placement side. (6) `rapid` as shipped reads inside
 the standard spread at 1/30 of the cost; its 10.3 mm pixel softens p5 by 1.6
 dB (2 sigma) against the same plan at 3.43 mm, where 6.86 mm does not.

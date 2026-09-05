@@ -1,0 +1,192 @@
+{
+  "study": "waveoptics_vs_fast",
+  "backlog": [
+    "2-W1",
+    "2-AO"
+  ],
+  "elevations_deg": [
+    20.0,
+    30.0,
+    60.0,
+    90.0
+  ],
+  "n_trials": 400,
+  "n_samples": 1000,
+  "workers": 16,
+  "block_size": 50,
+  "seed": 20260905,
+  "wavelength_m": 1.55e-06,
+  "altitude_m": 500000.0,
+  "outer_scale_m": 25.0,
+  "cn2_ground": 1.7e-14,
+  "wind_rms_m_s": 21.0,
+  "exceedance": [
+    0.5,
+    0.05,
+    0.01
+  ],
+  "n_bootstrap": 1000,
+  "bootstrap_interval": 0.68,
+  "pinned_npxls": 128,
+  "npxls_tol_db": 0.15,
+  "npxls_cal_elevation_deg": 30.0,
+  "npxls_convergence": [
+    {
+      "npxls": 128,
+      "mean_db": 17.277827066505807,
+      "r0_los_m": 0.12424571479360852
+    },
+    {
+      "npxls": 256,
+      "mean_db": 17.40746541670098,
+      "r0_los_m": 0.12424571479360852
+    },
+    {
+      "npxls": 512,
+      "mean_db": 17.19714017023674,
+      "r0_los_m": 0.12424571479360852
+    }
+  ],
+  "gap_claim_db": [
+    0.7,
+    2.9
+  ],
+  "rows": [
+    {
+      "elevation_deg": 20.0,
+      "r0_los_m": 0.09893055082157838,
+      "fast_mean_db": 18.96679540425153,
+      "fast_mean_half_db": 0.214311905406392,
+      "fast_quantiles_db": {
+        "p50": 18.137700789674817,
+        "p5": 31.19333561397157,
+        "p1": 37.92908152717552
+      },
+      "fast_ao_mode": "NOAO",
+      "fast_zmax": null,
+      "fast_floor_db": 0.8597410639475125,
+      "fast_amplitude_sigma2_I": 0.45395442582621653,
+      "field_mean_db": 19.30308698715213,
+      "field_mean_half_db": 0.289354981322985,
+      "field_quantiles_db": {
+        "p50": 18.56641519472678,
+        "p5": 29.420953985419498,
+        "p1": 33.6010225889641
+      },
+      "field_quantiles_half_db": {
+        "p50": 0.3064087512270639,
+        "p5": 0.8391334265495214,
+        "p1": 1.7864538854597676
+      },
+      "field_n_trials": 400,
+      "analytic_db": 18.074559517070835,
+      "gap_db": -0.3362915829005999,
+      "gap_half_db": 0.36007762776288016,
+      "field_minus_analytic_db": 1.2285274700812963,
+      "fast_seconds": 2.2465134999947622,
+      "field_seconds": 62.83002519997535
+    },
+    {
+      "elevation_deg": 30.0,
+      "r0_los_m": 0.12424571479360852,
+      "fast_mean_db": 17.000891240195728,
+      "fast_mean_half_db": 0.21357340254306756,
+      "fast_quantiles_db": {
+        "p50": 16.281512965214176,
+        "p5": 28.571062082616027,
+        "p1": 36.565662811374395
+      },
+      "fast_ao_mode": "NOAO",
+      "fast_zmax": null,
+      "fast_floor_db": 0.9437223035156082,
+      "fast_amplitude_sigma2_I": 0.22628824896218236,
+      "field_mean_db": 17.206782264418987,
+      "field_mean_half_db": 0.3066163836603941,
+      "field_quantiles_db": {
+        "p50": 16.180641165396704,
+        "p5": 28.53798993672362,
+        "p1": 38.16315277779941
+      },
+      "field_quantiles_half_db": {
+        "p50": 0.36171313003130123,
+        "p5": 0.965065198160886,
+        "p1": 2.7230946171382655
+      },
+      "field_n_trials": 400,
+      "analytic_db": 16.18382247667715,
+      "gap_db": -0.20589102422325922,
+      "gap_half_db": 0.37366723833218396,
+      "field_minus_analytic_db": 1.0229597877418364,
+      "fast_seconds": 2.3251539999619126,
+      "field_seconds": 63.51132749998942
+    },
+    {
+      "elevation_deg": 60.0,
+      "r0_los_m": 0.17274989630719242,
+      "fast_mean_db": 14.45605315962518,
+      "fast_mean_half_db": 0.20998019314026806,
+      "fast_quantiles_db": {
+        "p50": 13.50859532034621,
+        "p5": 26.85034228381053,
+        "p1": 33.90427439522885
+      },
+      "fast_ao_mode": "NOAO",
+      "fast_zmax": null,
+      "fast_floor_db": 0.9729554210859646,
+      "fast_amplitude_sigma2_I": 0.0826610374541563,
+      "field_mean_db": 14.390629185349924,
+      "field_mean_half_db": 0.3199756641004603,
+      "field_quantiles_db": {
+        "p50": 13.669798086902192,
+        "p5": 26.518176055706608,
+        "p1": 32.23916664040829
+      },
+      "field_quantiles_half_db": {
+        "p50": 0.35852530958568707,
+        "p5": 0.6178547849049814,
+        "p1": 1.8572529271186298
+      },
+      "field_n_trials": 400,
+      "analytic_db": 13.520068518261827,
+      "gap_db": 0.06542397427525515,
+      "gap_half_db": 0.3827219710543868,
+      "field_minus_analytic_db": 0.8705606670880979,
+      "fast_seconds": 2.2374271000153385,
+      "field_seconds": 63.757015499984846
+    },
+    {
+      "elevation_deg": 90.0,
+      "r0_los_m": 0.18832128823059843,
+      "fast_mean_db": 13.8210401202961,
+      "fast_mean_half_db": 0.20419398078055195,
+      "fast_quantiles_db": {
+        "p50": 12.899235618882765,
+        "p5": 26.203321504385716,
+        "p1": 31.848099005554293
+      },
+      "fast_ao_mode": "NOAO",
+      "fast_zmax": null,
+      "fast_floor_db": 1.0713288630539877,
+      "fast_amplitude_sigma2_I": 0.06349999285960813,
+      "field_mean_db": 13.703587579570604,
+      "field_mean_half_db": 0.3243277049738733,
+      "field_quantiles_db": {
+        "p50": 12.737184598080773,
+        "p5": 26.311339438788593,
+        "p1": 32.080489152507255
+      },
+      "field_quantiles_half_db": {
+        "p50": 0.36469784930594784,
+        "p5": 1.0439735692449688,
+        "p1": 3.2878417441594774
+      },
+      "field_n_trials": 400,
+      "analytic_db": 12.841407265240845,
+      "gap_db": 0.11745254072549649,
+      "gap_half_db": 0.38325401759228594,
+      "field_minus_analytic_db": 0.8621803143297591,
+      "fast_seconds": 2.2507489999989048,
+      "field_seconds": 63.915080500009935
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+The fidelity-2 field against FAST: the space-downlink SMF gap (backlog 2-W1, 2-AO)
+elevations    : [20.0, 30.0, 60.0, 90.0] deg
+trials/field  : 400      samples/FAST: 1000      seed: 20260905
+field mode    : process   workers: 16   (process = Campaign pool, saturates; thread = Threader, GIL-capped)
+scenario      : downlink, 1550 nm, 500 km, 700 mm ground SMF, 100 mm space terminal, Cn2_0=1.7e-14
+correction    : NONE on every model. Fidelity 2 applies no tip-tilt and no AO (backlog 2-AO), so the FAST NOAO run is the like-for-like pair.
+outer scale   : L0 = inf m on the field AND FAST (a finite L0 makes the SMF loss grid-independent; backlog 2-P5). The analytic term is L0-agnostic.
+parity        : same Cn2 (site HV), same outer scale on field and FAST, mean-of-dB on FAST and the field, SMF defocus_m=0 (far field).
+mode          : RUN
+WARNING: under 1000 trials, so the p1 tail is UNDER-SAMPLED. Read the mean and p5 rows only.
+
+THE FAST NOAO NPXLS CONVERGENCE GUARD
+  calibration elevation 30.0 deg, NPXLS [128, 256, 512], tolerance 0.15 dB, SUBHARM True
+    NPXLS   mean_db  r0_los[cm]
+      128    18.108       12.42
+      256    18.387       12.42
+      512    18.674       12.42
+  PINNED NPXLS = 512 (the smallest within 0.15 dB of NPXLS 512)
+
+ELEVATION 20.0 deg
+  FAST    : mean 20.615 +-0.208 dB, p5 32.887, p1 40.679 dB, r0_los 9.89 cm, ao NOAO, floor 0.860 dB (44.4 s)
+  field   : mean 20.139 +-0.310 dB, p5 30.684, p1 34.738 dB (62.3 s)
+  analytic: mean 18.075 dB (deterministic, uncorrected)
+  GAP     : FAST - field = +0.476 +-0.373 dB   field - analytic = +2.065 dB
+
+ELEVATION 30.0 deg
+  FAST    : mean 18.960 +-0.216 dB, p5 30.761, p1 38.420 dB, r0_los 12.42 cm, ao NOAO, floor 0.944 dB (42.0 s)
+  field   : mean 18.609 +-0.316 dB, p5 29.984, p1 35.615 dB (63.3 s)
+  analytic: mean 16.184 dB (deterministic, uncorrected)
+  GAP     : FAST - field = +0.351 +-0.383 dB   field - analytic = +2.425 dB
+
+ELEVATION 60.0 deg
+  FAST    : mean 16.957 +-0.239 dB, p5 30.222, p1 36.480 dB, r0_los 17.27 cm, ao NOAO, floor 0.973 dB (44.2 s)
+  field   : mean 15.784 +-0.339 dB, p5 28.159, p1 35.217 dB (61.9 s)
+  analytic: mean 13.520 dB (deterministic, uncorrected)
+  GAP     : FAST - field = +1.173 +-0.415 dB   field - analytic = +2.264 dB
+
+ELEVATION 90.0 deg
+  FAST    : mean 16.048 +-0.220 dB, p5 28.098, p1 34.921 dB, r0_los 18.83 cm, ao NOAO, floor 1.071 dB (43.6 s)
+  field   : mean 15.335 +-0.375 dB, p5 27.959, p1 40.926 dB (64.0 s)
+  analytic: mean 12.841 dB (deterministic, uncorrected)
+  GAP     : FAST - field = +0.713 +-0.435 dB   field - analytic = +2.494 dB
+
+PINNED FAST NPXLS = 512
+
+THE PER-ELEVATION TABLE (SMF coupling loss, dB; pX = loss EXCEEDED X %)
+  elev  r0[cm]          FASTmean         fieldmean analytic             GAP    f-an  FASTp5  FASTp1   fldp5   fldp1
+-------------------------------------------------------------------------------------------------------------------
+  20.0    9.89     20.615+-0.208     20.139+-0.310   18.075    0.476+-0.373   2.065   32.89   40.68   30.68   34.74
+  30.0   12.42     18.960+-0.216     18.609+-0.316   16.184    0.351+-0.383   2.425   30.76   38.42   29.98   35.62
+  60.0   17.27     16.957+-0.239     15.784+-0.339   13.520    1.173+-0.415   2.264   30.22   36.48   28.16   35.22
+  90.0   18.83     16.048+-0.220     15.335+-0.375   12.841    0.713+-0.435   2.494   28.10   34.92   27.96   40.93
+  GAP = FASTmean - fieldmean (positive = field reads LESS loss, the 2-W1 claim). f-an = fieldmean - analytic.
+  FASTp5/p1 and fldp5/p1 are the loss EXCEEDED 5 and 1 percent of the time. The +- values are 68 % bootstrap half-widths.
+
+THE VERDICT
+  The gap runs from +0.35 to +1.17 dB across 20 to 90 deg.
+  The field reads less loss than FAST at every elevation, but not always past the bootstrap bar. The 2-W1 direction holds, weakly.
+  The gap rises from +0.48 dB at 20 deg to +0.71 dB at 90 deg (low elevation = more turbulence).
+  2 of 4 elevations sit inside the 2-W1 claim band 0.7 to 2.9 dB.
+  DEFOCUS is about zero for the 500 km downlink (far field), so the residual gap is NOT a defocus effect. It is the Airy-versus-Gaussian spot shape of the field against the FAST mode overlap. That is an owner interpretation question. This study does NOT resolve it.
+  CAVEAT: this certifies the UNCORRECTED rung only (backlog 2-AO). Fidelity 2 applies no correction, so this is NOT a reference for an AO-corrected link.
+
