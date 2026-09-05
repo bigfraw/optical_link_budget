@@ -8,16 +8,25 @@ sensor signal, and its frame-to-frame centroid scatter is the tracking jitter th
 loop must follow.
 
 The script takes a 600 km downlink at 30 degrees into a 0.7 m ground telescope
-with a Camera detector. It propagates a handful of turbulent snapshots
-(olb.waveoptics.turbulence.propagate_turbulent_field), it clips each one at the
-ground aperture, and it bins the focal spot onto the camera pixels
-(olb.waveoptics.camera.camera_image). For each snapshot it prints:
+with a Camera detector. It runs a handful of turbulent snapshots as a CAMPAIGN
+(olb.waveoptics.turbulence.Campaign), it rebuilds the stored receive field of
+each trial, it clips that field at the ground aperture, and it bins the focal
+spot onto the camera pixels (olb.waveoptics.camera.camera_image). For each
+snapshot it prints:
   * the measured centroid, in pixels and in microradians on the sky;
   * the second-moment spot radius, in pixels;
   * the fraction of the collected power that lands on the sensor.
 It prints one STILL-atmosphere row too, from the same grid and the same screen
 positions with a very large Fried parameter. The still row is the instrument
-floor: the centroid is on the axis, and the spot is the diffraction spot.
+floor: the centroid is on the axis, and the spot is the diffraction spot. That
+row is a second, one-trial campaign.
+
+THE CAMPAIGN IS THE RECORD. Each campaign stores the receive-plane field of
+every trial on a disc of the receive-aperture radius. The script rebuilds the
+full grid of one stored trial with the same helper the post-hoc coupling uses
+(olb.waveoptics.turbulence.run), so the camera image is the image of the run.
+The stores go under examples/waveoptics/_campaigns/camera_tracking/, and a
+second run of the script computes nothing.
 
 THE PLATE SCALE. A camera measures a position, and the focal length turns that
 position into an ANGLE: theta = x/f. So the centroid scatter in microradians is
@@ -33,6 +42,7 @@ Run from the repo root:
 '''
 
 import dataclasses
+import os
 import time
 import warnings
 
@@ -45,6 +55,8 @@ from olb.scenario import Channel, SpaceScenario
 from olb.turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from olb.waveoptics.camera import camera_image, spot_metrics
 from olb.waveoptics.run import _clip
+from olb.waveoptics.turbulence import Campaign
+from olb.waveoptics.turbulence.run import _patch_field, _rebuilt_fields
 
 WAVELENGTH_M = 1550e-9
 ALTITUDE_M = 600e3
@@ -55,6 +67,8 @@ SPACE_WAIST_M = 0.05
 ELEVATION_DEG = 30              # a low elevation, for strong turbulence
 PRESET = "rapid"
 N_SNAPSHOTS = 5
+BLOCK_SIZE = 1                  # one trial for each block, so the pool fills
+WORKERS = 4
 SEED = 20260902
 
 # The camera. A 15 um pitch on a 256 x 256 array is a common short-wave infrared
@@ -88,6 +102,10 @@ QUIET_R0_M = 1e6                # a huge Fried parameter makes the screens flat
 # few tens of pixels wide, and the whole 256 x 256 sensor hides them.
 WINDOW_PIXELS = 48
 
+# The campaign store. Each case keeps its own directory under this root.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_campaigns",
+                    "camera_tracking")
+
 PNG = "examples/waveoptics/figures/camera_tracking.png"
 
 
@@ -112,18 +130,28 @@ def build_scenario():
                          channel=Channel(altitude_m=ALTITUDE_M))
 
 
-def measure(scenario, orbit, grid, plan, trial):
-    '''Propagate one snapshot, clip it, and measure the camera image.
+def measure(result, row):
+    '''Rebuild one STORED snapshot, clip it, and measure the camera image.
 
-    Returns (image, metrics). The clip applies the ground aperture, so the image
-    holds the light the telescope collects.
+    The campaign keeps the receive-plane field of a trial on a disc of the
+    receive-aperture radius. The rebuild scatters that disc back on the FULL
+    grid, because the focal-plane pixel scale reads the whole grid. It uses the
+    helpers of olb.waveoptics.turbulence.run, the same rebuild the post-hoc
+    coupling (recouple) uses, so the image is the image of the run.
+
+    Args:
+        result: the TurbWaveResult of a campaign, loaded with fields=True.
+        row:    the trial index.
+
+    Returns:
+        The pair (image, metrics). The clip applies the ground aperture, so the
+        image holds the light the telescope collects.
     '''
-    from olb.waveoptics.turbulence import propagate_turbulent_field
+    _, array = next(_rebuilt_fields(result, GROUND_APERTURE_M, [row]))
+    field = _patch_field(result.patch, array, WAVELENGTH_M)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        F, _, _ = propagate_turbulent_field(scenario, orbit, seed=SEED,
-                                            trial=trial, grid=grid, plan=plan)
-        clipped = _clip(F, GROUND_APERTURE_M, GROUND_OBSCURATION)
+        clipped = _clip(field, GROUND_APERTURE_M, GROUND_OBSCURATION)
         image, _ = camera_image(clipped, FOCAL_LENGTH_M, PIXEL_PITCH_M,
                                 N_PIXELS)
     return image, spot_metrics(image, PIXEL_PITCH_M)
@@ -200,6 +228,7 @@ def main():
     print(f"  elevation               {ELEVATION_DEG:11.1f} deg")
     print(f"  preset                  {PRESET:>11}")
     print(f"  snapshots               {N_SNAPSHOTS:11d}")
+    print(f"  pool workers            {WORKERS:11d}")
 
     # The turbulent run needs the phase screens. The default "olb" generator is
     # self-contained, so this normally runs. Skip gracefully if an import fails.
@@ -223,15 +252,35 @@ def main():
         print(f"  fine focal sample {dx_focal * 1e6:.2f} um "
               f"({PIXEL_PITCH_M / dx_focal:.2f} per camera pixel; 3 is the floor)")
 
-        # The still atmosphere: the same grid and the same screen positions, with
-        # a very large Fried parameter, so the screens are flat.
         quiet_plan = dataclasses.replace(
             plan, r0_m=np.full_like(plan.r0_m, QUIET_R0_M))
-        img_still, m_still = measure(scenario, orbit, grid, quiet_plan, 0)
+
+        # THE TURBULENT CAMPAIGN. It stores the receive field of every trial,
+        # so a second run of the script computes nothing.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            campaign = Campaign(scenario, orbit,
+                                os.path.join(ROOT, "turbulent"), seed=SEED,
+                                preset=PRESET, block_size=BLOCK_SIZE,
+                                grid=grid, plan=plan, hs=hs,
+                                cn2_profile=cn2_profile)
+            campaign.run(N_SNAPSHOTS, workers=WORKERS)
+            turb = campaign.load(N_SNAPSHOTS)
+
+            # The still atmosphere: the same grid and the same screen
+            # positions, with a very large Fried parameter, so the screens are
+            # flat. One trial is enough, so this campaign holds one trial.
+            still = Campaign(scenario, orbit, os.path.join(ROOT, "still"),
+                             seed=1, preset=PRESET, block_size=1, grid=grid,
+                             plan=quiet_plan, hs=hs, cn2_profile=cn2_profile)
+            still.run(1)
+        print(f"  campaign {campaign.root_dir}")
+
+        img_still, m_still = measure(still.load(1), 0)
 
         images, metrics = [], []
         for trial in range(N_SNAPSHOTS):
-            img, m = measure(scenario, orbit, grid, plan, trial)
+            img, m = measure(turb, trial)
             images.append(img)
             metrics.append(m)
 

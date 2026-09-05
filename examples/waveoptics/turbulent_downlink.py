@@ -12,6 +12,15 @@ carries:
 - the single-mode-fibre coupling loss, against the fidelity-1 FAST Term
   (`olb.models.fast.smf_fast_term`).
 
+ONE CAMPAIGN FOR EACH ELEVATION. The trials run through
+`olb.waveoptics.turbulence.Campaign`, the store of trials on disk. Each
+elevation gets its own campaign under
+`examples/waveoptics/_campaigns/turbulent_downlink/`, and the still-atmosphere
+floor gets one more. So a second run of the script computes NOTHING: it reads
+the store. The script then reads each campaign back with
+`campaign.load(fields=False)`, which gives the same trial record that the runner
+gives, and the statistics below are unchanged.
+
 THE SLAB, NOT THE ORBIT. The satellite sits outside the atmosphere, so the
 gridded path is the 20 km atmosphere slab only, and a unit PLANE WAVE enters at
 the top of it. The 600 km of vacuum above the slab adds no turbulence. The
@@ -52,7 +61,7 @@ Run from the repo root:
     python -m examples.waveoptics.turbulent_downlink
 '''
 
-import dataclasses
+import os
 import time
 import warnings
 
@@ -65,9 +74,7 @@ from olb.scenario import Channel, SpaceScenario
 from olb.turbulence.plane_wave_scintillation import \
     aperture_averaged_scintillation_index
 from olb.turbulence.profiles import DEFAULT_HS, default_cn2_profile
-from olb.waveoptics import Threader
-from olb.waveoptics.turbulence import (propagate_turbulent_field,
-                                       propagate_turbulent_scenario,
+from olb.waveoptics.turbulence import (Campaign, propagate_turbulent_field,
                                        turbulent_grid)
 
 WAVELENGTH_M = 1550e-9
@@ -79,17 +86,20 @@ SPACE_WAIST_M = 0.05
 ELEVATIONS_DEG = (30.0, 60.0, 90.0)
 PRESET = "rapid"
 N_TRIALS = 70
-BLOCK = 35                  # trials for each progress line
+BLOCK = 35                  # trials in one campaign block
 SEED = 20260826
+WORKERS = 4                 # one process for each core of this machine
 FAST_SAMPLES = 20000
+
+# The campaign store. One directory for each elevation, plus one for the
+# still-atmosphere floor. The blocks stay on disk, so a second run of the
+# script computes nothing.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_campaigns",
+                    "turbulent_downlink")
 
 # The Cn2 of a still atmosphere, for the static mode-match floor. 1e-24 is four
 # decades below any real site, so one trial gives the vacuum coupling.
 QUIET_CN2 = 1e-24
-
-# The trials are independent, so they run across threads. None takes one worker
-# for each core. See olb.waveoptics.Threader.
-THREADER = Threader()
 
 PNG = "examples/waveoptics/figures/turbulent_downlink.png"
 FIELD_PNG = "examples/waveoptics/figures/turbulent_downlink_field.png"
@@ -113,25 +123,6 @@ def build_scenario():
                          channel=Channel(altitude_m=ALTITUDE_M))
 
 
-def run_blocks(scenario, geometry, label, *, n_trials, block, seed, **kwargs):
-    '''Run the trials in blocks, and print one progress line for each block.
-
-    The runner keys its seeds on the trial INDEX, so a second call with the
-    same seed repeats the same trials. Each block therefore takes its own seed,
-    seed + block index. The set stays repeatable.
-    '''
-    trials, t0 = [], time.time()
-    result = None
-    for i, start in enumerate(range(0, n_trials, block)):
-        n = min(block, n_trials - start)
-        result = propagate_turbulent_scenario(scenario, geometry, n_trials=n,
-                                              seed=seed + i, **kwargs)
-        trials += result.trials
-        print(f"    {label}: {len(trials):4d} / {n_trials} trials, "
-              f"{time.time() - t0:6.1f} s")
-    return dataclasses.replace(result, trials=trials)
-
-
 def verdict(ratio, low, high):
     '''Give PASS when the ratio sits inside the band, and CHECK otherwise.'''
     return "PASS" if low <= ratio <= high else "CHECK"
@@ -149,13 +140,20 @@ def static_floor_db(scenario, hs):
     wave-optics overlap: the loss of a flat wavefront on the obscured pupil
     against the fixed Ruilier fibre mode. The turbulence part of any other
     number is that number minus this floor.
+
+    The trial runs in its OWN campaign of one block of one trial, so the second
+    run of the script reads it from disk.
     '''
     quiet = np.full(hs.size, QUIET_CN2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = propagate_turbulent_scenario(
-            scenario, CircularOrbit(ALTITUDE_M, elevation_deg=[90.0]),
-            n_trials=1, seed=1, preset=PRESET, hs=hs, cn2_profile=quiet)
+        campaign = Campaign(scenario,
+                            CircularOrbit(ALTITUDE_M, elevation_deg=[90.0]),
+                            os.path.join(ROOT, "static_floor"), seed=1,
+                            preset=PRESET, block_size=1, hs=hs,
+                            cn2_profile=quiet)
+        campaign.run(1, workers=None)
+        result = campaign.load(fields=False)
     return -10 * np.log10(result.trials[0].smf_eta)
 
 
@@ -299,7 +297,8 @@ def main():
           f"ground {cn2_profile[0]:.3g} m^(-2/3)")
     print(f"  preset                  {PRESET:>11}")
     print(f"  snapshots per elevation {N_TRIALS:11d}")
-    print(f"  thread workers          {THREADER.max_workers:11d}")
+    print(f"  process workers         {WORKERS:11d}")
+    print(f"  campaign store          {os.path.relpath(ROOT)}")
 
     floor_wave_db = static_floor_db(scenario, hs)
     print(f"  static mode-match floor {floor_wave_db:11.3f} dB "
@@ -309,10 +308,19 @@ def main():
     floor_fast_db = float("nan")
     for elevation_deg in ELEVATIONS_DEG:
         orbit = CircularOrbit(ALTITUDE_M, elevation_deg=[elevation_deg])
+        # The campaign sizes the grid and it plans the screens one time, and
+        # it keeps both in its manifest. Campaign.load gives report=None, so
+        # the sampling report comes from one more call of the sizer with the
+        # SAME inputs. That call is cheap arithmetic and it changes nothing.
+        campaign = Campaign(scenario, orbit,
+                            os.path.join(ROOT, f"el{elevation_deg:.0f}"),
+                            seed=SEED, preset=PRESET, block_size=BLOCK, hs=hs,
+                            cn2_profile=cn2_profile)
+        grid, plan = campaign.grid, campaign.plan
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            grid, plan, report = turbulent_grid(scenario, orbit, preset=PRESET,
-                                                hs=hs, cn2_profile=cn2_profile)
+            _, _, report = turbulent_grid(scenario, orbit, preset=PRESET,
+                                          hs=hs, cn2_profile=cn2_profile)
         print("")
         print(f"  elevation {elevation_deg:.0f} deg: grid {grid.n} px, "
               f"{grid.size_m:.3f} m; {plan.z_m.size} screens; "
@@ -323,10 +331,11 @@ def main():
               f"{report.fresnel_pixels_min:.2f}, "
               f"step/limit {report.step_over_limit_max:.3f}, "
               f"warnings {len(report.warnings)}")
-        result = run_blocks(scenario, orbit, f"{elevation_deg:.0f} deg",
-                            n_trials=N_TRIALS, block=BLOCK, seed=SEED,
-                            preset=PRESET, hs=hs, cn2_profile=cn2_profile,
-                            grid=grid, plan=plan, threader=THREADER)
+        t_run = time.time()
+        n_stored = campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+        print(f"    {n_stored} trials on disk after "
+              f"{time.time() - t_run:.1f} s")
+        result = campaign.load(fields=False)
 
         power = np.array([tr.collected_power for tr in result.trials])
         smf_eta = np.array([tr.smf_eta for tr in result.trials])

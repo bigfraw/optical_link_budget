@@ -255,12 +255,22 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 The `examples/waveoptics/` directory holds eleven scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
-field on a square grid, prints a table of numbers, and saves a figure next to the
-script. The first three have NO turbulence. The next three add the turbulent
-split step of `olb/waveoptics/turbulence/`. The seventh wires the layer into the
-three link budgets. Two draw the focused spot on a multimode-fibre core, one
-bins the focal spot onto a tracking-camera pixel grid, and one stores a campaign
-of trials on disk.
+field on a square grid, prints a table of numbers, and saves a figure in
+`examples/waveoptics/figures/`. The first three have NO turbulence. The next
+three add the turbulent split step of `olb/waveoptics/turbulence/`. The seventh
+wires the layer into the three link budgets. Two draw the focused spot on a
+multimode-fibre core, one bins the focal spot onto a tracking-camera pixel grid,
+and one stores a campaign of trials on disk.
+
+EVERY script that runs a Monte Carlo keeps its trials in an
+`olb.waveoptics.turbulence.Campaign`, the store of trials on disk. Each script
+has its own directory under `examples/waveoptics/_campaigns/<script>/<case>/`,
+and that tree is git-ignored. The script calls
+`campaign.run(n, workers=4, progress=True)`, which runs the blocks on ONE warm
+process pool and prints a progress line for each block. So a SECOND run of a
+script computes NO trial: it reads the store with `campaign.load(fields=False)`,
+or with `campaign.recollect` / `campaign.recouple` for a post-hoc aperture or
+detector. Only the single-snapshot field pictures propagate again.
 
 The vacuum scripts:
 
@@ -280,100 +290,130 @@ The vacuum scripts:
   artefact of a grid that is too small, against the analytic ABCD route
   (`GForvard`).
 
-The turbulent scripts. The two space scripts run in about one minute on a
-desktop, and the terrestrial one in about three (work package 7 cut the space
-screen count from 20 to 5). Each one prints the SAMPLING REPORT of its grid and
-the per-trial wall times, and
-each one carries the fixed seed `SEED = 20260826`, so a second run repeats the
-first one exactly. Each one saves the figure and opens NO window, because a
-blocking window would hold the terminal for minutes.
+The turbulent scripts. Each one prints the SAMPLING REPORT of its grid and the
+per-trial wall times, and each one carries the fixed seed `SEED = 20260826`. A
+campaign seeds trial k off `(seed, k)`, so the trials of a run are reproducible
+one by one. Each one saves the figure and opens NO window, because a blocking
+window would hold the terminal. Each one still calls `propagate_turbulent_field`
+for its `*_field.png` picture, because a picture needs the wide field and the
+campaign keeps the receive disc only.
 
 - `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`
   (`sigma2_R = 0.21`, firmly weak; the script ASSERTS that, because every
-  analytic target here is a weak-fluctuation form). It runs 300 snapshots THREE
-  times on the same grid, the same screens and the same seeds, and it changes
-  only the receive aperture: a 3-pixel pinhole, a 30 mm sampling bucket, and the
-  100 mm budget aperture with its single-mode fibre. Headline: the pinhole index
-  and the 30 mm bucket index agree with the Dios on-axis form and the Andrews
-  weak aperture-averaging factor; the 100 mm bucket does NOT, because it holds 78
-  percent of the beam and the split step conserves power; and the fidelity-0
-  fibre-coupling Term reads about 2.4 dB MORE loss than the field (4.61 dB
-  against 2.25 dB). The fidelity-0 Term keeps the printed 4.61 dB. This script
-  uses a bare `SMF()` with no coupling optics, so the received-curvature defocus
-  charge (see `physics.md` section 6a) does NOT fire, and the Term flags the
-  curvature as NOT modelled. That charge applies only to an `SMF` with a focal
-  length or `optimal_focus`. The 2.25 dB field value is the Monte Carlo result
-  of the default `olb` screen generator and 300 snapshots; the earlier 2.32 dB
-  record used 120 snapshots. The horizontal planner takes no `Cn2` layer list,
-  so work package 7 did not move this script: it keeps its 9 screens.
+  analytic target here is a weak-fluctuation form). It runs ONE campaign of 300
+  snapshots on the `standard` preset, sized for the 100 mm budget aperture, and
+  it reads the two smaller apertures POST HOC with `campaign.recollect`: a
+  3-pixel pinhole (8.81 mm) and a 30 mm sampling bucket. So three receive
+  apertures come from one Monte Carlo. The grid is 256 px over 0.7522 m, with 9
+  screens and `r0 = 10.66 cm`. Headline: the pinhole index reads 0.908 of the
+  Dios on-axis form and the 30 mm bucket index reads 0.891 of the Andrews weak
+  aperture-averaging factor (both PASS); the 100 mm bucket reads 0.268 and does
+  NOT, because it holds 78 percent of the beam and the split step conserves
+  power; and the fidelity-0 fibre-coupling Term reads about 2.4 dB MORE loss
+  than the field (4.61 dB against 2.23 dB). The fidelity-0 Term keeps the
+  printed 4.61 dB. This script uses a bare `SMF()` with no coupling optics, so
+  the received-curvature defocus charge (see `physics.md` section 6a) does NOT
+  fire, and the Term flags the curvature as NOT modelled. That charge applies
+  only to an `SMF` with a focal length or `optimal_focus`. The horizontal
+  planner takes no `Cn2` layer list, so work package 7 did not move this script:
+  it keeps its 9 screens, and the run makes 2,700 of them. The first run takes
+  about 97 s at four workers; the second takes 3.2 s.
 - `turbulent_downlink.py` — a 600 km downlink into a 500 mm obscured fibre
-  receiver, at 30, 60 and 90 degrees, 70 snapshots each, `rapid` preset, 5
-  screens. Headline: the aperture scintillation index agrees with the fidelity-0
-  plane-wave integral at every elevation (the ratios are 1.01, 1.19 and 1.28,
-  against a 17 percent Monte Carlo error), and the fibre coupling does not agree
-  with the fidelity-1 FAST Term. The field reads 2.7 dB less loss at 30 degrees
-  and 3.9 dB less at the zenith; on the turbulence part alone, 1.8 to 3.0 dB
-  less. The script prints the static mode-match floor of
-  each model, so the turbulence part can be read alone, and it names the
-  candidate causes without picking one.
+  receiver, at 30, 60 and 90 degrees. Each elevation is its OWN campaign of 70
+  snapshots on the `rapid` preset, with 5 screens; a one-trial campaign gives
+  the still-atmosphere floor (1.95 dB). Headline: the aperture scintillation
+  index sits near the fidelity-0 plane-wave integral at every elevation (the
+  ratios are 1.17, 1.30 and 1.41, against a 17 percent Monte Carlo error, so the
+  zenith row reads CHECK). The fidelity-2 fibre coupling reads 12.54 dB at 30
+  degrees, 10.60 dB at 60 degrees and 9.97 dB at the zenith; the turbulence part
+  alone is 10.59, 8.65 and 8.02 dB. The FAST (fidelity-1) comparison did NOT run
+  for these numbers, because `fast-aosim` was not installed, so the older FAST
+  gap (2.7 dB at 30 degrees, 3.9 dB at the zenith) could not be refreshed. For
+  the current finding on that gap see `validation/waveoptics_vs_fast/`: at the
+  physical `L0 = 25 m` FAST and the field agree to about 0.3 dB, and the gap is
+  an outer-scale artifact. The run makes 1,055 screens; the first run takes 35 s
+  and the second 1.5 s.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink at the zenith and at 30
-  degrees, 200 snapshots each, `rapid` preset, 5 screens. The satellite is
-  outside the grid,
-  so the uplink flux comes from the reciprocity overlap of the propagated
-  downlink field with the ground transmit mode (Shapiro,
-  DOI 10.1364/JOSA.61.000492). Headline: that loss goes against the Dios
-  coupled-flux Monte Carlo of `olb.turbulence.uplink_flux`, and the MEANS agree
-  to 0.19 dB at the zenith and 1.05 dB at 30 degrees. The 30-degree row is a
-  REPORT, not a test,
-  because the coupled-flux model already says `weak_fluctuation_valid = False`
-  there. The TAILS are reported, not tested: a field Monte Carlo reaches deeper
-  than a parametric lognormal. Both terminals carry zero pointing jitter.
+  degrees. Each elevation is its own campaign of 200 snapshots on the `rapid`
+  preset, with 5 screens. The satellite is outside the grid, so the uplink flux
+  comes from the reciprocity overlap of the propagated downlink field with the
+  ground transmit mode (Shapiro, DOI 10.1364/JOSA.61.000492), which the campaign
+  stores as `eta_turb`. Headline: that loss goes against the Dios coupled-flux
+  Monte Carlo of `olb.turbulence.uplink_flux`, and the MEANS are 0.95 dB apart
+  at the zenith (field 5.66 dB, flux 6.61 dB) and 1.54 dB apart at 30 degrees
+  (field 9.87 dB, flux 11.41 dB). The coupled-flux model now reports
+  `weak_fluctuation_valid = True` on BOTH rows. The TAILS are reported, not
+  tested: a field Monte Carlo reaches deeper than a parametric lognormal. Both
+  terminals carry zero pointing jitter. The run makes 2,000 screens; the first
+  run takes 69 s and the second 1.9 s.
 
 The budget-wiring script:
 
 - `budget_wiring.py` — the whole-path fidelity-2 wiring of the three link
-  budgets. Fidelity is a whole-path choice. At `fidelity=2` the entire path is a
-  field simulation, and the budget shows TWO wave-optics Terms: a DETERMINISTIC
-  vacuum-optics Term (the full no-turbulence loss from launch to detector: launch
-  truncation, geometric spread, aperture capture, and vacuum fibre coupling) and
-  a STOCHASTIC turbulence Term (the fade). Together they replace the analytic
-  geometric, launch-truncation, scintillation, and coupling Terms. Only the
-  analytic extinction (molecular absorption) and pointing (mechanical jitter)
-  Terms stay. The budget never runs the split step. The caller runs both
-  propagations one time with `run_fidelity2(scenario, geometry, ...)`, which
-  gives a `Fidelity2Bundle`, then passes the bundle to the budget. The script
-  wires all three links: terrestrial single-mode fibre, an uncorrected uplink,
-  and a downlink aperture. For the terrestrial link, `fidelity=2` unlocks the
-  fade margin that the fidelity-0 mean-only coupling Term refuses.
-  - API: `run_fidelity2(scenario, geometry, n_trials=..., seed=..., preset=...,
-    threader=...)`, then `terrestrial_budget(..., fidelity=2, wave=bundle)`,
-    `uplink_budget(..., fidelity=2, wave=bundle)`, and
-    `downlink_budget(..., fidelity=2, wave=bundle)`.
-  - It uses the RAPID preset and 200 snapshots. It runs in about 75 seconds on a
-    desktop. It carries the fixed seed `SEED = 20260828`.
+  budgets. Fidelity is a whole-path choice. At `fidelity=2` the budget shows TWO
+  Terms: a DETERMINISTIC geometric loss (the analytic geometric Term for a space
+  link, the wave-optics vacuum Term for a terrestrial link) and a STOCHASTIC
+  turbulence Term (the fade). Together they replace the analytic geometric,
+  launch-truncation, scintillation, and coupling Terms. Only the analytic
+  extinction (molecular absorption) and pointing (mechanical jitter) Terms stay.
+  The budget never runs the split step. Each link here keeps its trials in its
+  own `Campaign` on disk, and a Campaign IS a fidelity-2 wave record, so it goes
+  straight into the `wave` slot. The script wires all three links: terrestrial
+  single-mode fibre, an uncorrected uplink, and a downlink aperture. For the
+  terrestrial link, `fidelity=2` unlocks the fade margin that the fidelity-0
+  mean-only coupling Term refuses.
+  - API: `Campaign(scenario, geometry, root, seed=20260828, preset="rapid",
+    block_size=50)`, then `campaign.run(200, workers=4, progress=True)`, then
+    `terrestrial_budget(..., fidelity=2, wave=campaign)`,
+    `uplink_budget(..., fidelity=2, wave=campaign)`, and
+    `downlink_budget(..., fidelity=2, wave=campaign)`.
   - Output: per link, the fidelity-0/1 default for reference, then the
-    fidelity-2 vacuum-optics loss, the turbulence mean, the 90% fade, and the
-    budget total.
+    deterministic geometric loss, the turbulence mean, the 90% fade, and the
+    budget total. The terrestrial SMF link gives 7.996 dB vacuum optics (wave),
+    a turbulence mean of 3.646 dB, a 90% fade of 8.456 dB and a total of
+    13.142 dB, against a fidelity-0 mean-only coupling reference of 8.125 dB.
+    The uncorrected uplink at 60 degrees gives 37.691 dB analytic geometric, a
+    turbulence mean of 9.386 dB, a 90% fade of 18.646 dB and a total of
+    48.927 dB. The downlink aperture at 30 degrees gives 48.568 dB analytic
+    geometric, a turbulence mean of 0.039 dB, a 90% fade of 1.373 dB and a total
+    of 49.042 dB, against a fidelity-1 scintillation reference of 0.1162 dB.
+  - All three links run on a 256 px grid with 5 screens (`rapid`) and 200 trials
+    in four blocks of 50. The cold run takes 112 s in total (34, 39 and 39 s);
+    the second run takes about 1 s and it recomputes no block. The stores hold
+    8.5 MB (terrestrial), 1.4 MB (downlink) and 140 kB (uplink).
   - Run: `python -m examples.waveoptics.budget_wiring`
 
 The multimode-fibre snapshot scripts. Each one draws the focused spot on a
 multimode-fibre (light-bucket) core, turbulent against no turbulence. Each one
-runs ONE snapshot of each field (a picture, not a statistics run), and each one
-builds the fidelity-2 `waveoptics_mmf_coupling_term`. The two links sit in
-OPPOSITE corners of the turbulence. Both use the shared helper
+builds the fidelity-2 `waveoptics_mmf_coupling_term` from a campaign of trials,
+and the still-atmosphere floor of each one is a second campaign of ONE trial on
+flat screens. The two PICTURES of each script stay on
+`propagate_turbulent_field`, because a picture needs the wide field. The two
+links sit in OPPOSITE corners of the turbulence. Both use the shared helper
 `olb.waveoptics.mmf.focal_intensity`.
 
-- `mmf_core_psf.py` — a 600 km downlink into a ground light-bucket receiver. The
-  big aperture gives a large `D/r0`, so the turbulence broadens the focused spot
-  and the spot spills past the core (a real loss). The still-atmosphere spot fits
-  inside the core. The figure goes to
+- `mmf_core_psf.py` — a 600 km downlink at 30 degrees into a ground light-bucket
+  receiver, as a campaign of 60 snapshots on the `rapid` preset (256 px over
+  2.664 m, 5 screens, `r0 = 12.42 cm`, `D/r0 = 5.63`). The Term reads a mean
+  coupling loss of 0.771 dB, a 99% fade of 1.758 dB, and a static
+  encircled-energy floor of 0.141 dB, so the turbulence part of the mean is
+  0.630 dB. With a 3.69 m focal length, a 50 um core and NA 0.20, the still spot
+  holds 0.968 of the power and the turbulent snapshot holds 0.874. So the light
+  bucket is FORGIVING here too: the broadened spot mostly stays inside the core.
+  The first run takes 12 s and the second 2 s. The figure goes to
   `examples/waveoptics/figures/mmf_core_psf.png`.
   - Run: `python -m examples.waveoptics.mmf_core_psf`
 - `mmf_core_psf_terrestrial.py` — the terrestrial sibling: a 5 km horizontal link
   at `Cn2 = 5e-15`, into a small 25 mm receiver. The aperture is smaller than one
-  coherence cell (`D/r0` about 0.55), so the focused spot stays compact and the
-  big core holds it. The turbulence loss lives in the scintillation and the
-  wander, not in the spot that spills the core. The figure goes to
+  coherence cell (`r0 = 4.52 cm`, so `D/r0 = 0.55`), but the scintillation is
+  strong (`sigma_R^2 = 1.90`). So the focused spot stays compact and the big core
+  holds it, and the turbulence loss lives in the scintillation and the wander,
+  not in a spot that spills the core. This is a PICTURE, not a statistics run:
+  the Term record is a campaign of ONE trial on the `rapid` preset (512 px over
+  0.994 m, 14 screens). It prints a single-snapshot coupling loss of 0.287 dB
+  against a static floor of 0.256 dB, so the turbulence part is 0.031 dB, and
+  the two spots hold 0.943 (still) and 0.936 (turbulent) of the power. The first
+  run takes 9 s and the second 5 s (the pictures). The figure goes to
   `examples/waveoptics/figures/mmf_core_psf_terrestrial.png`.
   - Run: `python -m examples.waveoptics.mmf_core_psf_terrestrial`
 
@@ -381,15 +421,22 @@ The camera tracking script:
 
 - `camera_tracking.py` — the fidelity-2 focal spot on a tracking camera. A
   600 km downlink at 30 degrees into a 0.7 m ground telescope with a `Camera`
-  detector. It propagates a handful of turbulent snapshots
-  (`propagate_turbulent_field`), clips each one at the ground aperture, and bins
-  the focal spot onto the camera pixels with
-  `olb.waveoptics.camera.camera_image`. For each snapshot it prints the
-  centroid (in pixels and in microradians, through the plate scale
-  theta = x/f), the second-moment spot radius from `spot_metrics`, and the
-  fraction of the collected power on the sensor. One still-atmosphere row gives
-  the instrument floor. The script builds NO budget change and NO Term: the
-  `Camera` is a diagnostic front end. The figure goes to
+  detector. It runs five turbulent snapshots as a CAMPAIGN on a 3-times zoomed
+  grid (768 px over 7.993 m, 5 screens, `r0 = 12.42 cm`, `D/r0 = 5.63`), it
+  REBUILDS the stored field of each trial on the full grid, clips it at the
+  ground aperture, and bins the focal spot onto the camera pixels with
+  `olb.waveoptics.camera.camera_image`. It no longer calls
+  `propagate_turbulent_field`. For each snapshot it prints the centroid (in
+  pixels and in microradians, through the plate scale theta = x/f), the
+  second-moment spot radius from `spot_metrics`, and the fraction of the
+  collected power on the sensor. With a 21.28 m focal length the still spot is
+  30.0 um (2.0 px) and the plate scale is 0.705 urad/px. One still-atmosphere row
+  (a second one-trial campaign) gives the instrument floor: a 0.035 px centroid
+  and a 10.86 px rms radius. The five turbulent centroids run from -8.9 px to
+  9.2 px, the rms radius grows to 17.0 to 18.7 px, and all the power stays on the
+  sensor. The centroid scatter is 3.80 urad in x and 4.53 urad in y. The script
+  builds NO budget change and NO Term: the `Camera` is a diagnostic front end.
+  The first run takes 7 s and the second 0.8 s. The figure goes to
   `examples/waveoptics/figures/camera_tracking.png`.
   - Run: `python -m examples.waveoptics.camera_tracking`
 
@@ -419,7 +466,10 @@ The campaign script:
   - Run: `python examples/waveoptics/campaign_demo.py`
 
 The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
-wave-optics layer only when the caller sets `fidelity=2` and gives it a bundle.
+wave-optics layer only when the caller sets `fidelity=2` and gives it a wave
+record. That record is a `Fidelity2Bundle` from
+`olb.models.waveoptics.run_fidelity2`, or a `Campaign` on disk. Every script in
+this suite now uses a campaign.
 Run each script as a module, for example
 `python -m examples.waveoptics.terrestrial_stages`. For the per-script guide and
 the status, see the suite README,

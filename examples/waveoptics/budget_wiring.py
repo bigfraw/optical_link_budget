@@ -10,11 +10,11 @@ The deterministic geometric loss has TWO forms, by link family:
   - SPACE (uplink, downlink): the ANALYTIC geometric Term (the default). A
     ground-space link is far field, so the analytic loss is exact. The
     wave-optics vacuum run is skipped: over the full slant range it is slow and
-    grid-noise-limited (+/- 1 to 4 dB; see validation/vacuum_loss). Pass
-    run_fidelity2(vacuum="wave") to opt back into the wave vacuum Term.
+    grid-noise-limited (+/- 1 to 4 dB; see validation/vacuum_loss).
   - TERRESTRIAL: the wave-optics vacuum Term. The near-field turbulence penalty
     is turbulent / vacuum on the SAME flat grid, so the wave vacuum is the exact
-    baseline.
+    baseline. The vacuum solve runs on the CAMPAIGN grid, so the baseline stays
+    exact.
 
 This example touches three links, one selector each:
   - TERRESTRIAL SMF: terrestrial_budget(fidelity=2, wave=...). The default
@@ -25,10 +25,14 @@ This example touches three links, one selector each:
     reciprocity penalty.
   - DOWNLINK aperture: downlink_budget(fidelity=2, wave=...).
 
-THE ONE RULE. The budget NEVER runs the split-step layer itself. A caller runs
-the propagation(s) ONE time with olb.models.waveoptics.run_fidelity2 (the
-turbulent Monte Carlo, plus the vacuum field solve for a terrestrial link or an
-opted-in space link), then gives the bundle to the budget.
+THE ONE RULE. The budget NEVER runs the split-step layer itself. Each link here
+keeps its trials in a CAMPAIGN on disk
+(olb.waveoptics.turbulence.Campaign, one directory for each link under
+_campaigns/budget_wiring/). A Campaign IS a fidelity-2 wave record, so it goes
+straight into the `wave` slot of the budget: the budget calls
+olb.models.waveoptics.resolve_wave, which reads the stored trials. Run the
+script two times. The second run computes NO trial, because the blocks are
+already on disk.
 
 Every run here uses the RAPID preset and a small trial count, so it finishes in a
 couple of minutes; raise N_TRIALS and the preset for a real number. The tail
@@ -40,28 +44,32 @@ Run from the repo root:
     python -m examples.waveoptics.budget_wiring
 '''
 
+import os
 import time
 import warnings
 
-import numpy as np
-
 from olb import SMF, Terminal, Transmitter
 from olb.geometry import CircularOrbit, HorizontalPath
-from olb.models.waveoptics import run_fidelity2
 from olb.scenario import (Channel, SpaceScenario, TerrestrialChannel,
                           TerrestrialScenario)
 from olb.links.terrestrial import terrestrial_budget
 from olb.links.uplink import uplink_budget
 from olb.links.downlink import downlink_budget
 from olb.turbulence.profiles import default_cn2_profile
-from olb.waveoptics import Threader
+from olb.waveoptics.turbulence import Campaign
 
 WAVELENGTH_M = 1550e-9
 PRESET = "rapid"       # a demonstration: RAPID keeps the example short
 N_TRIALS = 200
+BLOCK_SIZE = 50        # 200 trials in four blocks, one for each worker
+WORKERS = 4            # one warm process pool for each campaign
 SEED = 20260828
 AVAILABILITY = 0.9     # the fade availability that every case reports
-THREADER = Threader()  # the trials run across threads (the FFT releases the GIL)
+
+# One directory for each link. The store survives the process, so a second run
+# of this script computes nothing.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                    "_campaigns", "budget_wiring")
 
 
 def _line():
@@ -115,9 +123,11 @@ def terrestrial_case():
     t0 = time.time()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        bundle = run_fidelity2(scenario, geometry, n_trials=N_TRIALS, seed=SEED,
-                               preset=PRESET, threader=THREADER)
-        f2 = terrestrial_budget(scenario, geometry, fidelity=2, wave=bundle)
+        campaign = Campaign(scenario, geometry,
+                            os.path.join(ROOT, "terrestrial"), seed=SEED,
+                            preset=PRESET, block_size=BLOCK_SIZE)
+        campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+        f2 = terrestrial_budget(scenario, geometry, fidelity=2, wave=campaign)
     print(f"  fidelity 2 (wave optics, {N_TRIALS} snapshots, {PRESET}): "
           f"provides_fade {default.provides_fade} -> {f2.provides_fade}")
     show_fidelity2(f2)
@@ -142,9 +152,11 @@ def uplink_case():
     t0 = time.time()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        bundle = run_fidelity2(scenario, geometry, n_trials=N_TRIALS, seed=SEED,
-                               preset=PRESET, threader=THREADER, cn2_profile=cn2)
-        f2 = uplink_budget(scenario, geometry, fidelity=2, wave=bundle,
+        campaign = Campaign(scenario, geometry, os.path.join(ROOT, "uplink"),
+                            seed=SEED, preset=PRESET, block_size=BLOCK_SIZE,
+                            cn2_profile=cn2)
+        campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+        f2 = uplink_budget(scenario, geometry, fidelity=2, wave=campaign,
                            cn2_profile=cn2)
     print(f"  fidelity 2 (wave optics, {N_TRIALS} snapshots, {PRESET}):")
     print(f"    standalone pointing Term kept: "
@@ -178,9 +190,11 @@ def downlink_case():
     t0 = time.time()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        bundle = run_fidelity2(scenario, geometry, n_trials=N_TRIALS, seed=SEED,
-                               preset=PRESET, threader=THREADER, cn2_profile=cn2)
-        f2 = downlink_budget(scenario, geometry, fidelity=2, wave=bundle)
+        campaign = Campaign(scenario, geometry, os.path.join(ROOT, "downlink"),
+                            seed=SEED, preset=PRESET, block_size=BLOCK_SIZE,
+                            cn2_profile=cn2)
+        campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+        f2 = downlink_budget(scenario, geometry, fidelity=2, wave=campaign)
     print(f"  fidelity 2 (wave optics, {N_TRIALS} snapshots, {PRESET}):")
     print("  the downlink mean turbulence penalty is small by nature "
           "(aperture-averaged);")
@@ -193,14 +207,15 @@ def downlink_case():
 def main():
     t_start = time.time()
     print(f"Fidelity-2 whole-path wiring ({PRESET} preset, {N_TRIALS} snapshots, "
-          f"{THREADER.max_workers} threads)")
+          f"{WORKERS} workers)")
     print("")
     print("  At fidelity=2 the whole path is wave optics: a deterministic")
     print("  vacuum-optics Term (geometry + truncation + capture + vacuum")
     print("  coupling) and a stochastic turbulence Term. Only extinction")
     print("  (absorption) and pointing (mechanical jitter) stay analytic. Each")
-    print("  budget ran ONE run_fidelity2 (a turbulent Monte Carlo plus one")
-    print("  vacuum field solve). The fidelity=0/1 defaults are unchanged.")
+    print("  budget reads ONE Campaign of trials from disk (wave=campaign).")
+    print("  A second run of this script computes no trial. The fidelity=0/1")
+    print("  defaults are unchanged.")
     print("")
     print(f"  The fade availability is p={AVAILABILITY}. The tail adequacy of a")
     print("  quantile is a property of the sampler; the quantile warns when a run")
