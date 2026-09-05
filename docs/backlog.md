@@ -52,6 +52,12 @@ are from 2026-08-26 and can drift.
    `terrestrial_budget(fidelity=1)`. This EXTENDS the aperture-averaged
    certification 1-6 and the calibrated-draw proposal 1-8, and it now
    supersedes 1-8 as the plan of record. See 1-9.
+2d. **After 2c (owner-requested 2026-09-05) — the fidelity-1 TEMPORAL rung.**
+   A fibre-coupled power series in time, so a budget gives a fade rate and a
+   fade duration. The key source is Shaw, "Scintillation averaging and fade
+   statistics", DOI 10.1364/JOSAA.388567 (the unified averaged PSD and the
+   fade statistics read from it). It needs the 1-9 marginal first and the
+   2-P1 frozen-flow campaign as its reference. See 1-10.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -137,7 +143,9 @@ are from 2026-08-26 and can drift.
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
   Term (README node NT7; also the deferred TODO at
-  olb/models/coupling/terrestrial.py:254).
+  olb/models/coupling/terrestrial.py:254). The temporal half now has a plan
+  and a key source: 1-10, built on Shaw, "Scintillation averaging and fade
+  statistics", DOI 10.1364/JOSAA.388567.
 - **0-W5. `downlink_budget` still defaults to `model="lognormal"`.** The
   `model="auto"` selector exists and is opt-in (olb/links/downlink.py:470 and
   the budget keyword `scint_model="lognormal"` at :521). The switch moves the
@@ -278,7 +286,9 @@ are from 2026-08-26 and can drift.
   inner-scale memory.
 - **0-N6. The fade rate and the fade time have no external check** — the
   book gives no worked example; the faces are checked against internal
-  identities only.
+  identities only. The external check now has a source: Shaw,
+  DOI 10.1364/JOSAA.388567, gives the fade probability, rate and mean
+  duration from the PSD. See 1-10.
 
 ### Blocked by the source (documented refusals — need a second source)
 
@@ -571,6 +581,79 @@ The path forward for each is a second reference or a derivation.
   a DEFAULT: the 2-W1 owner reference-model decision, and the AO question of
   2-AO (an uncorrected field against a tracked fidelity-0 Term is not like
   for like; fit the uncorrected case first and say so).
+- **1-10. The fidelity-1 TEMPORAL rung: a fibre-coupled power series in
+  time (owner-requested 2026-09-05). AFTER 1-9.** The goal is a
+  `terrestrial_budget(fidelity=1)` (and later the space budgets) that gives
+  the coupled power as a TIME SERIES, so a fade RATE, a mean fade DURATION
+  and a fade-duration distribution fall out of a threshold crossing count,
+  at the cost of a correlated draw and not a field solve. Today every
+  `Term.sampler` gives independent draws and `Budget.sample_db` sums them
+  per draw; there is no time axis anywhere in a budget.
+  THE KEY SOURCE (owner-flagged 2026-09-05, "absolutely crucial"): S. E. J.
+  Shaw, "Scintillation averaging and fade statistics", J. Opt. Soc. Am. A
+  37, 833-840 (2020), DOI 10.1364/JOSAA.388567. It gives the variance and
+  the power spectral density (PSD) of the scintillation under aperture,
+  path, wavelength and TEMPORAL averaging, first one at a time and then as
+  ONE unified expression, and it then reads the fade statistics of a given
+  depth and duration (the fade probability, the fade rate and the mean fade
+  duration) from that PSD. So it is the single cited route from the
+  spectrum olb already holds to the temporal faces a budget needs, and it
+  supersedes the internal-identity checks of 0-N6. Every temporal equation
+  that enters olb must cite it (or the book) by DOI, per CLAUDE.md.
+  WHY 1-9 COMES FIRST. A time series with the wrong marginal distribution
+  is wrong at every time step. 1-9 gives the certified marginal of the
+  bucket power and of the fibre-coupled power. This item adds the temporal
+  correlation to that marginal.
+  WHAT EXISTS. `olb/turbulence/andrews/temporal.py` holds S_I(f) (the weak
+  plane, spherical and Gaussian-beam spectra, the strong plane-wave
+  spectrum with an aperture), `quasi_frequency`, `greenwood_frequency` and
+  `coherence_time`; no Term reads them (0-W4). `Site.wind_rms_m_s` and the
+  Bufton `v_wind` exist; a `TerrestrialChannel` has no crosswind field.
+  The FAST wrapper (`olb/models/fast.py`) passes `WIND_SPD` and `WIND_DIR`
+  but runs `NITER` independent draws; FAST has a frozen-flow temporal mode
+  that olb does not use. `TemporalScreens` (fidelity 2) is a stub (2-P1).
+  THE WORK, in order:
+  1. Read Shaw (DOI 10.1364/JOSAA.388567) against `andrews/temporal.py`:
+     which of its averaging expressions the module already holds, which are
+     new (the unified aperture-plus-temporal PSD is the one a bucket needs),
+     and which fade-statistic forms (probability, rate, mean duration) map
+     to the faces 0-N6 says have no external check. Add the new forms to
+     `andrews/temporal.py` (or a sibling `shaw.py`), each cited by DOI,
+     each under `@assumes` with the Taylor frozen-flow flag; it fails when
+     the mean wind blows along the line of sight.
+  2. Add a transverse wind to the scenario: `TerrestrialChannel.wind_m_s`
+     (the crosswind). A space link keeps the Bufton profile, plus the
+     apparent wind of a tracked LEO pass (omega_slew times the layer range;
+     the rule is written in the `TemporalScreens` docstring).
+  3. The BUCKET series: a Gaussian process for ln P shaped by the
+     aperture-averaged PSD of Shaw, scaled to the fitted variance of 1-9,
+     then exponentiated. The certified marginal holds and the PSD is cited.
+     The Andrews limits stand: no finite inner or outer scale in any
+     temporal spectrum; the strong branch is plane-wave only.
+  4. The FIBRE series: the coupled power is PHASE-dominated (tilt plus the
+     higher orders), and no cited coupled-power PSD exists. Two routes.
+     (a) A tilt temporal spectrum (a new cited function) for the tilt part
+     and tau0 for the higher-order part, combined through the 1-9 marginal.
+     (b) Measure the coupled-power PSD on a fidelity-2 frozen-flow campaign
+     (needs 2-P1) and fit one or two time constants. Route (b) is the
+     certification reference of route (a) in any case, so 2-P1 gates the
+     fibre series.
+  5. A time-series face: `Term.series(n_steps, dt_s, rng)` next to
+     `sampler`; a Term with no temporal model gives its sampler draws (white
+     in time); `Budget.series_db` sums the Terms per time step the way
+     `sample_db` sums per draw. Then the fade rate, the mean fade duration
+     and the fade-duration histogram come from a threshold crossing count,
+     and the Shaw closed forms are the analytic check of each.
+  6. Optional and cheap: turn on the FAST frozen-flow mode in `fast.py` for
+     the space links (downlink SMF and the pre-compensated uplink). It is
+     far-field only, so it does not help the terrestrial link.
+  7. Validate on one weak terrestrial path against a fidelity-2 frozen-flow
+     campaign: the PSD, the fade rate at the p5 and p1 thresholds, and the
+     fade-duration histogram. Record the verdict in physics.md Section 9.
+  DEPENDENCIES: 1-9 (the marginal) and 2-P1 (the reference) come first;
+  steps 2 and 5 are small and can run beside 1-9; steps 3 and 4 wait on
+  both. Pairs with 0-W4 (the unread temporal faces), 0-N5 (the
+  quasi-frequency band) and 0-N6 (no external check).
 - **1-7. REFERENCE for the residual scintillation of a pre-compensated
   uplink.** Gap 2 (0-W1) decided that NO trustworthy analytic scintillation
   form exists for a beacon + AO pre-compensated ground-to-space beam, so the
@@ -957,7 +1040,9 @@ The path forward for each is a second reference or a derivation.
 - **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
   raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
   snapshots only — no fade rate, no fade duration. The design note lives in
-  the class docstring.
+  the class docstring. A frozen-flow campaign is the certification reference
+  of the fidelity-1 temporal rung (1-10, Shaw, DOI 10.1364/JOSAA.388567),
+  so 1-10 step 4 gates on this item.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
