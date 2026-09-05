@@ -211,7 +211,57 @@ Do NOT write a script before the owner reviews this note.
    the 1-9 entry). Add a sampler for the lognormal-Rician if 3.1 wins.
 5. The temporal extension of Section 4, once the depth rung is wired.
 
-## 6. Conventions that apply
+## 6. How many cells does a small terrestrial aperture see?
+
+The owner's suspicion (2026-09-05): a 5 to 10 cm aperture over a few km does
+NOT see many speckles. The numbers agree. For a 3 km horizontal path at
+1550 nm, with the plane-wave Fried radius `r0 = (0.423 k^2 Cn2 L)^(-3/5)`
+(Andrews and Phillips, DOI 10.1117/3.626196, Ch. 3, Eq. (84)) and the
+plane-wave Rytov variance `sigma_R^2 = 1.23 Cn2 k^(7/6) L^(11/6)` (Ch. 5,
+Eq. (10)):
+
+| Cn2 [m^-2/3] | r0 plane | r0 spherical | D/r0, D = 5 cm | D/r0, D = 10 cm | sigma_R^2 plane |
+| --- | --- | --- | --- | --- | --- |
+| 1e-15 (night, calm) | 16 cm | 29 cm | 0.2 to 0.3 | 0.3 to 0.6 | 0.15 |
+| 1e-14 (moderate) | 4 cm | 7 cm | 0.7 to 1.2 | 1.4 to 2.5 | 1.5 |
+| 1e-13 (strong day) | 1 cm | 1.8 cm | 3 to 5 | 5 to 10 | 15 |
+
+The spherical-wave r0 is 1.8 times the plane-wave value, and the spherical
+Rytov variance is 0.4 times it, so a small-waist launch sits between the two
+columns. The Fresnel scale `sqrt(L/k)` is 2.7 cm. In the strong regime the
+intensity speckle shrinks to the coherence radius rho_0, near 1 cm.
+
+Four readings:
+
+- **Phase cells.** At night and in moderate turbulence a 5 to 10 cm
+  aperture holds ONE coherent phase cell, or two. The fibre fade is then
+  tilt and defocus, a few low-order modes, not a sum of many cells. So the
+  Rician model of 3.1 (a Gaussian random part) is the WRONG limit at the
+  likely operating point, and the Zernike few-mode Monte Carlo of 3.2 is the
+  right model there. The existing `terrestrial_smf_walkoff_term` already
+  carries the tilt part of it.
+- **Intensity cells.** The bucket differs. Even in weak turbulence the
+  intensity correlation width is the Fresnel scale, so a 10 cm bucket
+  averages about a dozen intensity cells. That is why 1-6 saw real aperture
+  averaging over `D/rho_0` = 0.2 to 7.9.
+- **Many speckles.** Many phase cells across 5 to 10 cm need Cn2 at or above
+  1e-13, and then `sigma_R^2` is about 15, deep in saturation, where every
+  weak-regime Term is out of range. On a short link the multi-speckle fibre
+  regime and the strong-scintillation regime arrive TOGETHER. A 700 mm space
+  downlink reaches D/r0 = 5 while still weak, which is why the two families
+  of Section 2 look so different.
+- **Beam fill.** A few-cm launch waist over 3 km gives a received beam of a
+  few cm to a few tens of cm, so the whole beam can wander across the
+  aperture. That fade is a beam-frame effect (the Dios wander kernel in
+  `terrestrial_scintillation_term`, flagged by `eta_fill` in 1-6), and the
+  speckle picture does not apply in that corner at all.
+
+THE CONSEQUENCE FOR THE SWEEP: use D/r0 as the sweep axis, from about 0.3 to
+10, not Cn2 alone. The three columns are the three regimes: few-mode,
+transition, and saturated many-cell. The Zernike Monte Carlo covers the first
+two cheaply; only the third needs the speckle limit.
+
+## 7. Conventions that apply
 
 - ASD-STE100 in every docstring, comment and commit message
   (`CONVENTIONS.md`).
