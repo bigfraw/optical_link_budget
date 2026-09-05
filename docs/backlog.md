@@ -122,8 +122,9 @@ are from 2026-08-26 and can drift.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
   consumer. THE OUTER SCALE IS NOW HIGH (owner-flagged 2026-09-04): see
   2-P5, the fidelity-2 half, which showed that the `L0 = inf` default claims
-  an outer scale the grid cannot hold and that the SMF fade tail pays about
-  2 dB at p5 for the choice.** No Term passes an inner or outer scale. No Term reads the
+  an outer scale the grid cannot hold and that the SMF fade tail pays a
+  MEASURED 2.49 dB at p5 for the choice (2026-09-05, 3.0 sigma,
+  `validation/outer_scale_tail/`; the earlier 2 dB was an estimate).** No Term passes an inner or outer scale. No Term reads the
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
   Term (README node NT7; also the deferred TODO at
@@ -757,6 +758,15 @@ The path forward for each is a second reference or a derivation.
   cap sets the count for both presets anyway. Run the catalogue before the
   switch; do not switch unasked.
 
+  RAPID DATA POINT (2026-09-05, `validation/outer_scale_tail/`, 2-P5). On the
+  30 deg downlink SMF hero, rapid tracks the well-resolved reference at SMF p5
+  to -0.55 dB at L0 = inf and +0.32 dB at L0 = 25 m, both INSIDE the combined
+  bootstrap bar, and rapid shows the SAME outer-scale sensitivity as the
+  reference (-1.62 dB p5), so the finite outer scale does not break it. So rapid
+  IS supported as the default ON THIS SCENARIO. This is ONE catalogue point
+  (30 deg, downlink, SMF); the low-elevation, strong-Cn2 and terrestrial rows
+  are still needed before the blanket switch.
+
   THE TEST CATALOGUE (2026-08-29). The current floors rest on a NARROW sweep: a
   30 deg slab and a 2 km horizontal path (docs/schmidt-crosscheck.md WP7). That
   is too thin to certify a minimum. Build a bigger catalogue of conditions and
@@ -827,11 +837,17 @@ The path forward for each is a second reference or a derivation.
   30 deg), so warn and raise `n_sub_levels` (a factor 3 a level, nearly free)
   when L0 > 3^n x side, which bites for a SMALL receive aperture, and do not
   grow the grid for it; (5) MEASURE the outer-scale effect on the fibre tail
-  (owner-requested 2026-09-04): a matched-seed `Campaign` pair on the pinned
-  30 deg grid, `L0_m = inf` against `L0_m = 25` (and the chosen site L0 once
-  step 1 sets it), 1000 trials each, read with the tail-convergence analysis,
-  so the "estimated 2 dB at p5" becomes a number. About 25 minutes on 8
-  workers. Pairs with gap S-27 and 2-N2.
+  -- DONE (2026-09-05, `validation/outer_scale_tail/`). A matched-seed
+  `Campaign` pair on the pinned 30 deg grid (ref = standard, 15 screens,
+  1024 px), `L0_m = inf` against `L0_m = 25`, 1000 trials each: the finite
+  outer scale gives -2.49 dB at SMF p5 (3.0 sigma) and -3.13 dB at p1 (1.3
+  sigma). So the "estimated 2 dB at p5" is now a MEASURED 2.5 dB, in the SAFE
+  direction (a finite outer scale removes the largest tilt cells, so LESS
+  fade). The POINT (centre-pixel) fade does NOT move (+0.06 dB at p5, not
+  resolved), which CONFIRMS the mechanism is the fibre TILT, not scintillation.
+  So the `L0 = inf` default is about 2.5 dB PESSIMISTIC at the SMF p5 tail.
+  Steps (1) an explicit site L0 and (3) 0-W4 (the analytic tilt Terms) still
+  stand. Pairs with gap S-27 and 2-N2.
 - **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
   raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
   snapshots only — no fade rate, no fade duration. The design note lives in
