@@ -558,10 +558,12 @@ The path forward for each is a second reference or a derivation.
   module at the `models/` level; the coupling package re-exports the two coupling
   faces); see `examples/waveoptics/budget_wiring.py`. STILL OPEN and
   OWNER-GATED: whether wave optics ever becomes a DEFAULT. That is the
-  reference-model gap — the field reads LESS fibre coupling loss than the
-  incumbents (0.7–2.9 dB less than FAST, ~2.5 dB less than the terrestrial
-  analytic Term). FOLLOW-UP (owner-requested 2026-08-28): an AUTOMATIC fidelity
-  selector, the way `model="auto"` picks a distribution.
+  reference-model gap — the field once read LESS fibre coupling loss than the
+  incumbents (0.7-2.9 dB less than FAST, ~2.5 dB less than the terrestrial
+  analytic Term). BUT the SPACE half of that gap is now largely EXPLAINED as an
+  outer-scale/parity artifact (2026-09-05, see the SPACE-HALF note below): at the
+  physical `L0 = 25 m` FAST and the field AGREE. So the reference-model gap is
+  smaller than the old numbers suggested once parity is matched.
 
   UPDATE (2026-08-31): a SPACE link now takes the ANALYTIC geometric Term by
   default (`run_fidelity2(vacuum="analytic")`, so `wave.vacuum` is None), and
@@ -575,9 +577,24 @@ The path forward for each is a second reference or a derivation.
   7 dB to about 1.2 dB (8.54 dB analytic against 7.08 dB field, at 1550 nm,
   L = 5 km, w0 = 0.02 m, D = 0.2 m, 25 um core, f = 4.524 m). The residual is the
   Airy-versus-Gaussian SPOT SHAPE: the truncated pupil makes an Airy pattern
-  whose slow rings a Gaussian spot model omits. The gap is NOT closed: the SPACE
-  half (downlink SMF against FAST, the 0.7–2.9 dB rows above) is untested against
-  this correction, and the residual ~1 dB spot-shape term is not chased.
+  whose slow rings a Gaussian spot model omits.
+
+  SPACE HALF QUANTIFIED (2026-09-05, `validation/waveoptics_vs_fast/`). The space
+  downlink SMF gap FAST-against-field was measured like-for-like (both
+  UNCORRECTED / NOAO, matched Cn2, mean-of-dB), and the 0.7-2.9 dB gap is largely
+  an OUTER-SCALE / parity artifact. At the physical `L0 = 25 m` (the operating
+  choice, see 2-P5) FAST and the field AGREE: the gap is -0.34 to +0.12 dB across
+  20 to 90 deg, all within 1 sigma of zero (0 of 4 in the 0.7-2.9 band). At
+  `L0 = inf` the gap REOPENS to +0.35 to +1.17 dB (2 of 4 in the band), because
+  FAST is MORE outer-scale-sensitive than the field (going inf -> 25 m, FAST
+  drops about 1.6 dB at 20 deg, the field about 0.8 dB) and FAST's NOAO tilt is
+  grid-defined at inf (the NPXLS guard pinned 512 at inf against 128 at 25 m). So
+  the old gap was the `L0 = inf` mismatch, not a wave-optics error. CAVEAT: this
+  is the UNCORRECTED rung only (2-AO); an AO-corrected comparison is still not
+  possible in fidelity 2. The analytic fidelity-0 term stays about 1 to 2.5 dB
+  OPTIMISTIC against both (it is L0-agnostic). FOLLOW-UP (owner-requested
+  2026-08-28): an AUTOMATIC fidelity selector, the way `model="auto"` picks a
+  distribution.
 - **2-W2. The fidelity-2 SMF path ignores `defocus_m` — DONE (2026-09-04).**
   `olb.waveoptics.smf.coupling_efficiency` now takes `defocus_m` and
   `focal_length_m`. It multiplies the received field with the SAME quadratic
@@ -758,14 +775,24 @@ The path forward for each is a second reference or a derivation.
   cap sets the count for both presets anyway. Run the catalogue before the
   switch; do not switch unasked.
 
-  RAPID DATA POINT (2026-09-05, `validation/outer_scale_tail/`, 2-P5). On the
-  30 deg downlink SMF hero, rapid tracks the well-resolved reference at SMF p5
-  to -0.55 dB at L0 = inf and +0.32 dB at L0 = 25 m, both INSIDE the combined
-  bootstrap bar, and rapid shows the SAME outer-scale sensitivity as the
-  reference (-1.62 dB p5), so the finite outer scale does not break it. So rapid
-  IS supported as the default ON THIS SCENARIO. This is ONE catalogue point
-  (30 deg, downlink, SMF); the low-elevation, strong-Cn2 and terrestrial rows
-  are still needed before the blanket switch.
+  RAPID DATA POINT (2026-09-05, `validation/outer_scale_tail/`, 2-P5). Two
+  elevations now, 30 and 20 deg, 1000 trials for each case. At the PHYSICAL
+  outer scale L0 = 25 m, rapid (5 screens, 512 px) and the well-resolved
+  reference (15 screens, 1024 px) give NEAR-IDENTICAL SMF fades. The rapid minus
+  reference delta at L0 = 25 m, as (30 deg / 20 deg) pairs in dB:
+    mean +0.09 / -0.02   p50 -0.25 / -0.25   p10 +0.22 / +0.86
+    p5   +0.33 / +0.19   p1  +0.03 / +0.08
+  So the mean, p50, p5 and p1 agree inside about 0.3 dB at BOTH elevations. The
+  ONE wrinkle is p10 at 20 deg: rapid reads +0.86 dB MORE loss (combined
+  bootstrap bar about 0.55 dB, about 1.6 sigma, the SAFE direction); at 30 deg
+  even p10 agrees (+0.22 dB, 0.5 sigma). The deep tail (p1) and the mean, which
+  set the availability margin, agree. So rapid IS supported as the default at the
+  25 m outer scale on this scenario, with a FOOTNOTE to watch p10 at low
+  elevation. NOTE: the L0 = inf arm is NOT the operating point (it is
+  grid-dependent, backlog 2-P5); there rapid reads -0.55 dB (30 deg) and -1.20 dB
+  (20 deg, marginally outside the bar) versus the reference, but that case is
+  retired. This is TWO catalogue points (30 and 20 deg, downlink, SMF); the
+  strong-Cn2 and terrestrial rows are still needed before the blanket switch.
 
   THE TEST CATALOGUE (2026-08-29). The current floors rest on a NARROW sweep: a
   30 deg slab and a 2 km horizontal path (docs/schmidt-crosscheck.md WP7). That
@@ -846,8 +873,13 @@ The path forward for each is a second reference or a derivation.
   fade). The POINT (centre-pixel) fade does NOT move (+0.06 dB at p5, not
   resolved), which CONFIRMS the mechanism is the fibre TILT, not scintillation.
   So the `L0 = inf` default is about 2.5 dB PESSIMISTIC at the SMF p5 tail.
-  Steps (1) an explicit site L0 and (3) 0-W4 (the analytic tilt Terms) still
-  stand. Pairs with gap S-27 and 2-N2.
+  CONFIRMED AT LOW ELEVATION (2026-09-05, `--elevation 20`): the same matched-seed
+  pair at 20 deg gives -2.83 dB at SMF p5 (2.4 sigma) and -2.83 dB at p1 (1.0
+  sigma, not resolved), the point fade flat again. So the outer-scale bias is
+  ROBUST across elevation at about 2.5 to 2.8 dB at p5, and the `L0 = 25 m`
+  operating choice (owner, 2026-09-05) removes the grid dependence. Steps (1) an
+  explicit site L0 and (3) 0-W4 (the analytic tilt Terms) still stand. Pairs with
+  gap S-27 and 2-N2.
 - **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
   raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
   snapshots only — no fade rate, no fade duration. The design note lives in

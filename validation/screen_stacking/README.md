@@ -92,8 +92,10 @@ The reference route reproduces Fried and Noll at L0 = 1e7 m inside 1 percent
    filter over the von Karman PSD) gives a piston-removed aperture variance of
    0.630 of the Kolmogorov value at L0 = 25 m and 0.765 at L0 = 95 m, for
    D = 0.7 m. The fibre pays that tilt, so the fibre fade tail moves with the
-   choice by an amount of the order of 2 dB at p5 (an ESTIMATE from the tilt
-   share of the fade, not a measurement). That is backlog 2-P5, HIGH.
+   choice by a MEASURED 2.5 dB (30 deg) to 2.8 dB (20 deg) at p5
+   (2026-09-05, `validation/outer_scale_tail/`, a matched-seed `L0 = inf`
+   against `L0 = 25 m` pair; owner decision: run fidelity 2 at a fixed
+   `L0 = 25 m`). That is backlog 2-P5, HIGH.
 1. **Against L0 = inf the missing power is ALL tip and tilt, at every count.** `Delta3` (the
    tilt-removed variance) reads 1.00 +-0.01 in every configuration, and
    `Delta1` (the piston-removed variance) reads 0.75 to 0.84. So the generator
