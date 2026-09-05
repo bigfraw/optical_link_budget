@@ -556,7 +556,8 @@ The path forward for each is a second reference or a derivation.
   Gap-3 and 0-N4 (the field solve sidesteps the analytic `eta_max` and the
   near-field truncation flag). All in olb/models/waveoptics.py (a FIDELITY-named
   module at the `models/` level; the coupling package re-exports the two coupling
-  faces); see `examples/waveoptics/budget_wiring.py`. STILL OPEN and
+  faces); see `examples/waveoptics/budget_wiring.py`, which now gives the budget
+  a `Campaign` in the `wave` slot instead of calling `run_fidelity2`. STILL OPEN and
   OWNER-GATED: whether wave optics ever becomes a DEFAULT. That is the
   reference-model gap — the field once read LESS fibre coupling loss than the
   incumbents (0.7-2.9 dB less than FAST, ~2.5 dB less than the terrestrial

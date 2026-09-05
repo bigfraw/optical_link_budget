@@ -1027,15 +1027,21 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 
 ### 9f. The example scripts
 
-The suite in `examples/waveoptics/` holds TEN scripts: three vacuum scripts
+The suite in `examples/waveoptics/` holds ELEVEN scripts: three vacuum scripts
 (`space_farfield.py`, `terrestrial_stages.py`, `grid_artefacts.py`), the three
 turbulent scripts below, the budget demonstration `budget_wiring.py`, two
 multimode-fibre demonstrations (`mmf_core_psf.py`,
-`mmf_core_psf_terrestrial.py`), and the camera demonstration
-`camera_tracking.py`.
+`mmf_core_psf_terrestrial.py`), the camera demonstration `camera_tracking.py`,
+and the campaign demonstration `campaign_demo.py`.
+
+Every script that runs a Monte Carlo keeps its trials in a `Campaign` of
+Section 9g, under `examples/waveoptics/_campaigns/`. So a second run of a script
+computes no trial: it reads the store. `budget_wiring.py` gives the campaign
+straight to the budget as `wave=campaign`; it no longer calls `run_fidelity2`.
 
 These three put the turbulent layer against the analytic models that the budgets
-already use. Each one runs for about four to five minutes.
+already use. The first run of each takes one to two minutes; a second run takes
+seconds.
 
 - `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`, three
   receive apertures on the same screens and the same seeds.
@@ -1044,7 +1050,7 @@ already use. Each one runs for about four to five minutes.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink through the overlap of
   Section 9d, at the zenith and at 30 degrees.
 
-For the guide to each of the ten scripts, see
+For the guide to each of the eleven scripts, see
 [examples/waveoptics/README.md](../examples/waveoptics/README.md). See also
 [examples.md](examples.md) for what each one prints and what it shows.
 

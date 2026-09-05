@@ -582,7 +582,7 @@ Open items:
   screens). The turbulence Term carries a SNAPSHOT-ONLY flag (fade depth, not
   rate/duration) and an under-sampled-tail quantile warning
   (`olb.results.EmpiricalSampler`). `examples/waveoptics/budget_wiring.py`
-  demonstrates all three. STILL owner-gated: whether wave optics ever becomes a
+  demonstrates all three; it reads a `Campaign`, not `run_fidelity2`. STILL owner-gated: whether wave optics ever becomes a
   DEFAULT (the 2-W1 fibre-coupling reference gap). The field once read 1 to 3 dB
   LESS coupling loss than FAST/analytic, but BOTH halves are now largely
   explained. TERRESTRIAL MMF (2026-08-31): with the received curvature charged
@@ -601,8 +601,12 @@ Open items:
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
   `screens` extra). Deliberately deferred: the temporal frozen-flow axis,
   a co-moving (spherical) screen, and the folded/retro double pass (correlated
-  screens). `examples/waveoptics/` demonstrates the layer with seven scripts
-  (three vacuum, three turbulent, and the budget-wiring demo).
+  screens). `examples/waveoptics/` demonstrates the layer with eleven scripts
+  (three vacuum, three turbulent, the budget-wiring demo, two multimode-fibre
+  demos, the camera demo, and the campaign demo). Every script that runs a Monte
+  Carlo keeps its trials in a `Campaign` under
+  `examples/waveoptics/_campaigns/` (git-ignored), so a second run computes no
+  trial.
 - **The coupled-flux kernels are VENDORED (2026-08-28).** olb copied them into
   `olb/turbulence/coupled_flux.py`, cross-validated bit-for-bit against the
   `my_analysis_modules` working tree (which held the Dios-verified fixes). So
@@ -665,7 +669,18 @@ Open items:
   is DONE (2026-09-04, `validation/tail_convergence/`, backlog 2-N6): eight
   campaigns of 1000 trials, 0.17 s/trial at 512 px on a warm 16-worker pool,
   262 MB for 1000 trials at 1024 px, and a real resume after an out-of-memory
-  kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted).
+  kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted). TWO
+  campaign gaps are OPEN (2026-09-05, found in the examples migration): (a) no
+  PUBLIC helper gives a stored trial back as a `Field` — `recouple` gives an
+  efficiency and `recollect` gives a power, so
+  `examples/waveoptics/camera_tracking.py` imports the two private helpers
+  `_rebuilt_fields` and `_patch_field` of `olb.waveoptics.turbulence.run`; a
+  `Campaign.field(row)` wrapper is missing. (b) The default `patch_radius_m` of
+  a `Campaign` reads `scenario.rx_terminal.aperture_m`, but the runner clips a
+  SPACE link at `scenario.ground` whatever the direction. So the default patch of
+  an UPLINK campaign is too small for its own fields, and a caller who wants
+  those fields must pass `patch_radius_m` or `sizing_aperture_m`. The scalar
+  `eta_turb` is not affected.
 - **The fidelity-2 fade-tail convergence study is DONE (2026-09-04, backlog
   2-I2T, `validation/tail_convergence/`).** On the 30 deg hero downlink
   (0.7 m uncorrected SMF), grid PINNED at 1024 px, 1000 trials for each case:
