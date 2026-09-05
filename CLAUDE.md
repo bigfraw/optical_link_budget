@@ -696,9 +696,9 @@ Open items:
   scintillation. `rapid` as shipped reads inside the standard spread at 1/30
   of the cost. The screen generator is NOT the cause
   (`validation/screen_stacking/`, phase only): it misses the SAME 20 percent
-  of the tip-tilt variance at every count (the 2-N2 deficit), so every
-  fidelity-2 SMF fade is optimistic by that, uniformly. NOT run: 20 deg,
-  40 screens.
+  of the tip-tilt variance at every count. That was the 2-N2 deficit, and it
+  is now RESOLVED as the `L0 = inf` outer scale (2-P5, below), not a
+  generator fault. NOT run: 20 deg, 40 screens.
 - **THE OUTER SCALE IS HIGH (owner-flagged 2026-09-04, backlog 2-P5).** The
   fidelity-2 screens run `L0_m = inf` by default, but three subharmonic
   levels reach only 27 x the grid side (95 m at 30 deg), and the screens

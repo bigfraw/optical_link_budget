@@ -712,7 +712,8 @@ The path forward for each is a second reference or a derivation.
   (4) the POINT irradiance does not move at any count (spread 0.4 dB, index
   0.23 to 0.26 against the analytic 0.22), so the count effect is the phase
   the fibre overlap pays, not scintillation; (5) the screen generator is not
-  the cause (`validation/screen_stacking/`, see 2-N2); (6) `rapid` as shipped
+  the cause (`validation/screen_stacking/`, see 2-N2; the missing tilt is
+  the `L0 = inf` outer scale, resolved in 2-P5); (6) `rapid` as shipped
   reads inside the standard spread at 1/30 of the cost, its 10.3 mm pixel
   softening p5 by 1.6 dB (2 sigma) against the same plan on a 3.4 mm pixel;
   (7) the post-WP7 hint (more fade with thin near-pupil screens) is REVERSED.
@@ -918,8 +919,18 @@ The path forward for each is a second reference or a derivation.
   the SAME fraction whether the turbulence sits in 1, 4, 5, 9 or 25 screens
   (the ground layer as 1 or 4 screens agrees inside 0.3 sigma) — the deficit
   is a fixed fraction of each screen, so a screen-count sweep carries no
-  generator bias, but every fidelity-2 SMF fade runs on about 20 percent less
-  tilt variance than Kolmogorov, at every count;
+  generator bias. RESOLVED AS THE OUTER SCALE (2026-09-05, see 2-P5): that
+  "deficit" is NOT a generator fault. It is the `L0 = inf` default, which no
+  finite grid can simulate: three subharmonic levels reach about 95 m, and the
+  screens match the von Karman L0 = 95 m theory EXACTLY (Delta1 0.765 against
+  0.765). Judged against the L0 = 25 m theory the same generator reads 1.00
+  +-0.03 for one screen. The matched-seed `L0 = inf` against `L0 = 25 m`
+  campaign pair of `validation/outer_scale_tail/` MEASURED the effect on the
+  fade: the SMF p5 moves 2.5 to 2.8 dB, the point fade does not move, so the
+  mechanism is the fibre tilt. The owner decision (2026-09-05) is to run
+  fidelity 2 at a fixed `L0 = 25 m`; the open work (an explicit site L0 to the
+  screens and to the analytic tilt Terms, 0-W4, plus the sizer check) is in
+  2-P5, not here;
   the aperture-averaged analytic factor fails when the aperture holds the
   beam (the 100 mm bucket case); the grid sizer warns past `forvard_max_z`
   and under the `n_max` clamp (olb/waveoptics/grid.py:208, :227); the
