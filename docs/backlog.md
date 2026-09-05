@@ -43,6 +43,15 @@ are from 2026-08-26 and can drift.
    pays of the order of 2 dB at p5 for the difference (an estimate, not yet
    measured). Choose an explicit site L0, thread
    it to the screens and to the analytic tilt Terms. See 2-P5 and 0-W4.
+2c. **HIGH (owner-flagged 2026-09-05) — build the terrestrial fidelity-1
+   rung from fitted power distributions.** Compare the fidelity-2 aperture
+   (bucket) power distribution AND the fibre-coupled power distribution of a
+   terrestrial link against the distribution families olb holds (lognormal,
+   gamma-gamma, K, lognormal-Rician), fit each family with validation
+   scripts across a scenario sweep, and wire the family that holds as
+   `terrestrial_budget(fidelity=1)`. This EXTENDS the aperture-averaged
+   certification 1-6 and the calibrated-draw proposal 1-8, and it now
+   supersedes 1-8 as the plan of record. See 1-9.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -461,7 +470,8 @@ The path forward for each is a second reference or a derivation.
   fault stands, milder: `A_eff/A` about 1.2 at `D/rho_0 = 1`, 1.8 to 2.5 at 3,
   2.4 at 7.9 (unfilled). The certification of record is in the folder README
   and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
-  item: a focused launch, a stronger Cn2, and a longer path.
+  item: a focused launch, a stronger Cn2, and a longer path. That sweep is now
+  step 1 of 1-9 (2026-09-05).
 - **1-8. Terrestrial fidelity 1 = the calibrated lognormal draw (PROPOSED
   2026-09-01).** A terrestrial link has NO fidelity-1 rung: FAST is far-field
   only, so `terrestrial_budget(fidelity=1)` raises (1-1). The proposal fills that
@@ -498,7 +508,69 @@ The path forward for each is a second reference or a derivation.
   gate (b) must certify the SHAPE again, not only the index — a draw from a
   wrong family stays wrong at any calibration. This is a PROPOSED design,
   approved for the backlog only. It is NOT built, and it must not be started
-  yet. See the memory `terrestrial-calibrated-draw-plan`.
+  yet. See the memory `terrestrial-calibrated-draw-plan`. SUPERSEDED as the
+  plan of record by 1-9 (2026-09-05), where it is one candidate route.
+- **1-9. HIGH (owner-flagged 2026-09-05) — the terrestrial fidelity-1 rung
+  from FITTED POWER DISTRIBUTIONS, bucket AND fibre.** This is the extension
+  of 1-6 (the aperture-averaged lognormal certification, one weak path, PASS)
+  and of 1-8 (the calibrated lognormal draw, proposed). It supersedes 1-8 as
+  the plan of record; 1-8 stays as one candidate route inside it. THE GOAL: a
+  `terrestrial_budget(fidelity=1)` that gives a real fade for BOTH receiver
+  kinds, from a distribution that fidelity 2 has certified, at the cost of a
+  draw and not a field solve. Today that rung RAISES (1-1).
+  WHY TWO DISTRIBUTIONS. The bucket power and the fibre-coupled power are
+  DIFFERENT random variables. The bucket integrates intensity over the
+  aperture, so it is phase-blind and its fade is the aperture-averaged
+  scintillation (1-6 certified the lognormal there). The single-mode fibre
+  takes a coherent overlap, so its fade is PHASE-dominated (the tilt and the
+  higher orders), the mean sits at the analytic `eta_max` times the residual
+  Strehl, and its family is NOT certified: the fidelity-2 SMF tail is the
+  quantity that moved with the screen count (2-I2T) and with the outer scale
+  (2-P5), so the fit must run at the operating `L0 = 25 m`. FAST does not
+  help here: it is far-field only, and its amplitude is one aperture-averaged
+  lognormal scalar for each trial (checked in the FAST source, 2026-09-05), so
+  it would give the bucket the same draw olb already builds analytically.
+  THE FAMILIES TO FIT. `olb/turbulence/andrews/distributions.py` holds the
+  lognormal, the gamma-gamma, the K distribution and the lognormal-Rician
+  PDF, each with the book citation; the K and lognormal-Rician are unused
+  (0-W7). `olb/models/fade.py` `irradiance_fade_term` turns any one of them
+  into the three Term faces. So no new distribution code is needed to START;
+  a fit is a parameter estimate against the fidelity-2 histogram, and the
+  build is the Term that reads the fitted parameters.
+  THE WORK, in order:
+  1. A validation script for the BUCKET power: reuse the 1-6 machinery
+     (`validation/lognormal_certification/`, one `propagate_turbulent_field`
+     for each trial, `recollect` for each diameter) and extend the sweep to
+     the 1-8 gate (b) cases: a stronger `Cn2`, a longer path, a focused
+     launch, so `sigma_R^2` crosses `LOGNORMAL_PDF_LIMIT = 0.25` and reaches
+     the strong regime. For each case fit the lognormal, the gamma-gamma and
+     the K distribution (a moment fit and a maximum-likelihood fit) and
+     report the fade quantiles (p10, p5, p1) against the empirical ones, the
+     skew of `ln P`, and `eta_fill` (the beam-filling flag of 1-6).
+  2. A validation script for the FIBRE-coupled power: the same trials,
+     `recouple` for each SMF (and MMF) detector, the same families plus the
+     lognormal-Rician (the book's form for a coherent sum with a residual
+     phase). Split the fade into the tilt part and the higher-order part
+     (`spot_metrics` gives the centroid), because the tilt part is what a
+     tracked terminal removes (2-AO) and what the outer scale sets (2-P5).
+  3. Decide the family for each receiver from the sweep: where the shape
+     holds with the ANALYTIC parameters (the free route), where it holds only
+     when REFIT to measured moments (the 1-8 calibrated route, a short
+     `Campaign` for each scenario), and where NO family holds (fidelity 2
+     stays the only route, and the budget must say so).
+  4. Wire `terrestrial_budget(fidelity=1)`: the exact static Terms stay
+     analytic; the bucket takes the certified fade Term; the SMF/MMF takes
+     the certified coupled-power fade Term in place of the mean-only
+     coupling Term plus the geometric walk-off Term. Keep the fidelity-0
+     Terms as the sanity anchor and the regime gate.
+  5. Record every verdict in physics.md Section 9 (the DD-9 standing rule),
+     one entry for the bucket and one for the fibre.
+  EVERY campaign runs at the operating `L0 = 25 m` (owner decision,
+  2026-09-05), with `precision="single"`, and keeps its trials in a
+  `Campaign` so a refit costs no propagation. GATES before the rung becomes
+  a DEFAULT: the 2-W1 owner reference-model decision, and the AO question of
+  2-AO (an uncorrected field against a tracked fidelity-0 Term is not like
+  for like; fit the uncorrected case first and say so).
 - **1-7. REFERENCE for the residual scintillation of a pre-compensated
   uplink.** Gap 2 (0-W1) decided that NO trustworthy analytic scintillation
   form exists for a beacon + AO pre-compensated ground-to-space beam, so the

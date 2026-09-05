@@ -484,6 +484,21 @@ Open items:
   better than 1 percent; the module self-check measures that against the
   `olb.waveoptics.schmidt` reference layer. See WP7 in
   `docs/schmidt-crosscheck.md` for the full sweep table.
+- **HIGH (owner-flagged 2026-09-05): the terrestrial fidelity-1 rung from
+  FITTED POWER DISTRIBUTIONS (backlog 1-9).** `terrestrial_budget(fidelity=1)`
+  raises today. The plan: compare the fidelity-2 BUCKET power distribution and
+  the FIBRE-coupled power distribution of a terrestrial link against the
+  families olb holds (lognormal, gamma-gamma, K, lognormal-Rician in
+  `andrews/distributions.py`), fit each with validation scripts across a
+  sweep (stronger Cn2, longer path, focused launch, at the operating
+  `L0 = 25 m`), and wire the family that holds through
+  `olb/models/fade.py`. The bucket and the fibre are DIFFERENT random
+  variables: the bucket fade is the aperture-averaged scintillation (1-6
+  certified the lognormal on one weak path), the fibre fade is
+  phase-dominated and uncertified. FAST does not help: it is far-field only,
+  and its amplitude is one aperture-averaged lognormal scalar for each trial.
+  It extends 1-6 and supersedes the 1-8 calibrated-draw proposal as the plan
+  of record. Not started.
 - **Gap 2 is DECIDED (2026-08-27): the pre-compensated uplink gets NO analytic
   scintillation Term.** `andrews.paths.uplink_scintillation_index(tracked=True)`
   is OPTIMISTIC there, not a floor: it models a perfect tilt removal, the
