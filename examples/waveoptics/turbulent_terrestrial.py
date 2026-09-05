@@ -18,24 +18,35 @@ clip takes less than 0.01 percent of the power. The propagated beam is
 therefore the pure Gaussian that the analytic forms assume, and the comparison
 tests the TURBULENCE, not the truncation.
 
-THREE RECEIVE APERTURES, ONE ATMOSPHERE. TurbTrial carries the collected power
-of the receive aperture, and nothing else. Its docstring forbids a piecemeal
-extension, so the script does not add a field to it. Instead it runs the same
-grid, the same screen plan and the same seeds three times, and it changes the
-receive aperture only:
+THREE RECEIVE APERTURES, ONE CAMPAIGN. The trials run through
+`olb.waveoptics.turbulence.Campaign`, the store of trials on disk. The campaign
+keeps the receive-plane field of every trial on a disc of the LARGEST receive
+aperture, so the three apertures come from ONE Monte Carlo:
 
-- a 3-pixel PINHOLE, which reads the on-axis irradiance;
+- the 100 mm BUDGET aperture with its single-mode fibre. The campaign runs it,
+  so its collected power and its fibre coupling sit in the trial record.
 - a 30 mm SAMPLING aperture, which is small against the 108 mm beam, so it
-  samples the beam exactly as the analytic aperture-averaging factor assumes;
-- the 100 mm BUDGET aperture with its single-mode fibre.
+  samples the beam exactly as the analytic aperture-averaging factor assumes.
+  `campaign.recollect(aperture_m=0.03)` reads it from the stored field.
+- a 3-pixel PINHOLE, which reads the on-axis irradiance. It is a 9 mm disc, far
+  inside the stored patch, so `campaign.recollect` gives it too.
+
+The campaign clips the STORED field with the same code that the run uses, so a
+post-hoc aperture gives the number that a new run would give. `recollect` does
+not divide by the launch reference, so the script takes that reference from the
+budget aperture, where the campaign holds both the raw power and the normalised
+one.
+
+The blocks stay on disk under `examples/waveoptics/_campaigns/`. A second run of
+the script computes NOTHING: it reads the store.
 
 WHAT TO EXPECT. The expectation is 15 to 20 percent on the scintillation rows
 and 0.5 dB on the fibre-coupling row. The first two rows meet it. The last two
 do NOT, and the reason is physics, not a defect:
 
-- The on-axis index agrees to about 10 percent. The pinhole index runs a little
-  HIGH, because the split step lets the beam WANDER off the fixed pinhole and
-  the Dios on-axis form carries no wander.
+- The on-axis index agrees to about 10 percent. The pinhole sits at the fixed
+  centre of the grid, and the split step lets the beam WANDER off it. The Dios
+  on-axis form carries no wander, so the two are not the same quantity.
 - The 30 mm sampling bucket agrees with the weak aperture-averaging factor.
 - The 100 mm BUDGET bucket does NOT. That aperture collects most of the beam,
   and the split step conserves power, so almost nothing is left to fluctuate.
@@ -69,7 +80,7 @@ Run from the repo root:
     python -m examples.waveoptics.turbulent_terrestrial
 '''
 
-import dataclasses
+import os
 import time
 import warnings
 
@@ -87,9 +98,7 @@ from olb.turbulence.gaussian_fried import (gaussian_fried_parameter,
                                            plane_wave_fried_parameter)
 from olb.turbulence.plane_wave_scintillation import \
     aperture_averaging_factor_weak
-from olb.waveoptics import Threader
-from olb.waveoptics.turbulence import (propagate_turbulent_field,
-                                       propagate_turbulent_scenario,
+from olb.waveoptics.turbulence import (Campaign, propagate_turbulent_field,
                                        turbulent_grid)
 
 WAVELENGTH_M = 1550e-9
@@ -101,18 +110,19 @@ RX_APERTURE_M = 0.10        # the budget receiver, with the fibre
 SAMPLE_APERTURE_M = 0.03    # small against the beam: a fair bucket sample
 PRESET = "standard"
 N_TRIALS = 300
-BLOCK = 40                  # trials for each progress line
+BLOCK = 50                  # trials in one campaign block
 SEED = 20260826
+WORKERS = 4                 # one process for each core of this machine
 PINHOLE_PIXELS = 3          # the on-axis probe, in pixels
+
+# The campaign store. The blocks stay on disk, so a second run computes nothing.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_campaigns",
+                    "turbulent_terrestrial")
 
 # The weak-fluctuation band that the script asserts. Below 0.05 the turbulence
 # is too quiet to measure against the Monte Carlo noise, and 0.35 is already
 # past the comfortable margin of the WEAK_FLUCTUATION_LIMIT of 0.25.
 WEAK_BAND = (0.05, 0.35)
-
-# The trials are independent, so they run across threads. None takes one worker
-# for each core. See olb.waveoptics.Threader.
-THREADER = Threader()
 
 PNG = "examples/waveoptics/figures/turbulent_terrestrial.png"
 FIELD_PNG = "examples/waveoptics/figures/turbulent_terrestrial_field.png"
@@ -123,41 +133,22 @@ FIELD_PNG = "examples/waveoptics/figures/turbulent_terrestrial_field.png"
 _GRID_N = 400
 
 
-def build_scenario(rx_aperture_m=RX_APERTURE_M, fibre=True):
+def build_scenario():
     '''Build the horizontal scenario: a clean 50 mm launch to an SMF receiver.
 
     The pointing jitter is zero on both terminals, so the comparison carries
-    the TURBULENCE only. Set fibre=False for the two probe apertures: they read
-    the collected power alone, so they need no detector.
+    the TURBULENCE only. The receive aperture is the BUDGET aperture, the
+    largest of the three. The two probe apertures are a post-hoc crop of the
+    stored field, so they need no scenario of their own.
     '''
     near = Terminal(aperture_m=TX_APERTURE_M, wavelength_m=WAVELENGTH_M,
                     pointing_jitter_rad=0.0,
                     transmitter=Transmitter(waist_m=WAIST_M))
-    far = Terminal(aperture_m=rx_aperture_m, wavelength_m=WAVELENGTH_M,
-                   pointing_jitter_rad=0.0,
-                   detector=SMF() if fibre else None)
+    far = Terminal(aperture_m=RX_APERTURE_M, wavelength_m=WAVELENGTH_M,
+                   pointing_jitter_rad=0.0, detector=SMF())
     return TerrestrialScenario(
         near=near, far=far,
         channel=TerrestrialChannel(path_length_m=PATH_M, cn2=CN2))
-
-
-def run_blocks(scenario, geometry, label, *, n_trials, block, seed, **kwargs):
-    '''Run the trials in blocks, and print one progress line for each block.
-
-    The runner keys its seeds on the trial INDEX, so a second call with the
-    same seed repeats the same trials. Each block therefore takes its own seed,
-    seed + block index. The set stays repeatable.
-    '''
-    trials, t0 = [], time.time()
-    result = None
-    for i, start in enumerate(range(0, n_trials, block)):
-        n = min(block, n_trials - start)
-        result = propagate_turbulent_scenario(scenario, geometry, n_trials=n,
-                                              seed=seed + i, **kwargs)
-        trials += result.trials
-        print(f"    {label}: {len(trials):4d} / {n_trials} trials, "
-              f"{time.time() - t0:6.1f} s")
-    return dataclasses.replace(result, trials=trials)
 
 
 def scintillation_index(values):
@@ -172,7 +163,11 @@ def verdict(ratio, low, high):
 
 
 def timing_line(result, label):
-    '''Print the mean, the smallest and the largest trial time.'''
+    '''Print the mean, the smallest and the largest trial time.
+
+    The campaign stores the wall time of every trial, so the line reads the
+    store. It is the CPU time of a trial, not the wall time of the pool.
+    '''
     t = np.array([tr.wall_time_s for tr in result.trials])
     print(f"  {label:<22}mean {t.mean():6.3f} s   min {t.min():6.3f} s   "
           f"max {t.max():6.3f} s   total {t.sum():7.1f} s")
@@ -310,11 +305,20 @@ def main():
     scenario = build_scenario()
     geometry = HorizontalPath(PATH_M)
 
-    # The grid and the plan come out ONE time. Both runs below then share them,
-    # so the pinhole run sees the SAME atmosphere as the bucket run.
+    # The campaign sizes the grid and it plans the screens ONE time, and it
+    # keeps both in its manifest. So a resumed campaign never re-sizes. The
+    # patch holds the BUDGET aperture, the largest of the three, so the two
+    # probe apertures are a crop of the stored field.
+    campaign = Campaign(scenario, geometry, ROOT, seed=SEED, preset=PRESET,
+                        block_size=BLOCK, sizing_aperture_m=RX_APERTURE_M)
+    grid, plan = campaign.grid, campaign.plan
+
+    # Campaign.load gives report=None, so the sampling report comes from one
+    # more call of the sizer with the SAME inputs. The call is cheap arithmetic
+    # and it changes nothing: the campaign keeps its own grid and plan.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        grid, plan, report = turbulent_grid(scenario, geometry, preset=PRESET)
+        _, _, report = turbulent_grid(scenario, geometry, preset=PRESET)
 
     sigma2_R = float(plan.sigma2_r.sum())
     assert WEAK_BAND[0] <= sigma2_R <= WEAK_BAND[1], (
@@ -343,7 +347,8 @@ def main():
     print(f"  grid                    {grid.n:11d} px, {grid.size_m:.4f} m")
     print(f"  pixel pitch             {grid.pixel_m * 1e3:11.4f} mm")
     print(f"  screens                 {plan.z_m.size:11d}")
-    print(f"  thread workers          {THREADER.max_workers:11d}")
+    print(f"  process workers         {WORKERS:11d}")
+    print(f"  campaign store          {os.path.relpath(ROOT):>11}")
     print(f"  r0, composite           {plan.r0_total_m * 1e2:11.3f} cm")
     print("")
     print("  the sampling report, ACHIEVED against the preset:")
@@ -360,34 +365,35 @@ def main():
     for text in report.warnings + tuple(str(w.message) for w in caught):
         print(f"      {text}")
 
-    # ---- the three runs ----
-    # Every run shares the grid, the plan and the seeds, so the three receive
-    # apertures look at the SAME 120 atmospheres.
+    # ---- the campaign ----
+    # ONE Monte Carlo. The three receive apertures then read the SAME 300
+    # atmospheres, because the two probes crop the stored field.
     pinhole_m = PINHOLE_PIXELS * grid.pixel_m
     print("")
-    print(f"  running {N_TRIALS} snapshots three times on the same screens: a "
-          f"{pinhole_m * 1e3:.2f} mm pinhole,")
-    print(f"  a {SAMPLE_APERTURE_M * 1e3:.0f} mm sampling bucket, and the "
-          f"{RX_APERTURE_M * 1e3:.0f} mm budget aperture with its fibre")
-    runs = {}
-    for label, aperture_m, fibre in (
-            ("pinhole", pinhole_m, False),
-            ("sampling", SAMPLE_APERTURE_M, False),
-            ("budget", RX_APERTURE_M, True)):
-        runs[label] = run_blocks(
-            build_scenario(rx_aperture_m=aperture_m, fibre=fibre), geometry,
-            label, n_trials=N_TRIALS, block=BLOCK, seed=SEED, grid=grid,
-            plan=plan, threader=THREADER)
+    print(f"  the campaign holds {N_TRIALS} snapshots. Three receive apertures "
+          f"read it: a")
+    print(f"  {pinhole_m * 1e3:.2f} mm pinhole, a "
+          f"{SAMPLE_APERTURE_M * 1e3:.0f} mm sampling bucket, and the "
+          f"{RX_APERTURE_M * 1e3:.0f} mm budget aperture with its fibre.")
+    t_run = time.time()
+    n_stored = campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+    print(f"    {n_stored} trials on disk after {time.time() - t_run:.1f} s")
 
-    on_axis = np.array([tr.collected_power for tr in runs["pinhole"].trials])
-    sampled = np.array([tr.collected_power for tr in runs["sampling"].trials])
-    power = np.array([tr.collected_power for tr in runs["budget"].trials])
-    smf_eta = np.array([tr.smf_eta for tr in runs["budget"].trials])
+    result = campaign.load(fields=False)
+    power = np.array([tr.collected_power for tr in result.trials])
+    smf_eta = np.array([tr.smf_eta for tr in result.trials])
+
+    # THE LAUNCH REFERENCE. The runner divides the collected power by the
+    # launched power, and `recollect` does not. The budget aperture gives both,
+    # so their ratio IS that reference, and it normalises the two probes.
+    raw_budget = campaign.recollect(aperture_m=RX_APERTURE_M)
+    p_launch = float(np.mean(raw_budget / power))
+    on_axis = campaign.recollect(aperture_m=pinhole_m) / p_launch
+    sampled = campaign.recollect(aperture_m=SAMPLE_APERTURE_M) / p_launch
 
     print("")
     print("  per-trial wall time:")
-    for label in ("pinhole", "sampling", "budget"):
-        timing_line(runs[label], f"{label} run")
+    timing_line(result, "campaign")
 
     # ---- the analytic targets ----
     # The same kernels that olb.links.terrestrial.terrestrial_scintillation_term
@@ -454,7 +460,7 @@ def main():
           f"{100 * np.sqrt(2.0 / N_TRIALS):.0f} percent,")
     print("  so read the three scintillation rows to that accuracy.")
     print("")
-    print("  The on-axis row runs HIGH by construction. The pinhole reads the")
+    print("  The on-axis row is not an identity. The pinhole reads the")
     print("  irradiance at the fixed centre of the grid, so it sees the beam")
     print("  WANDER off the axis. The Dios on-axis index sigma2_I(0, L) is the")
     print("  index at the centre of the beam, wherever the beam is, so it")
@@ -504,25 +510,26 @@ def main():
           f"fidelity 0 mean-only Term gives NO fade")
 
     # ---- the phase screens ----
-    # Each trial makes one fresh screen stack, and the three aperture runs each
-    # run the full set of trials on the SAME grid and plan. So the run
-    # generates screens-per-trial x trials x 3 runs screens.
+    # Each trial makes one fresh screen stack, and the campaign runs the set
+    # ONE time. The three apertures crop the stored field, so they make no
+    # screen at all. The old three-run script made three times this number.
     per_trial = int(plan.z_m.size)
-    n_runs = 3
-    total_screens = per_trial * N_TRIALS * n_runs
+    total_screens = per_trial * N_TRIALS
     print("")
     print("phase screens created:")
-    print(f"  {per_trial} per trial x {N_TRIALS} trials x {n_runs} aperture "
-          f"runs = {total_screens} screens")
+    print(f"  {per_trial} per trial x {N_TRIALS} trials = {total_screens} "
+          f"screens (one campaign, three apertures)")
 
     draw(sampled, sigma2_sample, power, sigma2_bucket, smf_eta,
          analytic_smf_db)
 
     # ---- the received field of one snapshot ----
-    # Trial 0 of the budget run, on the shared grid and plan, so it is the same
-    # atmosphere that the three aperture runs saw first.
+    # Trial 0 of the campaign, on the campaign grid and plan and on the same
+    # seed. So the picture shows the first atmosphere of the campaign. The
+    # stored patch holds the receive disc only, and this picture draws the whole
+    # grid, so it propagates that one snapshot again.
     F_rx, _, _ = propagate_turbulent_field(
-        build_scenario(), geometry, seed=SEED, trial=0, grid=grid, plan=plan)
+        scenario, geometry, seed=SEED, trial=0, grid=grid, plan=plan)
     draw_field(F_rx, RX_APERTURE_M, 0.0, FIELD_PNG,
                f"Received field at the far terminal, one snapshot\n"
                f"{PATH_M * 1e-3:.0f} km horizontal, receive aperture "
