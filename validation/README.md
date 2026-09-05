@@ -98,6 +98,18 @@ See [lognormal_certification/README.md](lognormal_certification/README.md).
 | --- | --- |
 | [lognormal_certification/lognormal_certification.py](lognormal_certification/lognormal_certification.py) | The certification run: a `D/rho_0` sweep from a point-like aperture to strong averaging, for a collimated and a diverged launch. ONE propagation for each trial serves the whole aperture sweep (`propagate_turbulent_field`), so every aperture reads the same atmosphere; a matched-seed check against `propagate_turbulent_scenario` proves the two agree bit for bit. It reports the point index, the effective averaging factor, the beam-fill fraction and the absolute fade spread. It writes a results JSON, a run log and `figures/lognormal_certification.png`. `--full` raises the trial count for the 1 % fade tail. |
 
+## fibre_fade_models/
+
+A PLAN, not a study yet (2026-09-05, backlog 1-9). No script exists. The
+README records what the stored fidelity-2 results already show about the
+uncorrected fibre-coupled fade (it sits at the SPECKLE limit, 11 to 14 dB at
+p5, and it does NOT follow the point index), the candidate analytic families
+for it (lognormal times Rician from the Noll residual, a Zernike Monte Carlo
+with no propagation, the fourth-order coherence route), the receiver-kind
+split, the Zernike TEMPORAL spectrum extension (Conan 1995), and the order of
+work. The owner reviews it before any code is written.
+See [fibre_fade_models/README.md](fibre_fade_models/README.md).
+
 ## tail_convergence/
 
 The fidelity-2 single-mode-fibre fade-tail convergence study (backlog 2-I2T),
