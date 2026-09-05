@@ -26,7 +26,7 @@ import numpy as np
 
 from ..beam import virtual_waist
 from ..terminal import SMF
-from .field import Begin, Field, Normal, Power
+from .field import Begin, Field, Normal, Power, field_dtype
 from .grid import GridSpec, beam_magnification
 from .lenses import Convert, Lens, LensFresnel
 from .propagators import Fresnel, GForvard
@@ -177,7 +177,7 @@ def _smf_eta(detector, collected, aperture_m, lam):
                                      focal_length_m=f_smf))
 
 
-def propagate_scenario(scenario, geometry, grid=None):
+def propagate_scenario(scenario, geometry, grid=None, precision="single"):
     """Propagate the transmit beam of a scenario to the receive aperture.
 
     The steps are: launch, launch-aperture clip, free-space propagation,
@@ -197,13 +197,23 @@ def propagate_scenario(scenario, geometry, grid=None):
                   sweep over the elevation belongs to the caller.
         grid:     an optional GridSpec. None derives the grid with
                   GridSpec.for_scenario().
+        precision: "single" (the default) or "double". "single" runs the
+                  propagation in complex64. WHY: half the bytes for each
+                  element, which a memory-bandwidth bound machine feels. This
+                  run is deterministic and it happens ONE time, so the gain is
+                  small here; the switch exists so a vacuum baseline matches
+                  the precision of its turbulent run. CAUTION: a
+                  single-precision record is not bit-identical to the double
+                  precision record. See validation/precision.
 
     Returns:
         A WaveResult.
 
     Raises:
-        ValueError: the geometry gives more than one range.
+        ValueError: the geometry gives more than one range, or the precision
+                    name is unknown.
     """
+    cdtype = field_dtype(precision)
     if grid is None:
         grid = GridSpec.for_scenario(scenario, geometry)
 
@@ -224,7 +234,7 @@ def propagate_scenario(scenario, geometry, grid=None):
     # aperture. See olb.beam. The beam then has the asked-for radius in the
     # aperture plane.
     w_v, offset = virtual_waist(t.waist_m, t.divergence_rad, lam)
-    F = GaussBeam(Begin(grid.size_m, lam, grid.n), w_v)
+    F = GaussBeam(Begin(grid.size_m, lam, grid.n, dtype=cdtype), w_v)
     F = _normalised_gauss(F)
     if offset > 0:
         F = GForvard(F, offset)
@@ -321,7 +331,9 @@ if __name__ == '__main__':
     assert [label for label, _ in far.stages] == [
         "launch", "after tx clip", "at rx plane", "after rx clip"]
     assert all(isinstance(F, Field) for _, F in far.stages)
-    assert abs(Power(far.stages[0][1]) - 1.0) < 1e-9      # the launch is normal
+    # The launch is normal. The default is single precision, so the power
+    # holds to about 1e-7, not 1e-9.
+    assert abs(Power(far.stages[0][1]) - 1.0) < 1e-5
 
     # ---- case 2: near field, hard truncation ----
     # waist 120 mm, tx aperture 150 mm (alpha = 0.625), range 1 km. The

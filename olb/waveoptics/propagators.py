@@ -101,7 +101,13 @@ def Forvard(Fin, z):
     size = Fout.siz
     lam = Fout.lam
 
-    in_out = np.zeros((N, N), dtype=np.complex128)
+    # THE PRECISION FOLLOWS THE FIELD. A complex64 field keeps the whole hot
+    # loop in single precision: the working array, the sign pattern and the
+    # transfer function. That halves the bytes each FFT moves.
+    cdtype = Fin.field.dtype
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+
+    in_out = np.zeros((N, N), dtype=cdtype)
     in_out[:, :] = Fin.field
 
     # The legacy value of 2*pi keeps the port equal to the C++ LightPipes.
@@ -114,7 +120,7 @@ def Forvard(Fin, z):
 
     # The alternating sign pattern does the same as a double fftshift,
     # but it is faster. See the LightPipes manual.
-    iiN = np.ones((N,), dtype=float)
+    iiN = np.ones((N,), dtype=rdtype)
     iiN[1::2] = -1
     iiij = np.outer(iiN, iiN)
     in_out *= iiij
@@ -128,9 +134,13 @@ def Forvard(Fin, z):
     SW *= SW
     SSW = SW.reshape((-1, 1)) + SW
     Bus = z1 * SSW
+    # KEEP Bus IN DOUBLE PRECISION. Bus reaches thousands on a long hop, and
+    # the next line takes the fractional part. In single precision that
+    # subtraction loses 4 digits of the phase. So the wrap runs in double
+    # precision, and only the finished factor CC takes the field precision.
     Ir = Bus.astype(int)            # truncate, do not round
     Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
-    CC = np.cos(Abus) + 1j * np.sin(Abus)
+    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
 
     if zz >= 0.0:
         in_out = _fft2(in_out)
@@ -207,6 +217,9 @@ def _field_Fresnel(z, field, dx, lam):
     LightPipes, so the numbers match the reference package.
     """
     N = field.shape[0]
+    # The precision follows the field. See Forvard.
+    cdtype = field.dtype
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
 
     kz = 2. * 3.141592654 / lam * z
     siz = N * dx
@@ -216,11 +229,11 @@ def _field_Fresnel(z, field, dx, lam):
 
     No2 = int(N / 2)
 
-    in_outF = np.zeros((2 * N, 2 * N), dtype=np.complex128)
-    in_outK = np.zeros((2 * N, 2 * N), dtype=np.complex128)
+    in_outF = np.zeros((2 * N, 2 * N), dtype=cdtype)
+    in_outK = np.zeros((2 * N, 2 * N), dtype=cdtype)
 
     # The alternating sign pattern replaces the double fftshift.
-    ii2N = np.ones((2 * N), dtype=float)
+    ii2N = np.ones((2 * N), dtype=rdtype)
     ii2N[1::2] = -1
     iiij2N = np.outer(ii2N, ii2N)
     iiij2No2 = iiij2N[:2 * No2, :2 * No2]
@@ -339,6 +352,10 @@ def _ABCD(Fin, M):
     k = 2 * np.pi / Fin.lam
     phase_z = k * Fout._z - np.arctan(Fout._z / z0)
 
+    # THE ABCD ROUTE STAYS IN DOUBLE PRECISION. The transverse phase reaches
+    # millions of radians on a space link, so a single-precision r2 loses the
+    # phase. The `field` setter casts the finished array to the field
+    # precision, and this route is analytic, so it runs one time only.
     r2 = Fin.mgrid_Rsquared
     phase_trans = k / 2 * inv_R * r2
     w0w = Fin._w0 / w
@@ -400,6 +417,30 @@ if __name__ == '__main__':
     b_fs = bucket_power(Forvard(F0s, z), wz)
     assert abs(b_fs - b_gs) / b_gs > 1e-2, (b_fs, b_gs)
 
+    # ---- the single-precision route ----
+    # A complex64 field keeps complex64 through each propagator, and it agrees
+    # with the complex128 route to about 1e-6 of the peak amplitude.
+    def rel_rms(a, b):
+        """The rms difference of two fields, over the peak of the reference."""
+        return float(np.sqrt(np.mean(np.abs(a - b) ** 2)) / np.abs(b).max())
+
+    F0_32 = GaussBeam(Begin(size, lam, N, dtype=np.complex64), w0)
+    assert F0_32.field.dtype == np.complex64
+    FF32 = Forvard(F0_32, z)
+    FR32 = Fresnel(F0_32, z)
+    FG32 = GForvard(F0_32, z)
+    assert FF32.field.dtype == np.complex64
+    assert FR32.field.dtype == np.complex64
+    assert FG32.field.dtype == np.complex64
+    e_forvard = rel_rms(FF32.field, FF.field)
+    e_fresnel = rel_rms(FR32.field, FR.field)
+    e_gauss = rel_rms(FG32.field, FG.field)
+    assert e_forvard < 1e-5, e_forvard
+    assert e_fresnel < 1e-5, e_fresnel
+    assert e_gauss < 1e-5, e_gauss
+    # The single-precision Forvard also conserves the power.
+    assert abs(Power(FF32) / Power(F0_32) - 1.0) < 1e-5
+
     # ---- the spherical-coordinate guard ----
     Fsph = Field.copy(F0)
     Fsph._curvature = -1e-6
@@ -428,4 +469,9 @@ if __name__ == '__main__':
     print(f"  GForvard (analytic)   {b_gs:9.6f}")
     print(f"  Forvard  (FFT)        {b_fs:9.6f}")
     print(f"  relative difference   {abs(b_fs - b_gs) / b_gs:9.4f}")
+    print("")
+    print("complex64 against complex128, relative rms of the field:")
+    print(f"  Forvard               {e_forvard:9.2e}")
+    print(f"  Fresnel               {e_fresnel:9.2e}")
+    print(f"  GForvard              {e_gauss:9.2e}")
     print("self-check passed")

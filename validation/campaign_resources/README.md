@@ -16,10 +16,16 @@ blocks of 50 (80 blocks) on 16 workers.
 python -m validation.campaign_resources.campaign_resources
 python -m validation.campaign_resources.campaign_resources --workers 24
 python -m validation.campaign_resources.campaign_resources --threads
+python -m validation.campaign_resources.campaign_resources --precision single
 ```
 
 `--threads` gives the other level of parallelism (serial blocks, each one
 threaded inside) for a comparison. `--smoke` is a small local check.
+`--precision single` (the default since 2026-09-05) runs every trial in
+complex64 with float32 screens, which halves the bytes for each element. It is
+a SEPARATE campaign from `--precision double`: it gets its own root directory
+(`..._single/`) and its own fingerprint, so the two never mix. Compare them
+with `validation/precision/precision_check.py`.
 
 ## Read the result
 
@@ -106,6 +112,15 @@ Measured on 2026-09-05 (512 px grid, 9 screens, blocks of 50):
 | 8       | yes          | 7.8          | 12.7 mean, 18.8 peak |
 | 16      | yes          | 7.2          | 25.5 mean, 31.2 peak |
 | 12      | yes          | 8.5          | 17.5 mean, 24.4 peak |
+| 12, single precision | yes | 11.2   | 14.0 mean, 23.2 peak |
+
+The single-precision 12-worker run (`--precision single`, complex64 field
+and float32 screens, 2000 trials): 179 s (0.090 s/trial), 11.2 trials/s
+against 8.5 in double precision at the same settings, a 1.32x gain, with
+FEWER busy threads (14.0 against 17.5). Fewer bytes per element means less
+time waiting on memory, which is the bandwidth reading confirmed. The
+physics agrees with double precision to parts per million
+(validation/precision/).
 
 The 12-worker run (stopped by hand at 60 of 80 blocks): 3000 trials in
 355 s (0.118 s/trial), the fastest of the three. So on this 512 px grid

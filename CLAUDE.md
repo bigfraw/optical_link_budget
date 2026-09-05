@@ -608,6 +608,25 @@ Open items:
   `my_analysis_modules` working tree (which held the Dios-verified fixes). So
   olb now carries the fixed version regardless of whether the kernel repo ever
   commits them, and olb no longer depends on `my_analysis_modules` at all.
+- **Single precision is the DEFAULT of the fidelity-2 layer (owner decision
+  2026-09-05, branch `complex64-field`).** `precision="double"|"single"` threads through
+  `propagate_scenario`, `propagate_turbulent_scenario`,
+  `propagate_turbulent_field`, `Campaign`, `run_waveoptics` and
+  `run_fidelity2`, default `"single"`; `Field`/`Begin` take `dtype` (the core
+  default stays complex128), every propagator follows the field precision, and
+  `Forvard` keeps its phase wrap in float64. So every seeded fidelity-2 number
+  MOVES by parts per million from 2026-09-05; `precision="double"` reproduces
+  an older run bit for bit, and the three studies that reopen stored double
+  campaigns (`tail_convergence`, `outer_scale_tail`, `waveoptics_vs_fast`) pass
+  it explicitly. `precision` enters the campaign fingerprint and manifest only
+  when single, so every old key stays valid. WHY: a Campaign on bigfraw is
+  memory-BANDWIDTH bound (12 processes saturate the channels on a 512 px grid;
+  16 workers add busy threads and lose throughput), so half the bytes per
+  element is the lever: 11.2 against 8.5 trials/s at 12 workers (1.32x, fewer
+  busy threads). The physics agrees to parts per million
+  (`validation/precision/`). The ssh launch rules for a
+  desktop run (chain with `;`, launch through WMI, boost EVERY pool worker,
+  8 to 12 workers) are in `validation/campaign_resources/README.md`.
 - **The fidelity-2 speed campaign is DONE (2026-08-29; P0 to P4, see
   `docs/waveoptics-efficiency-plan.md` Section 8 and `validation/waveoptics_speed/`).**
   P0 found screen generation was ~80% of a trial. P1 added the fast

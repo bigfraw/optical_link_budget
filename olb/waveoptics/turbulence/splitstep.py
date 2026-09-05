@@ -103,7 +103,11 @@ def _substeps(gap_m, max_step_m):
 
 
 def _apply_mask(Fin, mask):
-    """Multiply the field by a real mask. Return a new Field."""
+    """Multiply the field by a real mask. Return a new Field.
+
+    The caller casts the mask to the real type of the field ONE time, in
+    split_step. So this multiply makes no wide temporary at each hop.
+    """
     Fout = Field.copy(Fin)
     Fout.field = Fout.field * mask
     Fout._IsGauss = False
@@ -192,7 +196,11 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
             raise ValueError(f'split_step: screen {i} is {np.shape(scr)}, '
                              f'but the field is {shape}')
     if boundary is not None:
-        boundary = np.asarray(boundary, dtype=float)
+        # Cast the mask to the real type of the field ONE time, not at each
+        # hop. A float64 mask on a complex64 field makes a complex128
+        # temporary, and the mask multiply runs after each sub-step.
+        rdtype = np.float32 if Fin.field.dtype == np.complex64 else np.float64
+        boundary = np.asarray(boundary, dtype=rdtype)
         if boundary.shape != shape:
             raise ValueError(f'split_step: the boundary is {boundary.shape}, '
                              f'but the field is {shape}')
@@ -309,6 +317,18 @@ if __name__ == '__main__':
     assert abs(p_no / p_in - 1.0) < 1e-10, (p_no, p_in)
     assert p_bd <= p_no * (1.0 + 1e-12), (p_bd, p_no)
 
+    # ---- 5b. the single-precision path ----
+    # A complex64 field keeps complex64 through the screens and the mask, and
+    # it agrees with the complex128 path to about 1e-6.
+    F0_32 = GaussBeam(Begin(side, lam, n, dtype=np.complex64), 0.01)
+    F_32 = split_step(F0_32, z5, scr5, z, boundary=mask)
+    F_64 = split_step(F0, z5, scr5, z, boundary=mask)
+    assert F_32.field.dtype == np.complex64, F_32.field.dtype
+    e_32 = float(np.sqrt(np.mean(np.abs(F_32.field - F_64.field) ** 2))
+                 / np.abs(F_64.field).max())
+    assert e_32 < 1e-5, e_32
+    assert abs(Power(F_32) / Power(F_64) - 1.0) < 1e-5
+
     # ---- 6. the plane-wave Rytov variance ----
     # sigma2_R = 1.23 Cn2 k^(7/6) L^(11/6). Andrews and Phillips,
     # DOI 10.1117/3.626196, Ch. 8 (the weak plane-wave index).
@@ -365,6 +385,7 @@ if __name__ == '__main__':
     print(f"  input                   {p_in:9.6e} W")
     print(f"  no mask                 {p_no:9.6e} W")
     print(f"  with mask               {p_bd:9.6e} W")
+    print(f"  complex64 rel rms       {e_32:9.2e}")
     if sig2_meas is not None:
         print("")
         print(f"plane-wave scintillation, {n_scr} screens, {trials} trials:")

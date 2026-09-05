@@ -724,7 +724,9 @@ def main():
         spec = cases[name]
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            # The stored campaigns are DOUBLE precision (2026-09-04).
             camp = Campaign(scn, geom, root, seed=SEED,
+                            precision="double",
                             preset=spec.get("preset", "standard"),
                             block_size=args.block_size,
                             grid=spec["grid"], plan=spec["plan"])

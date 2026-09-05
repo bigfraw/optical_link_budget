@@ -50,6 +50,7 @@ Usage (on the desktop, after the sync script):
     python -m validation.campaign_resources.campaign_resources --workers 24
     python -m validation.campaign_resources.campaign_resources --threads
     python -m validation.campaign_resources.campaign_resources --workers 12 --grid-n 1024
+    python -m validation.campaign_resources.campaign_resources --precision single
     python -m validation.campaign_resources.campaign_resources --smoke
 
 `--smoke` is a small local check: 8 trials, blocks of 2, 2 workers, rapid.
@@ -370,6 +371,12 @@ def main(argv=None):
                          "plan stay as the preset sizer gives them)")
     ap.add_argument("--root", default=None,
                     help="the campaign directory (default: next to this file)")
+    ap.add_argument("--precision", choices=("double", "single"),
+                    default="single",
+                    help="the arithmetic of every trial. 'single' runs the "
+                         "field in complex64 and the screens in float32, which "
+                         "halves the bytes for each element. It is a SEPARATE "
+                         "campaign (its own root and its own fingerprint).")
     ap.add_argument("--smoke", action="store_true",
                     help="8 trials, blocks of 2, 2 workers, rapid preset")
     args = ap.parse_args(argv)
@@ -386,12 +393,15 @@ def main(argv=None):
               f"can use at most {n_blocks} processes. Lower --block-size.")
 
     grid_tag = "" if args.grid_n is None else f"_n{args.grid_n}"
-    tag = (f"el{args.elevation:.0f}_{args.preset}{grid_tag}_"
+    # A single-precision campaign is a SEPARATE store: it gets its own root
+    # name, so it never mixes with the double-precision blocks.
+    prec_tag = "" if args.precision == "double" else "_single"
+    tag = (f"el{args.elevation:.0f}_{args.preset}{grid_tag}{prec_tag}_"
            + ("threads" if workers is None else f"w{workers}")
            + ("_smoke" if args.smoke else ""))
     root = args.root or os.path.join(
         HERE, f"campaign_{args.preset}_el{args.elevation:.0f}{grid_tag}"
-        + ("_smoke" if args.smoke else ""))
+        + prec_tag + ("_smoke" if args.smoke else ""))
     csv_path = os.path.join(HERE, f"resources_{tag}.csv")
     json_path = os.path.join(HERE, f"resources_{tag}.json")
     png_path = os.path.join(HERE, f"resources_{tag}.png")
@@ -409,13 +419,16 @@ def main(argv=None):
                         scaled=sized_grid.scaled)
     camp = Campaign(scn, geom, root, seed=SEED, preset=args.preset,
                     block_size=args.block_size, L0_m=L0_M, grid=grid,
-                    plan=plan)
+                    plan=plan, precision=args.precision)
     print(f"campaign      : {root}")
     print(f"scenario      : downlink 1550 nm, 500 km at {args.elevation:.0f} deg, "
           f"ground {scn.rx_terminal.aperture_m * 1e3:.0f} mm / "
           f"{scn.rx_terminal.obscuration_ratio:.0%} obscured, SMF")
     print(f"grid          : {camp.grid.n} px, {camp.grid.size_m:.3f} m, "
           f"{camp.plan.z_m.size} screens, L0 = {L0_M} m, preset {args.preset}")
+    print(f"precision     : {args.precision} "
+          + ("(complex128 field, float64 screens)" if args.precision == "double"
+             else "(complex64 field, float32 screens)"))
     print(f"trials        : {args.n_trials} in blocks of {args.block_size} "
           f"({n_blocks} blocks), {camp.n_stored} already on disk")
     print("parallelism   : "
@@ -439,6 +452,7 @@ def main(argv=None):
                     "workers": workers, "block_size": args.block_size,
                     "grid_n": camp.grid.n, "n_screens": int(camp.plan.z_m.size),
                     "L0_m": L0_M, "preset": args.preset,
+                    "precision": args.precision,
                     "campaign_root": root, "csv": csv_path})
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)

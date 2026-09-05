@@ -1,0 +1,56 @@
+campaign      : D:\repos\optical_link_budget\validation\campaign_resources\campaign_standard_el30_single
+scenario      : downlink 1550 nm, 500 km at 30 deg, ground 700 mm / 30% obscured, SMF
+grid          : 512 px, 3.514 m, 9 screens, L0 = 25.0 m, preset standard
+precision     : single (complex64 field, float32 screens)
+trials        : 2000 in blocks of 50 (40 blocks), 0 already on disk
+parallelism   : workers=12 (one process pool, serial blocks inside)
+logical cores : 32      sample every 2.0 s
+  block     0 done (1/40, 50.1 s)
+  block     8 done (2/40, 51.1 s)
+  block     1 done (3/40, 51.1 s)
+  block     2 done (4/40, 51.1 s)
+  block     9 done (5/40, 51.4 s)
+  block     4 done (6/40, 51.4 s)
+  block     3 done (7/40, 51.5 s)
+  block     5 done (8/40, 51.6 s)
+  block     6 done (9/40, 51.7 s)
+  block    10 done (10/40, 51.7 s)
+  block     7 done (11/40, 51.7 s)
+  block    11 done (12/40, 51.9 s)
+  block    12 done (13/40, 97.2 s)
+  block    15 done (14/40, 98.4 s)
+  block    23 done (15/40, 98.5 s)
+  block    21 done (16/40, 98.5 s)
+  block    13 done (17/40, 98.6 s)
+  block    18 done (18/40, 98.7 s)
+  block    16 done (19/40, 98.7 s)
+  block    14 done (20/40, 98.7 s)
+  block    19 done (21/40, 98.9 s)
+  block    17 done (22/40, 99.0 s)
+  block    20 done (23/40, 99.0 s)
+  block    22 done (24/40, 99.1 s)
+  block    24 done (25/40, 144.4 s)
+  block    28 done (26/40, 145.6 s)
+  block    25 done (27/40, 145.7 s)
+  block    33 done (28/40, 145.9 s)
+  block    31 done (29/40, 145.9 s)
+  block    30 done (30/40, 145.9 s)
+  block    26 done (31/40, 145.9 s)
+  block    27 done (32/40, 146.2 s)
+  block    29 done (33/40, 146.2 s)
+  block    32 done (34/40, 146.3 s)
+  block    34 done (35/40, 146.3 s)
+  block    35 done (36/40, 146.6 s)
+  block    36 done (37/40, 178.4 s)
+  block    38 done (38/40, 179.0 s)
+  block    37 done (39/40, 179.0 s)
+  block    39 done (40/40, 179.0 s)
+
+done          : 2000 trials on disk, 2000 new in 179.2 s (0.090 s/trial)
+cores busy    : mean 14.0, peak 23.2 of 32
+python procs  : peak 13, RSS peak 2.0 GB
+RAM used      : peak 16.7 GB
+clock         : mean 1900 MHz
+outputs       : D:\repos\optical_link_budget\validation\campaign_resources\resources_el30_standard_single_w12.csv
+                D:\repos\optical_link_budget\validation\campaign_resources\resources_el30_standard_single_w12.json
+                D:\repos\optical_link_budget\validation\campaign_resources\resources_el30_standard_single_w12.png
