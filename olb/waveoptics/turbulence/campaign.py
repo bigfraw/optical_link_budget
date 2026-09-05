@@ -66,6 +66,7 @@ from dataclasses import replace
 import numpy as np
 
 from ..grid import GridSpec
+from ..priority import boost_process_priority
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
@@ -150,9 +151,15 @@ def _init_worker(payload):
     The pool calls this ONE time for each process, so the scenario, the
     geometry, the grid and the plan cross the process boundary once.
 
+    When the payload asks for it, the worker also boosts ITS OWN priority:
+    Windows does not pass the power-throttling opt-out of the parent to a
+    spawned child (see olb.waveoptics.priority).
+
     Args:
         payload: the dict that Campaign.run builds.
     """
+    if payload.get("boost", False):
+        boost_process_priority()
     _W.clear()
     _W.update(payload)
 
@@ -439,7 +446,7 @@ class Campaign:
                 "screen_generator": self.screen_generator,
                 "precision": self.precision}
 
-    def run(self, n_trials, *, workers=None, progress=False):
+    def run(self, n_trials, *, workers=None, progress=False, boost=True):
         """Compute and store the MISSING blocks up to n_trials trials.
 
         A block that already sits on disk is not recomputed. The parent writes
@@ -454,6 +461,12 @@ class Campaign:
                       pool of W processes for the whole call, and each block
                       runs serially inside its process.
             progress: True prints one line for each finished block.
+            boost:    True (the default) raises this process to the Above
+                      Normal priority class and opts it out of power
+                      throttling (EcoQoS), and every pool worker does the
+                      same for itself. A windowless run (ssh, WMI) is
+                      throttled without it. A no-op off Windows. See
+                      olb.waveoptics.priority.
 
         Returns:
             The number of trials on disk, an int.
@@ -463,6 +476,8 @@ class Campaign:
         if not missing:
             return self.n_stored
 
+        if boost:
+            boost_process_priority()    # Threads inherit; workers boost themselves.
         t0 = time.time()
         if workers is None:
             threader = Threader()
@@ -483,7 +498,8 @@ class Campaign:
             from concurrent.futures import ProcessPoolExecutor, as_completed
             payload = {"scenario": self.scenario, "geometry": self.geometry,
                        "grid": self.grid, "plan": self.plan,
-                       "kwargs": self._runner_kwargs()}
+                       "kwargs": self._runner_kwargs(),
+                       "boost": bool(boost)}
             with ProcessPoolExecutor(max_workers=int(workers),
                                      initializer=_init_worker,
                                      initargs=(payload,)) as pool:

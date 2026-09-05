@@ -68,18 +68,21 @@ was verified on 2026-09-05 with this script.
 
    The WMI host owns the process, so it keeps running after the ssh session
    ends.
-4. **Boost the parent process.** `main` calls `boost_process_priority()`
-   first. It sets the Above Normal priority class and it opts the process
-   out of power throttling (EcoQoS). The opt-out is what stops the
-   throttling. Do NOT use the High class: a 16-worker pool at High starves
-   sshd and the VS Code server, and a Remote-SSH connection then times out
-   (2026-09-05).
-5. **Boost every spawned worker too.** Windows does not pass that opt-out
-   to a child process. With only the parent boosted, a 16-worker pool showed
-   17 busy threads but about 11 percent in Task Manager: the workers ran
-   throttled. The script replaces `campaign._init_worker` with a wrapper
-   that calls the boost in each worker before the Campaign initializer.
-   Threads inherit the parent state, so `--threads` needs step 4 only.
+4. **The priority boost is automatic.** `Campaign.run(boost=True)`, the
+   default, calls `olb.waveoptics.priority.boost_process_priority()` in the
+   parent AND in every pool worker (through the pool initializer). It sets
+   the Above Normal priority class and it opts the process out of power
+   throttling (EcoQoS). The opt-out is what stops the throttling. Do NOT
+   use the High class: a 16-worker pool at High starves sshd and the VS
+   Code server, and a Remote-SSH connection then times out (2026-09-05).
+5. **Why every worker.** Windows does not pass that opt-out to a child
+   process. With only the parent boosted, a 16-worker pool showed 17 busy
+   threads but about 11 percent in Task Manager: the workers ran throttled.
+   Before 2026-09-05 this script replaced `campaign._init_worker` with a
+   boosted wrapper; the package now owns that step. Threads inherit the
+   parent state, so `--threads` needs the parent boost only. A script that
+   drives `propagate_turbulent_scenario` directly (no Campaign) must still
+   call `boost_process_priority()` itself, as `precision_check.py` does.
 6. **Give the pool enough blocks.** The effective process count is
    `min(workers, ceil(n_trials / block_size))`. Keep
    `block_size <= n_trials / workers`.

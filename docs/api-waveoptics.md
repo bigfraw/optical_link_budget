@@ -29,9 +29,10 @@ against the same Terms. The remaining owner gate is whether fidelity 2 ever
 becomes a DEFAULT.
 
 The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`,
-`mmf.py`, `camera.py`) imports numpy and scipy only, and `threader.py` imports
-the standard library only. They import nothing from the rest of `olb`. Only
-`grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
+`mmf.py`, `camera.py`) imports numpy and scipy only, and `threader.py` and
+`priority.py` (the process priority boost of a long run, see the `boost`
+paragraph of Section 9g) import the standard library only. They import nothing
+from the rest of `olb`. Only `grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
 tiers (see Section 9).
 
 ---
@@ -1108,12 +1109,14 @@ This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
 and which was RETIRED on 2026-09-04; the value of the key did not change, so an
 existing manifest still matches.
 
-#### `Campaign.run(n_trials, *, workers=None, progress=False)`
+#### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True)`
 
 It computes and stores the MISSING blocks up to `n_trials` trials, and it
 returns the number of trials on disk. The call rounds `n_trials` up to a whole
 number of blocks. A block that already sits on disk is NOT recomputed.
-`progress=True` prints one line for each finished block.
+`progress=True` prints one line for each finished block. `boost=True` (the
+default) applies the process priority boost of `olb.waveoptics.priority` to
+this process AND to every pool worker; see the `boost` paragraph below.
 
 #### `Campaign.load(n_trials=None, *, fields=True)`
 
@@ -1178,6 +1181,25 @@ campaign is ONE physics case: use a new directory, or match the stored settings.
 Never both: threads inside processes over-subscribe the cores. The parent writes
 each block file as soon as that block arrives, so a killed campaign keeps every
 finished block.
+
+#### `boost`: the process priority boost (2026-09-05)
+
+A Windows process that has no console window runs under power throttling
+(EcoQoS): the scheduler parks it on the efficiency cores and lowers the clock.
+That is the state of a run that starts over ssh or through WMI, and a
+16-worker pool showed 17 busy threads at about 11 percent load in that state.
+`olb.waveoptics.priority.boost_process_priority()` sets the Above Normal
+priority class and opts the process out of the throttling; the opt-out, not the
+class, is what recovers the speed. Windows does NOT pass that opt-out to a
+spawned child, so the pool initializer `_init_worker` calls the boost in EVERY
+worker when the payload asks for it. A thread inherits the state of its
+process, so the threaded route (`workers=None`) needs the parent boost only.
+`boost=False` leaves every process at Normal. Off Windows the boost is a
+no-op. Do NOT set the High class: a 16-worker pool at High starves sshd and the
+VS Code server, and a Remote-SSH connection then times out. Before 2026-09-05
+the validation scripts patched the initializer by hand; the package now owns
+the boost, and `validation/campaign_resources/README.md` keeps the launch
+rules.
 
 **The measured facts behind the rule**
 (`validation/waveoptics_speed/fair_scaling_rerun.py`, 2026-09-04). Threads and

@@ -43,6 +43,12 @@ are from 2026-08-26 and can drift.
    pays of the order of 2 dB at p5 for the difference (an estimate, not yet
    measured). Choose an explicit site L0, thread
    it to the screens and to the analytic tilt Terms. See 2-P5 and 0-W4.
+2c. **Audit the fidelity-2 entry points (owner-flagged 2026-09-05).** The
+   runner, `run_waveoptics`, `run_fidelity2` and `Campaign` each carry a
+   different keyword list; the priority boost, the screen generator, the
+   field patch and the detector arms each reach some and not others. Pick one
+   owner of the run options and a self-check that keeps them aligned. See
+   2-I4.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -1012,6 +1018,33 @@ The path forward for each is a second reference or a derivation.
   parametric tail fitted to the simulated bulk, to extrapolate a deeper fade, is
   rejected. The owner does not want extrapolation, and 99.99 percent
   availability is out of scope.
+
+- **2-I4. The fidelity-2 entry points have DRIFTED apart — audit and unify
+  (owner-flagged 2026-09-05).** Four callers run the split-step Monte Carlo,
+  and each one grew its own keyword list as features landed: the runner
+  `propagate_turbulent_scenario` (`olb/waveoptics/turbulence/run.py`), the
+  model-level `run_waveoptics` and `run_fidelity2` (`olb/models/waveoptics.py`),
+  and `Campaign` (`olb/waveoptics/turbulence/campaign.py`). The single
+  diagnostic `propagate_turbulent_field` is a fifth. The stragglers on
+  2026-09-05: the priority boost (`boost=True`, EcoQoS opt-out) is on
+  `Campaign.run` only, so a direct `propagate_turbulent_scenario` run over
+  ssh is still throttled unless the script calls `boost_process_priority()`
+  itself (`precision_check.py` does); `screen_generator`, `start_index` and
+  `patch_radius_m` reach the runner and `Campaign` but NOT `run_waveoptics`
+  or `run_fidelity2`; `detectors` reaches the runner and `run_fidelity2` but
+  NOT `run_waveoptics` or `Campaign`; every entry point still defaults
+  `L0_m=np.inf` against the owner decision of a fixed 25 m (see 2-P5). The
+  pattern is the problem, not any one item: a feature lands on the entry
+  point that the study of the day used, and the others fall behind. THE
+  TASK: (1) tabulate every keyword against every entry point in
+  `docs/api-waveoptics.md`; (2) decide ONE owner of the run options (a
+  `RunOptions` dataclass, or one `**runner_kwargs` pass-through the way
+  `Campaign._runner_kwargs` already builds its payload) so a new option is
+  added in ONE place; (3) make the parent boost part of the runner (a thread
+  route needs the parent only) so no script calls it by hand; (4) add a
+  self-check that asserts the keyword sets agree, so the next straggler
+  fails mechanically the way the `@assumes` floor does. Cheap, mechanical,
+  and it changes no physics.
 
 ---
 

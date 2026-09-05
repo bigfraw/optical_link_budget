@@ -45,8 +45,8 @@ import numpy as np
 
 from olb.waveoptics.threader import Threader
 from olb.waveoptics.turbulence.run import propagate_turbulent_scenario
-from validation.campaign_resources.campaign_resources import (
-    boost_process_priority, scenario_and_geometry)
+from olb.waveoptics.priority import boost_process_priority
+from validation.campaign_resources.campaign_resources import scenario_and_geometry
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 L0_M = 25.0

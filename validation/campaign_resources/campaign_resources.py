@@ -33,8 +33,9 @@ runner). A background thread of this script samples the machine every
   time means the cores boost, utility below time means they throttle.
 
 THE WORKER BOOST. Windows does not pass the power-throttling opt-out of the
-parent to a spawned child, so the script wraps the Campaign pool initializer
-and every worker calls `boost_process_priority()` itself one time.
+parent to a spawned child. `Campaign.run(boost=True)` (the default) boosts
+the parent and every pool worker through `olb.waveoptics.priority`, so the
+script does nothing for that itself.
 
 No psutil: the env does not carry it, so the monitor is ctypes and one
 Windows tool only. Off Windows the CPU and RAM columns read NaN.
@@ -73,62 +74,12 @@ from olb.terminal import SMF, Terminal, Transmitter
 from olb.waveoptics.grid import GridSpec
 from olb.waveoptics.turbulence import Campaign
 from olb.waveoptics.turbulence.sampling import turbulent_grid
-from olb.waveoptics.turbulence import campaign as _campaign_module
+from olb.waveoptics.priority import boost_process_priority
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAM = 1550e-9
 SEED = 20260905
 L0_M = 25.0
-
-
-def boost_process_priority(high=False):
-    """Windows only: raise the priority class of THIS process and opt it out of
-    power throttling (EcoQoS). Pure ctypes, no dependency. No-op off Windows,
-    never raises.
-
-    The default is ABOVE_NORMAL. HIGH (`high=True`) puts a 16-worker pool above
-    sshd and the VS Code server, and a Remote-SSH connection then times out
-    (seen 2026-09-05). The EcoQoS opt-out, not the class, is what stops the
-    throttling, so ABOVE_NORMAL keeps the speed and keeps the machine usable."""
-    if not sys.platform.startswith("win"):
-        return
-    try:
-        import ctypes
-        from ctypes import wintypes
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.GetCurrentProcess.restype = wintypes.HANDLE
-        k32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        k32.SetPriorityClass.restype = wintypes.BOOL
-        hproc = k32.GetCurrentProcess()
-        HIGH_PRIORITY_CLASS = 0x00000080
-        ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000
-        k32.SetPriorityClass(hproc, HIGH_PRIORITY_CLASS if high else ABOVE_NORMAL_PRIORITY_CLASS)
-
-        class _PPTS(ctypes.Structure):
-            _fields_ = [("Version", wintypes.ULONG),
-                        ("ControlMask", wintypes.ULONG),
-                        ("StateMask", wintypes.ULONG)]
-        k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int,
-                                              ctypes.c_void_p, wintypes.DWORD]
-        k32.SetProcessInformation.restype = wintypes.BOOL
-        st = _PPTS(1, 0x1, 0)
-        k32.SetProcessInformation(hproc, 4, ctypes.byref(st), ctypes.sizeof(st))
-    except Exception:
-        pass
-
-
-_ORIGINAL_INIT_WORKER = _campaign_module._init_worker
-
-
-def _boosted_init_worker(payload):
-    """The pool initializer: boost THIS worker, then run the Campaign one.
-
-    Windows does not pass the power-throttling opt-out to a spawned child, so
-    a worker of the pool runs parked and downclocked unless it opts out
-    itself. This wrapper runs in each worker one time.
-    """
-    boost_process_priority()
-    _ORIGINAL_INIT_WORKER(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +335,7 @@ def main(argv=None):
         args.n_trials, args.block_size, args.workers = 8, 2, 2
         args.preset = "rapid"
 
-    boost_process_priority()
-    _campaign_module._init_worker = _boosted_init_worker
+    boost_process_priority()    # Campaign.run repeats it; the monitor thread runs boosted too.
     workers = None if args.threads else args.workers
     n_blocks = -(-args.n_trials // args.block_size)
     if workers is not None and n_blocks < workers:

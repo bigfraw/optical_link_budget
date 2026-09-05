@@ -625,8 +625,14 @@ Open items:
   element is the lever: 11.2 against 8.5 trials/s at 12 workers (1.32x, fewer
   busy threads). The physics agrees to parts per million
   (`validation/precision/`). The ssh launch rules for a
-  desktop run (chain with `;`, launch through WMI, boost EVERY pool worker,
-  8 to 12 workers) are in `validation/campaign_resources/README.md`.
+  desktop run (chain with `;`, launch through WMI, 8 to 12 workers) are in
+  `validation/campaign_resources/README.md`. The PRIORITY BOOST is in the
+  package (2026-09-05): `olb/waveoptics/priority.py`
+  `boost_process_priority()` sets Above Normal and opts out of EcoQoS power
+  throttling (pure ctypes, a no-op off Windows), and `Campaign.run(boost=True)`
+  (the default) applies it to the parent AND to every pool worker through the
+  initializer, because Windows does not pass the opt-out to a spawned child. A
+  direct `propagate_turbulent_scenario` run over ssh must call it itself.
 - **The fidelity-2 speed campaign is DONE (2026-08-29; P0 to P4, see
   `docs/waveoptics-efficiency-plan.md` Section 8 and `validation/waveoptics_speed/`).**
   P0 found screen generation was ~80% of a trial. P1 added the fast

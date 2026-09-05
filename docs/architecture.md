@@ -89,8 +89,11 @@ DOI 10.1117/3.866274, Ch. 7.
 
 The dependency stays one-way. The core (`field.py`, `sources.py`,
 `propagators.py`, `lenses.py`, `smf.py`, `mmf.py`, `camera.py`) imports numpy and
-scipy only, and it imports nothing from the rest of olb. Only `grid.py` and
-`run.py` read a scenario.
+scipy only, and it imports nothing from the rest of olb. Two helpers import the
+standard library only: `threader.py` (the thread pool of a single run) and
+`priority.py` (`boost_process_priority`, the Windows priority class and the
+EcoQoS power-throttling opt-out of a windowless ssh or WMI run; a no-op off
+Windows). Only `grid.py` and `run.py` read a scenario.
 
 The turbulent split-step layer now EXISTS at `olb/waveoptics/turbulence/`, and it
 uses those same propagators. It holds `screens.py` (the random phase screens: the
@@ -143,8 +146,10 @@ only (`validation/tail_convergence/`). `sizing_aperture_m` sizes the grid and th
 for the LARGEST receive aperture of a family, so every smaller aperture is a
 post-hoc crop through `Campaign.recouple`/`recollect`. The dependency direction
 holds: `campaign.py` reads `run.py`, the `cache_key` fingerprint of `fingerprint.py`,
-`sampling.py`, `grid.py` and the `Threader`, and nothing in olb reads
-`campaign.py` back.
+`sampling.py`, `grid.py`, the `Threader` and the priority boost of `priority.py`
+(`Campaign.run(boost=True)`, the default, boosts the parent and every pool
+worker, because Windows does not pass the opt-out to a spawned child), and
+nothing in olb reads `campaign.py` back.
 
 Both parts are built and each module holds a self-check. The modules of this
 package build no Term themselves, but their records ARE wired into the budgets
