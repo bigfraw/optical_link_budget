@@ -1,0 +1,44 @@
+{
+  "n_samples": 183,
+  "logical_cores": 32,
+  "cpu_pct": {
+    "mean": 79.72896174863386,
+    "peak": 97.4
+  },
+  "cores_busy": {
+    "mean": 25.51273224043716,
+    "peak": 31.18
+  },
+  "ram_used_mb": {
+    "mean": 17815.66120218579,
+    "peak": 18565.0
+  },
+  "ram_avail_mb": {
+    "mean": 14676.196721311475,
+    "peak": 15855.0
+  },
+  "n_python": {
+    "mean": 17.08743169398907,
+    "peak": 22.0
+  },
+  "python_rss_mb": {
+    "mean": 2926.945355191257,
+    "peak": 3173.0
+  },
+  "cpu_mhz": {
+    "mean": 1900.0,
+    "peak": 1900.0
+  },
+  "n_trials": 4000,
+  "n_new_trials": 4000,
+  "wall_s": 558.6883752346039,
+  "trials_per_s": 7.159626327145833,
+  "workers": 16,
+  "block_size": 50,
+  "grid_n": 512,
+  "n_screens": 9,
+  "L0_m": 25.0,
+  "preset": "standard",
+  "campaign_root": "validation\\campaign_resources\\campaign_standard_el30_w16",
+  "csv": "D:\\repos\\optical_link_budget\\validation\\campaign_resources\\resources_el30_standard_w16.csv"
+}

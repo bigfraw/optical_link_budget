@@ -583,13 +583,19 @@ Open items:
   rate/duration) and an under-sampled-tail quantile warning
   (`olb.results.EmpiricalSampler`). `examples/waveoptics/budget_wiring.py`
   demonstrates all three. STILL owner-gated: whether wave optics ever becomes a
-  DEFAULT (the 2-W1 fibre-coupling reference gap stays open — the field reads 1
-  to 3 dB LESS coupling loss than FAST/analytic. The TERRESTRIAL MMF half of that
-  gap is now QUANTIFIED and mostly explained: with the received curvature charged
-  (2026-08-31) it falls from about 7 dB to about 1.2 dB, and the residual is the
-  Airy-versus-Gaussian spot shape. The SPACE half is untested against that
-  correction, so the gap is NOT closed). OWNER FOLLOW-UP (2026-08-28):
-  an AUTOMATIC fidelity selector, the way `model="auto"` picks a distribution.
+  DEFAULT (the 2-W1 fibre-coupling reference gap). The field once read 1 to 3 dB
+  LESS coupling loss than FAST/analytic, but BOTH halves are now largely
+  explained. TERRESTRIAL MMF (2026-08-31): with the received curvature charged
+  (0-P11) the gap falls from about 7 dB to about 1.2 dB, the residual being the
+  Airy-versus-Gaussian spot shape. SPACE downlink SMF (2026-09-05,
+  `validation/waveoptics_vs_fast/`): the FAST-against-field gap is an OUTER-SCALE
+  artifact — at the physical `L0 = 25 m`, uncorrected and like-for-like, FAST and
+  the field AGREE (gap -0.34 to +0.12 dB, 20 to 90 deg); the 0.7-2.9 dB gap only
+  reappears at the grid-dependent `L0 = inf` (FAST is more L0-sensitive). This is
+  the UNCORRECTED rung only (2-AO). So the reference gap is much smaller than the
+  old numbers once parity (L0, correction) is matched. OWNER FOLLOW-UP
+  (2026-08-28): an AUTOMATIC fidelity selector, the way `model="auto"` picks a
+  distribution.
   The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
   stub). Its DEFAULT screen generator is self-contained (numpy and scipy only);
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
@@ -662,9 +668,15 @@ Open items:
   asked for L0 = 25 m and judged against it they read 1.00 +-0.03 (one
   screen) and 0.97 to 0.94 (a 5- to 25-screen plan, a mild stacking drift).
   So the code claims an outer scale it does not deliver, and the fibre tilt
-  the SMF tail pays moves with that choice by an amount of the order of 2 dB at p5 (an estimate
-  from the tilt share of the fade, not a measurement). THE WORK: an
-  explicit site L0 threaded to the screens AND to the analytic tilt Terms
+  the SMF tail pays moves with that choice. MEASURED (2026-09-05,
+  `validation/outer_scale_tail/`, a matched-seed `L0=inf` against `L0=25 m` pair,
+  1000 trials): the SMF p5 fade moves by 2.49 dB at 30 deg (3.0 sigma) and
+  2.83 dB at 20 deg (2.4 sigma), and the POINT (centre-pixel) fade does NOT move,
+  which confirms the mechanism is the fibre TILT, not scintillation. So the
+  earlier "order of 2 dB" estimate is now a measured 2.5 to 2.8 dB, and the
+  `L0=inf` default is that much PESSIMISTIC on the SMF tail. DECISION (owner,
+  2026-09-05): run fidelity-2 sims at a FIXED `L0=25 m`, not `inf`. THE REMAINING
+  WORK: thread an explicit site L0 to the screens AND to the analytic tilt Terms
   (0-W4), plus a sizer check that raises `n_sub_levels` when L0 > 3^n x side
   (a small aperture). `validation/screen_stacking/ --L0 <m>` is the test.
 - **The non-focal-plane (defocus) sensing and the received curvature are WIRED

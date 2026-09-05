@@ -1,0 +1,99 @@
+The fidelity-2 SMF outer-scale AND preset fade-tail study (2-P5, 2-I3, 0-W4)
+elevation     : 20.0 deg      trials/case: 1000
+seed          : 20260904      block size: 50      workers: 8
+scenario      : downlink, 1550 nm, 500 km, 700 mm ground SMF, 100 mm space terminal
+configs       : ref, rapid
+L0 values [m] : inf, 25 m
+cases         : 2 configs x 2 outer scales = 4 campaigns
+mode          : RUN
+method        : WITHIN a config, a MATCHED-SEED L0 pair (one grid, one plan, one seed; only the outer-scale filter changes).
+              : ACROSS configs, a QUANTILE comparison (the grids, the pixels and the screen counts differ), NOT matched-seed.
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO); the SMF power is the raw atmosphere.
+primary       : the SMF coupled-power fade and the POINT irradiance fade. The aperture index s2_P is a footnote (strongly averaged).
+
+THE CONFIGURATIONS (each config has its OWN grid and screen plan)
+  ref (standard preset): the well-resolved REFERENCE: the pinned standard 15-screen grid and plan (the 2-P5 deliverable).
+    grid 1024 px, 4.445 m (4.34 mm px); 15 screens; r0_total 10.13 cm
+    screen h [m] : 17123 14637 13198 12072 11049 10072 9012 7697 5650 3571 2339 1443 614 216 55
+    Cn2 share    : 0.005 0.005 0.006 0.006 0.007 0.007 0.008 0.009 0.012 0.018 0.025 0.038 0.077 0.183 0.593
+    subharmonic reach ~ 120 m (27 x the 4.4 m grid side; backlog 2-P5)
+
+  rapid (rapid preset): the RAPID preset AS SHIPPED: its own coarser grid and 5-screen plan (the 2-I3 default candidate).
+    grid 512 px, 3.543 m (6.92 mm px); 5 screens; r0_total 10.13 cm
+    screen h [m] : 14844 11014 7224 2191 140
+    Cn2 share    : 0.016 0.021 0.029 0.080 0.853
+    subharmonic reach ~ 96 m (27 x the 3.5 m grid side; backlog 2-P5)
+
+  NOTE: the rapid subharmonic reach (96 m) is SMALLER than the reference (120 m), so rapid holds a smaller effective outer scale (backlog 2-P5).
+
+
+RUN ref/inf: 1000 trials
+  ref/inf: 1000 trials on disk, 1217.7 s wall, 1.22 s/trial (this call), 163.7 MB on disk
+  CHECKPOINT ref/inf: SMF loss mean 20.34 dB, p50 19.30, p10 29.53, p5 33.03, p1 39.53 dB (n = 1000)
+
+RUN ref/25m: 1000 trials
+  ref/25m: 1000 trials on disk, 1228.2 s wall, 1.23 s/trial (this call), 163.7 MB on disk
+  CHECKPOINT ref/25m: SMF loss mean 19.14 dB, p50 18.37, p10 26.88, p5 30.21, p1 36.71 dB (n = 1000)
+
+RUN rapid/inf: 1000 trials
+  rapid/inf: 1000 trials on disk, 106.9 s wall, 0.11 s/trial (this call), 64.4 MB on disk
+  CHECKPOINT rapid/inf: SMF loss mean 19.97 dB, p50 18.96, p10 28.33, p5 31.83, p1 36.34 dB (n = 1000)
+
+RUN rapid/25m: 1000 trials
+  rapid/25m: 1000 trials on disk, 107.2 s wall, 0.11 s/trial (this call), 64.4 MB on disk
+  CHECKPOINT rapid/25m: SMF loss mean 19.12 dB, p50 18.12, p10 27.74, p5 30.39, p1 36.79 dB (n = 1000)
+
+THE PER-CASE QUANTILE TABLE (pX = the loss EXCEEDED X percent of the time)
+    cfg    L0 scr  grid    mean     p50            p10             p5             p1   d_p5   d_p1         pt_p5         pt_p1    s2_I    s2_P   s/tr     MB
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+    ref   inf  15  1024   20.34   19.30    29.53+-0.40    33.03+-0.96    39.53+-2.39  13.73  20.23    6.29+-0.30    8.89+-0.36   0.489   0.014   8.23  163.7
+    ref   25m  15  1024   19.14   18.37    26.88+-0.43    30.21+-0.69    36.71+-1.64  11.84  18.34    6.21+-0.25    8.71+-0.78   0.480   0.014   8.32  163.7
+  rapid   inf   5   512   19.97   18.96    28.33+-0.42    31.83+-0.66    36.34+-0.62  12.87  17.38    6.36+-0.39    9.34+-0.81   0.489   0.013   0.71   64.4
+  rapid   25m   5   512   19.12   18.12    27.74+-0.34    30.39+-0.61    36.79+-1.35  12.27  18.67    6.24+-0.22    8.75+-0.46   0.476   0.013   0.71   64.4
+  cfg = the config (ref = well-resolved reference, rapid = shipped rapid preset). L0 = the outer scale [m] ('inf' is infinite).
+  scr = screens. p10, p5, p1 = the SMF loss EXCEEDED 10, 5, 1 percent of the time. d_p5 and d_p1 are the FADE DEPTH pX - p50 [dB].
+  pt_p5, pt_p1 = the POINT irradiance fade -10 log10(I/<I>) exceeded 5 and 1 percent of the time [dB]. s2_I = the point index.
+  s2_P = the aperture index of the 700 mm bucket. It is strongly averaged and INSENSITIVE: read it as a footnote only.
+  s/tr = the mean stored wall time of one trial [s]. The +- values are 68 % bootstrap half-widths (1000 resamples).
+
+HOW THE TAIL ESTIMATE SETTLES WITH THE TRIAL COUNT (ref, L0 = inf)
+     n      p50            p10             p5             p1
+   100    20.23    30.80+-1.43    31.89+-1.41    38.41+-7.23
+   200    19.85    30.80+-1.09    33.21+-1.97    38.37+-3.50
+   400    19.66    30.02+-0.80    32.98+-1.54    39.59+-3.20
+   600    19.82    29.62+-0.62    32.54+-0.58    38.44+-1.00
+   800    19.75    30.00+-0.64    33.03+-1.01    38.53+-0.64
+  1000    19.30    29.53+-0.40    33.03+-0.96    39.53+-2.39
+
+THE VERDICT
+
+(A) OUTER-SCALE EFFECT, WITHIN each config (matched-seed, clean)
+    delta = loss(this L0) - loss(the reference L0 = inf). A NEGATIVE delta means the smaller outer scale gives LESS fade (less loss).
+  config ref (THE 2-P5 DELIVERABLE):
+    SMF p5: L0 inf -> 25 m moves the fade by -2.83 dB, against a combined bootstrap bar of 1.18 dB (2.4 sigma). IT MOVES.
+    SMF p1: L0 inf -> 25 m moves the fade by -2.83 dB, against a combined bootstrap bar of 2.90 dB (1.0 sigma). NO RESOLVED MOVE.
+    POINT p5: L0 inf -> 25 m moves the fade by -0.08 dB, against a combined bootstrap bar of 0.39 dB (0.2 sigma). NO RESOLVED MOVE.
+    POINT p1: L0 inf -> 25 m moves the fade by -0.18 dB, against a combined bootstrap bar of 0.86 dB (0.2 sigma). NO RESOLVED MOVE.
+  config rapid:
+    SMF p5: L0 inf -> 25 m moves the fade by -1.44 dB, against a combined bootstrap bar of 0.90 dB (1.6 sigma). IT MOVES.
+    SMF p1: L0 inf -> 25 m moves the fade by +0.45 dB, against a combined bootstrap bar of 1.49 dB (0.3 sigma). NO RESOLVED MOVE.
+    POINT p5: L0 inf -> 25 m moves the fade by -0.12 dB, against a combined bootstrap bar of 0.45 dB (0.3 sigma). NO RESOLVED MOVE.
+    POINT p1: L0 inf -> 25 m moves the fade by -0.59 dB, against a combined bootstrap bar of 0.93 dB (0.6 sigma). NO RESOLVED MOVE.
+
+(B) RAPID vs REFERENCE at matched L0 (QUANTILE comparison, NOT matched-seed)
+    delta = loss(rapid) - loss(ref) at the same outer scale. The two grids and screen counts differ, so this is a quantile comparison.
+    SMF p5 at L0 = inf: rapid - ref = -1.20 dB against a bar of 1.17 dB (1.0 sigma).
+    SMF p1 at L0 = inf: rapid - ref = -3.19 dB against a bar of 2.47 dB (1.3 sigma).
+    POINT p5 at L0 = inf: rapid - ref = +0.06 dB against a bar of 0.49 dB (0.1 sigma). PIXEL-LIMITED: the grids average a point over a different pixel (6.92 against 4.34 mm), so this is NOT a physics difference.
+    POINT p1 at L0 = inf: rapid - ref = +0.45 dB against a bar of 0.88 dB (0.5 sigma). PIXEL-LIMITED: the grids average a point over a different pixel (6.92 against 4.34 mm), so this is NOT a physics difference.
+    SMF p5 at L0 = 25 m: rapid - ref = +0.19 dB against a bar of 0.92 dB (0.2 sigma).
+    SMF p1 at L0 = 25 m: rapid - ref = +0.08 dB against a bar of 2.13 dB (0.0 sigma).
+    POINT p5 at L0 = 25 m: rapid - ref = +0.02 dB against a bar of 0.33 dB (0.1 sigma). PIXEL-LIMITED: the grids average a point over a different pixel (6.92 against 4.34 mm), so this is NOT a physics difference.
+    POINT p1 at L0 = 25 m: rapid - ref = +0.04 dB against a bar of 0.91 dB (0.0 sigma). PIXEL-LIMITED: the grids average a point over a different pixel (6.92 against 4.34 mm), so this is NOT a physics difference.
+
+(C) BOTTOM LINE for the rapid-as-default decision
+    RULE: rapid is supported when |rapid - ref| at SMF p5 is within the combined bootstrap bar at EVERY tested outer scale.
+    At L0 = inf, rapid differs from the reference by -1.20 dB at SMF p5 (combined bootstrap bar 1.17 dB); rapid IS NOT inside the reference spread.
+    At L0 = 25 m, rapid differs from the reference by +0.19 dB at SMF p5 (combined bootstrap bar 0.92 dB); rapid IS inside the reference spread.
+    Rapid differs from the reference at SMF p5 at L0 = inf by -1.20 dB; at L0 = 25 m by +0.19 dB. Rapid IS NOT inside the reference bootstrap spread at every tested outer scale, so rapid IS NOT supported as the shipped default on this scenario.
+
