@@ -669,18 +669,22 @@ Open items:
   is DONE (2026-09-04, `validation/tail_convergence/`, backlog 2-N6): eight
   campaigns of 1000 trials, 0.17 s/trial at 512 px on a warm 16-worker pool,
   262 MB for 1000 trials at 1024 px, and a real resume after an out-of-memory
-  kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted). TWO
-  campaign gaps are OPEN (2026-09-05, found in the examples migration): (a) no
+  kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted). ONE
+  campaign gap is OPEN (2026-09-05, found in the examples migration): no
   PUBLIC helper gives a stored trial back as a `Field` — `recouple` gives an
   efficiency and `recollect` gives a power, so
   `examples/waveoptics/camera_tracking.py` imports the two private helpers
   `_rebuilt_fields` and `_patch_field` of `olb.waveoptics.turbulence.run`; a
-  `Campaign.field(row)` wrapper is missing. (b) The default `patch_radius_m` of
-  a `Campaign` reads `scenario.rx_terminal.aperture_m`, but the runner clips a
-  SPACE link at `scenario.ground` whatever the direction. So the default patch of
-  an UPLINK campaign is too small for its own fields, and a caller who wants
-  those fields must pass `patch_radius_m` or `sizing_aperture_m`. The scalar
-  `eta_turb` is not affected.
+  `Campaign.field(row)` wrapper is missing. A second gap is FIXED (owner
+  decision, 2026-09-05): the CLIP terminal of a space link is the GROUND
+  terminal in EVERY direction, because the field is always the downlink slab at
+  the ground and an uplink reads it through reciprocity. `run.clip_terminal` is
+  that ONE rule, and the runner clip, the default `patch_radius_m` of a
+  `Campaign`, and its `sizing_aperture_m` copy all read it. Before the fix the
+  campaign read `scenario.rx_terminal`, so an UPLINK campaign's default patch
+  came from the SPACE aperture and was too small for its own fields, and its
+  `sizing_aperture_m` moved a terminal the sizer never read. The scalar
+  `eta_turb` was never affected, and every downlink campaign key is unchanged.
 - **The fidelity-2 fade-tail convergence study is DONE (2026-09-04, backlog
   2-I2T, `validation/tail_convergence/`).** On the 30 deg hero downlink
   (0.7 m uncorrected SMF), grid PINNED at 1024 px, 1000 trials for each case:

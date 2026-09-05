@@ -32,9 +32,13 @@ TERRESTRIAL path does read the TRANSMIT terminal, so only the receive side is
 free.
 
 `sizing_aperture_m` serves that plan: the grid is sized on a copy of the
-scenario whose RECEIVE terminal carries that larger aperture, and the trials
+scenario whose CLIP terminal carries that larger aperture, and the trials
 then run on THAT grid with the ORIGINAL scenario. So one campaign covers every
-receive aperture up to the sizing aperture.
+receive aperture up to the sizing aperture. The clip terminal is the ground
+terminal of a space scenario in EVERY direction (an uplink reads the ground
+field through reciprocity), and the receive terminal of a terrestrial one
+(`run.clip_terminal`). The default patch radius follows the same terminal, so
+the stored disc always covers the aperture the runner clipped.
 
 PARALLELISM LIVES AT ONE LEVEL. `run(workers=None)` runs the blocks one after
 the other, each block threaded inside (the runner's `Threader`).
@@ -69,6 +73,7 @@ from ..grid import GridSpec
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
+                  clip_terminal,
                   _resolve_seed, propagate_turbulent_scenario, recollect,
                   recouple)
 from .sampling import ScreenPlan, turbulent_grid
@@ -122,23 +127,25 @@ def _columns_of(result):
 
 
 def _sizing_scenario(scenario, aperture_m):
-    """Copy a scenario with a different RECEIVE aperture.
+    """Copy a scenario with a different CLIP aperture.
 
-    The rule is the rule of olb.models.splitter.arm_scenario: a SpaceScenario
-    receives on `ground` for a downlink and a retro, and on `space` for an
-    uplink; a TerrestrialScenario receives on `far` for a forward link and on
-    `near` for a reverse link.
+    The rule is the rule of run.clip_terminal: a SpaceScenario clips at
+    `ground` in EVERY direction (the field is always the downlink slab at the
+    ground, and an uplink reads it through reciprocity), and a
+    TerrestrialScenario clips at its receive terminal (`far` on a forward
+    link, `near` on a reverse link). The sizer reads the same terminal, so the
+    copy moves the aperture the sizer sees.
 
     Args:
         scenario:   a SpaceScenario or a TerrestrialScenario.
-        aperture_m: the receive aperture diameter of the copy, in m.
+        aperture_m: the clip aperture diameter of the copy, in m.
 
     Returns:
         A copy. The input scenario does not change.
     """
-    rx = replace(scenario.rx_terminal, aperture_m=float(aperture_m))
+    rx = replace(clip_terminal(scenario), aperture_m=float(aperture_m))
     if hasattr(scenario, "ground"):
-        role = "ground" if scenario.direction in ("downlink", "retro") else "space"
+        role = "ground"
     else:
         role = "near" if scenario.direction == "reverse" else "far"
     return replace(scenario, **{role: rx})
@@ -225,7 +232,10 @@ class Campaign:
             block_size:    the number of trials in one block.
             patch_radius_m: the radius of the stored field disc, in m. None
                            takes sizing_aperture_m / 2 when a sizing aperture is
-                           given, else the receive aperture / 2.
+                           given, else half the aperture of the clip terminal
+                           (run.clip_terminal: the ground terminal of a space
+                           scenario in every direction, the receive terminal
+                           of a terrestrial one).
             sizing_aperture_m: an optional LARGER receive aperture that sizes
                            the grid. The trials still run with the original
                            scenario. Use it to store one field that serves every
@@ -284,7 +294,7 @@ class Campaign:
 
         if patch_radius_m is None:
             base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
-                    else scenario.rx_terminal.aperture_m)
+                    else clip_terminal(scenario).aperture_m)
             patch_radius_m = float(base) / 2.0
         self.patch_radius_m = float(patch_radius_m)
 
