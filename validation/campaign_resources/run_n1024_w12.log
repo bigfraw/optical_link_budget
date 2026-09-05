@@ -1,0 +1,30 @@
+campaign      : D:\repos\optical_link_budget\validation\campaign_resources\campaign_standard_el30_n1024
+scenario      : downlink 1550 nm, 500 km at 30 deg, ground 700 mm / 30% obscured, SMF
+grid          : 1024 px, 3.514 m, 9 screens, L0 = 25.0 m, preset standard
+trials        : 2000 in blocks of 50 (40 blocks), 0 already on disk
+parallelism   : workers=12 (one process pool, serial blocks inside)
+logical cores : 32      sample every 2.0 s
+  block     5 done (1/40, 300.2 s)
+  block     1 done (2/40, 302.1 s)
+  block     8 done (3/40, 302.7 s)
+  block     6 done (4/40, 302.9 s)
+  block    10 done (5/40, 303.0 s)
+  block     2 done (6/40, 303.0 s)
+  block     9 done (7/40, 303.2 s)
+  block     7 done (8/40, 303.5 s)
+  block     3 done (9/40, 303.9 s)
+  block     0 done (10/40, 304.0 s)
+  block    11 done (11/40, 304.1 s)
+  block     4 done (12/40, 304.5 s)
+  block    12 done (13/40, 622.2 s)
+  block    13 done (14/40, 625.8 s)
+  block    17 done (15/40, 627.0 s)
+  block    14 done (16/40, 627.7 s)
+  block    16 done (17/40, 628.0 s)
+  block    21 done (18/40, 628.1 s)
+  block    15 done (19/40, 628.5 s)
+  block    18 done (20/40, 628.9 s)
+  block    23 done (21/40, 629.0 s)
+  block    22 done (22/40, 629.5 s)
+  block    20 done (23/40, 629.6 s)
+  block    19 done (24/40, 629.7 s)
