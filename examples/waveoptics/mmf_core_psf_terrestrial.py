@@ -38,6 +38,16 @@ Term is buildable for a terrestrial MMF. It prints the single-snapshot coupling
 loss and the still-atmosphere static floor only. A fade distribution needs many
 trials, and that is not the purpose here.
 
+THE CAMPAIGN. The Term record is an olb.waveoptics.turbulence.Campaign of ONE
+trial, the on-disk store of trials. One trial is a small campaign, but it is the
+same flow as every other statistics script, and the second run of the script
+reads the trial from disk. The still-atmosphere floor is a second one-trial
+campaign on FLAT screens. The stores go under
+examples/waveoptics/_campaigns/mmf_core_psf_terrestrial/. The two PICTURES stay
+on propagate_turbulent_field, the single-snapshot diagnostic entry point,
+because a picture needs the wide field and the campaign keeps the receive disc
+only.
+
 The figure goes to examples/waveoptics/figures/mmf_core_psf_terrestrial.png.
 
 The script builds NO budget change. It uses the shared focal-plane helper
@@ -48,6 +58,7 @@ Run from the repo root:
 '''
 
 import dataclasses
+import os
 import time
 import warnings
 
@@ -62,6 +73,7 @@ from olb.terminal import MMF
 from olb.turbulence.gaussian_fried import plane_wave_fried_parameter
 from olb.waveoptics.mmf import focal_intensity
 from olb.waveoptics.run import _clip
+from olb.waveoptics.turbulence import Campaign
 
 WAVELENGTH_M = 1550e-9
 PATH_M = 5000.0
@@ -90,11 +102,16 @@ FIBRE_NA = 0.2                 # a common step-index MMF; it does not gate here
 
 PRESET = "rapid"               # a spot picture, not a statistics run
 N_TRIALS = 1
+WORKERS = 4
 SEED = 20260828
 QUIET_R0_M = 1e6               # a huge Fried parameter makes the screens flat
 
 # The window of the focal-plane pictures, a few core radii wide.
 WINDOW_M = 3.0 * CORE_RADIUS_M
+
+# The campaign store. Each case keeps its own directory under this root.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_campaigns",
+                    "mmf_core_psf_terrestrial")
 
 PNG = "examples/waveoptics/figures/mmf_core_psf_terrestrial.png"
 
@@ -123,22 +140,32 @@ def build_scenario():
                                    attenuation_db_per_km=0.0, cn2=CN2))
 
 
+def quiet_plan_of(plan):
+    '''Give the same screen plan with a very large Fried parameter.
+
+    The screens are then flat, so the trial carries no turbulence.
+    '''
+    return dataclasses.replace(plan, r0_m=np.full_like(plan.r0_m, QUIET_R0_M))
+
+
 def static_floor_db(scenario, geometry, grid, plan):
     '''Give the still-atmosphere MMF coupling loss, in dB.
 
     One trial on FLAT screens gives the STATIC encircled-energy floor: the
     fraction of the still diffraction spot that lands inside the core. The
     trial uses the SAME grid and the SAME screen positions, with the Fried
-    parameter set very large, so the screens are flat.
+    parameter set very large.
+
+    The trial is a one-trial Campaign, so it is stored on disk like the
+    turbulent trial and a second run of the script reads it back.
     '''
-    from olb.waveoptics.turbulence import propagate_turbulent_scenario
-    quiet_plan = dataclasses.replace(
-        plan, r0_m=np.full_like(plan.r0_m, QUIET_R0_M))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = propagate_turbulent_scenario(
-            scenario, geometry, n_trials=1, seed=1, preset=PRESET,
-            grid=grid, plan=quiet_plan)
+        still = Campaign(scenario, geometry, os.path.join(ROOT, "still"),
+                         seed=1, preset=PRESET, block_size=1, grid=grid,
+                         plan=quiet_plan_of(plan))
+        still.run(1)
+        result = still.load(fields=False)
     return -10.0 * np.log10(result.trials[0].mmf_eta)
 
 
@@ -266,14 +293,21 @@ def main():
     # The whole run needs aotools for the phase screens. Skip gracefully when it
     # is absent (the optional "screens" extra).
     try:
-        from olb.waveoptics.turbulence import (propagate_turbulent_field,
-                                               propagate_turbulent_scenario,
-                                               turbulent_grid)
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            grid, plan, report = turbulent_grid(scenario, geometry,
-                                                preset=PRESET)
+        from olb.waveoptics.turbulence import propagate_turbulent_field
+
+        # THE CAMPAIGN. It sizes the grid and it plans the screens one time, it
+        # keeps the manifest, and it stores the trial. A second run of the
+        # script finds the block on disk and it computes nothing.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            campaign = Campaign(scenario, geometry,
+                                os.path.join(ROOT, "turbulent"), seed=SEED,
+                                preset=PRESET, block_size=1)
+            n_done = campaign.run(N_TRIALS, workers=WORKERS)
+        grid, plan = campaign.grid, campaign.plan
         print("")
+        print(f"  campaign {campaign.root_dir}")
+        print(f"  {n_done} trial on disk")
         print(f"  grid {grid.n} px, {grid.size_m:.3f} m; {plan.z_m.size} "
               f"screens; r0(plan) = {plan.r0_total_m * 1e2:.2f} cm")
 
@@ -282,11 +316,11 @@ def main():
               f"(one still-atmosphere trial)")
 
         # ---- the single-trial Term (a light touch) ----
+        # The Term reads the stored record. The field stays on disk, because
+        # the Term needs the mmf_eta column only.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = propagate_turbulent_scenario(
-                scenario, geometry, n_trials=N_TRIALS, seed=SEED, preset=PRESET,
-                grid=grid, plan=plan)
+            result = campaign.load(N_TRIALS, fields=False)
             term = waveoptics_mmf_coupling_term(result, sigma2_I=sigma2_R)
 
         print("")
@@ -301,13 +335,14 @@ def main():
         print("  purpose here. No 99% fade is printed.")
 
         # ---- the focal-plane pictures (the point of the script) ----
-        # Trial 0 of the run, the turbulent snapshot. Then the SAME grid and the
-        # SAME screen positions with flat screens (a huge Fried parameter), so
-        # the two spots are directly comparable. See static_floor_db.
+        # Trial 0 of the campaign, the turbulent snapshot. Then the SAME grid
+        # and the SAME screen positions with flat screens (a huge Fried
+        # parameter), so the two spots are directly comparable. A picture needs
+        # the wide field, so the two snapshots come from the single-snapshot
+        # entry point and not from the stored patch.
         print("")
         print("the focused spot on the core:")
-        quiet_plan = dataclasses.replace(
-            plan, r0_m=np.full_like(plan.r0_m, QUIET_R0_M))
+        quiet_plan = quiet_plan_of(plan)
         F_turb, _, _ = propagate_turbulent_field(
             scenario, geometry, seed=SEED, trial=0, grid=grid, plan=plan)
         F_still, _, _ = propagate_turbulent_field(
@@ -341,10 +376,10 @@ def main():
 
     except ImportError as exc:
         print("")
-        print(f"NOTE: aotools is absent ({exc.__class__.__name__}). The turbulent "
-              "run needs it (the")
-        print("optional 'screens' extra). Install aotools to run this example. "
-              "Skipping.")
+        print(f"NOTE: a screen-generator import failed "
+              f"({exc.__class__.__name__}: {exc}). The turbulent run needs the "
+              "phase screens.")
+        print("Skipping.")
 
 
 if __name__ == "__main__":

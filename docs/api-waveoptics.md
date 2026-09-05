@@ -1027,15 +1027,21 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 
 ### 9f. The example scripts
 
-The suite in `examples/waveoptics/` holds TEN scripts: three vacuum scripts
+The suite in `examples/waveoptics/` holds ELEVEN scripts: three vacuum scripts
 (`space_farfield.py`, `terrestrial_stages.py`, `grid_artefacts.py`), the three
 turbulent scripts below, the budget demonstration `budget_wiring.py`, two
 multimode-fibre demonstrations (`mmf_core_psf.py`,
-`mmf_core_psf_terrestrial.py`), and the camera demonstration
-`camera_tracking.py`.
+`mmf_core_psf_terrestrial.py`), the camera demonstration `camera_tracking.py`,
+and the campaign demonstration `campaign_demo.py`.
+
+Every script that runs a Monte Carlo keeps its trials in a `Campaign` of
+Section 9g, under `examples/waveoptics/_campaigns/`. So a second run of a script
+computes no trial: it reads the store. `budget_wiring.py` gives the campaign
+straight to the budget as `wave=campaign`; it no longer calls `run_fidelity2`.
 
 These three put the turbulent layer against the analytic models that the budgets
-already use. Each one runs for about four to five minutes.
+already use. The first run of each takes one to two minutes; a second run takes
+seconds.
 
 - `turbulent_terrestrial.py` — a 2 km horizontal link at `Cn2 = 3e-15`, three
   receive apertures on the same screens and the same seeds.
@@ -1044,7 +1050,7 @@ already use. Each one runs for about four to five minutes.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink through the overlap of
   Section 9d, at the zenith and at 30 degrees.
 
-For the guide to each of the ten scripts, see
+For the guide to each of the eleven scripts, see
 [examples/waveoptics/README.md](../examples/waveoptics/README.md). See also
 [examples.md](examples.md) for what each one prints and what it shows.
 
@@ -1073,10 +1079,16 @@ one scenario, one geometry, one grid, one screen plan, one seed.
 - `block_size` is the number of trials in one block. Block `b` holds the trials
   `b*block_size .. (b+1)*block_size - 1` of ONE native run.
 - `patch_radius_m` is the radius of the stored field disc, in m. `None` takes
-  `sizing_aperture_m / 2` when a sizing aperture is given, else the receive
-  aperture / 2.
-- `sizing_aperture_m` is an optional LARGER receive aperture that sizes the
-  grid. See the rule below.
+  `sizing_aperture_m / 2` when a sizing aperture is given, else half the
+  aperture of the CLIP terminal. The clip terminal is `run.clip_terminal`: the
+  ground terminal of a space scenario in EVERY direction (the field is always
+  the downlink slab at the ground, and an uplink reads it through the Shapiro
+  reciprocity overlap, DOI 10.1364/JOSA.61.000492), and the receive terminal of
+  a terrestrial scenario. So the stored disc always covers the aperture the
+  runner clipped (fixed 2026-09-05; before that an uplink read the SPACE
+  aperture, and its default patch was too small for its own fields).
+- `sizing_aperture_m` is an optional LARGER clip aperture that sizes the
+  grid. It moves the same clip terminal. See the rule below.
 - `grid` is an optional `GridSpec`. The plan still comes from the `Cn2` inputs.
 - `plan` is an optional `ScreenPlan`. Give it WITH `grid` to hold the grid
   fixed and move the screens only (a convergence study; the sizer moves the

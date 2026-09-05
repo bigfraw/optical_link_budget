@@ -562,8 +562,9 @@ the runner, an owner-gated change, not taken here.
 
 ### 8.5 Owner-gated follow-ups
 
-- Whether a `Campaign` ever backs a budget by default (today: no budget reads
-  one).
+- Whether a `Campaign` ever backs a budget by default. A budget already READS
+  one: `wave=campaign` is a fidelity-2 wave record, and every Monte Carlo
+  example uses it. No DEFAULT budget reads one, because fidelity 2 is opt-in.
 - A start-index in the runner, for a single-seed tail extension that is
   bit-identical to a native run: DONE (2026-09-04, `start_index`; `Campaign`
   uses it).

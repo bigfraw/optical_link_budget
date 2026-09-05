@@ -18,6 +18,15 @@ baseline. Its loss is `-10*log10(Is_summed)`.
 
 The two are compared here at the zenith and at 30 degrees.
 
+ONE CAMPAIGN FOR EACH ELEVATION. The field trials run through
+`olb.waveoptics.turbulence.Campaign`, the store of trials on disk. Each
+elevation gets its own campaign under
+`examples/waveoptics/_campaigns/turbulent_uplink_reciprocity/`. The campaign
+stores `eta_turb`, the reciprocity overlap, in its trial record, so
+`campaign.load(fields=False)` gives the uplink loss with no new propagation. A
+second run of the script computes no field trial: it reads the store. The
+coupled-flux Monte Carlo is cheap, so it runs each time.
+
 NO POINTING JITTER. The coupled-flux model folds a mechanical jitter into the
 same wander variance beta2 that carries the turbulence, so a jitter would
 change one model and not the other. Both terminals therefore carry
@@ -45,7 +54,7 @@ Run from the repo root:
     python -m examples.waveoptics.turbulent_uplink_reciprocity
 '''
 
-import dataclasses
+import os
 import time
 import warnings
 
@@ -56,9 +65,7 @@ from olb import CircularOrbit, Terminal, Transmitter
 from olb.scenario import Channel, SpaceScenario
 from olb.turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from olb.turbulence.uplink_flux import _flux_result
-from olb.waveoptics import Threader
-from olb.waveoptics.turbulence import (propagate_turbulent_field,
-                                       propagate_turbulent_scenario,
+from olb.waveoptics.turbulence import (Campaign, propagate_turbulent_field,
                                        turbulent_grid)
 
 WAVELENGTH_M = 1550e-9
@@ -69,13 +76,15 @@ SPACE_APERTURE_M = 0.30
 ELEVATIONS_DEG = (90.0, 30.0)
 PRESET = "rapid"
 N_TRIALS = 200
-BLOCK = 50                  # trials for each progress line
+BLOCK = 50                  # trials in one campaign block
 SEED = 20260826
+WORKERS = 4                 # one process for each core of this machine
 FLUX_SAMPLES = 3000         # coupled-flux Monte Carlo draws
 
-# The trials are independent, so they run across threads. None takes one worker
-# for each core. See olb.waveoptics.Threader.
-THREADER = Threader()
+# The campaign store, one directory for each elevation. The blocks stay on
+# disk, so a second run computes no field trial.
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_campaigns",
+                    "turbulent_uplink_reciprocity")
 
 PNG = "examples/waveoptics/figures/turbulent_uplink_reciprocity.png"
 FIELD_PNG = "examples/waveoptics/figures/turbulent_uplink_reciprocity_field.png"
@@ -95,25 +104,6 @@ def build_scenario():
                      pointing_jitter_rad=0.0)
     return SpaceScenario(ground=ground, space=space, direction="uplink",
                          channel=Channel(altitude_m=ALTITUDE_M))
-
-
-def run_blocks(scenario, geometry, label, *, n_trials, block, seed, **kwargs):
-    '''Run the trials in blocks, and print one progress line for each block.
-
-    The runner keys its seeds on the trial INDEX, so a second call with the
-    same seed repeats the same trials. Each block therefore takes its own seed,
-    seed + block index. The set stays repeatable.
-    '''
-    trials, t0 = [], time.time()
-    result = None
-    for i, start in enumerate(range(0, n_trials, block)):
-        n = min(block, n_trials - start)
-        result = propagate_turbulent_scenario(scenario, geometry, n_trials=n,
-                                              seed=seed + i, **kwargs)
-        trials += result.trials
-        print(f"    {label}: {len(trials):4d} / {n_trials} trials, "
-              f"{time.time() - t0:6.1f} s")
-    return dataclasses.replace(result, trials=trials)
 
 
 def stats(loss_db):
@@ -241,16 +231,26 @@ def main():
     print(f"  preset                  {PRESET:>11}")
     print(f"  snapshots per elevation {N_TRIALS:11d}")
     print(f"  coupled-flux draws      {FLUX_SAMPLES:11d}")
-    print(f"  thread workers          {THREADER.max_workers:11d}")
+    print(f"  process workers         {WORKERS:11d}")
+    print(f"  campaign store          {os.path.relpath(ROOT)}")
 
     cases = []
     for elevation_deg in ELEVATIONS_DEG:
         orbit = CircularOrbit(ALTITUDE_M, elevation_deg=[elevation_deg])
         range_m = float(orbit.slant_range_m[0])
+        # The campaign sizes the grid and it plans the screens one time, and
+        # it keeps both in its manifest. Campaign.load gives report=None, so
+        # the sampling report comes from one more call of the sizer with the
+        # SAME inputs. That call is cheap arithmetic and it changes nothing.
+        campaign = Campaign(scenario, orbit,
+                            os.path.join(ROOT, f"el{elevation_deg:.0f}"),
+                            seed=SEED, preset=PRESET, block_size=BLOCK, hs=hs,
+                            cn2_profile=cn2_profile)
+        grid, plan = campaign.grid, campaign.plan
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            grid, plan, report = turbulent_grid(scenario, orbit, preset=PRESET,
-                                                hs=hs, cn2_profile=cn2_profile)
+            _, _, report = turbulent_grid(scenario, orbit, preset=PRESET,
+                                          hs=hs, cn2_profile=cn2_profile)
         print("")
         print(f"  elevation {elevation_deg:.0f} deg: slant range "
               f"{range_m * 1e-3:.1f} km; grid {grid.n} px, {grid.size_m:.3f} m; "
@@ -262,10 +262,12 @@ def main():
               f"strongest screen {report.sigma2_r_screen_max:.4f}, "
               f"warnings {len(report.warnings)}")
 
-        result = run_blocks(scenario, orbit, f"{elevation_deg:.0f} deg",
-                            n_trials=N_TRIALS, block=BLOCK, seed=SEED,
-                            preset=PRESET, hs=hs, cn2_profile=cn2_profile,
-                            grid=grid, plan=plan, threader=THREADER)
+        t_run = time.time()
+        n_stored = campaign.run(N_TRIALS, workers=WORKERS, progress=True)
+        print(f"    {n_stored} trials on disk after "
+              f"{time.time() - t_run:.1f} s")
+        result = campaign.load(fields=False)
+        # The campaign stores eta_turb, the reciprocity overlap of each trial.
         eta_turb = np.array([tr.eta_turb for tr in result.trials])
         times = np.array([tr.wall_time_s for tr in result.trials])
         wave_db = -10 * np.log10(eta_turb)

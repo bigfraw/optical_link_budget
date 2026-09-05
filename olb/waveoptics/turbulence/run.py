@@ -435,6 +435,29 @@ def _ground_transmit_mode(ground, grid, dtype=np.complex128):
     return psi / np.sqrt((np.abs(psi) ** 2).sum())
 
 
+def clip_terminal(scenario):
+    '''
+    Give the terminal whose aperture clips the propagated field.
+
+    A SPACE scenario ALWAYS propagates the downlink slab, so its field arrives
+    at the GROUND terminal in both directions: a downlink receives there, and
+    an uplink reads the same field through the Shapiro reciprocity overlap
+    with the ground transmit mode (DOI 10.1364/JOSA.61.000492). So the ground
+    aperture is the physical plane of the field, whatever the direction. A
+    TERRESTRIAL scenario clips at its receive terminal.
+
+    The runner, the campaign patch and the campaign sizing copy all read this
+    ONE rule, so the stored field and the clip never disagree.
+
+    Parameters:
+        scenario : SpaceScenario or TerrestrialScenario
+
+    Returns:
+        Terminal
+    '''
+    return scenario.ground if hasattr(scenario, "ground") else scenario.rx_terminal
+
+
 def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  cn2=None, hs=None, cn2_profile=None,
@@ -578,7 +601,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
 
     lam = scenario.tx_terminal.wavelength_m
-    rx = scenario.ground if is_space else scenario.rx_terminal
+    rx = clip_terminal(scenario)
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
 
     # The receive aperture must sit in the part of the grid that the mask does
