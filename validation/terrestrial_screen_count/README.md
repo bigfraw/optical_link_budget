@@ -257,6 +257,38 @@ and it is the least sensitive.
 A cell other than the default takes the same three names with the cell tag in
 them. See "The file names" above.
 
+## The worker plateau after the memory cut (2026-09-06)
+
+Measured on bigfraw on ONE fixed configuration, the 5 km / Cn2 = 3e-15
+standard reference plan (9 screens, 2048 px, the opt-ins `scipy` +
+`olb-lean`), one campaign in `campaigns_workers/` with blocks of 10 (so the
+pool is never short of blocks), grown by 300 trials at each worker count.
+The record is `workers_L5km_cn23e-15.log` and `resources_L5km_cn23e-15.csv`
+(a 30 s sampler: utility, processor time, RAM, python count, working set).
+
+| workers | wall for 300 trials | s/trial | utility mean | RAM used | python working set |
+|---|---|---|---|---|---|
+| 8 | 348 s | 1.16 | 62 % | 20 GB | 5.0 GB |
+| 12 | 329 s | 1.10 | 83 % | 22 GB | 6.9 GB |
+| 16 | 318 s | 1.06 | 102 % | 24 GB | 9.9 GB |
+| 20 | 318 s | 1.06 | 103 % | 26 GB | 12.1 GB |
+
+The curve is FLAT: 8 to 20 workers spans 9 percent, and 20 equals 16. The
+2048 px pool is memory-bandwidth bound after the cut as before it, so more
+processes add utility, RAM and commit, not trials. THE SETTING OF RECORD IS
+12 WORKERS for a 2048 px cell. The 24 and 28 stages were NOT run, on purpose:
+each worker COMMITS about 2.2 GB (its allocation high-water mark, kept on
+the heap) while it touches 0.6 GB, and the commit limit of the box is 61 GB
+(32.5 GB RAM + a 28.7 GB page file) with about 15 GB taken by the rest of
+the desktop, so 24 workers would have exhausted the commit charge and failed
+allocations system-wide. A larger page file raises that limit at no runtime
+cost (the reserved pages are never written), but the plateau says it is not
+worth it. Two gotchas of the measurement: the sweep script's "s/trial (this
+call)" line divided by the trials on disk, so a resumed stage read low (fixed:
+the rate now counts the new trials), and the script's per-call analysis
+rebuilt the full grid for every stored trial between stages, minutes of one
+core that a Task Manager reading caught as "5 percent" (fixed: `--run-only`).
+
 ## Results, the 10 km cell
 
 Run on bigfraw, 2026-09-06, queued behind the backbone run: counts 5 / 10 /

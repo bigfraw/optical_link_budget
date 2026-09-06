@@ -986,7 +986,13 @@ epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   `standard` cells past 2 km ran with the two speed opt-ins (roots
   `_scipy_lean`, 1.53x at the same 12 workers), and the partial
   default-settings `L5km_cn23e-15_standard` (24 blocks) stays as a same-seed
-  cross-check of the opt-ins. NOT MEASURED: the worker plateau after the cut.
+  cross-check of the opt-ins. THE WORKER PLATEAU IS MEASURED (2026-09-06,
+  `validation/terrestrial_screen_count/`, the worker section of the README):
+  on a 2048 px cell 8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06
+  s/trial, a flat curve, so the pool stays memory-bandwidth bound after the
+  cut and 12 WORKERS is the setting of record. Each worker commits about
+  2.2 GB (touches 0.6 GB), and the 61 GB commit limit of bigfraw caps the
+  pool near 20 workers whatever the CPU says.
   DEFERRED — THE ANALYSIS (owner, 2026-09-06). There is NO analysis script yet.
   The deferred questions are: the fade distribution (lognormal against
   gamma-gamma) over the whole `sigma_R^2` band; the index split (the point index
