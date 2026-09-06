@@ -170,10 +170,29 @@ and it is the least sensitive.
 
 ## Results
 
-**Not yet run.** The sweep is queued behind the terrestrial backbone campaign
-on `bigfraw`. Fill this section from `screen_count_sweep.log` when it ends.
+Run on bigfraw, 2026-09-06, queued behind the backbone run: counts 5 / 10 /
+15 at 1000 trials each (12 workers, the opt-ins `scipy` + `olb-lean`, roots
+`L10km_cn21e-14_standard_n{5,10,15}_scipy_lean`), against the first 1000
+trials of the 35-screen backbone cell `L10km_cn21e-14_standard_scipy_lean`.
+The owner stopped the sweep before the 20-screen count. The record is
+`screen_count_sweep.log`, `screen_count_sweep_results.json`,
+`figures/screen_count_sweep.png`, and the two launch logs.
 
-If 10 screens sit on the 35-screen line inside the Monte Carlo error, the cap
-is over-conservative on a uniform horizontal path, and a terrestrial preset
-rule (a count from a convergence table, not from the cap) replaces it. See
-backlog 2-TC1 and 2-I3.
+| count | 10 cm bucket p5 / p1 vs 35 [dB] | bucket index ratio | 5 cm bucket index ratio | centre-pixel index ratio | verdict |
+|---|---|---|---|---|---|
+| 5 | -0.62 / -0.71 | 0.90 | 0.70 | 0.44 | NOT CONVERGED |
+| 10 | -0.53 / -0.65 | 1.06 | 0.84 | 0.58 | NOT CONVERGED |
+| 15 | -0.46 / -0.25 | 0.89 | 0.65 | 0.40 | NOT CONVERGED |
+
+Reference bootstrap half-widths (68 percent): bucket p5 0.24 dB, p1 0.31 dB,
+index 8 percent; 5 cm bucket index 21 percent; centre pixel index 42 percent.
+
+VERDICT. No count below 35 converges on this cell (`sigma_R^2` = 13.6, deep
+saturation). Every lower count reads LESS fade, two to three half-widths at
+the 5 percent fade of the 10 cm bucket, and the small-aperture and the point
+indices read 15 to 60 percent low. Fewer screens is the OPTIMISTIC direction.
+The trend is slow (0.16 dB of p5 over ten screens), so 20 would not have
+crossed the bar, and whether 35 itself is converged is NOT tested: a 50 to 70
+screen run (about 1 h) settles it. So the Schmidt cap is not
+over-conservative here. The five other standard cells of the backbone sit at
+the `min_screens` floor (9 to 11), so the cap bound only this cell.

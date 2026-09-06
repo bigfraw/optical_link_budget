@@ -977,7 +977,8 @@ The path forward for each is a second reference or a derivation.
   10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
   STATE. The full run is DONE (2026-09-06): twelve campaigns of 2000 trials,
   0.9 GB of blocks, on bigfraw under
-  `D:epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+  `D:
+epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   (gitignored). The run logs, every `cell.json` and the block census are in
   the study folder (`records/`), and the README "Results" table gives the
   timing and the sanity means of every cell. The run was stopped after eight
@@ -1016,6 +1017,22 @@ The path forward for each is a second reference or a derivation.
   rule (a count from a convergence table, not from the cap) replaces it (see
   2-I3, the preset split by channel family). Do it AFTER the 2-TC run ends:
   the box is busy until then.
+  DONE (2026-09-06, `validation/terrestrial_screen_count/`, the 35-screen
+  2-TC cell as the reference, 1000 trials per count, counts 5 / 10 / 15; the
+  owner stopped the sweep before 20). VERDICT: NOT CONVERGED at any count
+  below 35. Every lower count reads LESS fade: the 10 cm bucket p5 is 0.62 /
+  0.53 / 0.46 dB optimistic at 5 / 10 / 15 screens against a 0.24 dB
+  bootstrap half-width, the p1 0.71 / 0.65 / 0.25 dB; the 5 cm bucket index
+  reads 0.70 / 0.84 / 0.65 of the reference and the centre-pixel index 0.44 /
+  0.58 / 0.40. The trend is slow (0.16 dB of p5 over 10 screens), so 20 would
+  not have crossed the bar, and whether 35 itself is converged is UNTESTED (a
+  50 to 70 screen run, about 1 h on bigfraw, settles it). So on this
+  deep-saturation cell (sigma_R^2 = 13.6) the Schmidt cap is NOT
+  over-conservative, and fewer screens is the OPTIMISTIC (unsafe) direction.
+  The five other standard cells are floor-limited at 9 to 11 screens by
+  `min_screens`, not by the cap, so the cap bit only where the physics says
+  it should. The preset-split question of 2-I3 stays open, but not on the
+  cap axis.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
