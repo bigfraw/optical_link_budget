@@ -243,7 +243,7 @@ class ScreenFactory:
     _EXPONENT = -5.0 / 6.0                 # r0 enters the screen as r0^(-5/6).
 
     def __init__(self, n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-                 n_sub_levels=3, dtype=np.float64):
+                 n_sub_levels=3, dtype=np.float64, lean=False):
         """Build the cached filter and the subharmonic basis for one grid.
 
         Args:
@@ -258,6 +258,19 @@ class ScreenFactory:
             dtype:        the OUTPUT floating type, numpy.float64 (the default)
                           or numpy.float32. float32 halves the memory and it
                           measures a small error; see the module self-check.
+            lean:         True selects the LEAN body of `make` (2026-09-06):
+                          the same physics with one third of the full-grid
+                          passes. It draws the normals in the output
+                          precision, it writes the coefficient grid in place,
+                          it replaces the two shift copies by the alternating
+                          sign pattern (the double-shift identity that
+                          `Forvard` uses), and it runs the inverse transform
+                          in place through scipy.fft. The draws differ from
+                          the default body at the rounding level only, and
+                          the statistics agree (see the module self-check),
+                          but a lean run is NOT bit-identical to a default
+                          run of the same seed. False (the default) keeps the
+                          body of record.
         """
         self.n = int(n)
         self.pixel_m = float(pixel_m)
@@ -268,6 +281,7 @@ class ScreenFactory:
         self._rdtype = np.float32 if dtype == np.float32 else np.float64
         self._cdtype = (np.complex64 if dtype == np.float32
                         else np.complex128)
+        self.lean = bool(lean)
 
         n = self.n
         dx = self.pixel_m
@@ -282,6 +296,21 @@ class ScreenFactory:
         psd = _phase_psd_unit(np.hypot(FX, FY), self.L0_m, self.l0_m)
         psd[n // 2, n // 2] = 0.0             # Listing 9.2, line 16, p. 167.
         self._filt = (np.sqrt(psd) * df).astype(self._rdtype)
+        if self.lean:
+            # The lean body folds the centring shifts into the filter and
+            # into one output factor. For an even n, fftshift(ifft2(
+            # ifftshift(c))) = S * ifft2(S * c), where S is the alternating
+            # sign pattern (-1)^(i+j) (the identity the LightPipes Forvard
+            # uses). So the filter carries S, and the output factor carries
+            # S * n^2 (the Eq. (2.9) scale of `_ift_series`). Neither one
+            # costs a pass at run time.
+            if n % 2:
+                raise ValueError("ScreenFactory(lean=True) needs an even n")
+            # S folds into the filter in place, and the output S is applied
+            # by two strided sign flips, so the lean factory holds NO extra
+            # array.
+            self._filt[1::2, ::2] *= -1.0
+            self._filt[::2, 1::2] *= -1.0
 
         # ---- win 2: the separable subharmonic basis, at r0 = 1 m ----
         # Schmidt, Ch. 9, Eq. (9.81), printed p. 169. For each level p the
@@ -363,9 +392,43 @@ class ScreenFactory:
         Returns:
             An n x n array of the phase, in radians.
         """
+        if self.lean:
+            return self._make_lean(r0_m, rng)
         base, _ = self._base_pair(rng)
         hi = (float(r0_m) ** self._EXPONENT) * base
         return (hi + self._subharmonic(r0_m, rng)).astype(self._rdtype)
+
+    def _make_lean(self, r0_m, rng):
+        """The lean body of `make`. See the `lean` argument.
+
+        The physics is `make`: Schmidt, DOI 10.1117/3.866274, Ch. 9,
+        Eqs. (9.78) to (9.81), printed pp. 166 to 169. The passes are: two
+        normal draws written straight into the complex grid, one in-place
+        filter multiply, one in-place inverse transform, one output multiply
+        that gives the scaled real screen, and one in-place subharmonic add.
+        """
+        from scipy import fft as _sfft
+        n = self.n
+        cn = np.empty((n, n), dtype=self._cdtype)
+        # The draws are float64, as in `_base_pair`, in the same order (real
+        # then imaginary), so the two bodies read the SAME random stream. A
+        # float32 draw would take a different stream. The assignment casts
+        # into the grid, so the two bodies differ by the rounding of the
+        # cast and of the transform only.
+        cn.real = rng.standard_normal((n, n))
+        cn.imag = rng.standard_normal((n, n))
+        cn *= self._filt                    # The filter carries S.
+        full = _sfft.ifft2(cn, overwrite_x=True, workers=1)
+        out = np.empty((n, n), dtype=self._rdtype)
+        # The output factor S * n^2 * r0^(-5/6): the scalar in one pass, and
+        # S as two strided sign flips on half the pixels each.
+        np.multiply(full.real, self._rdtype(n * n * float(r0_m) ** self._EXPONENT),
+                    out=out)
+        out[1::2, ::2] *= -1.0
+        out[::2, 1::2] *= -1.0
+        if self.subharmonics:
+            out += self._subharmonic(r0_m, rng)
+        return out
 
     def make_stack(self, r0_m_array, rng):
         """Make a stack of phase screens, one for each r0, in radians.
@@ -570,6 +633,22 @@ if __name__ == '__main__':
     d_make = np.mean([d_phi(fac_on.make(r0F2, np.random.default_rng(9500 + i)),
                             kfitF) for i in range(60)])
     assert abs(d_stack / d_make - 1.0) < 0.10, (d_stack, d_make)
+
+    # Fe. the lean body reads the same stream and agrees at the rounding
+    # level: float64 to 1e-12, float32 to 1e-5 relative rms.
+    for dt, tol in ((np.float64, 1e-12), (np.float32, 1e-5)):
+        ref = ScreenFactory(256, 0.01, L0_m=25.0, dtype=dt).make(
+            0.1, np.random.default_rng(31))
+        lean = ScreenFactory(256, 0.01, L0_m=25.0, dtype=dt, lean=True).make(
+            0.1, np.random.default_rng(31))
+        rel = np.sqrt(np.mean((ref - lean) ** 2) / np.mean(ref ** 2))
+        assert lean.dtype == dt and rel < tol, (dt, rel)
+        print(f"ScreenFactory lean vs default {dt.__name__} rel rms {rel:.1e}")
+    try:
+        ScreenFactory(255, 0.01, lean=True)
+        raise AssertionError("lean must need an even n")
+    except ValueError:
+        pass
 
     # Ff. the float32 switch measures a small error against float64.
     fac64 = ScreenFactory(256, 0.01, dtype=np.float64)

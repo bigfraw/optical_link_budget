@@ -1316,6 +1316,38 @@ The path forward for each is a second reference or a derivation.
   rejected. The owner does not want extrapolation, and 99.99 percent
   availability is out of scope.
 
+- **2-N7. The memory cut and the two speed opt-ins — DONE (2026-09-06,
+  `validation/memory_cut/`).** The fidelity-2 Monte Carlo was throttled by
+  memory: by the BANDWIDTH in steady state (12 workers of 32 at 512 px on
+  bigfraw) and by the CAPACITY on a large pool (the 2026-09-04 kill at
+  1024 px, 15 screens, 16 workers). Three bit-identical changes: the runner
+  passes the screens as a generator and `split_step` reads one at a time;
+  `Forvard` caches its sign pattern and its wrapped transfer function for each
+  distinct hop (bounded by `FORVARD_CACHE_BYTES`); and
+  `olb/waveoptics/resources.py` sizes the pool (`Campaign.run(workers="auto")`,
+  90 percent of the cores under 90 percent of the free memory). Two OPT-INS,
+  not defaults, because each moves every seeded number at the rounding
+  level: `screen_generator="olb-lean"` and `fft_backend="scipy"`. Measured
+  on one core: the cache 1.3x, the two opt-ins together 1.38x on top. OPEN:
+  (a) the new bandwidth plateau on bigfraw is NOT measured (run
+  `validation/campaign_resources/ --workers auto` when the box is free, and
+  add the two opt-in flags to that script); (b) the OWNER decision on whether
+  either opt-in becomes a default; (c) `Screen()` costs 40 ms per 1024 px
+  call, about a third of a hop, and a cos/sin pair in float32 may halve it.
+- **2-N8. A GPU FFT backend — an explicit OPT-IN (owner-flagged 2026-09-06).**
+  The FFTs are the whole workload of a trial (80 numpy transforms of Forvard
+  plus 9 of the screens at 1024 px), and the pool is memory-bandwidth bound,
+  so a GPU (about ten times the memory bandwidth of the desktop DDR5
+  channels) is the one lever that moves the plateau by an order of
+  magnitude. The design: a third value of `fft_backend` (for example
+  `"cupy"`) next to `"numpy"` and `"scipy"`, selected the same way, that
+  runs `Forvard`, `Screen` and the `ScreenFactory` transforms on the device
+  and copies the receive-plane patch back to the host; the `xp` array module
+  switch in `propagators.py` and `screens.py`, and nothing else in olb reads
+  it. It MUST stay an opt-in: not every machine has a CUDA or ROCm device,
+  `cupy` is an optional extra like `aotools`, the default of record stays
+  `"numpy"`, and a GPU run is a different fingerprint. A campaign of one
+  process per device replaces the process pool. Not started.
 - **2-I4. The fidelity-2 entry points have DRIFTED apart — audit and unify
   (owner-flagged 2026-09-05).** Four callers run the split-step Monte Carlo,
   and each one grew its own keyword list as features landed: the runner

@@ -32,8 +32,9 @@ Sources:
 """
 
 import numpy as np
-from numpy.fft import fft2 as _fft2
-from numpy.fft import ifft2 as _ifft2
+from numpy.fft import fft2 as _np_fft2
+from numpy.fft import ifft2 as _np_ifft2
+from scipy import fft as _scipy_fft
 from scipy.special import fresnel as _fresnel
 
 from .field import Field
@@ -54,6 +55,152 @@ def _reject_spherical(Fin, name):
     if Fin._curvature != 0.0:
         raise ValueError(f'{name}: the field is in spherical coordinates. '
                          'Use Convert() first.')
+
+
+# THE FFT BACKEND (an OPT-IN, 2026-09-06). "numpy" (the default) is the
+# backend of record: every stored campaign was made with it. "scipy" runs
+# the same transforms through scipy.fft with overwrite_x=True: it writes the
+# result into the work array, and on the tested machine it ran a 1024 px
+# complex64 transform 2.7 times faster (15.8 against 42.6 ms). The two
+# backends agree at the rounding level of the field precision (6e-7 relative
+# on the collected power and the SMF eta of a single-precision trial), but a
+# scipy run is NOT bit-identical to a numpy run of the same seed, so a
+# campaign carries the backend in its fingerprint. The setting is process
+# wide: a pool worker sets it for itself (Campaign does that through the
+# initializer).
+FFT_BACKENDS = ("numpy", "scipy")
+_fft_backend = "numpy"
+
+
+def set_fft_backend(name):
+    """Select the FFT backend of Forvard and Fresnel for this process.
+
+    Args:
+        name: "numpy" (the default, the backend of record) or "scipy".
+
+    Returns:
+        The previous backend name, so a caller can restore it.
+
+    Raises:
+        ValueError: the name is unknown.
+    """
+    global _fft_backend
+    if name not in FFT_BACKENDS:
+        raise ValueError(f"set_fft_backend: name must be one of "
+                         f"{FFT_BACKENDS}, not {name!r}.")
+    previous = _fft_backend
+    _fft_backend = name
+    return previous
+
+
+def get_fft_backend():
+    """Give the FFT backend name of this process."""
+    return _fft_backend
+
+
+def _fft2(a):
+    if _fft_backend == "scipy":
+        return _scipy_fft.fft2(a, overwrite_x=True, workers=1)
+    return _np_fft2(a)
+
+
+def _ifft2(a):
+    if _fft_backend == "scipy":
+        return _scipy_fft.ifft2(a, overwrite_x=True, workers=1)
+    return _np_ifft2(a)
+
+
+# THE FORVARD CACHE. The sign pattern depends on (N, dtype) only, and the
+# transfer function on (N, size, lam, |z|, dtype). A split-step Monte Carlo
+# makes the SAME hops in every trial, so without a cache each hop rebuilt
+# four N x N arrays (three of them in double precision) that never change.
+# The cache keeps them, so a hop moves only the field itself. The entries
+# are read-only, and a thread that misses at the same time as another one
+# computes the same array two times, which is safe. The bound is in BYTES,
+# so a caller can budget it for each process: a 1024 px transfer function is
+# 8 MB in single and 16 MB in double precision, so the default holds 32 or
+# 16 distinct hops. A sweep past the bound drops the oldest entry. Set
+# FORVARD_CACHE_BYTES before a run to change the budget.
+FORVARD_CACHE_BYTES = 256 * 2 ** 20
+_forvard_cache = {}
+
+
+def clear_forvard_cache():
+    """Drop every cached Forvard factor. A test or a memory-tight caller
+    may call it."""
+    _forvard_cache.clear()
+
+
+def forvard_cache_bytes():
+    """Give the bytes the Forvard cache holds now."""
+    return sum(v[1].nbytes for k, v in _forvard_cache.items() if len(k) == 5)
+
+
+def _forvard_factors(N, size, lam, z, cdtype):
+    """Give the sign pattern and the transfer function of one Forvard hop.
+
+    The arrays are the ones the body of Forvard built before the cache.
+    The values are bit-identical: the phase wrap runs in double precision
+    exactly as before, and the cache stores the finished factor only.
+
+    Args:
+        N:      the pixel count of one side.
+        size:   the grid side, in m.
+        lam:    the wavelength, in m.
+        z:      the hop length, in m, not negative.
+        cdtype: the complex type of the field.
+
+    Returns:
+        The pair (iiij, CC): the N x N real sign pattern and the N x N
+        complex transfer function, both read-only.
+    """
+    cdtype = np.dtype(cdtype)
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+    key = (int(N), float(size), float(lam), float(z), cdtype.str)
+    hit = _forvard_cache.get(key)
+    if hit is not None:
+        return hit
+
+    sign_key = (int(N), rdtype)
+    iiij = _forvard_cache.get(sign_key)
+    if iiij is None:
+        # The alternating sign pattern does the same as a double fftshift,
+        # but it is faster. See the LightPipes manual.
+        iiN = np.ones((N,), dtype=rdtype)
+        iiN[1::2] = -1
+        iiij = np.outer(iiN, iiN)
+        iiij.flags.writeable = False
+        _forvard_cache[sign_key] = iiij
+
+    # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
+    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6, Eq. (6.32), printed
+    # p. 95.
+    _2pi = 2. * 3.141592654
+    z1 = z * lam / 2
+    No2 = int(N / 2)
+    SW = np.arange(-No2, N - No2) / size
+    SW *= SW
+    SSW = SW.reshape((-1, 1)) + SW
+    Bus = z1 * SSW
+    # KEEP Bus IN DOUBLE PRECISION. Bus reaches thousands on a long hop, and
+    # the next line takes the fractional part. In single precision that
+    # subtraction loses 4 digits of the phase. So the wrap runs in double
+    # precision, and only the finished factor CC takes the field precision.
+    Ir = Bus.astype(int)            # truncate, do not round
+    Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
+    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
+    CC.flags.writeable = False
+
+    while (_forvard_cache
+           and forvard_cache_bytes() + CC.nbytes > FORVARD_CACHE_BYTES):
+        # Drop the oldest transfer function. The sign patterns stay.
+        oldest = next((k for k in _forvard_cache if len(k) == 5), None)
+        if oldest is None:
+            break
+        del _forvard_cache[oldest]
+    if CC.nbytes <= FORVARD_CACHE_BYTES:
+        _forvard_cache[key] = (iiij, CC)
+    return iiij, CC
 
 
 def Forvard(Fin, z):
@@ -105,10 +252,8 @@ def Forvard(Fin, z):
     # loop in single precision: the working array, the sign pattern and the
     # transfer function. That halves the bytes each FFT moves.
     cdtype = Fin.field.dtype
-    rdtype = np.float32 if cdtype == np.complex64 else np.float64
 
-    in_out = np.zeros((N, N), dtype=cdtype)
-    in_out[:, :] = Fin.field
+    in_out = np.array(Fin.field, dtype=cdtype)     # one copy, no zero fill.
 
     # The legacy value of 2*pi keeps the port equal to the C++ LightPipes.
     _2pi = 2. * 3.141592654
@@ -118,29 +263,11 @@ def Forvard(Fin, z):
     cokz = np.cos(kz)
     sikz = np.sin(kz)
 
-    # The alternating sign pattern does the same as a double fftshift,
-    # but it is faster. See the LightPipes manual.
-    iiN = np.ones((N,), dtype=rdtype)
-    iiN[1::2] = -1
-    iiij = np.outer(iiN, iiN)
+    # The sign pattern and the transfer function come from the cache. A
+    # split-step trial makes the same hops as every other trial of the
+    # plan, so the two arrays are built ONE time for each process.
+    iiij, CC = _forvard_factors(N, size, lam, z, cdtype)
     in_out *= iiij
-
-    # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
-    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6, Eq. (6.32), printed
-    # p. 95.
-    z1 = z * lam / 2
-    No2 = int(N / 2)
-    SW = np.arange(-No2, N - No2) / size
-    SW *= SW
-    SSW = SW.reshape((-1, 1)) + SW
-    Bus = z1 * SSW
-    # KEEP Bus IN DOUBLE PRECISION. Bus reaches thousands on a long hop, and
-    # the next line takes the fractional part. In single precision that
-    # subtraction loses 4 digits of the phase. So the wrap runs in double
-    # precision, and only the finished factor CC takes the field precision.
-    Ir = Bus.astype(int)            # truncate, do not round
-    Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
-    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
 
     if zz >= 0.0:
         in_out = _fft2(in_out)
@@ -400,6 +527,32 @@ if __name__ == '__main__':
     # ---- Forvard conserves power ----
     FF = Forvard(F0, z)
     assert abs(Power(FF) / Power(F0) - 1.0) < 1e-12
+
+    # ---- the factor cache gives the same field warm as cold ----
+    clear_forvard_cache()
+    FF_cold = Forvard(F0, z)
+    assert forvard_cache_bytes() > 0
+    FF_warm = Forvard(F0, z)
+    assert np.array_equal(FF_cold.field, FF_warm.field)
+    assert np.array_equal(FF_cold.field, FF.field)
+
+    # ---- the scipy backend agrees at the rounding level, and restores ----
+    assert get_fft_backend() == "numpy"
+    prev = set_fft_backend("scipy")
+    try:
+        FS = Forvard(F0, z)
+    finally:
+        set_fft_backend(prev)
+    assert get_fft_backend() == "numpy"
+    rel = np.sqrt(np.mean(np.abs(FS.field - FF.field) ** 2)
+                  / np.mean(np.abs(FF.field) ** 2))
+    assert rel < 1e-12, rel
+    print(f"scipy vs numpy Forvard rel rms {rel:.1e}")
+    try:
+        set_fft_backend("fftw")
+        raise AssertionError("an unknown backend must raise")
+    except ValueError:
+        pass
 
     # ---- the three routes agree on a well sampled grid ----
     FR = Fresnel(F0, z)

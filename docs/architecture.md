@@ -93,7 +93,10 @@ scipy only, and it imports nothing from the rest of olb. Two helpers import the
 standard library only: `threader.py` (the thread pool of a single run) and
 `priority.py` (`boost_process_priority`, the Windows priority class and the
 EcoQoS power-throttling opt-out of a windowless ssh or WMI run; a no-op off
-Windows). Only `grid.py` and `run.py` read a scenario.
+Windows). A third, `resources.py`, imports the standard library and numpy: the
+free memory of the machine, the memory estimate of one pool worker, and the
+automatic pool size (`Campaign.run(workers="auto")`). Only `grid.py` and
+`run.py` read a scenario.
 
 The turbulent split-step layer now EXISTS at `olb/waveoptics/turbulence/`, and it
 uses those same propagators. It holds `screens.py` (the random phase screens: the

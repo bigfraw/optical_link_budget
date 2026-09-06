@@ -85,7 +85,7 @@ def _cn2_fingerprint(cn2, h_top_m):
 def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               L0_m, subharmonics, hs, cn2_profile, block_size,
               cn2=None, h_top_m=None, grid=None, plan=None,
-              precision="double"):
+              precision="double", fft_backend="numpy"):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -99,7 +99,7 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         geometry:         the link geometry (one range).
         preset:           the preset name (a string).
         seed:             the integer base seed.
-        screen_generator: "olb" or "aotools".
+        screen_generator: "olb", "olb-lean" or "aotools".
         L0_m:             the outer scale, in m.
         subharmonics:     the subharmonic switch.
         hs, cn2_profile:  the height grid and the zenith Cn2 profile, or None.
@@ -109,6 +109,8 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         block_size:       the block size.
         grid, plan:       an optional caller-supplied grid and plan.
         precision:        "single" (the default) or "double".
+        fft_backend:      "numpy" (the default) or "scipy". It enters the key
+                          only when "scipy".
 
     Returns:
         A 64-character hex string.
@@ -118,6 +120,8 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
     # The default adds NO line, so every key that a stored campaign holds
     # stays valid.
     tail = [] if precision == "double" else [f"precision={precision}"]
+    if fft_backend != "numpy":
+        tail.append(f"fft_backend={fft_backend}")
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([

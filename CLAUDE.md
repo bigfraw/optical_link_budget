@@ -665,6 +665,37 @@ Open items:
   (the default) applies it to the parent AND to every pool worker through the
   initializer, because Windows does not pass the opt-out to a spawned child. A
   direct `propagate_turbulent_scenario` run over ssh must call it itself.
+- **The memory of a trial is CUT and the pool sizes itself (2026-09-06,
+  branch `claude/sims-ram-capacity-13rdl0`).** Three changes, ALL
+  bit-identical (a stored double campaign reads back unchanged): (1) the
+  runner passes the screens as a GENERATOR and `split_step` reads them one
+  at a time, so ONE screen is in memory instead of the stack (15 screens at
+  1024 px double held 120 MB); (2) `Forvard` CACHES its sign pattern and its
+  wrapped transfer function for each distinct `(N, size, lam, |z|, dtype)`,
+  bounded by `propagators.FORVARD_CACHE_BYTES` (256 MiB), because every trial
+  of a plan makes the same hops and the old body rebuilt four N x N arrays on
+  every hop; (3) `olb/waveoptics/resources.py` gives `free_memory_bytes()`,
+  `worker_memory_bytes()` and `auto_workers()`, and `Campaign.run(workers=
+  "auto", cpu_fraction=0.9, memory_fraction=0.9)` sizes the pool at 90
+  percent of the cores held under 90 percent of the free memory (and never
+  more than the missing blocks). Measured at 1024 px, one serial trial:
+  single 9 screens 3.69 to 2.88 s and 193 to 157 MiB peak; double 15 screens
+  7.21 to 5.48 s and 321 to 201 MiB peak. NOT YET MEASURED: the new
+  bandwidth plateau on bigfraw (it was 12 workers of 32 at 512 px); run
+  `validation/campaign_resources/ --workers auto` to find it. The next
+  levers are BUILT as OPT-INS (2026-09-06, `validation/memory_cut/`), and
+  NEITHER is a default, because each changes every seeded fidelity-2 number
+  at the rounding level: `screen_generator="olb-lean"` (`ScreenFactory(lean=
+  True)`: the same physics and the SAME random stream, one third fewer
+  full-grid passes, 1e-7 relative in float32; one 1024 px float32 screen 86
+  to 60 ms and 48 to 28 MiB) and `fft_backend="scipy"` (`propagators.
+  set_fft_backend`: `scipy.fft` in place; the raw 1024 px complex64 fft2 is
+  69.5 ms numpy against 15.6 ms scipy on the test box; 6e-7 relative on a
+  single-precision trial). Both thread through `propagate_turbulent_scenario`
+  and `Campaign` (fingerprint, manifest, every pool worker). One serial
+  single-precision 1024 px trial: 2.74 s default, 2.19 s scipy, 2.57 s lean,
+  1.99 s both (1.38x). Whether either becomes a default is an OWNER decision.
+  A GPU FFT backend is backlog 2-N8, an explicit opt-in.
 - **The fidelity-2 speed campaign is DONE (2026-08-29; P0 to P4, see
   `docs/waveoptics-efficiency-plan.md` Section 8 and `validation/waveoptics_speed/`).**
   P0 found screen generation was ~80% of a trial. P1 added the fast

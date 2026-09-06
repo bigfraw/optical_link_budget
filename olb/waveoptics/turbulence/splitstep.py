@@ -232,9 +232,13 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
                              f'but the field is {shape}')
         Fout = hop(Fout, zi - here)
         Fout = Screen(Fout, scr)
+        del scr                     # Free the screen before the next one.
         if boundary is not None:
             Fout = _apply_mask(Fout, boundary)
         here = zi
+    if next(it, None) is not None:
+        raise ValueError(f'split_step: more than {z.size} screens for '
+                         f'{z.size} distances')
     return hop(Fout, z_total_m - here)
 
 
