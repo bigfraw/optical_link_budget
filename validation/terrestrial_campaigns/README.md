@@ -263,7 +263,8 @@ The owner deferred all of this. This script must NOT do it:
 The full run is DONE (2026-09-06, bigfraw, 12 workers, blocks of 50, seed
 20260906, L0 = 25 m, single precision). Every cell holds 2000 trials, and
 the whole set is about 0.9 GB of blocks. The data stays on bigfraw under
-`D:epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+`D:
+epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
 (gitignored); the run logs and every `cell.json` are in this folder
 (`run_<cell>.log`, `records/<root>.cell.json`, `records/blocks_on_bigfraw.txt`).
 
@@ -297,6 +298,16 @@ agrees with the vacuum Gaussian capture of the 10 cm aperture (9.19 dB at
 2 km, 16.92 dB at 5 km, 22.91 dB at 10 km) plus a small turbulent spread,
 and the 10 km rapid cells carry the +0.7 dB pixelised-waist bias that the
 sizer flag records (see "The clamped grids").
+
+THE OPT-IN CROSS-CHECK ON A REAL CELL (2026-09-06). The partial
+default-settings `L5km_cn23e-15_standard` (1200 trials) and the opt-in
+`L5km_cn23e-15_standard_scipy_lean` share the seed, so trials 0 to 1199 are
+the same atmospheres. Trial by trial: the collected power agrees to a max
+relative difference of 2.1e-6 (median 9e-7) and the SMF coupling to 3.1e-6
+(median 2e-7); the mean loss is 17.0749 dB in both, and the p5 and p1 fades
+of both quantities agree to 1e-6 dB. That is single-precision rounding, the
+same level `validation/memory_cut/` measured on one trial, so the opt-ins
+change no physics of this dataset.
 
 WHAT THE TIMING SAYS. At 12 workers the `rapid` cells ran 0.72x the
 8-worker smoke time (the pool spawn is a fixed cost in the smoke). The two
