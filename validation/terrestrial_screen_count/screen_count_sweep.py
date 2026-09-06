@@ -985,6 +985,10 @@ def main(argv=None):
                     help="the block size the REFERENCE store was built with")
     ap.add_argument("--analyse-only", action="store_true",
                     help="skip the runs and read what is stored")
+    ap.add_argument("--run-only", action="store_true",
+                    help="store the trials and stop; no analysis, no figure. "
+                         "Use it for a timing stage or a chained run, and "
+                         "analyse ONE time at the end with --analyse-only.")
     ap.add_argument("--dry-run", action="store_true",
                     help="size every count, print the table, and run nothing")
     ap.add_argument("--fft-backend", choices=("numpy", "scipy"),
@@ -1099,14 +1103,43 @@ def main(argv=None):
         for s in specs:
             camp, n = s["camp"], s["n_screens"]
             say(f"RUN n={n}: {args.n_trials} trials into {camp.root_dir}")
+            n_before = int(camp.n_stored)
             t0 = time.perf_counter()
             n_done = camp.run(args.n_trials, workers=args.workers,
                               progress=True)
             wall = time.perf_counter() - t0
-            timing[str(n)] = {"wall_s": float(wall), "n_stored": int(n_done)}
-            say(f"  n={n}: {n_done} trials on disk, {wall:.1f} s wall, "
-                f"{wall / max(n_done, 1):.2f} s/trial (this call)")
+            # The rate counts the NEW trials only: a resumed store already
+            # holds the old blocks (the same rule as campaign_resources.py).
+            n_new = int(n_done) - n_before
+            timing[str(n)] = {"wall_s": float(wall), "n_stored": int(n_done),
+                              "n_new": n_new, "workers": args.workers,
+                              "s_per_trial_new": (float(wall / n_new)
+                                                  if n_new > 0 else None)}
+            say(f"  n={n}: {n_done} trials on disk, {n_new} new in "
+                f"{wall:.1f} s wall, "
+                f"{(wall / n_new) if n_new > 0 else float('nan'):.2f} "
+                f"s/trial (the new trials of this call)")
             say()
+
+    if args.run_only:
+        # A timing stage or a chained run: keep the store and the run lines,
+        # and skip the analysis (it rebuilds the full grid for every stored
+        # trial, minutes of one core).
+        run_path = os.path.join(HERE, f"screen_count_sweep{stem}_runs.json")
+        record = []
+        if os.path.exists(run_path):
+            with open(run_path, encoding="utf-8") as fh:
+                record = json.load(fh)
+        record.append({"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "counts": counts, "n_trials": args.n_trials,
+                       "workers": args.workers, "block_size": args.block_size,
+                       "fft_backend": args.fft_backend,
+                       "screen_generator": args.screen_generator,
+                       "timing": timing})
+        with open(run_path, "w", encoding="utf-8") as fh:
+            json.dump(record, fh, indent=2)
+        say(f"run only: the trials are stored. wrote {run_path}")
+        return
 
     # ---- the analysis ----
     rows, deltas = [], {}
