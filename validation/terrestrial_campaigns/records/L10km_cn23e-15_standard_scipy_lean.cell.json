@@ -1,0 +1,107 @@
+{
+ "cell": "10km:3e-15:standard",
+ "path_length_m": 10000.0,
+ "cn2_m_m23": 3e-15,
+ "preset": "standard",
+ "launch": "collimated",
+ "divergence_rad": null,
+ "wavelength_m": 1.55e-06,
+ "waist_m": 0.005,
+ "sigma2_R_plane": 4.069264297300364,
+ "rho0_m": 0.019306241279255208,
+ "r0_m": 0.04054310668643594,
+ "beam_radius_m": 0.9867733148007531,
+ "apertures": [
+  {
+   "aperture_m": 0.05,
+   "eta_fill": 0.0012829108869183425,
+   "curvature_focus_shift_m": 5.534597910145006e-06,
+   "smf_focal_length_m": 0.23525751438172413,
+   "smf_mode_field_radius_m": 5.2e-06
+  },
+  {
+   "aperture_m": 0.1,
+   "eta_fill": 0.0051217768288702725,
+   "curvature_focus_shift_m": 2.2138912474012412e-05,
+   "smf_focal_length_m": 0.47051502876344825,
+   "smf_mode_field_radius_m": 5.2e-06
+  }
+ ],
+ "grid": {
+  "n": 2048,
+  "side_m": 7.788024949127616,
+  "pixel_m": 0.0038027465571912186,
+  "scaled": false
+ },
+ "screens": {
+  "n": 11,
+  "z_m": [
+   253.29571909758542,
+   771.6910406138028,
+   1315.658752023281,
+   1889.7525328763709,
+   2500.0967168148973,
+   3155.2821716906647,
+   3868.062458983115,
+   4658.96868021526,
+   5565.541141244591,
+   6675.081957880586,
+   8648.121595113214
+  ],
+  "sigma2_r": [
+   0.3691186382315543,
+   0.36911991896856,
+   0.36912167895570325,
+   0.369124191164524,
+   0.3691279549457295,
+   0.3691339657173749,
+   0.3691444513304215,
+   0.36916529679515897,
+   0.3692166914493747,
+   0.36941265053197464,
+   0.3797889194783795
+  ],
+  "r0_m": [
+   0.24305833309401004,
+   0.23650579104741795,
+   0.2294287896885366,
+   0.2217148352527897,
+   0.21320769491079875,
+   0.203680088422246,
+   0.19278012596424157,
+   0.17991246193235463,
+   0.16392029410528963,
+   0.1418941920200739,
+   0.08898660680007256
+  ],
+  "r0_total_m": 0.040598054525665866
+ },
+ "sizer": {
+  "warnings": [
+   "turbulent_grid: the grid gives 1.31 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.",
+   "turbulent_grid: the pixel count wants 8192, but n_max is 2048. The grid keeps its side and takes a pixel 4.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 1.31 < 4 (feature 5.0 mm)."
+  ],
+  "step_over_limit_max": 0.10326253735942238,
+  "pixels_per_r0": 10.675982192106003,
+  "grid_margin": 2.4507706363059403,
+  "fresnel_pixels_min": 12.037527230677718,
+  "n_clamped": true,
+  "clamp_factor": 4.0,
+  "feature_m": 0.005,
+  "feature_pixels": 1.314839136608961
+ },
+ "campaign": {
+  "root": "D:\\repos\\optical_link_budget\\validation\\terrestrial_campaigns\\campaigns\\L10km_cn23e-15_standard_scipy_lean",
+  "seed": 20260906,
+  "block_size": 50,
+  "L0_m": 25.0,
+  "precision": "single",
+  "patch_radius_m": 0.05,
+  "patch_n": 2048,
+  "patch_pixels": 545,
+  "patch_pixel_m": 0.0038027465571912186,
+  "fft_backend": "scipy",
+  "screen_generator": "olb-lean",
+  "fingerprint": "ac6add43ee6d5fca8ea6acfda6ed21c30b7c8f6e96c1d9cbcf01f6f87d5a099b"
+ }
+}

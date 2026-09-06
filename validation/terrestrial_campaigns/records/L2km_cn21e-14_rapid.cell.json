@@ -1,0 +1,81 @@
+{
+ "cell": "2km:1e-14:rapid",
+ "path_length_m": 2000.0,
+ "cn2_m_m23": 1e-14,
+ "preset": "rapid",
+ "launch": "collimated",
+ "divergence_rad": null,
+ "wavelength_m": 1.55e-06,
+ "waist_m": 0.005,
+ "sigma2_R_plane": 0.7094954838291182,
+ "rho0_m": 0.024623653142555102,
+ "r0_m": 0.051709671599365715,
+ "beam_radius_m": 0.1974154578347771,
+ "apertures": [
+  {
+   "aperture_m": 0.05,
+   "eta_fill": 0.031564696923318536,
+   "curvature_focus_shift_m": 2.765854890442644e-05,
+   "smf_focal_length_m": 0.23525751438172413,
+   "smf_mode_field_radius_m": 5.2e-06
+  },
+  {
+   "aperture_m": 0.1,
+   "eta_fill": 0.12040560989799731,
+   "curvature_focus_shift_m": 0.00011064720409105264,
+   "smf_focal_length_m": 0.47051502876344825,
+   "smf_mode_field_radius_m": 5.2e-06
+  }
+ ],
+ "grid": {
+  "n": 1024,
+  "side_m": 1.0223567819745232,
+  "pixel_m": 0.0009983952948969953,
+  "scaled": false
+ },
+ "screens": {
+  "n": 5,
+  "z_m": [
+   114.59903107889879,
+   357.78078983985415,
+   636.5267139443641,
+   977.6797861584854,
+   1584.3348309750768
+  ],
+  "sigma2_r": [
+   0.1415965797063574,
+   0.14160457561825227,
+   0.14162428960074822,
+   0.14169945566584455,
+   0.14567958915458815
+  ],
+  "r0_m": [
+   0.1899552978423447,
+   0.17727618508895981,
+   0.16151835223383285,
+   0.13981500101453154,
+   0.08768267638658349
+  ],
+  "r0_total_m": 0.05177975341977602
+ },
+ "sizer": {
+  "warnings": [],
+  "step_over_limit_max": 0.9212309148239739,
+  "pixels_per_r0": 51.8629782055595,
+  "grid_margin": 1.7697035507113983,
+  "fresnel_pixels_min": 25.42348839040839,
+  "n_clamped": false
+ },
+ "campaign": {
+  "root": "D:\\repos\\optical_link_budget\\validation\\terrestrial_campaigns\\campaigns\\L2km_cn21e-14_rapid",
+  "seed": 20260906,
+  "block_size": 50,
+  "L0_m": 25.0,
+  "precision": "single",
+  "patch_radius_m": 0.05,
+  "patch_n": 1024,
+  "patch_pixels": 7869,
+  "patch_pixel_m": 0.0009983952948969953,
+  "fingerprint": "a902486592d48cb862cc2754fba953dcefe0eef3cc36eae1c82f44db7bc1e596"
+ }
+}

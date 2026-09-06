@@ -1,0 +1,7 @@
+--- 2km:1e-14:standard ---
+  root        : D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\L2km_cn21e-14_standard
+  grid        : 2048 px, 1.509 m, 9 screens, L0 = 25.0 m
+  on disk     : 0 trials before this call
+  ran         : 2000 new trials in 3441.8 s (1.721 s/trial), 2000 on disk
+  mean loss   : collected power 9.38 dB, SMF coupling 5.59 dB
+

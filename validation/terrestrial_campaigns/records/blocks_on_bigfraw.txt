@@ -1,0 +1,16 @@
+L10km_cn21e-14_rapid|40|3.1
+L10km_cn21e-14_standard|0|0
+L10km_cn21e-14_standard_scipy_lean|40|6
+L10km_cn23e-15_rapid|40|4.6
+L10km_cn23e-15_standard|0|0
+L10km_cn23e-15_standard_scipy_lean|40|8.5
+L2km_cn21e-14_rapid|40|120.2
+L2km_cn21e-14_standard|40|220.5
+L2km_cn23e-15_rapid|40|141
+L2km_cn23e-15_standard|40|247.9
+L5km_cn21e-14_rapid|40|15.5
+L5km_cn21e-14_standard|0|0
+L5km_cn21e-14_standard_scipy_lean|40|29.8
+L5km_cn23e-15_rapid|40|20.3
+L5km_cn23e-15_standard|24|22
+L5km_cn23e-15_standard_scipy_lean|40|36.6

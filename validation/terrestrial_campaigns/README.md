@@ -260,4 +260,49 @@ The owner deferred all of this. This script must NOT do it:
 
 ## Results
 
-Not yet run.
+The full run is DONE (2026-09-06, bigfraw, 12 workers, blocks of 50, seed
+20260906, L0 = 25 m, single precision). Every cell holds 2000 trials, and
+the whole set is about 0.9 GB of blocks. The data stays on bigfraw under
+`D:epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+(gitignored); the run logs and every `cell.json` are in this folder
+(`run_<cell>.log`, `records/<root>.cell.json`, `records/blocks_on_bigfraw.txt`).
+
+The six `rapid` cells and the two 2 km `standard` cells ran with the
+settings of record (`fft_backend numpy`, `screen_generator olb`). The run
+was stopped after those eight, the memory-cut branch was merged (see "The
+two speed opt-ins"), and the four remaining `standard` cells ran with the
+opt-ins, so their roots carry `_scipy_lean`. The partial default-settings
+cell `L5km_cn23e-15_standard` (24 blocks, 1200 trials, the same seed) stays
+on disk as a cross-check of the opt-ins against the default on a real cell.
+
+| cell | preset | root | s/trial (pool wall, 12 workers) | wall | mean bucket loss [dB] | mean SMF loss [dB] |
+|---|---|---|---|---|---|---|
+| 2 km, 3e-15 | rapid | `L2km_cn23e-15_rapid` | 0.260 | 9 min | 9.23 | 3.92 |
+| 2 km, 1e-14 | rapid | `L2km_cn21e-14_rapid` | 0.249 | 8 min | 9.34 | 5.51 |
+| 5 km, 3e-15 | rapid | `L5km_cn23e-15_rapid` | 0.248 | 8 min | 17.05 | 3.43 |
+| 5 km, 1e-14 | rapid | `L5km_cn21e-14_rapid` | 0.443 | 15 min | 17.28 | 6.88 |
+| 10 km, 3e-15 | rapid | `L10km_cn23e-15_rapid` | 0.477 | 16 min | 23.18 | 5.28 |
+| 10 km, 1e-14 | rapid | `L10km_cn21e-14_rapid` | 1.381 | 46 min | 23.65 | 10.57 |
+| 2 km, 3e-15 | standard | `L2km_cn23e-15_standard` | 1.709 | 57 min | 9.25 | 3.93 |
+| 2 km, 1e-14 | standard | `L2km_cn21e-14_standard` | 1.721 | 57 min | 9.38 | 5.59 |
+| 5 km, 3e-15 | standard | `L5km_cn23e-15_standard_scipy_lean` | 1.118 | 37 min | 17.10 | 3.46 |
+| 5 km, 1e-14 | standard | `L5km_cn21e-14_standard_scipy_lean` | 1.226 | 41 min | 17.37 | 6.87 |
+| 10 km, 3e-15 | standard | `L10km_cn23e-15_standard_scipy_lean` | 1.328 | 44 min | 23.07 | 5.17 |
+| 10 km, 1e-14 | standard | `L10km_cn21e-14_standard_scipy_lean` | 3.808 | 127 min | 23.63 | 9.83 |
+
+The mean losses are the sanity numbers the runner prints (the bucket loss
+against the launched power, and the fibre coupling loss of the 10 cm
+aperture, untracked, defocus 0). They are NOT the analysis. The bucket loss
+agrees with the vacuum Gaussian capture of the 10 cm aperture (9.19 dB at
+2 km, 16.92 dB at 5 km, 22.91 dB at 10 km) plus a small turbulent spread,
+and the 10 km rapid cells carry the +0.7 dB pixelised-waist bias that the
+sizer flag records (see "The clamped grids").
+
+WHAT THE TIMING SAYS. At 12 workers the `rapid` cells ran 0.72x the
+8-worker smoke time (the pool spawn is a fixed cost in the smoke). The two
+2 km `standard` cells at the default settings ran only 0.91x the smoke time,
+so the 2048 px pool was memory-bandwidth bound. The four `standard` cells
+with the opt-ins ran 1.53x faster than that at the same 12 workers (1.12
+against 1.71 s/trial at 9 screens), more than the 1.38x one-core gain of
+`validation/memory_cut/`, because the opt-ins cut the bytes each trial
+moves. Whether the new plateau sits above 12 workers is NOT measured.

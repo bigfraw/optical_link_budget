@@ -1,0 +1,81 @@
+{
+ "cell": "2km:3e-15:rapid",
+ "path_length_m": 2000.0,
+ "cn2_m_m23": 3e-15,
+ "preset": "rapid",
+ "launch": "collimated",
+ "divergence_rad": null,
+ "wavelength_m": 1.55e-06,
+ "waist_m": 0.005,
+ "sigma2_R_plane": 0.21284864514873542,
+ "rho0_m": 0.05070837951849155,
+ "r0_m": 0.10648759698883227,
+ "beam_radius_m": 0.1974154578347771,
+ "apertures": [
+  {
+   "aperture_m": 0.05,
+   "eta_fill": 0.031564696923318536,
+   "curvature_focus_shift_m": 2.765854890442644e-05,
+   "smf_focal_length_m": 0.23525751438172413,
+   "smf_mode_field_radius_m": 5.2e-06
+  },
+  {
+   "aperture_m": 0.1,
+   "eta_fill": 0.12040560989799731,
+   "curvature_focus_shift_m": 0.00011064720409105264,
+   "smf_focal_length_m": 0.47051502876344825,
+   "smf_mode_field_radius_m": 5.2e-06
+  }
+ ],
+ "grid": {
+  "n": 1024,
+  "side_m": 0.9448299448428903,
+  "pixel_m": 0.000922685493010635,
+  "scaled": false
+ },
+ "screens": {
+  "n": 5,
+  "z_m": [
+   114.59903107889879,
+   357.78078983985415,
+   636.5267139443641,
+   977.6797861584854,
+   1584.3348309750768
+  ],
+  "sigma2_r": [
+   0.04247897391190721,
+   0.04248137268547568,
+   0.04248728688022446,
+   0.04250983669975337,
+   0.043703876746376435
+  ],
+  "r0_m": [
+   0.39118181525595536,
+   0.36507125977768434,
+   0.3326205846410292,
+   0.2879260884962038,
+   0.18056810683886138
+  ],
+  "r0_total_m": 0.1066319190163616
+ },
+ "sizer": {
+  "warnings": [],
+  "step_over_limit_max": 1.0786142909264813,
+  "pixels_per_r0": 115.56691833143684,
+  "grid_margin": 1.871998846696658,
+  "fresnel_pixels_min": 27.509580871409185,
+  "n_clamped": false
+ },
+ "campaign": {
+  "root": "D:\\repos\\optical_link_budget\\validation\\terrestrial_campaigns\\campaigns\\L2km_cn23e-15_rapid",
+  "seed": 20260906,
+  "block_size": 50,
+  "L0_m": 25.0,
+  "precision": "single",
+  "patch_radius_m": 0.05,
+  "patch_n": 1024,
+  "patch_pixels": 9233,
+  "patch_pixel_m": 0.000922685493010635,
+  "fingerprint": "7df339cd1583703c4dad5f8ab9d97b65ae553365b12c95ccfd6d5aadb55088c5"
+ }
+}
