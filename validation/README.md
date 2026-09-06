@@ -195,6 +195,34 @@ See [terrestrial_screen_count/README.md](terrestrial_screen_count/README.md).
 | --- | --- |
 | [terrestrial_screen_count/screen_count_sweep.py](terrestrial_screen_count/screen_count_sweep.py) | The sweep. `--dry-run` sizes every count and prints the grid, the per-screen `sigma2_r` maximum and the projected cost; the plain call stores the trials cheapest first (resumable), then analyses; `--analyse-only` reads what is stored. It writes a results JSON, a run log and `figures/screen_count_sweep.png`, and it prints ONE table with the reference row first and a delta against 35 screens for each quantity, plus a CONVERGED / NOT CONVERGED verdict for each count. |
 
+## receiver_cone_clip/
+
+The CONVERGING absorbing boundary (backlog 2-P3, route (b)). Only the light
+inside the back-projected cone of the receive aperture can land on it, so a
+mask that follows that cone should hold the aperture field and remove most of
+the grid extent. The test holds the GRID, the screen plan and the screens
+fixed, and it changes ONLY the mask. VERDICT (2026-09-06, TWO rules and two
+cells): NO. In VACUUM the ray-geometry claim is right at both path lengths: the
+cone removes 93 to 99.6 percent of the launched power and the aperture field is
+untouched from `c = 1.5` up. Under TURBULENCE neither rule holds the field. The
+MAPPED rule (the ray map `z/L` on the scatter term too) reaches a field RMS of
+1.2e-2 at `c = 5`, against a 1e-3 limit. The UNMAPPED rule (the ray map on the
+aperture term only, the scatter allowance un-mapped and read from the whole
+path) is ten times better, 1.24e-3 at `c = 5` at 5 km and 5.6e-3 at 10 km, and
+it still fails at every factor. The residue is the power-law TAIL of the
+scattered light, not the cone shape: the field RMS falls as about `c^-4.2`
+(5 km) and `c^-2.1` (10 km), so the field rule needs about `c = 5.3` and
+`c = 11.5`, whose implied sides are 1.24 x and 3.25 x LARGER than the sizer
+side. The budget-visible metrics alone (0.01 dB and 1e-3 of efficiency, all a
+Term reads) pass at `c = 2` at 5 km (a 1.71 x smaller side, but the same 1024
+px) and at `c = 5` at 10 km (a side 1.5 x LARGER than the sizer). So the saving
+is not real at 10 km, the cell that motivated the route. See
+[receiver_cone_clip/README.md](receiver_cone_clip/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [receiver_cone_clip/receiver_cone_clip.py](receiver_cone_clip/receiver_cone_clip.py) | The test. It rebuilds the production `split_step` loop by hand and asserts `numpy.array_equal` against `propagate_turbulent_field`, then reruns the same screens with the converging mask. `--cone-rule` (`mapped` is the first form, `unmapped` the default), `--guard` (`on` keeps the `3 w(z)` near-field guard, `off` is the default because the guard covers the whole grid at 5 km), `--trials`, `--factors`, `--preset`, `--seed`, `--path-km`, `--cn2`. Every output file carries the rule, the guard and the cell, and the run prints the c-versus-metric table for turbulence and for vacuum, the smallest passing factor under the FIELD rule and under the BUDGET-VISIBLE rule, and the grid side and pixel count that each implies. |
+
 ## screen_stacking/
 
 The phase-screen STACKING test, phase only. Does a stack of N screens hold the

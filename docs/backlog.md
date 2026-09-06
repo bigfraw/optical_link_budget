@@ -1139,6 +1139,23 @@ The path forward for each is a second reference or a derivation.
   received field INSIDE the aperture; the claim is that the clipped light
   never reaches the aperture, and the test must show the difference is at
   the single-precision floor before the clip becomes a sizer rule.
+  ROUTE (b) IS CLOSED (2026-09-06, `validation/receiver_cone_clip/`, matched
+  screens, 6 trials, 5 km and 10 km at 1e-14, rapid). In VACUUM the ray
+  picture is exact: a cone at 1.5x removes 96 to 98 percent of the launched
+  power and the aperture field does not move. Under TURBULENCE no cone
+  holds the field: with the scatter term left un-mapped (the correct form)
+  the aperture-field RMS error falls as a POWER LAW in the cone factor c
+  (about c^-4 at 5 km, c^-2 at 10 km), never as a cut-off, because
+  lambda / r0 is an RMS scatter angle and the Kolmogorov angular spectrum
+  has a power-law wing, so a fixed multiple of it holds a quantile of the
+  arriving rays and never all of them. The factor that holds the field to
+  1e-3 costs MORE side than the sizer gives (1.24x at 5 km, 3.25x at 10 km);
+  the factors that save side pass only the aperture-integral (budget) numbers
+  over six trials and hide a 1 to 3 percent field error with an unknown
+  effect on the fade tail. At 10 km, the cell that motivated it, even the
+  budget-visible factor asks for a 1.5x LARGER side. The extent the sizer
+  holds is scattered light that does reach the aperture. Do not reopen
+  without a new mechanism.
 - **2-P6. A two-grid launch: resolve the waist on a fine grid, then resample
   onto the coarse propagation grid (owner, 2026-09-06, route (a) of 2-P3).**
   The smallest-feature rule (`dx <= feature / 4`, the launch waist here)
