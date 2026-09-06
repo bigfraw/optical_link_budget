@@ -933,7 +933,7 @@ The path forward for each is a second reference or a derivation.
   10x per screen, validated in validation/waveoptics_speed/) makes the broad
   sweep cheap, so the reason for the narrow one is gone. Source every floor from
   this catalogue and record it in the tracker.
-- **2-TC. The terrestrial campaign backbone — BUILT, RUNNING (2026-09-06).**
+- **2-TC. The terrestrial campaign backbone — DONE (2026-09-06).**
   `validation/terrestrial_campaigns/run_campaigns.py` plus its README store a
   backbone dataset of terrestrial fidelity-2 snapshots. It is a RUNNER only: it
   stores the trials and it measures the time, the memory and the disk. It does
@@ -975,11 +975,17 @@ The path forward for each is a second reference or a derivation.
   the screens one at a time and it keeps no stack, so a strong path no longer
   holds every screen in RAM (at 2048 px a float32 screen is 16 MB, and the
   10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
-  STATE. The full run is IN PROGRESS on bigfraw (12 workers, launched
-  2026-09-06). The data stays on bigfraw under
-  `D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\` and
-  it is gitignored; the logs and the `cell.json` files come back when the run
-  ends.
+  STATE. The full run is DONE (2026-09-06): twelve campaigns of 2000 trials,
+  0.9 GB of blocks, on bigfraw under
+  `D:epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+  (gitignored). The run logs, every `cell.json` and the block census are in
+  the study folder (`records/`), and the README "Results" table gives the
+  timing and the sanity means of every cell. The run was stopped after eight
+  cells to merge the memory cut (`validation/memory_cut/`); the four
+  `standard` cells past 2 km ran with the two speed opt-ins (roots
+  `_scipy_lean`, 1.53x at the same 12 workers), and the partial
+  default-settings `L5km_cn23e-15_standard` (24 blocks) stays as a same-seed
+  cross-check of the opt-ins. NOT MEASURED: the worker plateau after the cut.
   DEFERRED — THE ANALYSIS (owner, 2026-09-06). There is NO analysis script yet.
   The deferred questions are: the fade distribution (lognormal against
   gamma-gamma) over the whole `sigma_R^2` band; the index split (the point index
