@@ -1031,8 +1031,16 @@ epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   over-conservative, and fewer screens is the OPTIMISTIC (unsafe) direction.
   The five other standard cells are floor-limited at 9 to 11 screens by
   `min_screens`, not by the cap, so the cap bit only where the physics says
-  it should. The preset-split question of 2-I3 stays open, but not on the
-  cap axis.
+  it should. OWNER READING (2026-09-06), which the study README adopts: the
+  bars are the reference noise alone, and a delta carries sqrt(2) of it
+  (+-0.34 dB bucket p5, +-1.05 dB SMF p5). On that footing the SMF fade shows
+  NO detectable screen-count effect from 5 to 35 screens (p5 deltas -0.49 /
+  +0.68 / +0.31 dB, no sign pattern), because the fibre fade in saturation is
+  tilt and low-order phase, which few screens carry; only the bucket and the
+  point statistics show the small, consistently optimistic bias (about half a
+  dB at the bucket p5, 1.4 to 1.8 sigma each). So for a FIBRE-coupled
+  terrestrial link 10 screens is defensible on this cell, and the rule should
+  key on the receiver kind and a dB tolerance (2-I3), not on the cap alone.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production

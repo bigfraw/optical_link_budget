@@ -187,12 +187,31 @@ The owner stopped the sweep before the 20-screen count. The record is
 Reference bootstrap half-widths (68 percent): bucket p5 0.24 dB, p1 0.31 dB,
 index 8 percent; 5 cm bucket index 21 percent; centre pixel index 42 percent.
 
-VERDICT. No count below 35 converges on this cell (`sigma_R^2` = 13.6, deep
-saturation). Every lower count reads LESS fade, two to three half-widths at
-the 5 percent fade of the 10 cm bucket, and the small-aperture and the point
-indices read 15 to 60 percent low. Fewer screens is the OPTIMISTIC direction.
-The trend is slow (0.16 dB of p5 over ten screens), so 20 would not have
-crossed the bar, and whether 35 itself is converged is NOT tested: a 50 to 70
-screen run (about 1 h) settles it. So the Schmidt cap is not
-over-conservative here. The five other standard cells of the backbone sit at
-the `min_screens` floor (9 to 11), so the cap bound only this cell.
+VERDICT, BY RECEIVER KIND (the owner's reading, 2026-09-06). The bars above
+are the bootstrap noise of the REFERENCE alone; each count is a 1000-trial
+estimate too, so the noise on a DELTA is about sqrt(2) larger: +-0.34 dB at
+the bucket p5, +-1.05 dB at the SMF p5, +-3.4 dB at the SMF p1. Read this way:
+
+- SMF receiver (the link of interest): the p5 deltas -0.49 / +0.68 / +0.31 dB
+  and the p1 deltas -0.73 / +0.88 / +0.04 dB carry no sign pattern and sit
+  inside the noise. From 5 to 35 screens there is NO detectable screen-count
+  effect on the fibre fade at 1000 trials. The fibre fade in saturation is
+  tilt and low-order phase, the large scales that few screens already carry;
+  the count changes the small-scale amplitude structure. So 10 screens is
+  defensible for a fibre-coupled terrestrial link on this cell, and the cap
+  count buys nothing measurable. The resolution is about +-1 dB at p5, so this
+  rules out a large effect, not a small one; +-0.5 dB needs about four times
+  the trials.
+- Bucket receiver: a small, consistently OPTIMISTIC bias. The 10 cm bucket p5
+  reads 0.62 / 0.53 / 0.46 dB less fade at 5 / 10 / 15 screens (1.4 to 1.8
+  sigma each, the same sign every time), the 5 cm bucket index 0.70 / 0.84 /
+  0.65 of the reference, the centre-pixel index 0.44 / 0.58 / 0.40. Within a
+  1 dB tolerance 10 or 15 screens pass; a small sensor or a point statistic
+  pays more.
+- Not tested: whether 35 itself is converged (a 50 to 70 screen run, about
+  1 h). The "CONVERGED" rule in the log means "inside the reference noise",
+  a resolution statement, not a tolerance.
+
+The five other standard cells of the backbone sit at the `min_screens` floor
+(9 to 11), so the cap bound only this cell. The count rule should key on the
+receiver kind and a dB tolerance (2-I3), not on the cap alone.
