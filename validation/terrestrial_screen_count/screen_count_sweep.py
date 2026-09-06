@@ -113,9 +113,11 @@ REF_LABEL = "ref35"
 DEFAULT_COUNTS = (5, 10, 15, 20)
 
 # The cost model of the dry run. The backbone smoke run measured about 6.0 s
-# for one trial of this cell at 35 screens, and a trial is close to linear in
-# the screen count, so the projection scales by n / 35.
+# of WALL time for one trial of this cell at 35 screens on an 8-worker pool
+# (the pool time, not the time of one process), and a trial is close to linear
+# in the screen count, so the projection scales by n / 35 and by 8 / workers.
 REF_S_PER_TRIAL = 6.0
+REF_WORKERS = 8
 
 # The receive diameters that the analysis reads. The 100 mm value is the
 # propagated aperture; the 50 mm value is a post-hoc crop of the stored field.
@@ -505,7 +507,7 @@ def dry_run_rows(specs, n_trials, workers):
             f"{camp.plan.sigma2_r.max():.4f}",
             "yes" if same else "NO",
             f"{s_per:.2f}",
-            f"{n_trials * s_per / 3600.0 / max(workers, 1):.2f}",
+            f"{n_trials * s_per * REF_WORKERS / max(workers, 1) / 3600.0:.2f}",
         ])
     return rows
 

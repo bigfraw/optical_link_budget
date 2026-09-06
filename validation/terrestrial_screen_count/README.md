@@ -100,7 +100,12 @@ The sweep is QUEUED behind the terrestrial backbone run on `bigfraw`: it is
 launched by a `Wait-Process` wrapper that waits for the backbone python process
 and then starts this module. The launch command:
 
-    <PLACEHOLDER: the session adds the exact WMI launch line here>
+    $cmd = 'powershell -NoProfile -Command "Wait-Process -Id <backbone PID> -ErrorAction SilentlyContinue; cd D:\repos\optical_link_budget; & C:\Users\alexf\anaconda3\envs\olb\python.exe -u -m validation.terrestrial_screen_count.screen_count_sweep --workers 12 > validation\terrestrial_screen_count\sweep_launch.log 2>&1"'
+    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$cmd}
+
+`<backbone PID>` is the process id that the backbone WMI launch returned
+(3980 on 2026-09-06). The wrapper sleeps until that process ends, then it
+runs the sweep in the same detached way.
 
 ## What CONVERGED means
 
