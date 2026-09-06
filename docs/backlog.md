@@ -990,6 +990,26 @@ The path forward for each is a second reference or a derivation.
   coupling against `terrestrial_smf_coupling_term` and the walk-off Term
   `terrestrial_smf_walkoff_term`; and the tracked-focus `recouple`.
   WHO WAITS FOR IT: 1-8 gate (b), 1-9, and 2-N2.
+  FOLLOW-UP — 2-TC1. THE SCREEN COUNT AGAINST THE SCHMIDT CAP (owner-flagged
+  2026-09-06, HIGH interest). Even at the book cap the 10 km / 1e-14 cell asks
+  for 35 screens, and the owner reads that as far too many for a horizontal
+  path. The cap is a per-screen THIN-SCREEN validity rule (Schmidt, DOI
+  10.1117/3.866274, Listing 9.5, printed p. 175, credited to Martin and
+  Flatte), not a convergence result, and olb has no terrestrial convergence
+  sweep past the weak 2 km case (WP7 measured a SLANT slab). THE TEST:
+  hold the 10 km / 1e-14 grid fixed and DELIBERATELY OVERRIDE the count with
+  a caller plan (`Campaign(..., plan=)` takes any `ScreenPlan`; build the
+  equal-weight cut of `_plan_terrestrial` at n = 5, 10, 15, 20 and 35, so
+  the 35-screen campaign of 2-TC is the reference). Compare the collected
+  power mean and index, the centre-pixel index, the `smf_eta` distribution
+  and the p10 / p5 / p1 fades of each count against the 35-screen run, at a
+  matched trial count (500 to 1000 trials each; the standard cell runs about
+  6 s/trial at 35 screens, so the sweep is a few hours on bigfraw). If 10
+  screens sit on the 35-screen line inside the Monte Carlo error, the cap is
+  over-conservative on a uniform horizontal path and a terrestrial preset
+  rule (a count from a convergence table, not from the cap) replaces it (see
+  2-I3, the preset split by channel family). Do it AFTER the 2-TC run ends:
+  the box is busy until then.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
