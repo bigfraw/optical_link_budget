@@ -88,31 +88,6 @@ are from 2026-08-26 and can drift.
 
 ### Wiring steps (built, no budget consumes it)
 
-- **0-W1. Gap 2 — DECIDED 2026-08-27: the pre-compensated uplink gets NO
-  analytic scintillation Term.** The owner rejected the earlier plan to wire
-  `andrews.paths.uplink_scintillation_index(tracked=True)`. Three reasons:
-  the tracked form removes the wander fully, which is a perfect tilt
-  correction, and the beacon tilt decorrelates from the uplink path over the
-  point-ahead angle; the same decorrelation applies to each higher corrected
-  order; and a decorrelated correction reshapes the beam, so the Ch. 12
-  normalisation by the vacuum-diffraction beam radius breaks. The tracked
-  form is OPTIMISTIC, not a bound. No trustworthy closed form exists; the
-  literature computes this case numerically. Resolution: the beacon + AO
-  budget stays phase-only and mean-only, returns with LOUD flags
-  (`NO SCINTILLATION, NO FADE`, plus the new extended-Marechal limit flag at
-  sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), and stays useful
-  for the geometric-only path (turbulence=False). The model of record is the
-  fidelity-1 FAST Monte Carlo with the point-ahead offset, and that wiring is
-  DONE (2026-08-27, same day): `uplink_fast_term` in
-  olb/models/fast.py computes DTHETA from `geometry.point_ahead_rad`
-  and returns the pure turbulence penalty with a real fade;
-  `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario)
-  consumes it, and `fidelity=0` keeps the analytic phase-only pair as the
-  no-dependency fallback. The FAST 0.1.7 Monte Carlo is direction-agnostic
-  (the commented `PROP_DIR="up"` branches touch only the analytic budget olb
-  does not read), so the reciprocity mapping needs no static-floor
-  correction. Docs updated 2026-08-27: paths.py docstring, CLAUDE.md,
-  docs/physics.md, docs/api-budget.md.
 - **0-W2. Gap 3: thread the curvature f0 into the Fried parameter — DONE
   (2026-08-27).** The terrestrial SMF coupling call site in
   olb/models/coupling/terrestrial.py now reads the launch curvature from the
@@ -167,6 +142,31 @@ are from 2026-08-26 and can drift.
   closed via Belmonte; the budgets keep the Dios/Belmonte 2.07 kernel; the
   Andrews 7.25 route sits in andrews/wander.py for measurement only). Listed
   so nobody re-opens it.
+- **0-W1. Gap 2 — DECIDED 2026-08-27: the pre-compensated uplink gets NO
+  analytic scintillation Term.** The owner rejected the earlier plan to wire
+  `andrews.paths.uplink_scintillation_index(tracked=True)`. Three reasons:
+  the tracked form removes the wander fully, which is a perfect tilt
+  correction, and the beacon tilt decorrelates from the uplink path over the
+  point-ahead angle; the same decorrelation applies to each higher corrected
+  order; and a decorrelated correction reshapes the beam, so the Ch. 12
+  normalisation by the vacuum-diffraction beam radius breaks. The tracked
+  form is OPTIMISTIC, not a bound. No trustworthy closed form exists; the
+  literature computes this case numerically. Resolution: the beacon + AO
+  budget stays phase-only and mean-only, returns with LOUD flags
+  (`NO SCINTILLATION, NO FADE`, plus the new extended-Marechal limit flag at
+  sigma2 > 1 rad^2, T. S. Ross, DOI 10.1364/AO.48.001812), and stays useful
+  for the geometric-only path (turbulence=False). The model of record is the
+  fidelity-1 FAST Monte Carlo with the point-ahead offset, and that wiring is
+  DONE (2026-08-27, same day): `uplink_fast_term` in
+  olb/models/fast.py computes DTHETA from `geometry.point_ahead_rad`
+  and returns the pure turbulence penalty with a real fade;
+  `uplink_budget(fidelity=1)` (the default for a pre-compensated scenario)
+  consumes it, and `fidelity=0` keeps the analytic phase-only pair as the
+  no-dependency fallback. The FAST 0.1.7 Monte Carlo is direction-agnostic
+  (the commented `PROP_DIR="up"` branches touch only the analytic budget olb
+  does not read), so the reciprocity mapping needs no static-floor
+  correction. Docs updated 2026-08-27: paths.py docstring, CLAUDE.md,
+  docs/physics.md, docs/api-budget.md.
 
 ### Physics gaps
 
@@ -271,6 +271,20 @@ are from 2026-08-26 and can drift.
 
 ### Numerical and validation issues
 
+- **0-N3. The budget adds dB losses / per-term p-quantiles.** Not a book
+  form; it is a conservative upper bound (crosscheck RS-02, RS-03). Record
+  the bound; consider a joint-sample check.
+- **0-N4. The near-field truncation flag is not conservative.** The true
+  value can sit above or below the far-field form
+  (olb/models/gaussian_efficiency.py:186–193). The fidelity-2 vacuum layer is
+  the verifier; consider an auto-route.
+- **0-N5. The quasi-frequency has no upper limit of its own** (`b_2` grows
+  as `f_max^{1/3}`; olb/turbulence/andrews/temporal.py:608). Any caller must
+  set the band from the detector or an inner scale. Pairs with the
+  inner-scale memory.
+- **0-N6. The fade rate and the fade time have no external check** — the
+  book gives no worked example; the faces are checked against internal
+  identities only.
 - **0-N1. DONE (2026-08-29). TL-05: the terrestrial weak gate tested ONE
   criterion.** Ch. 5, Eq. (16), printed p. 140 needs `sigma_R^2 < 1` AND
   `sigma_R^2 Lambda^{5/6} < 1`. Commit 3470190 added the one shared
@@ -288,20 +302,6 @@ are from 2026-08-26 and can drift.
   0.51, and `plane_wave_scintillation.plane_wave_scintillation_index_closed`
   delegates to it. No source file holds 0.54, 1.22 or 0.509 any more
   (crosscheck ledger PW-09, KR-24).
-- **0-N3. The budget adds dB losses / per-term p-quantiles.** Not a book
-  form; it is a conservative upper bound (crosscheck RS-02, RS-03). Record
-  the bound; consider a joint-sample check.
-- **0-N4. The near-field truncation flag is not conservative.** The true
-  value can sit above or below the far-field form
-  (olb/models/gaussian_efficiency.py:186–193). The fidelity-2 vacuum layer is
-  the verifier; consider an auto-route.
-- **0-N5. The quasi-frequency has no upper limit of its own** (`b_2` grows
-  as `f_max^{1/3}`; olb/turbulence/andrews/temporal.py:608). Any caller must
-  set the band from the detector or an inner scale. Pairs with the
-  inner-scale memory.
-- **0-N6. The fade rate and the fade time have no external check** — the
-  book gives no worked example; the faces are checked against internal
-  identities only.
 
 ### Blocked by the source (documented refusals — need a second source)
 
@@ -413,91 +413,6 @@ The path forward for each is a second reference or a derivation.
   equations; the jitter correction sits in the MC path only (the `ponytail: DEBT`
   comment in olb/turbulence/beam_wave_scintillation.py). Converge on ONE
   implementation; do not make a third copy.
-- **1-6. DONE (2026-09-01). Certify the aperture-averaged lognormal power draw
-  against fidelity 2 (owner-flagged 2026-08-29).** The `--full` certification run
-  closed this item. The script is
-  `validation/lognormal_certification/lognormal_certification.py` (commit
-  927c952), and the certification of record is that folder README plus
-  docs/physics.md Section 9e. The verdict is PASS to the 1 percent fade for a
-  weak horizontal path. The record below stays for the history.
-  The question: in WEAK turbulence,
-  does the received-power distribution under APERTURE AVERAGING still follow the
-  lognormal that the cheap analytic route assumes? The route takes the
-  aperture-averaged index sigma2_P = A sigma2_I and draws from a lognormal (see
-  the `sigma2_P = A * sigma2_I` step in olb/links/terrestrial.py and the
-  lognormal build in olb/links/downlink.py). But an
-  aperture integrates a correlated lognormal field, and a sum of lognormals is
-  NOT lognormal: as D grows the power drifts toward Gaussian (thinner tails), and
-  for a finite Gaussian beam any beam wander adds a pointing tail the single
-  index cannot describe. The test: run the fidelity-2 split-step Monte Carlo
-  (olb/waveoptics/turbulence), histogram the aperture-collected power across
-  trials, and compare the empirical PDF (and, crucially, the deep-fade tail
-  quantiles) against the lognormal built from the analytic mean + sigma2_P at the
-  matched sigma2_I. Sweep D/rho_0 (point aperture to strong averaging) and the
-  beam geometry (collimated, diverged, focused). A pass certifies that the
-  'easy' analytic weak-turbulence calc can generate a trustworthy power
-  distribution; a fail bounds where it may be used and points to the composite
-  (lognormal x pointing) or a direct empirical sampler.
-  NOTE ON LADDER LABELLING: producing a power DISTRIBUTION (draws) from an
-  analytic sigma2_I is STATISTICAL, so by the olb ladder it is FIDELITY 1, even
-  though the sigma2_I itself is an easy fidelity-0 analytic quantity. The owner
-  confirms this labelling is intended and fine. The fidelity-2 sim here is the
-  reference that certifies the fidelity-1 draw; it is not a new budget path.
-  See the memory `aperture-averaged-lognormal-certification` and the discussion
-  of aperture averaging and beam wander in the C-05 / TL-05 thread.
-  UPDATE (2026-09-01): the certification script EXISTS at
-  `validation/lognormal_certification/`. It sweeps `D/rho_0` from 0.20 to 7.89 on
-  one firmly weak 2 km horizontal path (`sigma_R^2 = 0.21`), for a collimated and
-  a diverged launch, and it reports the index, the fade quantiles and the skew of
-  `ln P` apart, so an INDEX error and a SHAPE error do not mix. QUICK-MODE first
-  reading (150 trials, `rapid` preset): the lognormal FAMILY HOLDS -- with the
-  index refit to the measured value every case agrees inside 0.12 dB at the 5 %
-  fade, and the skew of `ln P` stays in [-0.38, +0.19] with no trend against D,
-  so no drift to a Gaussian power and no pointing tail is visible in this band.
-  The fault is the INDEX: near `D/rho_0 = 3` the analytic `sigma2_P` reads 2.1x
-  (collimated) to 2.7x (diverged) LOW, so the analytic fade is optimistic by 0.24
-  to 0.26 dB at the 5 % fade. The analytic on-axis index also takes the waist
-  only, so it gives the collimated and the diverged launch the SAME number while
-  the field does not.
-  UPDATE (2026-09-01, second pass): the script now SPLITS that index error in
-  two, and the answer is the FILTER. One propagation for each trial
-  (`propagate_turbulent_field`) now serves the whole aperture sweep, so the point
-  estimator and every diameter read the SAME atmosphere; a matched-seed check
-  against `propagate_turbulent_scenario` on the shared grid agrees BIT FOR BIT,
-  and the quick run fell from about 9 minutes to about 2.5 minutes. The POINT
-  index (the mean irradiance in an 8 mm on-axis disc, 0.14 of the Fresnel scale)
-  reads `sigma2_I` = 0.0615 collimated and 0.0676 diverged against the analytic
-  0.0744, so the Dios on-axis form is 10 to 20 % HIGH -- a modest error. The
-  Churnside filter is the fault: `A_eff = sigma2_P_sim / sigma2_I_sim` runs 1.4x
-  the analytic A at `D/rho_0` = 1, 2.6x to 2.9x at `D/rho_0` = 3, and 2.5x at
-  `D/rho_0` = 7.9. So A OVER-AVERAGES across the whole band, and the point index
-  partly HIDES it (the two errors pull in opposite directions). Two more
-  findings. (a) The D = 40 cm COLLIMATED column of the first reading was a
-  BEAM-FILLING artifact, not physics: `w(L)` = 19.7 cm there, so the aperture
-  catches `eta_fill` = 0.87 of the beam and measures near-total power, which
-  fluctuates little (A ratio 0.53). The diverged launch at the same diameter has
-  `w(L)` = 40.4 cm, `eta_fill` = 0.39, and it behaves like every other unfilled
-  case (A ratio 2.54). The script now computes `eta_fill` for every case and
-  FLAGS a case past 0.5 as BEAM-FILLING-LIMITED, in the log, the JSON and the
-  figure. That is backlog 2-N2 measured. (b) The ABSOLUTE impact is small: the
-  fade spread falls from 1.07 dB (D = 1 cm) to 0.06 to 0.13 dB (D = 40 cm), so
-  the WORST relative index error (2.9x) moves the 5 % fade by 0.26 dB only.
-  DONE for this path (2026-09-01, the `--full` run: 1500 trials for each
-  launch, `standard` preset, about 2.8 hours). VERDICT PASS to the 1 % fade:
-  the refit lognormal agrees inside 0.128 dB at the 5 % fade and 0.210 dB at
-  the 1 % fade in every case; the whole analytic route inside 0.289 dB and
-  0.413 dB (both worst cases the diverged 15 cm receiver); the skew of `ln P`
-  sits near -0.2 with no trend. The full run also RETIRES one quick-mode
-  finding: the 10 to 20 % point-index bias was a `rapid`-preset artifact -- at
-  `standard` the analytic `sigma2_I` reads only 3 to 4 % high. The filter
-  fault stands, milder: `A_eff/A` about 1.2 at `D/rho_0 = 1`, 1.8 to 2.5 at 3,
-  2.4 at 7.9 (unfilled). The certification of record is in the folder README
-  and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
-  item: a focused launch, a stronger Cn2, and a longer path. That sweep is now
-  step 1 of 1-9 (2026-09-05). The stronger-Cn2 and longer-path half of it is now
-  2-TC (2026-09-06), the terrestrial campaign backbone, which is DONE
-  (2026-09-06: twelve campaigns of 2000 trials, about 0.9 GB); a
-  focused launch stays blocked by 0-P17.
 - **1-8. Terrestrial fidelity 1 = the calibrated lognormal draw (PROPOSED
   2026-09-01).** A terrestrial link has NO fidelity-1 rung: FAST is far-field
   only, so `terrestrial_budget(fidelity=1)` raises (1-1). The proposal fills that
@@ -619,6 +534,91 @@ The path forward for each is a second reference or a derivation.
   RESIDUAL scintillation fluctuations that survive the pre-compensation. It
   can inform a future residual-scintillation model or a cross-check of the
   FAST point-ahead residual (see 1-5). A reading task, not a build task.
+- **1-6. DONE (2026-09-01). Certify the aperture-averaged lognormal power draw
+  against fidelity 2 (owner-flagged 2026-08-29).** The `--full` certification run
+  closed this item. The script is
+  `validation/lognormal_certification/lognormal_certification.py` (commit
+  927c952), and the certification of record is that folder README plus
+  docs/physics.md Section 9e. The verdict is PASS to the 1 percent fade for a
+  weak horizontal path. The record below stays for the history.
+  The question: in WEAK turbulence,
+  does the received-power distribution under APERTURE AVERAGING still follow the
+  lognormal that the cheap analytic route assumes? The route takes the
+  aperture-averaged index sigma2_P = A sigma2_I and draws from a lognormal (see
+  the `sigma2_P = A * sigma2_I` step in olb/links/terrestrial.py and the
+  lognormal build in olb/links/downlink.py). But an
+  aperture integrates a correlated lognormal field, and a sum of lognormals is
+  NOT lognormal: as D grows the power drifts toward Gaussian (thinner tails), and
+  for a finite Gaussian beam any beam wander adds a pointing tail the single
+  index cannot describe. The test: run the fidelity-2 split-step Monte Carlo
+  (olb/waveoptics/turbulence), histogram the aperture-collected power across
+  trials, and compare the empirical PDF (and, crucially, the deep-fade tail
+  quantiles) against the lognormal built from the analytic mean + sigma2_P at the
+  matched sigma2_I. Sweep D/rho_0 (point aperture to strong averaging) and the
+  beam geometry (collimated, diverged, focused). A pass certifies that the
+  'easy' analytic weak-turbulence calc can generate a trustworthy power
+  distribution; a fail bounds where it may be used and points to the composite
+  (lognormal x pointing) or a direct empirical sampler.
+  NOTE ON LADDER LABELLING: producing a power DISTRIBUTION (draws) from an
+  analytic sigma2_I is STATISTICAL, so by the olb ladder it is FIDELITY 1, even
+  though the sigma2_I itself is an easy fidelity-0 analytic quantity. The owner
+  confirms this labelling is intended and fine. The fidelity-2 sim here is the
+  reference that certifies the fidelity-1 draw; it is not a new budget path.
+  See the memory `aperture-averaged-lognormal-certification` and the discussion
+  of aperture averaging and beam wander in the C-05 / TL-05 thread.
+  UPDATE (2026-09-01): the certification script EXISTS at
+  `validation/lognormal_certification/`. It sweeps `D/rho_0` from 0.20 to 7.89 on
+  one firmly weak 2 km horizontal path (`sigma_R^2 = 0.21`), for a collimated and
+  a diverged launch, and it reports the index, the fade quantiles and the skew of
+  `ln P` apart, so an INDEX error and a SHAPE error do not mix. QUICK-MODE first
+  reading (150 trials, `rapid` preset): the lognormal FAMILY HOLDS -- with the
+  index refit to the measured value every case agrees inside 0.12 dB at the 5 %
+  fade, and the skew of `ln P` stays in [-0.38, +0.19] with no trend against D,
+  so no drift to a Gaussian power and no pointing tail is visible in this band.
+  The fault is the INDEX: near `D/rho_0 = 3` the analytic `sigma2_P` reads 2.1x
+  (collimated) to 2.7x (diverged) LOW, so the analytic fade is optimistic by 0.24
+  to 0.26 dB at the 5 % fade. The analytic on-axis index also takes the waist
+  only, so it gives the collimated and the diverged launch the SAME number while
+  the field does not.
+  UPDATE (2026-09-01, second pass): the script now SPLITS that index error in
+  two, and the answer is the FILTER. One propagation for each trial
+  (`propagate_turbulent_field`) now serves the whole aperture sweep, so the point
+  estimator and every diameter read the SAME atmosphere; a matched-seed check
+  against `propagate_turbulent_scenario` on the shared grid agrees BIT FOR BIT,
+  and the quick run fell from about 9 minutes to about 2.5 minutes. The POINT
+  index (the mean irradiance in an 8 mm on-axis disc, 0.14 of the Fresnel scale)
+  reads `sigma2_I` = 0.0615 collimated and 0.0676 diverged against the analytic
+  0.0744, so the Dios on-axis form is 10 to 20 % HIGH -- a modest error. The
+  Churnside filter is the fault: `A_eff = sigma2_P_sim / sigma2_I_sim` runs 1.4x
+  the analytic A at `D/rho_0` = 1, 2.6x to 2.9x at `D/rho_0` = 3, and 2.5x at
+  `D/rho_0` = 7.9. So A OVER-AVERAGES across the whole band, and the point index
+  partly HIDES it (the two errors pull in opposite directions). Two more
+  findings. (a) The D = 40 cm COLLIMATED column of the first reading was a
+  BEAM-FILLING artifact, not physics: `w(L)` = 19.7 cm there, so the aperture
+  catches `eta_fill` = 0.87 of the beam and measures near-total power, which
+  fluctuates little (A ratio 0.53). The diverged launch at the same diameter has
+  `w(L)` = 40.4 cm, `eta_fill` = 0.39, and it behaves like every other unfilled
+  case (A ratio 2.54). The script now computes `eta_fill` for every case and
+  FLAGS a case past 0.5 as BEAM-FILLING-LIMITED, in the log, the JSON and the
+  figure. That is backlog 2-N2 measured. (b) The ABSOLUTE impact is small: the
+  fade spread falls from 1.07 dB (D = 1 cm) to 0.06 to 0.13 dB (D = 40 cm), so
+  the WORST relative index error (2.9x) moves the 5 % fade by 0.26 dB only.
+  DONE for this path (2026-09-01, the `--full` run: 1500 trials for each
+  launch, `standard` preset, about 2.8 hours). VERDICT PASS to the 1 % fade:
+  the refit lognormal agrees inside 0.128 dB at the 5 % fade and 0.210 dB at
+  the 1 % fade in every case; the whole analytic route inside 0.289 dB and
+  0.413 dB (both worst cases the diverged 15 cm receiver); the skew of `ln P`
+  sits near -0.2 with no trend. The full run also RETIRES one quick-mode
+  finding: the 10 to 20 % point-index bias was a `rapid`-preset artifact -- at
+  `standard` the analytic `sigma2_I` reads only 3 to 4 % high. The filter
+  fault stands, milder: `A_eff/A` about 1.2 at `D/rho_0 = 1`, 1.8 to 2.5 at 3,
+  2.4 at 7.9 (unfilled). The certification of record is in the folder README
+  and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
+  item: a focused launch, a stronger Cn2, and a longer path. That sweep is now
+  step 1 of 1-9 (2026-09-05). The stronger-Cn2 and longer-path half of it is now
+  2-TC (2026-09-06), the terrestrial campaign backbone, which is DONE
+  (2026-09-06: twelve campaigns of 2000 trials, about 0.9 GB); a
+  focused launch stays blocked by 0-P17.
 
 ---
 
@@ -707,22 +707,6 @@ The path forward for each is a second reference or a derivation.
   OPTIMISTIC against both (it is L0-agnostic). FOLLOW-UP (owner-requested
   2026-08-28): an AUTOMATIC fidelity selector, the way `model="auto"` picks a
   distribution.
-- **2-W2. The fidelity-2 SMF path ignores `defocus_m` — DONE (2026-09-04).**
-  `olb.waveoptics.smf.coupling_efficiency` now takes `defocus_m` and
-  `focal_length_m`. It multiplies the received field with the SAME quadratic
-  pupil phase the multimode leg uses, `exp(-i*pi*defocus_m*rho^2/(lam*f^2))`,
-  which moved into the shared helper `olb.waveoptics.mmf.defocus_phase`. So the
-  two fidelity-2 legs read ONE defocus convention: a DIVERGING received beam
-  couples best at a POSITIVE `defocus_m`. `olb.waveoptics.run._smf_eta` resolves
-  the focal length (an explicit `SMF.focal_length_m` wins, else
-  `SMF.optimal_focus` gives `f = pi*(D/2)*w_m/(lambda*1.12)`) and it feeds
-  `SMF.defocus_m` to every call site: the vacuum run, the turbulent trials, and
-  the multi-arm `detector_etas` path. A defocus with no focal length raises. The
-  default `defocus_m=0.0` keeps every old number bit-identical. The `smf.py`
-  self-check now measures the field overlap against the closed form
-  `smf_eta_defocused(a=1.12, c)` (D = 0.1 m, f = 0.5 m): 0.8145/0.8145 at
-  c = 0, 0.7537/0.7537 at c = 1, 0.5936/0.5936 at c = 2 and 0.2076/0.2076 at
-  c = 4. So the aberrated single-mode closed form HAS a field reference now.
 - **2-W3. The power-to-pixel-brightness conversion for the Camera detector is
   NOT built (owner-deferred 2026-09-02).** The pieces exist: the `Camera`
   dataclass (olb/terminal.py: `pixel_pitch_m`, `n_pixels`, `focal_length_m`,
@@ -737,16 +721,6 @@ The path forward for each is a second reference or a derivation.
   saturation limit, the bit depth) so the output is a real detector signal, not
   an ideal power map. Design it in one pass with the owner before any wiring;
   each parameter changes what "pixel brightness" means.
-- **2-W4. Retire `cache.py` in favour of `Campaign` — DONE (2026-09-04).**
-  `olb/waveoptics/turbulence/cache.py` (the P4 opt-in disk cache of scalar
-  runs, block sub-seeds, no field) is DELETED, with its self-check and
-  `validation/waveoptics_speed/cache_check.py`. `Campaign` replaces it: its
-  blocks are bit-identical slices of ONE seeded native run (the runner's
-  `start_index`), and it stores the receive-field patch. The one piece the
-  campaign imported, the `cache_key` content fingerprint, moved unchanged to
-  `olb/waveoptics/turbulence/fingerprint.py`, so an existing campaign manifest
-  still matches. No budget ever called the cache. The measured numbers of the
-  cache stay as a record in docs/waveoptics-efficiency-plan.md Section 8.
 - **2-N1. `min_screens` and `_merge_layers` — DONE (work package 7).**
   `_merge_layers` now clamps a weak path UP to EXACTLY `min_screens`
   contiguous Cn2-weighted groups, through the new `_equal_weight_groups`.
@@ -805,50 +779,6 @@ The path forward for each is a second reference or a derivation.
     over `hs` arrays (slant extinction and scintillation, uplink flux, FAST) move
     to callables; that step is wide, mechanical, and must move no numbers. Still
     NOT built.
-- **2-I2T. The tail-convergence study — DONE (2026-09-04).** The study is
-  `validation/tail_convergence/` (its README holds the table and the verdict;
-  the note of record is in docs/schmidt-crosscheck.md after the post-WP7
-  measurement). Eight `Campaign` cases of 1000 trials at 30 deg on the hero
-  0.7 m uncorrected SMF downlink, the GRID PINNED at 1024 px (the sizer moves
-  the grid with the count, so a naive `min_screens` sweep moves two things):
-  the shipped `standard` and `rapid` presets as they are, 5 / 7 / 9 / 15 / 25
-  screens on the pinned grid, and the 9-screen plan with its 80 m ground screen
-  cut into four equal-Cn2 sub-screens. VERDICT: (1) the grid is a null (512
-  against 1024 px, +0.27 dB at p5, 0.2 sigma); (2) the SMF p5 falls 31.5 ->
-  29.0 dB from 5 to 25 screens (2.5 sigma) and p10 falls 1.3 dB, MORE screens
-  give LESS fade, the ground split lands on the 25-screen line, and the trend
-  past 25 is UNRESOLVED (`pin40` not run, owner decision); (3) p1 does not move
-  (spread 1.1 dB against +-1.5 dB bars), so the 99 percent margin of the
-  default is unchanged and the 95 percent margin is about 2 dB PESSIMISTIC;
-  (4) the POINT irradiance does not move at any count (spread 0.4 dB, index
-  0.23 to 0.26 against the analytic 0.22), so the count effect is the phase
-  the fibre overlap pays, not scintillation; (5) the screen generator is not
-  the cause (`validation/screen_stacking/`, see 2-N2; the missing tilt is
-  the `L0 = inf` outer scale, resolved in 2-P5); (6) `rapid` as shipped
-  reads inside the standard spread at 1/30 of the cost, its 10.3 mm pixel
-  softening p5 by 1.6 dB (2 sigma) against the same plan on a 3.4 mm pixel;
-  (7) the post-WP7 hint (more fade with thin near-pupil screens) is REVERSED.
-  No re-tiering is forced; the p5 number goes to the 2-I3 catalogue as the
-  fibre row. NOT run: 20 deg, `pin40`. The original brief follows.
-  Now that the continuous planner (2-I2 step 1) lets the
-  near-ground resolution be dialled INDEPENDENTLY of the physics, run the study
-  that WP7 could not. THE QUESTION: does the deep SMF fade tail (p5, p1) CONVERGE
-  as the near-ground `Cn2` is resolved with more, thinner screens — or is the
-  ~2 dB p5 sensitivity seen in the post-WP7 matched-seed re-test (docs/schmidt-
-  crosscheck.md:1273) a real, convergent effect that the default screen count
-  under-resolves? WHY IT MATTERS: the fade tail sets the LINK AVAILABILITY
-  margin, so an under-resolved tail biases the availability the budget reports;
-  the mean is already validated flat, so the tail is the open risk in the
-  fidelity-2 space budgets. THE METHOD: hold the grid and the seed set fixed,
-  sweep the effective near-ground screen resolution (e.g. raise `min_screens`,
-  or add a near-ground refinement to the equal-weight cut), and measure p50 /
-  p10 / p5 / p1 of the SMF (point-receiver) fade against screen count at 30 deg
-  and a low elevation. Resolve the p5 gap ABOVE the Monte-Carlo noise — the
-  re-test showed that needs about 4x the 200 trials (so about 800), which the
-  fast `ScreenFactory` now makes cheap. Record the convergence curve and, if the
-  tail moves, RE-TIER the default screen count for the tail (this feeds 2-I3,
-  the per-channel preset revision, and the receiver-kind floor question). Land it
-  as a `validation/` study with a written note in docs/schmidt-crosscheck.md.
 - **2-I3. Revise the `QualityPreset` approach (owner-flagged 2026-08-27;
   scope widened 2026-08-29).**
   One preset table serves two channel families that measure differently, and
@@ -938,120 +868,6 @@ The path forward for each is a second reference or a derivation.
   10x per screen, validated in validation/waveoptics_speed/) makes the broad
   sweep cheap, so the reason for the narrow one is gone. Source every floor from
   this catalogue and record it in the tracker.
-- **2-TC. The terrestrial campaign backbone — DONE (2026-09-06).**
-  `validation/terrestrial_campaigns/run_campaigns.py` plus its README store a
-  backbone dataset of terrestrial fidelity-2 snapshots. It is a RUNNER only: it
-  stores the trials and it measures the time, the memory and the disk. It does
-  NO analysis.
-  THE CELLS. Three path lengths (2 / 5 / 10 km) x two turbulence strengths
-  (`Cn2` = 3e-15 / 1e-14 m^-2/3) x two presets (`rapid` / `standard`) = twelve
-  campaigns, 2000 trials in each. The band runs from firmly weak
-  (`sigma_R^2` = 0.21) to strongly saturated (`sigma_R^2` = 13.6). The link is
-  the same in every cell: 1550 nm, a collimated 5 mm launch waist, a 10 cm
-  receive aperture with a single-mode fibre at `optimal_focus`, no extinction,
-  `L0` = 25 m (the owner decision of 2026-09-05, 2-P5), single precision, seed
-  20260906.
-  WHAT A TRIAL STORES. The collected power of the 10 cm aperture, the `smf_eta`
-  of that aperture (UNTRACKED, `defocus_m` = 0), and the complex64 receive-plane
-  field on a 5 cm patch, BEFORE the aperture clip.
-  WHAT IS POST HOC. The patch makes these a `Campaign.recollect` or
-  `Campaign.recouple` with no new propagation: the 5 cm bucket and the 5 cm
-  fibre, another obscuration, focal length, mode field radius, defocus or
-  detector kind, the TRACKED (aligned) coupler at
-  `curvature_focus_shift` (`cell.json` holds that shift for each aperture), and
-  the centre-pixel point index.
-  NO TIP-TILT CORRECTION. Fidelity 2 models no adaptive optics and no tracking
-  (2-AO), so every stored fibre number is UNTRACKED and it holds the full beam
-  wander.
-  THE CLAMPED GRIDS — a caveat. The 5 mm waist gives a beam radius of 49 cm at
-  5 km and 99 cm at 10 km. The grid side must hold that beam plus the scattering
-  cone, so the pixel count the sizer wants passes the preset `n_max`. The sizer
-  then KEEPS the side and it takes a coarse pixel: 3.8 mm to 6.4 mm at 10 km.
-  Eight of the twelve cells carry that warning, every 5 km and every 10 km
-  cell. So the centre-pixel point index
-  is a COARSE point on the long paths. Every warning is in `cell.json` under
-  `sizer.warnings`.
-  THE SMOKE NUMBERS (bigfraw, 8 workers, `smoke.log`, all twelve cells pass the
-  post-hoc `recouple` cross-check to 1.2e-7): `rapid` runs 0.33 to 1.46 s/trial
-  (0.18 to 0.81 h per 2000 trials) at 1024 px; `standard` runs 1.8 to 6.0
-  s/trial (1.0 to 3.3 h) at 2048 px, at 630 MB for each worker. The whole set at
-  2000 trials is about 0.9 GB on disk.
-  WP1 — THE LAZY SCREEN STACK. `split_step` now takes the screens as ANY
-  iterable, a list or a GENERATOR, and the runner gives it a generator. It takes
-  the screens one at a time and it keeps no stack, so a strong path no longer
-  holds every screen in RAM (at 2048 px a float32 screen is 16 MB, and the
-  10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
-  STATE. The full run is DONE (2026-09-06): twelve campaigns of 2000 trials,
-  0.9 GB of blocks, on bigfraw under
-  `D:/repos/optical_link_budget/validation/terrestrial_campaigns/campaigns/`
-  (gitignored). The run logs, every `cell.json` and the block census are in
-  the study folder (`records/`), and the README "Results" table gives the
-  timing and the sanity means of every cell. The run was stopped after eight
-  cells to merge the memory cut (`validation/memory_cut/`); the four
-  `standard` cells past 2 km ran with the two speed opt-ins (roots
-  `_scipy_lean`, 1.53x at the same 12 workers), and the partial
-  default-settings `L5km_cn23e-15_standard` (24 blocks) stays as a same-seed
-  cross-check of the opt-ins. THE WORKER PLATEAU IS MEASURED (2026-09-06,
-  `validation/terrestrial_screen_count/`, the worker section of the README):
-  on a 2048 px cell 8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06
-  s/trial, a flat curve, so the pool stays memory-bandwidth bound after the
-  cut and 12 WORKERS is the setting of record. Each worker commits about
-  2.2 GB (touches 0.6 GB), and the 61 GB commit limit of bigfraw caps the
-  pool near 20 workers whatever the CPU says.
-  DEFERRED — THE ANALYSIS (owner, 2026-09-06). There is NO analysis script yet.
-  The deferred questions are: the fade distribution (lognormal against
-  gamma-gamma) over the whole `sigma_R^2` band; the index split (the point index
-  against the aperture-averaged index, and the effective averaging factor); the
-  fade quantiles (p10, p5, p1) and their bootstrap intervals; the `rapid`
-  against `standard` usability verdict; beam filling (2-N2; `cell.json` gives
-  `w(L)` and the captured fraction of each aperture); the fidelity-2 fibre
-  coupling against `terrestrial_smf_coupling_term` and the walk-off Term
-  `terrestrial_smf_walkoff_term`; and the tracked-focus `recouple`.
-  WHO WAITS FOR IT: 1-8 gate (b), 1-9, and 2-N2.
-  FOLLOW-UP — 2-TC1. THE SCREEN COUNT AGAINST THE SCHMIDT CAP (owner-flagged
-  2026-09-06, HIGH interest). Even at the book cap the 10 km / 1e-14 cell asks
-  for 35 screens, and the owner reads that as far too many for a horizontal
-  path. The cap is a per-screen THIN-SCREEN validity rule (Schmidt, DOI
-  10.1117/3.866274, Listing 9.5, printed p. 175, credited to Martin and
-  Flatte), not a convergence result, and olb has no terrestrial convergence
-  sweep past the weak 2 km case (WP7 measured a SLANT slab). THE TEST:
-  hold the 10 km / 1e-14 grid fixed and DELIBERATELY OVERRIDE the count with
-  a caller plan (`Campaign(..., plan=)` takes any `ScreenPlan`; build the
-  equal-weight cut of `_plan_terrestrial` at n = 5, 10, 15, 20 and 35, so
-  the 35-screen campaign of 2-TC is the reference). Compare the collected
-  power mean and index, the centre-pixel index, the `smf_eta` distribution
-  and the p10 / p5 / p1 fades of each count against the 35-screen run, at a
-  matched trial count (500 to 1000 trials each; the standard cell runs about
-  6 s/trial at 35 screens, so the sweep is a few hours on bigfraw). If 10
-  screens sit on the 35-screen line inside the Monte Carlo error, the cap is
-  over-conservative on a uniform horizontal path and a terrestrial preset
-  rule (a count from a convergence table, not from the cap) replaces it (see
-  2-I3, the preset split by channel family). Do it AFTER the 2-TC run ends:
-  the box is busy until then.
-  DONE (2026-09-06, `validation/terrestrial_screen_count/`, the 35-screen
-  2-TC cell as the reference, 1000 trials per count, counts 5 / 10 / 15; the
-  owner stopped the sweep before 20). VERDICT: NOT CONVERGED at any count
-  below 35. Every lower count reads LESS fade: the 10 cm bucket p5 is 0.62 /
-  0.53 / 0.46 dB optimistic at 5 / 10 / 15 screens against a 0.24 dB
-  bootstrap half-width, the p1 0.71 / 0.65 / 0.25 dB; the 5 cm bucket index
-  reads 0.70 / 0.84 / 0.65 of the reference and the centre-pixel index 0.44 /
-  0.58 / 0.40. The trend is slow (0.16 dB of p5 over 10 screens), so 20 would
-  not have crossed the bar, and whether 35 itself is converged is UNTESTED (a
-  50 to 70 screen run, about 1 h on bigfraw, settles it). So on this
-  deep-saturation cell (sigma_R^2 = 13.6) the Schmidt cap is NOT
-  over-conservative, and fewer screens is the OPTIMISTIC (unsafe) direction.
-  The five other standard cells are floor-limited at 9 to 11 screens by
-  `min_screens`, not by the cap, so the cap bit only where the physics says
-  it should. OWNER READING (2026-09-06), which the study README adopts: the
-  bars are the reference noise alone, and a delta carries sqrt(2) of it
-  (+-0.34 dB bucket p5, +-1.05 dB SMF p5). On that footing the SMF fade shows
-  NO detectable screen-count effect from 5 to 35 screens (p5 deltas -0.49 /
-  +0.68 / +0.31 dB, no sign pattern), because the fibre fade in saturation is
-  tilt and low-order phase, which few screens carry; only the bucket and the
-  point statistics show the small, consistently optimistic bias (about half a
-  dB at the bucket p5, 1.4 to 1.8 sigma each). So for a FIBRE-coupled
-  terrestrial link 10 screens is defensible on this cell, and the rule should
-  key on the receiver kind and a dB tolerance (2-I3), not on the cap alone.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production
@@ -1229,22 +1045,6 @@ The path forward for each is a second reference or a derivation.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
   docs/api-waveoptics.md:824).
-- **2-I1. `TurbWaveResult` — the rich record is DONE (2026-09-04).** The rule
-  was: a minimal scalar record, do NOT extend it piece by piece; the E-field
-  inside the receive aperture gets its own design session
-  (memory `waveoptics-results-deferred`). That session ran. THE DECISION: the
-  per-trial SCALARS stay exactly as they are, and the record gains ONE optional
-  field pair — `TurbWaveResult.fields` (the masked receive-plane field of each
-  trial, complex64, BEFORE the receive clip) and `TurbWaveResult.patch` (the
-  `FieldPatch` that says which grid pixels those values are). The runner stores
-  them only when the caller gives `patch_radius_m`, so the old record is
-  bit-identical and a budget never reads a field. The store pays for
-  `recouple`/`recollect`: a smaller receive aperture, an obscuration, another
-  detector, another focal length and another defocus are then a POST-HOC crop,
-  with no new propagation. See olb/waveoptics/turbulence/run.py and
-  `Campaign` (campaign.py). EARLIER (2026-09-02): `TurbTrial.detector_etas`
-  holds the per-arm coupling efficiencies of a multi-detector run, and it stays
-  None for a single detector.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
   MEASURED AGAIN on the production 1024 px grid (2026-09-04,
@@ -1307,22 +1107,6 @@ The path forward for each is a second reference or a derivation.
   2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
   screen placement). See `turbulent_grid` in
   olb/waveoptics/turbulence/sampling.py.
-- **2-N4a. Run WHOLE fidelity-2 sims in parallel, the NON-TEMPORAL case — DONE
-  (2026-09-04).** The snapshot trials are independent, so there is no limit.
-  `olb.waveoptics.turbulence.campaign.Campaign` is the answer: it keeps the
-  trials on disk in fixed BLOCKS, and `Campaign.run(n, workers=W)` opens ONE
-  warm `ProcessPoolExecutor` for the whole call and runs each block SERIALLY
-  inside its process. The parallelism lives at ONE level only, because threads
-  inside processes over-subscribe the cores. The blocks are bit-identical SLICES
-  of one seeded native run, through the runner's new `start_index`, and a
-  manifest rebuilds the grid and the plan, so a resumed campaign never re-sizes.
-  The fair P3 rerun (2026-09-04) says WHY a pool must stay warm: threads and
-  processes TIE on the wall time of ONE run (0.99x space, 1.04x terrestrial),
-  and processes win 1.14x to 1.74x in steady state only, because the Windows
-  spawn costs 2.5 to 4.4 s. So there is NO automatic selector between the two
-  routes, and threads stay the default of one run. See
-  docs/waveoptics-efficiency-plan.md Section 8.6 and
-  `validation/waveoptics_speed/fair_scaling_rerun.py`.
 - **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — STILL
   OPEN.** A frozen-flow time axis (2-P1, still a stub) needs the screen arrays
   in a fixed order, so a naive whole-sim parallel split breaks the time
@@ -1333,33 +1117,6 @@ The path forward for each is a second reference or a derivation.
   the block length from the coherence time and the wind, and record the choice.
   Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
   needs the temporal axis (2-P1) first.
-- **2-N6. The large-campaign validation — DONE (2026-09-04), by the
-  tail-convergence study (2-I2T).** Eight campaigns of 1000 trials (1.7 GB).
-  MEASURED: 1000 trials at 512 px take 172 s on 16 workers (0.17 s/trial), at
-  256 px 24 s, at 1024 px 0.78 s/trial on 16 workers and 0.6 to 1.35 s/trial
-  on 8 workers for 5 to 25 screens (the cost is near linear in the screen
-  count); disk 262 MB for 1000 trials at 1024 px with the 0.7 m field patch,
-  66 MB at 512 px; a 16-worker pool at 1024 px with 15 screens ran OUT OF
-  MEMORY (about 1 GB a worker against 9 GB free), every finished block stayed,
-  and an 8-worker call RESUMED with no rerun (the three complete cases
-  returned in 0.0 s) — so the resume after a kill works and `Campaign.run` has
-  no memory guard, the caller sizes the pool; the load of one case holds
-  262 MB of fields. The tail settles as the count grows: p1 wanders over 5 dB
-  between 100 and 800 trials and reaches +-1.5 dB at 1000, p5 +-1 dB, so the
-  ten-past-p1 rule is the right floor. `Campaign` gained a `plan=` kwarg
-  (mirroring `grid=`, fingerprinted) for the pinned-grid cases. The original
-  brief follows. The
-  campaign store is built and its self-check and demo run at tens of trials
-  only. Nobody has run thousands of trials through it yet. Measure: the wall
-  time and the disk size of a real campaign, the resume after a kill, the
-  behaviour of the fade quantiles as the trial count grows, and the memory of
-  the streamed `recouple`/`recollect`. The `EmpiricalSampler` tail rule (ten
-  samples past the availability) sets the count: 1,000 trials for 99 percent
-  and 10,000 for 99.9 percent. NO numbers yet. NOTE the owner REFUSAL: a
-  parametric tail fitted to the simulated bulk, to extrapolate a deeper fade, is
-  rejected. The owner does not want extrapolation, and 99.99 percent
-  availability is out of scope.
-
 - **2-N7. The memory cut and the two speed opt-ins — DONE (2026-09-06,
   `validation/memory_cut/`).** The fidelity-2 Monte Carlo was throttled by
   memory: by the BANDWIDTH in steady state (12 workers of 32 at 512 px on
@@ -1429,6 +1186,268 @@ The path forward for each is a second reference or a derivation.
   self-check that asserts the keyword sets agree, so the next straggler
   fails mechanically the way the `@assumes` floor does. Cheap, mechanical,
   and it changes no physics.
+- **2-W2. The fidelity-2 SMF path ignores `defocus_m` — DONE (2026-09-04).**
+  `olb.waveoptics.smf.coupling_efficiency` now takes `defocus_m` and
+  `focal_length_m`. It multiplies the received field with the SAME quadratic
+  pupil phase the multimode leg uses, `exp(-i*pi*defocus_m*rho^2/(lam*f^2))`,
+  which moved into the shared helper `olb.waveoptics.mmf.defocus_phase`. So the
+  two fidelity-2 legs read ONE defocus convention: a DIVERGING received beam
+  couples best at a POSITIVE `defocus_m`. `olb.waveoptics.run._smf_eta` resolves
+  the focal length (an explicit `SMF.focal_length_m` wins, else
+  `SMF.optimal_focus` gives `f = pi*(D/2)*w_m/(lambda*1.12)`) and it feeds
+  `SMF.defocus_m` to every call site: the vacuum run, the turbulent trials, and
+  the multi-arm `detector_etas` path. A defocus with no focal length raises. The
+  default `defocus_m=0.0` keeps every old number bit-identical. The `smf.py`
+  self-check now measures the field overlap against the closed form
+  `smf_eta_defocused(a=1.12, c)` (D = 0.1 m, f = 0.5 m): 0.8145/0.8145 at
+  c = 0, 0.7537/0.7537 at c = 1, 0.5936/0.5936 at c = 2 and 0.2076/0.2076 at
+  c = 4. So the aberrated single-mode closed form HAS a field reference now.
+- **2-W4. Retire `cache.py` in favour of `Campaign` — DONE (2026-09-04).**
+  `olb/waveoptics/turbulence/cache.py` (the P4 opt-in disk cache of scalar
+  runs, block sub-seeds, no field) is DELETED, with its self-check and
+  `validation/waveoptics_speed/cache_check.py`. `Campaign` replaces it: its
+  blocks are bit-identical slices of ONE seeded native run (the runner's
+  `start_index`), and it stores the receive-field patch. The one piece the
+  campaign imported, the `cache_key` content fingerprint, moved unchanged to
+  `olb/waveoptics/turbulence/fingerprint.py`, so an existing campaign manifest
+  still matches. No budget ever called the cache. The measured numbers of the
+  cache stay as a record in docs/waveoptics-efficiency-plan.md Section 8.
+- **2-I2T. The tail-convergence study — DONE (2026-09-04).** The study is
+  `validation/tail_convergence/` (its README holds the table and the verdict;
+  the note of record is in docs/schmidt-crosscheck.md after the post-WP7
+  measurement). Eight `Campaign` cases of 1000 trials at 30 deg on the hero
+  0.7 m uncorrected SMF downlink, the GRID PINNED at 1024 px (the sizer moves
+  the grid with the count, so a naive `min_screens` sweep moves two things):
+  the shipped `standard` and `rapid` presets as they are, 5 / 7 / 9 / 15 / 25
+  screens on the pinned grid, and the 9-screen plan with its 80 m ground screen
+  cut into four equal-Cn2 sub-screens. VERDICT: (1) the grid is a null (512
+  against 1024 px, +0.27 dB at p5, 0.2 sigma); (2) the SMF p5 falls 31.5 ->
+  29.0 dB from 5 to 25 screens (2.5 sigma) and p10 falls 1.3 dB, MORE screens
+  give LESS fade, the ground split lands on the 25-screen line, and the trend
+  past 25 is UNRESOLVED (`pin40` not run, owner decision); (3) p1 does not move
+  (spread 1.1 dB against +-1.5 dB bars), so the 99 percent margin of the
+  default is unchanged and the 95 percent margin is about 2 dB PESSIMISTIC;
+  (4) the POINT irradiance does not move at any count (spread 0.4 dB, index
+  0.23 to 0.26 against the analytic 0.22), so the count effect is the phase
+  the fibre overlap pays, not scintillation; (5) the screen generator is not
+  the cause (`validation/screen_stacking/`, see 2-N2; the missing tilt is
+  the `L0 = inf` outer scale, resolved in 2-P5); (6) `rapid` as shipped
+  reads inside the standard spread at 1/30 of the cost, its 10.3 mm pixel
+  softening p5 by 1.6 dB (2 sigma) against the same plan on a 3.4 mm pixel;
+  (7) the post-WP7 hint (more fade with thin near-pupil screens) is REVERSED.
+  No re-tiering is forced; the p5 number goes to the 2-I3 catalogue as the
+  fibre row. NOT run: 20 deg, `pin40`. The original brief follows.
+  Now that the continuous planner (2-I2 step 1) lets the
+  near-ground resolution be dialled INDEPENDENTLY of the physics, run the study
+  that WP7 could not. THE QUESTION: does the deep SMF fade tail (p5, p1) CONVERGE
+  as the near-ground `Cn2` is resolved with more, thinner screens — or is the
+  ~2 dB p5 sensitivity seen in the post-WP7 matched-seed re-test (docs/schmidt-
+  crosscheck.md:1273) a real, convergent effect that the default screen count
+  under-resolves? WHY IT MATTERS: the fade tail sets the LINK AVAILABILITY
+  margin, so an under-resolved tail biases the availability the budget reports;
+  the mean is already validated flat, so the tail is the open risk in the
+  fidelity-2 space budgets. THE METHOD: hold the grid and the seed set fixed,
+  sweep the effective near-ground screen resolution (e.g. raise `min_screens`,
+  or add a near-ground refinement to the equal-weight cut), and measure p50 /
+  p10 / p5 / p1 of the SMF (point-receiver) fade against screen count at 30 deg
+  and a low elevation. Resolve the p5 gap ABOVE the Monte-Carlo noise — the
+  re-test showed that needs about 4x the 200 trials (so about 800), which the
+  fast `ScreenFactory` now makes cheap. Record the convergence curve and, if the
+  tail moves, RE-TIER the default screen count for the tail (this feeds 2-I3,
+  the per-channel preset revision, and the receiver-kind floor question). Land it
+  as a `validation/` study with a written note in docs/schmidt-crosscheck.md.
+- **2-TC. The terrestrial campaign backbone — DONE (2026-09-06).**
+  `validation/terrestrial_campaigns/run_campaigns.py` plus its README store a
+  backbone dataset of terrestrial fidelity-2 snapshots. It is a RUNNER only: it
+  stores the trials and it measures the time, the memory and the disk. It does
+  NO analysis.
+  THE CELLS. Three path lengths (2 / 5 / 10 km) x two turbulence strengths
+  (`Cn2` = 3e-15 / 1e-14 m^-2/3) x two presets (`rapid` / `standard`) = twelve
+  campaigns, 2000 trials in each. The band runs from firmly weak
+  (`sigma_R^2` = 0.21) to strongly saturated (`sigma_R^2` = 13.6). The link is
+  the same in every cell: 1550 nm, a collimated 5 mm launch waist, a 10 cm
+  receive aperture with a single-mode fibre at `optimal_focus`, no extinction,
+  `L0` = 25 m (the owner decision of 2026-09-05, 2-P5), single precision, seed
+  20260906.
+  WHAT A TRIAL STORES. The collected power of the 10 cm aperture, the `smf_eta`
+  of that aperture (UNTRACKED, `defocus_m` = 0), and the complex64 receive-plane
+  field on a 5 cm patch, BEFORE the aperture clip.
+  WHAT IS POST HOC. The patch makes these a `Campaign.recollect` or
+  `Campaign.recouple` with no new propagation: the 5 cm bucket and the 5 cm
+  fibre, another obscuration, focal length, mode field radius, defocus or
+  detector kind, the TRACKED (aligned) coupler at
+  `curvature_focus_shift` (`cell.json` holds that shift for each aperture), and
+  the centre-pixel point index.
+  NO TIP-TILT CORRECTION. Fidelity 2 models no adaptive optics and no tracking
+  (2-AO), so every stored fibre number is UNTRACKED and it holds the full beam
+  wander.
+  THE CLAMPED GRIDS — a caveat. The 5 mm waist gives a beam radius of 49 cm at
+  5 km and 99 cm at 10 km. The grid side must hold that beam plus the scattering
+  cone, so the pixel count the sizer wants passes the preset `n_max`. The sizer
+  then KEEPS the side and it takes a coarse pixel: 3.8 mm to 6.4 mm at 10 km.
+  Eight of the twelve cells carry that warning, every 5 km and every 10 km
+  cell. So the centre-pixel point index
+  is a COARSE point on the long paths. Every warning is in `cell.json` under
+  `sizer.warnings`.
+  THE SMOKE NUMBERS (bigfraw, 8 workers, `smoke.log`, all twelve cells pass the
+  post-hoc `recouple` cross-check to 1.2e-7): `rapid` runs 0.33 to 1.46 s/trial
+  (0.18 to 0.81 h per 2000 trials) at 1024 px; `standard` runs 1.8 to 6.0
+  s/trial (1.0 to 3.3 h) at 2048 px, at 630 MB for each worker. The whole set at
+  2000 trials is about 0.9 GB on disk.
+  WP1 — THE LAZY SCREEN STACK. `split_step` now takes the screens as ANY
+  iterable, a list or a GENERATOR, and the runner gives it a generator. It takes
+  the screens one at a time and it keeps no stack, so a strong path no longer
+  holds every screen in RAM (at 2048 px a float32 screen is 16 MB, and the
+  10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
+  STATE. The full run is DONE (2026-09-06): twelve campaigns of 2000 trials,
+  0.9 GB of blocks, on bigfraw under
+  `D:/repos/optical_link_budget/validation/terrestrial_campaigns/campaigns/`
+  (gitignored). The run logs, every `cell.json` and the block census are in
+  the study folder (`records/`), and the README "Results" table gives the
+  timing and the sanity means of every cell. The run was stopped after eight
+  cells to merge the memory cut (`validation/memory_cut/`); the four
+  `standard` cells past 2 km ran with the two speed opt-ins (roots
+  `_scipy_lean`, 1.53x at the same 12 workers), and the partial
+  default-settings `L5km_cn23e-15_standard` (24 blocks) stays as a same-seed
+  cross-check of the opt-ins. THE WORKER PLATEAU IS MEASURED (2026-09-06,
+  `validation/terrestrial_screen_count/`, the worker section of the README):
+  on a 2048 px cell 8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06
+  s/trial, a flat curve, so the pool stays memory-bandwidth bound after the
+  cut and 12 WORKERS is the setting of record. Each worker commits about
+  2.2 GB (touches 0.6 GB), and the 61 GB commit limit of bigfraw caps the
+  pool near 20 workers whatever the CPU says.
+  DEFERRED — THE ANALYSIS (owner, 2026-09-06). There is NO analysis script yet.
+  The deferred questions are: the fade distribution (lognormal against
+  gamma-gamma) over the whole `sigma_R^2` band; the index split (the point index
+  against the aperture-averaged index, and the effective averaging factor); the
+  fade quantiles (p10, p5, p1) and their bootstrap intervals; the `rapid`
+  against `standard` usability verdict; beam filling (2-N2; `cell.json` gives
+  `w(L)` and the captured fraction of each aperture); the fidelity-2 fibre
+  coupling against `terrestrial_smf_coupling_term` and the walk-off Term
+  `terrestrial_smf_walkoff_term`; and the tracked-focus `recouple`.
+  WHO WAITS FOR IT: 1-8 gate (b), 1-9, and 2-N2.
+  FOLLOW-UP — 2-TC1. THE SCREEN COUNT AGAINST THE SCHMIDT CAP (owner-flagged
+  2026-09-06, HIGH interest). Even at the book cap the 10 km / 1e-14 cell asks
+  for 35 screens, and the owner reads that as far too many for a horizontal
+  path. The cap is a per-screen THIN-SCREEN validity rule (Schmidt, DOI
+  10.1117/3.866274, Listing 9.5, printed p. 175, credited to Martin and
+  Flatte), not a convergence result, and olb has no terrestrial convergence
+  sweep past the weak 2 km case (WP7 measured a SLANT slab). THE TEST:
+  hold the 10 km / 1e-14 grid fixed and DELIBERATELY OVERRIDE the count with
+  a caller plan (`Campaign(..., plan=)` takes any `ScreenPlan`; build the
+  equal-weight cut of `_plan_terrestrial` at n = 5, 10, 15, 20 and 35, so
+  the 35-screen campaign of 2-TC is the reference). Compare the collected
+  power mean and index, the centre-pixel index, the `smf_eta` distribution
+  and the p10 / p5 / p1 fades of each count against the 35-screen run, at a
+  matched trial count (500 to 1000 trials each; the standard cell runs about
+  6 s/trial at 35 screens, so the sweep is a few hours on bigfraw). If 10
+  screens sit on the 35-screen line inside the Monte Carlo error, the cap is
+  over-conservative on a uniform horizontal path and a terrestrial preset
+  rule (a count from a convergence table, not from the cap) replaces it (see
+  2-I3, the preset split by channel family). Do it AFTER the 2-TC run ends:
+  the box is busy until then.
+  DONE (2026-09-06, `validation/terrestrial_screen_count/`, the 35-screen
+  2-TC cell as the reference, 1000 trials per count, counts 5 / 10 / 15; the
+  owner stopped the sweep before 20). VERDICT: NOT CONVERGED at any count
+  below 35. Every lower count reads LESS fade: the 10 cm bucket p5 is 0.62 /
+  0.53 / 0.46 dB optimistic at 5 / 10 / 15 screens against a 0.24 dB
+  bootstrap half-width, the p1 0.71 / 0.65 / 0.25 dB; the 5 cm bucket index
+  reads 0.70 / 0.84 / 0.65 of the reference and the centre-pixel index 0.44 /
+  0.58 / 0.40. The trend is slow (0.16 dB of p5 over 10 screens), so 20 would
+  not have crossed the bar, and whether 35 itself is converged is UNTESTED (a
+  50 to 70 screen run, about 1 h on bigfraw, settles it). So on this
+  deep-saturation cell (sigma_R^2 = 13.6) the Schmidt cap is NOT
+  over-conservative, and fewer screens is the OPTIMISTIC (unsafe) direction.
+  The five other standard cells are floor-limited at 9 to 11 screens by
+  `min_screens`, not by the cap, so the cap bit only where the physics says
+  it should. OWNER READING (2026-09-06), which the study README adopts: the
+  bars are the reference noise alone, and a delta carries sqrt(2) of it
+  (+-0.34 dB bucket p5, +-1.05 dB SMF p5). On that footing the SMF fade shows
+  NO detectable screen-count effect from 5 to 35 screens (p5 deltas -0.49 /
+  +0.68 / +0.31 dB, no sign pattern), because the fibre fade in saturation is
+  tilt and low-order phase, which few screens carry; only the bucket and the
+  point statistics show the small, consistently optimistic bias (about half a
+  dB at the bucket p5, 1.4 to 1.8 sigma each). So for a FIBRE-coupled
+  terrestrial link 10 screens is defensible on this cell, and the rule should
+  key on the receiver kind and a dB tolerance (2-I3), not on the cap alone.
+  THE SECOND SWEEP, OWNER-DIRECTED (2026-09-06). After the 10 km reading the
+  owner's words were: "looking at these values I would not say they are that
+  crazy at all, +-1 dB at p5 is really not that far off", and then "I think
+  lets do one more sweep over a less extreme case. 5 km and 3e-15 Cn2 to
+  compare to the reference." The purpose is twofold: (1) see whether the
+  screen count matters at all on a cell in the moderate band
+  (`sigma_R^2` = 1.14, the reference count is the `min_screens` floor of 9,
+  so the counts 5 / 10 / 15 / 20 BRACKET the reference and a drift past 9
+  would show whether the floor itself is converged); (2) rule out that the
+  speed changes of the day (the memory cut, the scipy FFT backend, the lean
+  screen generator) are the cause of a non-convergence. The owner asked for
+  2000 trials per count so the p1 fade resolves. The speed-change concern is
+  answered before the sweep by two records: the reference-count check (an
+  override at 9 screens reproduces the backbone campaign bit for bit over 100
+  trials) and the same-seed opt-in cross-check
+  (`validation/terrestrial_campaigns/optin_crosscheck.py`, 2.1e-6 / 3.1e-6
+  over 1200 trials). STATUS: launched 2026-09-06 on bigfraw at 12 workers
+  (the measured setting of record), `--run-only` stages and one analysis at
+  the end; results pending in `validation/terrestrial_screen_count/`
+  (`screen_count_sweep_L5km_cn23e-15_results.json` and the README).
+- **2-I1. `TurbWaveResult` — the rich record is DONE (2026-09-04).** The rule
+  was: a minimal scalar record, do NOT extend it piece by piece; the E-field
+  inside the receive aperture gets its own design session
+  (memory `waveoptics-results-deferred`). That session ran. THE DECISION: the
+  per-trial SCALARS stay exactly as they are, and the record gains ONE optional
+  field pair — `TurbWaveResult.fields` (the masked receive-plane field of each
+  trial, complex64, BEFORE the receive clip) and `TurbWaveResult.patch` (the
+  `FieldPatch` that says which grid pixels those values are). The runner stores
+  them only when the caller gives `patch_radius_m`, so the old record is
+  bit-identical and a budget never reads a field. The store pays for
+  `recouple`/`recollect`: a smaller receive aperture, an obscuration, another
+  detector, another focal length and another defocus are then a POST-HOC crop,
+  with no new propagation. See olb/waveoptics/turbulence/run.py and
+  `Campaign` (campaign.py). EARLIER (2026-09-02): `TurbTrial.detector_etas`
+  holds the per-arm coupling efficiencies of a multi-detector run, and it stays
+  None for a single detector.
+- **2-N4a. Run WHOLE fidelity-2 sims in parallel, the NON-TEMPORAL case — DONE
+  (2026-09-04).** The snapshot trials are independent, so there is no limit.
+  `olb.waveoptics.turbulence.campaign.Campaign` is the answer: it keeps the
+  trials on disk in fixed BLOCKS, and `Campaign.run(n, workers=W)` opens ONE
+  warm `ProcessPoolExecutor` for the whole call and runs each block SERIALLY
+  inside its process. The parallelism lives at ONE level only, because threads
+  inside processes over-subscribe the cores. The blocks are bit-identical SLICES
+  of one seeded native run, through the runner's new `start_index`, and a
+  manifest rebuilds the grid and the plan, so a resumed campaign never re-sizes.
+  The fair P3 rerun (2026-09-04) says WHY a pool must stay warm: threads and
+  processes TIE on the wall time of ONE run (0.99x space, 1.04x terrestrial),
+  and processes win 1.14x to 1.74x in steady state only, because the Windows
+  spawn costs 2.5 to 4.4 s. So there is NO automatic selector between the two
+  routes, and threads stay the default of one run. See
+  docs/waveoptics-efficiency-plan.md Section 8.6 and
+  `validation/waveoptics_speed/fair_scaling_rerun.py`.
+- **2-N6. The large-campaign validation — DONE (2026-09-04), by the
+  tail-convergence study (2-I2T).** Eight campaigns of 1000 trials (1.7 GB).
+  MEASURED: 1000 trials at 512 px take 172 s on 16 workers (0.17 s/trial), at
+  256 px 24 s, at 1024 px 0.78 s/trial on 16 workers and 0.6 to 1.35 s/trial
+  on 8 workers for 5 to 25 screens (the cost is near linear in the screen
+  count); disk 262 MB for 1000 trials at 1024 px with the 0.7 m field patch,
+  66 MB at 512 px; a 16-worker pool at 1024 px with 15 screens ran OUT OF
+  MEMORY (about 1 GB a worker against 9 GB free), every finished block stayed,
+  and an 8-worker call RESUMED with no rerun (the three complete cases
+  returned in 0.0 s) — so the resume after a kill works and `Campaign.run` has
+  no memory guard, the caller sizes the pool; the load of one case holds
+  262 MB of fields. The tail settles as the count grows: p1 wanders over 5 dB
+  between 100 and 800 trials and reaches +-1.5 dB at 1000, p5 +-1 dB, so the
+  ten-past-p1 rule is the right floor. `Campaign` gained a `plan=` kwarg
+  (mirroring `grid=`, fingerprinted) for the pinned-grid cases. The original
+  brief follows. The
+  campaign store is built and its self-check and demo run at tens of trials
+  only. Nobody has run thousands of trials through it yet. Measure: the wall
+  time and the disk size of a real campaign, the resume after a kill, the
+  behaviour of the fade quantiles as the trial count grows, and the memory of
+  the streamed `recouple`/`recollect`. The `EmpiricalSampler` tail rule (ten
+  samples past the availability) sets the count: 1,000 trials for 99 percent
+  and 10,000 for 99.9 percent. NO numbers yet. NOTE the owner REFUSAL: a
+  parametric tail fitted to the simulated bulk, to extrapolate a deeper fade, is
+  rejected. The owner does not want extrapolation, and 99.99 percent
+  availability is out of scope.
 
 ---
 
@@ -1528,12 +1547,6 @@ The path forward for each is a second reference or a derivation.
 
 ## Documentation debt
 
-- **DD-1. DONE (2026-08-28).** The docs no longer call the aperture
-  angle-of-arrival function a raising stub. `aperture_arrival_angle_variance`
-  delegates to `andrews.structure.angle_of_arrival_variance`; the docs now say
-  so and point to 0-W3 (no Term consumes it). Fixed in docs/architecture.md,
-  docs/physics.md, and docs/andrews-crosscheck.md (the batch-2 note, the Table 2
-  legend, the G-34 row, and the 2.91 constants-ledger row).
 - **DD-2. PARTLY DONE (verified 2026-09-04).** The README "Next / planned" graph
   dropped the two closed nodes NT5 (validate the diverged coupled-flux feed;
   measured and closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2),
@@ -1543,6 +1556,30 @@ The path forward for each is a second reference or a derivation.
   sweep (owner presentation choice): the README node NP2 frames pre-comp uplink
   scintillation as a "MAJOR GAP" to fill, although Gap 2 is DECIDED (no analytic
   Term; FAST is the model of record).
+- **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
+  AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
+  (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on
+  the genuine Kolmogorov phase PSD, which is a correct attribution). The Noll
+  residual-coefficient citations (`ao.py` module docstring and the constants
+  block) were missing the required DOI; added `10.1364/JOSA.66.000207`
+  (already used elsewhere). The C-02 reference-plane note is now PAID by the
+  assumptions refactor: `gaussian_fried.TX_REFERRED_WEIGHT` and
+  `coupled_flux.PATH_WEIGHT` are named Constraints that state the
+  transmitter-referred path weight and cite Dios Eq. (3),
+  DOI 10.1364/AO.43.003866. STILL OPEN, needs owner physics judgment: the
+  aperture-averaged integral in `plane_wave_scintillation.py` still cites
+  Ch. 12, Eq. (38) where Ch. 9 Eq. (25) / Ch. 10 Eq. (59) may be closer (PW-05).
+- **DD-7. The wired-versus-available status lives in three places**
+  (CLAUDE.md, examples/andrews/README.md, the crosscheck). Each change
+  needs three edits; consider one home.
+- **DD-8. Crosscheck batch 2 waits on owner input** (the "(owner to
+  specify)" columns).
+- **DD-1. DONE (2026-08-28).** The docs no longer call the aperture
+  angle-of-arrival function a raising stub. `aperture_arrival_angle_variance`
+  delegates to `andrews.structure.angle_of_arrival_variance`; the docs now say
+  so and point to 0-W3 (no Term consumes it). Fixed in docs/architecture.md,
+  docs/physics.md, and docs/andrews-crosscheck.md (the batch-2 note, the Table 2
+  legend, the G-34 row, and the 2.91 constants-ledger row).
 - **DD-3. DONE.** docs/api-waveoptics.md now carries the `min_screens`
   caveat, the `rmax` factor-4 note and the `fresnel_weight_min` note in the
   `QualityPreset` table.
@@ -1559,19 +1596,6 @@ The path forward for each is a second reference or a derivation.
   structure-function / coherence-radius constants (2.914/1.093, 1.64/1.87,
   0.55/0.62) now live in `andrews/structure.py`, not `spectra.py`, so they were
   left for a separate structure.py reconciliation.
-- **DD-5. Citation faults — AO-07 addressed (2026-08-28); two left, owner-gated.**
-  AO-07: the "Andrews Ch. 3 for a Noll 1976 result" fault is GONE from the code
-  (a refactor since 2026-08-26 left the one remaining `ao.py` "Ch. 3" citation on
-  the genuine Kolmogorov phase PSD, which is a correct attribution). The Noll
-  residual-coefficient citations (`ao.py` module docstring and the constants
-  block) were missing the required DOI; added `10.1364/JOSA.66.000207`
-  (already used elsewhere). The C-02 reference-plane note is now PAID by the
-  assumptions refactor: `gaussian_fried.TX_REFERRED_WEIGHT` and
-  `coupled_flux.PATH_WEIGHT` are named Constraints that state the
-  transmitter-referred path weight and cite Dios Eq. (3),
-  DOI 10.1364/AO.43.003866. STILL OPEN, needs owner physics judgment: the
-  aperture-averaged integral in `plane_wave_scintillation.py` still cites
-  Ch. 12, Eq. (38) where Ch. 9 Eq. (25) / Ch. 10 Eq. (59) may be closer (PW-05).
 - **DD-6. DONE (verified 2026-08-28).** The point-ahead decorrelation framing
   is fixed in BOTH the code and the docs (committed ee23223, 2026-08-24). This
   backlog entry was stale: physics.md 5g (the "NOT a penalty for correcting"
@@ -1579,11 +1603,6 @@ The path forward for each is a second reference or a derivation.
   per-order decorrelation residual 2 sigma_n^2 (1 - rho_n). The old "correcting
   more modes injects error" wording is present nowhere. Memory
   `pointahead-decorrelation-framing` already reads RESOLVED.
-- **DD-7. The wired-versus-available status lives in three places**
-  (CLAUDE.md, examples/andrews/README.md, the crosscheck). Each change
-  needs three edits; consider one home.
-- **DD-8. Crosscheck batch 2 waits on owner input** (the "(owner to
-  specify)" columns).
 - **DD-9. The measured-validity home EXISTS (2026-09-01).** docs/physics.md
   Section 9, "Measured validity: what the validation scripts certify", collects
   where the fidelity-0 and fidelity-1 models HOLD. It has one entry for each
