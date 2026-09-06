@@ -11,8 +11,11 @@ warning is better than a silent bad answer. It follows the pattern of
 GridSpec.for_scenario.
 
 THE PLAN IS A LIST OF SLABS. Each screen carries the integrated Cn2 of one
-slab of the path. The screen sits at the centre of that slab (terrestrial), or
-at the Cn2-weighted centre of the layers that it holds (space).
+slab of the path, and the screen sits at the Cn2-weighted centre of its slab.
+BOTH families cut the path into slabs of EQUAL RYTOV WEIGHT. A horizontal path
+holds one uniform Cn2, so its centroid is the slab midpoint and its slab edges
+have a closed form; see _plan_terrestrial. A slant path integrates the Cn2
+profile; see _plan_space_continuous.
 
 THE BOUNDARY MASK IS ALWAYS ON. The subharmonic content of a screen is not
 periodic on the grid. The Forvard propagator IS periodic. So the split step
@@ -115,10 +118,12 @@ class QualityPreset:
                               the PLANE-WAVE RYTOV variance sigma_R^2, and
                               sigma_R^2 = 4 sigma_chi^2 (the self-check of
                               olb.waveoptics.schmidt.turbulence measures
-                              3.9994). So rmax = 0.1 is a cap of 0.4 on this
-                              field, and 0.05 / 0.10 / 0.25 are 8x / 4x / 1.6x
-                              STRICTER than the book. olb is conservative here,
-                              and it is not wrong.
+                              3.9994). So rmax = 0.1 IS a cap of 0.4 on this
+                              field. The standard and the rapid presets use
+                              0.4, which is the book cap exactly. The reference
+                              preset uses 0.2, which is 2x stricter. See
+                              docs/schmidt-crosscheck.md, the section "The rmax
+                              versus sigma2_r_screen_max factor".
         min_screens:          the smallest screen count. A weak path passes
                               sigma2_r_screen_max with one screen, but one
                               screen gives phase only and no scintillation, so
@@ -180,14 +185,18 @@ class QualityPreset:
     boundary_width_frac: float
 
 
+# The sigma2_r_screen_max column (0.2 / 0.4 / 0.4) is the book cap rmax = 0.1 of
+# Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175, on the plane-wave
+# axis: sigma_R^2 = 4 sigma_chi^2, so rmax = 0.1 is 0.4 here. The reference
+# preset is 2x stricter. See QualityPreset.sigma2_r_screen_max.
 # The min_screens column (15 / 9 / 5) comes from an olb convergence sweep. See
 # docs/schmidt-crosscheck.md, WP7, and QualityPreset.min_screens. It is olb
 # evidence, not book physics. No preset may go under 4, the moment floor of
 # Schmidt, DOI 10.1117/3.866274, Ch. 9, Eq. (9.65), printed p. 164.
 PRESETS = {
-    "reference": QualityPreset("reference", 4, 4, 4096, 0.05, 15, 0.005, 0.125),
-    "standard": QualityPreset("standard", 3, 3, 2048, 0.10, 9, 0.02, 0.125),
-    "rapid": QualityPreset("rapid", 2, 2, 1024, 0.25, 5, 0.05, 0.10),
+    "reference": QualityPreset("reference", 4, 4, 4096, 0.2, 15, 0.005, 0.125),
+    "standard": QualityPreset("standard", 3, 3, 2048, 0.4, 9, 0.02, 0.125),
+    "rapid": QualityPreset("rapid", 2, 2, 1024, 0.4, 5, 0.05, 0.10),
 }
 
 
@@ -406,7 +415,41 @@ def _merge_layers(weights, cap, min_groups):
 
 
 def _plan_terrestrial(scenario, geometry, preset, lam):
-    """Build the screen plan and the physical extent of a horizontal path."""
+    """Build the screen plan and the physical extent of a horizontal path.
+
+    THE PLACEMENT IS EQUAL RYTOV WEIGHT, the same rule as the space planner
+    _plan_space_continuous. The path is cut into N slabs that each carry the
+    SAME share of the total plane-wave Rytov variance. The screen sits at the
+    Cn2-weighted centroid of its slab, which is the slab MIDPOINT here, because
+    a horizontal path holds one uniform Cn2. That is the same centroid rule as
+    the space planner.
+
+    THE CUT IS A CLOSED FORM. The plane-wave weight density is (L - z)^(5/6)
+    (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20); Schmidt,
+    DOI 10.1117/3.866274, Ch. 9, Eqs. (9.63) and (9.73), printed pp. 163 and
+    165, give the same weight for the log-amplitude variance). So the
+    cumulative weight from the transmitter to z is proportional to
+    L^(11/6) - (L - z)^(11/6), and the edge i of n slabs is
+
+        z_i = L * (1 - (1 - i / n)^(6/11)),   i = 0 ... n
+
+    The slabs come out THIN near the transmitter and FAT near the receiver,
+    because the weight density (L - z)^(5/6) is largest at the transmitter.
+    Each screen then
+    holds a DIFFERENT integrated Cn2, so each screen has its own r0. That is
+    the book's own form: Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed
+    p. 175, gives an unequal r0 for each screen.
+
+    THE COUNT is the smallest that keeps every screen under the Rytov cap,
+    floored at the preset min_screens:
+
+        N = max(min_screens, ceil(sigma2_R_total / sigma2_r_screen_max))
+
+    A loop then guards the count. The midpoint evaluation of the last slab
+    overshoots its own equal share by about 3 percent, because the weight
+    density is concave, so a case that sits just under the cap can need one or
+    two more screens.
+    """
     p = preset
     k = wavenumber(lam)
     tx, rx = scenario.tx_terminal, scenario.rx_terminal
@@ -421,18 +464,26 @@ def _plan_terrestrial(scenario, geometry, preset, lam):
 
     sigma2_total = float(rytov_variance(lam, z_total, cn2, wave='plane'))
 
-    # The screen count. Start from the mean-share estimate, then raise it until
-    # the STRONGEST screen (the one farthest from the receiver) obeys the cap.
+    # The screen count. Start from the equal-share estimate, then raise it
+    # until the strongest screen obeys the cap. The equal-weight cut gives
+    # sigma2_total / n per slab by construction, so the loop only pays for the
+    # few-percent midpoint overshoot of the last slab.
     n_s = max(p.min_screens,
               int(np.ceil(sigma2_total / p.sigma2_r_screen_max)))
+    n_s = min(n_s, MAX_SCREENS)
     for _ in range(20):
-        z = (np.arange(n_s) + 0.5) * z_total / n_s
-        cn2_int = np.full(n_s, cn2 * z_total / n_s)
+        # The equal-Rytov-weight slab edges. See the docstring.
+        i = np.arange(n_s + 1, dtype=float)
+        edges = z_total * (1.0 - (1.0 - i / n_s) ** (6.0 / 11.0))
+        edges[-1] = z_total
+        z = 0.5 * (edges[:-1] + edges[1:])       # the uniform-Cn2 centroid
+        cn2_int = cn2 * np.diff(edges)
         s2 = _screen_rytov(k, cn2_int, z_total - z)
         if s2.max() <= p.sigma2_r_screen_max or n_s >= MAX_SCREENS:
             break
         n_s = min(MAX_SCREENS,
-                  int(np.ceil(n_s * s2.max() / p.sigma2_r_screen_max)))
+                  max(n_s + 1,
+                      int(np.ceil(n_s * s2.max() / p.sigma2_r_screen_max))))
 
     r0 = screen_r0(cn2_int, lam)
     r0_total = _composite_r0(r0)
@@ -842,7 +893,7 @@ if __name__ == '__main__':
     from ...geometry import CircularOrbit, HorizontalPath
     from ...scenario import (Channel, SpaceScenario, TerrestrialChannel,
                              TerrestrialScenario)
-    from ...terminal import Terminal, Transmitter
+    from ...terminal import Aperture, Terminal, Transmitter
     from ...turbulence.ao import plane_wave_fried_parameter_profile
 
     t_start = time.time()
@@ -873,10 +924,13 @@ if __name__ == '__main__':
     r0_hand = (0.423 * k1 ** 2 * cn2_1 * L1) ** (-3 / 5)
     assert abs(plan1.r0_total_m / r0_hand - 1.0) < 1e-9, (plan1.r0_total_m,
                                                           r0_hand)
-    # The screens sit at the slab centres, and they share the path equally.
+    # The screens sit at the slab centres, and the slabs carry an equal share
+    # of the Rytov weight. The first edge is L * (1 - (1 - 1/n)^(6/11)).
     assert plan1.z_m.size >= p_std.min_screens, plan1.z_m.size
     assert abs(plan1.cn2_int_m13.sum() - cn2_1 * L1) < 1e-18
-    assert abs(plan1.z_m[0] - 0.5 * L1 / plan1.z_m.size) < 1e-9
+    edge1_hand = L1 * (1.0 - (1.0 - 1.0 / plan1.z_m.size) ** (6 / 11))
+    assert abs(plan1.z_m[0] - 0.5 * edge1_hand) < 1e-9, (plan1.z_m[0],
+                                                         edge1_hand)
     assert plan1.direction == "terrestrial"
     assert plan1.z_total_m == L1
     # Each screen obeys the Rytov cap, and the plan is well sampled.
@@ -980,24 +1034,29 @@ if __name__ == '__main__':
     # ---- 5. a weak screen near the receiver is exempt (ARRAY planner) ----
     # The Fresnel exemption lives in turbulent_grid and it keys on the Rytov
     # SHARE of a screen. The legacy array planner keeps the near-ground screen
-    # of the profile, which sits about 80 m from the receiver and carries a
+    # of the profile, which sits about 50 m from the receiver and carries a
     # tiny share, so the exemption fires. (The continuous planner spreads that
     # weight over a fat bottom slab, so it has no such near-receiver spike; its
     # sampling is checked in case 5b.) A 10 deg slant path with DEFAULT_HS gives
     # a near screen whose Fresnel scale would ask for a sub-cm pixel on an 8 m
     # grid; its share is below fresnel_weight_min, so the plan ignores it.
+    # THE PRESET IS reference. The standard and the rapid presets now take the
+    # book Rytov cap of 0.4 (2026-09-06), so they merge the whole boundary layer
+    # into one fat group and no screen sits close to the receiver. Only the
+    # 2x stricter reference cap keeps the thin near-ground screen alive.
+    P5 = PRESETS["reference"]
     orbit10 = CircularOrbit(altitude_m=600e3, elevation_deg=[10.0])
     prof10 = default_cn2_profile(space.channel.site, DEFAULT_HS)
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
-        g5, plan5, rep5 = turbulent_grid(space, orbit10, hs=DEFAULT_HS,
-                                         cn2_profile=prof10)
+        g5, plan5, rep5 = turbulent_grid(space, orbit10, preset="reference",
+                                         hs=DEFAULT_HS, cn2_profile=prof10)
     z_to_rx5 = plan5.z_total_m - plan5.z_m
     share5 = plan5.sigma2_r / plan5.sigma2_r.sum()
     near_i = int(np.argmin(z_to_rx5))
     dx_if_forced = float(np.sqrt(lam * z_to_rx5[near_i]) / 2)
     n_if_forced = g5.size_m / dx_if_forced
-    assert share5[near_i] < PRESETS["standard"].fresnel_weight_min, share5[near_i]
+    assert share5[near_i] < P5.fresnel_weight_min, share5[near_i]
     assert n_if_forced > g5.n, (n_if_forced, g5.n)
     assert g5.pixel_m > dx_if_forced, (g5.pixel_m, dx_if_forced)
     # The screens that DO pass the threshold are still sampled.
@@ -1054,8 +1113,11 @@ if __name__ == '__main__':
         floor_rows.append((name, want, pl20.z_m.size, pl200.z_m.size,
                            pl3.z_m.size, pl20.r0_total_m))
 
-    # A STRONG path still goes past the floor, through the Rytov cap.
-    prof_low = default_cn2_profile(space.channel.site, hs_200)
+    # A STRONG path still goes past the floor, through the Rytov cap. The
+    # Cn2 profile is 10 times the site profile, because a 10 deg slant path on
+    # the site profile carries sigma_R^2 = 1.6 only, and the book Rytov cap of
+    # 0.4 (2026-09-06) holds that with fewer screens than the floor.
+    prof_low = 3.0 * default_cn2_profile(space.channel.site, hs_200)
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
         _, plan6, _ = turbulent_grid(space, orbit10, preset="standard",
@@ -1103,6 +1165,60 @@ if __name__ == '__main__':
     assert plan_cont.z_m.size == PRESETS["standard"].min_screens, plan_cont.z_m.size
     assert abs(err_cont).max() < 0.01, err_cont
 
+    # ---- 8. the terrestrial planner cuts EQUAL-RYTOV-WEIGHT slabs ----
+    # A 5 km, Cn2 = 1e-14, 1550 nm horizontal path. Every screen must carry the
+    # same Rytov share, and the shares must add up to the analytic plane-wave
+    # Rytov variance of the whole path.
+    L8, cn2_8 = 5e3, 1e-14
+    scn8 = TerrestrialScenario(
+        near=Terminal(aperture_m=0.10, wavelength_m=lam,
+                      transmitter=Transmitter(waist_m=5e-3)),
+        far=Terminal(aperture_m=0.10, wavelength_m=lam,
+                     detector=Aperture(sensitivity_dbm=-40)),
+        channel=TerrestrialChannel(path_length_m=L8, attenuation_db_per_km=0.0,
+                                   cn2=cn2_8))
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        g8, plan8, rep8 = turbulent_grid(scn8, HorizontalPath(L8))
+    s8 = plan8.sigma2_r
+    assert abs(s8 / s8.mean() - 1.0).max() < 0.03, s8
+    s8_hand = float(rytov_variance(lam, L8, cn2_8, wave='plane'))
+    assert abs(s8.sum() / s8_hand - 1.0) < 0.01, (s8.sum(), s8_hand)
+    assert plan8.z_m.size == 10, plan8.z_m.size
+    # The slabs are THIN at the transmitter and FAT at the receiver, because the
+    # weight density (L - z)^(5/6) is largest at the transmitter.
+    assert np.all(np.diff(plan8.cn2_int_m13) > 0), plan8.cn2_int_m13
+
+    # ---- 8b. the terrestrial screen-count table ----
+    # THE COUNTS ARE MEASURED, not chosen: they are
+    # max(min_screens, ceil(sigma_R^2 / cap)), plus the guard loop. The guard
+    # adds one screen where the equal share sits just under the cap, because the
+    # midpoint of the LAST slab overshoots its own share by about 3 percent.
+    count_rows = []
+    for name, want in (("standard", ((9, 9), (9, 10), (11, 35))),
+                       ("rapid", ((5, 5), (5, 10), (11, 35)))):
+        for (path_m, wants) in zip((2e3, 5e3, 10e3), want):
+            row = []
+            for c2, expect in zip((3e-15, 1e-14), wants):
+                with warnings.catch_warnings(record=True):
+                    warnings.simplefilter("always")
+                    _, pl, _ = turbulent_grid(terrestrial(path_m, c2),
+                                              HorizontalPath(path_m),
+                                              preset=name)
+                assert pl.z_m.size == expect, (name, path_m, c2, pl.z_m.size,
+                                               expect)
+                row.append(pl.z_m.size)
+            count_rows.append((name, path_m, row[0], row[1]))
+
+    # ---- 9. the SPACE plan does not move ----
+    # The weak downlink slab is FLOOR limited, so the looser cap does not touch
+    # it. The 30 deg standard plan keeps 9 screens, and the reference plan 15.
+    assert plan2.z_m.size == PRESETS["standard"].min_screens, plan2.z_m.size
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        _, plan9, _ = turbulent_grid(space, orbit30, preset="reference")
+    assert plan9.z_m.size == PRESETS["reference"].min_screens, plan9.z_m.size
+
     # ---- the printed tables ----
     print("case 1, terrestrial, 2 km, Cn2 = 5e-15, standard preset:")
     print(f"  grid side               {g1.size_m:11.4f} m")
@@ -1138,11 +1254,11 @@ if __name__ == '__main__':
     print(f"  Fresnel pixels, min     {rep2.fresnel_pixels_min:11.2f}")
     print(f"  step / Forvard limit    {rep2.step_over_limit_max:11.3f}")
     print("")
-    print("case 5, the Fresnel exemption, 10 deg elevation, standard preset:")
+    print("case 5, the Fresnel exemption, 10 deg elevation, reference preset:")
     print(f"  screens                 {plan5.z_m.size:11d}")
     print(f"  pixels per side         {g5.n:11d}")
     print(f"  nearest screen share    {share5[near_i]:11.5f} "
-          f"(exempt below {PRESETS['standard'].fresnel_weight_min})")
+          f"(exempt below {P5.fresnel_weight_min})")
     print(f"  its forced pixel count  {n_if_forced:11.0f}")
     print("")
     print("case 3, preset monotonicity, 3 km, Cn2 = 5e-14:")
@@ -1181,6 +1297,19 @@ if __name__ == '__main__':
           "grouping keeps")
     print("  EVERY moment to better than 1 percent with 9 screens, against "
           "200 layers.")
+    print("")
+    print("case 8, the terrestrial equal-weight cut, 5 km, Cn2 = 1e-14, "
+          "standard:")
+    print(f"  screens                 {plan8.z_m.size:11d}")
+    print(f"  sigma2_R, plan sum      {s8.sum():11.4f}")
+    print(f"  sigma2_R, analytic      {s8_hand:11.4f}")
+    print(f"  share spread, max       {abs(s8 / s8.mean() - 1).max():11.4f}")
+    print("")
+    print("case 8b, the terrestrial screen counts:")
+    print(f"  {'preset':<12}{'path [km]':>11}{'Cn2 = 3e-15':>14}"
+          f"{'Cn2 = 1e-14':>14}")
+    for name, path_m, n_lo, n_hi in count_rows:
+        print(f"  {name:<12}{path_m * 1e-3:>11.0f}{n_lo:>14}{n_hi:>14}")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")

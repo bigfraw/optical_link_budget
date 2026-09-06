@@ -228,7 +228,16 @@ README fidelity ladder.
   into equal-Rytov-weight screens at Cn2-weighted centroids. An explicit
   `hs`/`cn2_profile` array takes the LEGACY discrete planner; `DEFAULT_HS` is
   the fallback for that array caller ONLY, no longer the physics grid of the
-  default budget. `cn2`/`h_top_m` thread through `run_waveoptics`,
+  default budget. The TERRESTRIAL planner cuts equal-Rytov-weight slabs too
+  (2026-09-06): the closed-form edge is `z_i = L (1 - (1 - i/n)^(6/11))` and the
+  screen sits at the slab midpoint (the uniform-Cn2 centroid), so the count is
+  `max(min_screens, ceil(sigma_R^2 / cap))` and not the 1.8x of the old
+  equal-THICKNESS cut. `sigma2_r_screen_max` is now 0.2 / 0.4 / 0.4, and 0.4 IS
+  the Schmidt cap (`rmax = 0.1` on the log-amplitude variance,
+  `sigma_R^2 = 4 sigma_chi^2`); `reference` is 2x stricter. The default space
+  downlink plan does NOT move (the weak slab is floor-limited at `min_screens`),
+  and campaigns pinned by `plan=` are unaffected.
+  `cn2`/`h_top_m` thread through `run_waveoptics`,
   `run_fidelity2`, the runners, and the cache),
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,

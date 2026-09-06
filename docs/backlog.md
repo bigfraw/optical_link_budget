@@ -828,7 +828,28 @@ The path forward for each is a second reference or a derivation.
   floor also depends on the receiver (a fibre pays the point figure); and the
   space planner reads the cap per LAYER GROUP while the terrestrial planner
   reads it per EQUAL SLAB, so one `sigma2_r_screen_max` value binds the two
-  families differently. The revision: split the preset table per channel
+  families differently.
+
+  **RESOLVED, the cap half (2026-09-06, owner decision).** The two families now
+  read the cap the SAME way. `_plan_terrestrial` cuts EQUAL-RYTOV-WEIGHT slabs,
+  as `_plan_space_continuous` already did: the plane-wave weight density is
+  `(L - z)^(5/6)` (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8,
+  Eq. (20)), so the slab edge `i` of `n` is `z_i = L (1 - (1 - i/n)^(6/11))`,
+  and the screen sits at the `Cn2`-weighted centroid of its slab, which is the
+  slab midpoint for a uniform `Cn2`. The old equal-THICKNESS cut charged the
+  cap against the STRONGEST slab, so it asked for about 1.8x the count of
+  `ceil(sigma_R^2 / cap)`. And `sigma2_r_screen_max` changed from
+  0.05 / 0.10 / 0.25 to **0.2 / 0.4 / 0.4**: 0.4 IS the book cap
+  (`rmax = 0.1` on the log-amplitude variance, Schmidt,
+  DOI 10.1117/3.866274, Listing 9.5, printed p. 175, and
+  `sigma_R^2 = 4 sigma_chi^2`), and `reference` stays 2x stricter. The default
+  SPACE downlink plan does NOT move, because the weak slab is floor-limited at
+  `min_screens` (30 deg standard still gives 9 screens, reference 15), and
+  stored campaigns pinned by `plan=` (`validation/tail_convergence`,
+  `validation/outer_scale_tail`, `validation/waveoptics_vs_fast`) are
+  unaffected. The `min_screens` half of this item stays OPEN.
+
+  The rest of the revision: split the preset table per channel
   family (terrestrial / space), and decide whether the floor keys on the
   receiver kind; source every number from the existing sweep data or a new
   sweep, and record it in the tracker. Owner decision on the shape; flagged,

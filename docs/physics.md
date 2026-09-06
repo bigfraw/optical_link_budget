@@ -1431,6 +1431,17 @@ gives the ACHIEVED number:
    `sigma2_r_screen_max`. A stronger screen breaks the thin-screen approximation.
    Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20), and Ch. 12,
    Eqs. (36) and (38); Schmidt, DOI 10.1117/3.866274, Ch. 9.
+   THE CAP IS THE BOOK CAP (2026-09-06, owner decision). The presets take
+   0.2 / 0.4 / 0.4. The book rule is `rmax = 0.1` on the LOG-AMPLITUDE
+   variance (Schmidt, Listing 9.5, printed p. 175), and
+   `sigma_R^2 = 4 sigma_chi^2`, so 0.4 IS the book cap; `reference` is 2x
+   stricter. BOTH families now cut EQUAL-RYTOV-WEIGHT slabs and put the screen
+   at the `Cn2`-weighted centroid of its slab. A horizontal path holds one
+   uniform `Cn2`, so its slab edges have the closed form
+   `z_i = L (1 - (1 - i/n)^(6/11))` and its centroid is the slab midpoint; the
+   count is `max(min_screens, ceil(sigma_R^2 / cap))`. The old
+   equal-THICKNESS terrestrial cut asked for about 1.8x that count. The default
+   space downlink plan does not move, because the weak slab is floor-limited.
 
 5. **The screen-count floor.** A weak path passes rule 4 with one screen, but
    one screen gives phase only and no scintillation. So `_merge_layers` clamps

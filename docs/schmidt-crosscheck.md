@@ -447,7 +447,7 @@ that olb has no name for it yet.
 | `screen_r0` | `olb/waveoptics/turbulence/screens.py:56` | `r0_i = (0.423 k^2 Cn2_i dz_i)^(-3/5)` | (9.70) | 165 | 178 | checked | Exact match, the constant included. olb cites Fried and Andrews Ch. 12; the book credits Roggemann et al., DOI 10.1364/AO.34.004037. Add the Schmidt citation. |
 | `_composite_r0` | `olb/waveoptics/turbulence/sampling.py:198` | `r0 = (SUM r0_i^(-5/3))^(-3/5)` | (9.71) | 165 | 178 | checked | Exact match. It is the PLANE-wave composite. The book also gives the spherical one, Eq. (9.72), which olb has no name for. |
 | `_screen_rytov` | `olb/waveoptics/turbulence/sampling.py:175` | one screen's path weight | (9.63), (9.73) | 163, 165 | 176, 178 | checked | olb computes `2.25 k^(7/6) (INT Cn2 dz) (z - z_i)^(5/6)`, which is the plane-wave RYTOV variance `sigma_R^2`. The book's per-screen quantity is the LOG-AMPLITUDE variance `sigma_chi^2`, constant 0.563. The ratio is `2.25/0.563 = 3.997`. The self-check measures 3.9994. See Table 3. |
-| `sigma2_r_screen_max` | `olb/waveoptics/turbulence/sampling.py:107` | the per-screen cap | Listing 9.5, lines 37, 38 | 175 | 188 | checked | The book caps `sigma_chi^2` at `rmax = 0.1`. olb caps `sigma_R^2 = 4 sigma_chi^2` at 0.05 / 0.10 / 0.25. See Table 3 for the factor analysis. |
+| `sigma2_r_screen_max` | `olb/waveoptics/turbulence/sampling.py:107` | the per-screen cap | Listing 9.5, lines 37, 38 | 175 | 188 | checked | The book caps `sigma_chi^2` at `rmax = 0.1`. olb caps `sigma_R^2 = 4 sigma_chi^2` at 0.2 / 0.4 / 0.4 (2026-09-06). See Table 3 for the factor analysis. |
 | the extent rule, the scattering cone | `olb/waveoptics/turbulence/sampling.py:442` | `2 (lambda/r0) z` added to the grid side | (9.84), (9.85) | 173 | 186 | checked | The added term is `c lambda dz / r0` with `c = 2`, which is the book's low value. Listing 9.6, line 2, printed p. 177, uses `c = 2` too. The book states that `c = 2` holds 97% of the light and `c = 4` holds 99% (text below Eq. (9.85), printed p. 173). BUT olb adds the blur to the grid SIDE. The book adds it to D1' and D2' and then feeds constraints 1 to 3. Different route, same constant. |
 | the pixel rule, `pixels_per_r0` | `olb/waveoptics/turbulence/sampling.py:451` | `dx <= r0_total / pixels_per_r0` | Sec. 9.4 text | 172 | 185 | checked | The book gives the rule of Johnston and Lane, DOI 10.1364/AO.39.004761: pick the pitch at which the phase step between two adjacent samples stays below pi for more than 99.7% of the draws. With Eq. (9.44) that reads `3 sqrt(6.88 (dx/r0)^(5/3)) <= pi`, so `dx <= 0.332 r0`, that is **3.01 pixels per r0**. The olb `standard` preset value 3 lands on it. |
 | the pixel rule, the Fresnel scale | `olb/waveoptics/turbulence/sampling.py:454` | `dx <= sqrt(lambda z)/2` | Sec. 9.4 text | 172 | 185 | checked | olb ALREADY has the book's scintillation pitch rule, exactly. It cites Andrews Ch. 8 for it. The rule is Schmidt Sec. 9.4, printed p. 172, from Johnston and Lane. The tracker glossary row `sqrt(lambda z) (172)` said that olb has no such rule. That row was WRONG, and it is now corrected. See Table 2, row S-26. |
@@ -504,7 +504,7 @@ book gives none.
 | olb constant | olb value | location | book quantity | book value | book eq | printed p | pdf p | status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `QualityPreset.min_screens` | 15 / 9 / 5 | `olb/waveoptics/turbulence/sampling.py:110` | a screen-count FLOOR | **the book would not give** | — | — | — | checked, no book source. WP7 sourced it to an olb convergence sweep, and it kept the values. See the WP7 note. |
-| `QualityPreset.sigma2_r_screen_max` | 0.05 / 0.10 / 0.25 | `olb/waveoptics/turbulence/sampling.py:105` | `rmax`, the per-screen cap | 0.1 on `sigma_chi^2`, so **0.4 on `sigma_R^2`** | Listing 9.5, lines 37, 38 | 175 | 188 | checked, olb is 1.6x to 8x stricter. See the factor note below. |
+| `QualityPreset.sigma2_r_screen_max` | 0.2 / 0.4 / 0.4 | `olb/waveoptics/turbulence/sampling.py:105` | `rmax`, the per-screen cap | 0.1 on `sigma_chi^2`, so **0.4 on `sigma_R^2`** | Listing 9.5, lines 37, 38 | 175 | 188 | checked. Since 2026-09-06 (owner decision) `standard` and `rapid` EQUAL the book cap, and `reference` is 2x stricter. See the factor note below. |
 | `QualityPreset.boundary_width_frac` | 0.125 / 0.125 / 0.10 | `olb/waveoptics/turbulence/sampling.py:105` | the boundary half-width | `0.47 N dx` (Listing 9.7); `0.45 L` (Fig. 8.1) | (8.1); Listing 9.7, line 19 | 134, 179 | 147, 192 | checked, the book gives no value in this parameterisation |
 | `super_gaussian_boundary` `power` | 8 | `olb/waveoptics/turbulence/splitstep.py:29` | the super-Gaussian exponent n of Eq. (8.1) | **16** | (8.1); Listing 8.1, line 12; Listing 9.7, line 19 | 134, 142, 179 | 147, 155, 192 | CONFLICT. The book RUNS `sg = exp(-nsq.^8/w^16)`, which is `exp(-(r/w)^16)`, so n = 16. Figure 8.1, printed p. 134, also plots n = 16. Eq. (8.1) itself only needs n > 2, so the olb value of 8 is ALLOWED by the equation but it is not the book's number. The book also records that Flatte and others used n = 8 (Ch. 8, text, printed p. 134), so 8 has a source in the literature, not in Schmidt's own runs. |
 | `super_gaussian_boundary` `width_frac` | 0.125 | `olb/waveoptics/turbulence/splitstep.py:29` | the half-width sigma of Eq. (8.1) | **0.47 N pixels** (Listing 8.1); **0.45 L** (Fig. 8.1) | (8.1); Listing 8.1, line 11 | 134, 142 | 147, 155 | CONFLICT of PARAMETERISATION. The book states one half-width sigma in PIXELS, measured from the centre. olb states a taper BAND width as a fraction of the half-side, with a hard flat region inside it. The two cannot be converted. Book at the middle of an edge: `exp(-(0.5/0.47)^16) = 0.0678`. olb at the middle of an edge: `exp(-1) = 0.368`. The book absorbs about 5 times harder there. |
@@ -557,9 +557,9 @@ cap of 0.4 on the olb number.**
 
 | preset | olb cap on `sigma_R^2` | the same as a cap on `sigma_chi^2` | against the book's 0.1 |
 | --- | --- | --- | --- |
-| `reference` | 0.05 | 0.0125 | 8x stricter |
-| `standard` | 0.10 | 0.025 | 4x stricter |
-| `rapid` | 0.25 | 0.0625 | 1.6x stricter |
+| `reference` | 0.2 | 0.05 | 2x stricter |
+| `standard` | 0.4 | 0.1 | the book cap |
+| `rapid` | 0.4 | 0.1 | the book cap |
 
 Two more differences, both small:
 
@@ -571,9 +571,23 @@ Two more differences, both small:
 - The book applies the cap as an OPTIMISER bound while it solves for the
   screen `r0` values. olb applies it as a merge rule on a fixed Cn2 profile.
 
-**Verdict on this constant: olb is conservative, and it is not wrong.** No
-change is forced. If a run is too slow, `rapid` at 0.25 is still 1.6x inside
-the book's guideline, and 0.4 is the book value.
+**Verdict on this constant (2026-09-06, owner decision): olb now takes the book
+cap.** `standard` and `rapid` use 0.4, which IS `rmax = 0.1` on the
+plane-wave axis. `reference` uses 0.2, which is 2x stricter, because a
+reference run buys accuracy with time. The earlier values 0.05 / 0.10 / 0.25
+were 8x / 4x / 1.6x stricter than the book, and they cost screens for no
+measured accuracy: WP7 shows the screen count is flat from 7 screens up on the
+30 deg downlink slab.
+
+**What moves, and what does not.** The default SPACE downlink plan does NOT
+move: the weak slab is FLOOR limited (`min_screens`), so a looser cap changes
+nothing there. The 30 deg standard plan keeps 9 screens and the reference plan
+keeps 15; the `sampling.py` self-check asserts both. Stored campaigns that pin
+their plan with `plan=` (`validation/tail_convergence`,
+`validation/outer_scale_tail`, `validation/waveoptics_vs_fast`) are unaffected,
+because the pinned plan is part of the fingerprint. A STRONG path (a long
+terrestrial path, or a low-elevation slant path on a strong site) now takes
+fewer screens.
 
 ## The absorbing boundary constants
 

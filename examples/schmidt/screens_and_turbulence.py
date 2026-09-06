@@ -494,9 +494,12 @@ def main():
     print(f"    production cap        "
           f"{preset.sigma2_r_screen_max / 4.0:11.4f}   "
           f"({preset.sigma2_r_screen_max} of sigma_R^2)")
+    # The standard and the rapid presets take 0.4, which IS the book cap on the
+    # plane-wave axis (2026-09-06). Only the reference preset, at 0.2, is
+    # stricter.
     print(f"    the production cap is "
-          f"{RMAX / (preset.sigma2_r_screen_max / 4.0):.1f} times STRICTER "
-          f"than the book cap")
+          f"{RMAX / (preset.sigma2_r_screen_max / 4.0):.1f} times the book cap "
+          f"(1.0 means the same cap)")
     assert sigma2_chi.max() <= RMAX, sigma2_chi.max()
     assert sigma2_chi.sum() < 0.25, sigma2_chi.sum()
 

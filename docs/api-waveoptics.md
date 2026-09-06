@@ -619,7 +619,10 @@ backlog 2-P5.
   reads the rest of `olb`). It returns a new `Field` at `z_total_m`. It raises
   `ValueError` on a spherical field, on unsorted distances, on a distance outside
   `[0, z_total_m]`, on a screen count that does not match the distances, and on a
-  wrong-shape screen or mask.
+  wrong-shape screen or mask. `screens` can be ANY iterable, a list or a
+  GENERATOR: the loop takes one screen at a time and keeps no stack, so a strong
+  path with many screens holds only the screen it uses (at 2048 px a float32
+  screen is 16 MB). The runners in `turbulence/run.py` give a generator.
 
 **THE MASK IS NECESSARY. The sub-steps alone remove NO aliasing.** The sampled
 transfer function of one long step is the product of the sampled transfer
@@ -716,7 +719,7 @@ name or a `QualityPreset`.
 | `pixels_per_r0` | 4 | 3 | 2 | `dx <= r0_total / pixels_per_r0`. Martin and Flatte, DOI 10.1364/AO.27.002111. Schmidt, DOI 10.1117/3.866274, Sec. 9.4, printed p. 172, gives the same rule from Johnston and Lane, and with Eq. (9.44) it reads 3.01 pixels per r0. So `standard` lands on the book value. |
 | `guard` | 4 | 3 | 2 | The grid half-side over the beam radius. The same meaning as the guard of `GridSpec.for_scenario`. |
 | `n_max` | 4096 | 2048 | 1024 | The largest pixel count. |
-| `sigma2_r_screen_max` | 0.05 | 0.10 | 0.25 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. The book cap is `rmax = 0.1` on the LOG-AMPLITUDE variance (Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175), and `sigma_R^2 = 4 sigma_chi^2`, so the book cap is 0.4 on this field. The three presets are 8x / 4x / 1.6x stricter than the book. |
+| `sigma2_r_screen_max` | 0.2 | 0.4 | 0.4 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. The book cap is `rmax = 0.1` on the LOG-AMPLITUDE variance (Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175), and `sigma_R^2 = 4 sigma_chi^2`, so the book cap is 0.4 on this field. Since 2026-09-06 (owner decision) `standard` and `rapid` take the book cap exactly, and `reference` is 2x stricter. |
 | `min_screens` | 15 | 9 | 5 | The smallest screen count. `_merge_layers` clamps a weak path UP to exactly this count, so the count follows the PRESET and not the layer count of the `Cn2` profile. THE SOURCE IS olb, NOT THE BOOK: Schmidt gives no screen-count floor, and these integers come from an olb convergence sweep. The aperture scintillation index of a 30 degree downlink slab is 19 percent low at 3 screens, 10 percent low at 5, and flat from 7 up. No preset may go under 4, the moment floor of Eq. (9.65), printed p. 164. See WP7 in [schmidt-crosscheck.md](schmidt-crosscheck.md). |
 | `fresnel_weight_min` | 0.005 | 0.02 | 0.05 | The Rytov share above which a screen must obey the Fresnel-scale pixel rule. The exemption is an olb rule; Schmidt, Sec. 9.4, applies the rule to every step. |
 | `boundary_width_frac` | 0.125 | 0.125 | 0.10 | The width of the absorbing band, as a fraction of the half-side. It goes to `super_gaussian_boundary()`. |
@@ -744,10 +747,20 @@ Eqs. (36) and (38).
 
 Where the boundaries go:
 
-- **Terrestrial.** The path is uniform, so the screens share it EQUALLY and each
-  screen sits at the centre of its slab. The planner starts from the mean-share
-  estimate `sigma2_total / sigma2_r_screen_max` and raises the count until the
-  STRONGEST screen (the one farthest from the receiver) obeys the cap.
+- **Terrestrial.** The planner cuts EQUAL-RYTOV-WEIGHT slabs, the same rule as
+  the space planner (2026-09-06). The plane-wave weight density is
+  `(L - z)^(5/6)` (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20);
+  Schmidt, DOI 10.1117/3.866274, Ch. 9, Eqs. (9.63) and (9.73), printed pp. 163
+  and 165), so the slab edge `i` of `n` has the closed form
+  `z_i = L * (1 - (1 - i / n)^(6/11))`. The slabs are THIN at the transmitter
+  and FAT at the receiver, and each screen sits at the `Cn2`-weighted centroid
+  of its slab, which is the slab MIDPOINT here, because a horizontal path holds
+  one uniform `Cn2`. Each screen then holds a DIFFERENT `r0`, which is the
+  book's own form (Schmidt, Listing 9.5, printed p. 175). The count is
+  `max(min_screens, ceil(sigma_R^2 / sigma2_r_screen_max))`, and a guard loop
+  adds one or two screens where the midpoint of the last slab overshoots its
+  own share by about 3 percent. The old EQUAL-THICKNESS cut asked for about
+  1.8x that count.
 - **Space.** The layers of the `Cn2` profile come from
   `olb.turbulence.profiles.default_cn2_profile`, times the airmass `sec(zenith)`
   (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14)). The planner

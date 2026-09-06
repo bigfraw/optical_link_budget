@@ -658,8 +658,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     def run_one(k):
         """Run trial k. It touches only its own state and read-only setup."""
         t0 = time.perf_counter()
-        stack = [build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
-                 for j in range(n_screens)]
+        # A GENERATOR, not a list: split_step takes the screens one at a time,
+        # so a strong path never holds the full stack. At 2048 px a float32
+        # screen is 16 MB. ScreenFactory makes two screens for each FFT and it
+        # caches the spare, so the peak is two screens, not one. The seed of
+        # screen j does not depend on the order, so the values do not change.
+        stack = (build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
+                 for j in range(n_screens))
         F_start = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
                    else F_in)
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
@@ -804,8 +809,11 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     entropy = _resolve_seed(seed)
     build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
                                    dtype=cdtype)
-    stack = [build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
-             for j in range(int(plan.z_m.size))]
+    # A GENERATOR, not a list. See run_one in propagate_turbulent_scenario:
+    # split_step takes the screens one at a time, so the memory holds two
+    # screens (ScreenFactory caches the spare of each FFT), not the stack.
+    stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
+             for j in range(int(plan.z_m.size)))
     F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
     F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m, boundary=mask)
     return F_rx, grid, plan

@@ -161,6 +161,23 @@ See [waveoptics_vs_fast/README.md](waveoptics_vs_fast/README.md).
 | --- | --- |
 | [waveoptics_vs_fast/waveoptics_vs_fast.py](waveoptics_vs_fast/waveoptics_vs_fast.py) | The study. FAST (`smf_fast_term`, NOAO), the field (a `Campaign` process pool), and the analytic term, per elevation, at a matched `L0`. An NPXLS convergence guard pins the FAST grid first. `--L0`, `--field-mode` (process / thread / serial), `--workers` and `--block-size` (the effective process count is `min(workers, ceil(n_trials/block_size))`). It writes a results JSON and a run log tagged by outer scale and field mode, and figures to `figures/`. |
 
+## terrestrial_campaigns/
+
+The terrestrial fidelity-2 backbone dataset. It stores twelve resumable
+`Campaign` sets: three path lengths (2, 5 and 10 km) crossed with two
+turbulence strengths (`Cn2` = 3e-15 and 1e-14), each one at the `rapid` and at
+the `standard` preset, at the fixed `L0 = 25 m`. It is a RUNNER only: it stores
+the trials and it reports the cost. Every analysis is DEFERRED (the fade
+distribution, the index split, the fade quantiles, the rapid-against-standard
+verdict, the comparison with the analytic terrestrial Terms). The dataset
+serves backlog 1-8 gate (b), the rapid-preset question, backlog 2-N2 beam
+filling, and the single-mode-fibre coupling distribution of a horizontal link.
+See [terrestrial_campaigns/README.md](terrestrial_campaigns/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [terrestrial_campaigns/run_campaigns.py](terrestrial_campaigns/run_campaigns.py) | The runner. `--dry-run` sizes every cell and prints the grid, the screen count and the memory of each one; `--smoke` runs a few trials for each cell and reports the seconds for each trial, the projected hours, the peak working set and a post-hoc `recouple` cross-check; the plain call stores the trials. Each campaign root gets a `cell.json` with the Rytov variance, `rho_0`, `w(L)`, the beam-fill fraction and the curvature focus shift of each aperture, the grid, the screen plan and every sizer warning. |
+
 ## screen_stacking/
 
 The phase-screen STACKING test, phase only. Does a stack of N screens hold the
