@@ -1139,6 +1139,32 @@ The path forward for each is a second reference or a derivation.
   received field INSIDE the aperture; the claim is that the clipped light
   never reaches the aperture, and the test must show the difference is at
   the single-precision floor before the clip becomes a sizer rule.
+- **2-P6. A two-grid launch: resolve the waist on a fine grid, then resample
+  onto the coarse propagation grid (owner, 2026-09-06, route (a) of 2-P3).**
+  The smallest-feature rule (`dx <= feature / 4`, the launch waist here)
+  is the ONLY rule that forces the 2048 px grids of the terrestrial
+  backbone (2-TC): the r0 and the Fresnel rules are met at every cell at a
+  much coarser pixel. So launch the field on its own small fine grid,
+  propagate the first vacuum leg (or the first slab) there, and resample the
+  field onto the coarse wide grid once the beam has spread past a few
+  pixels of the coarse pitch. The resampler is the LightPipes `Interpol`
+  (new side, new pixel count; a bilinear map), which the trimmed port in
+  `olb/waveoptics/` does NOT carry; port it (`scipy.ndimage.map_coordinates`
+  on the real and the imaginary parts, or on amplitude and phase) under the
+  BSD-3 licence note. RULES TO SETTLE: where the hand-over sits (after the
+  beam radius passes N coarse pixels, N to be measured), whether the first
+  screen must sit on the fine grid (the equal-weight planner puts the first
+  screen at 0.14 km at 10 km, where the beam is 4.5 cm), and the
+  interpolation error against a run that resolves the waist on the wide grid
+  (the 2 km cell, 7 pixels across the waist, is the reference: the two
+  routes must agree at the single-precision floor inside the aperture).
+  MEASURED NEED (2026-09-06, a vacuum run on each cell grid): the pixelised
+  waist costs +0.11 dB of bucket bias at 10 km standard and +0.72 dB at
+  10 km rapid, and 0.02 dB at 5 km; the sizer now flags it (`feature_pixels`,
+  `clamp_factor`). WHAT IT BUYS: the 2048 px standard cells fall to 512 or
+  1024 px (a 4x to 16x cost cut on the long paths), independent of the
+  receiver-cone clip (route (b), tested in `validation/receiver_cone_clip/`)
+  and of the full co-moving chain (2-P3). Not built; not tested.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
   docs/api-waveoptics.md:824).
