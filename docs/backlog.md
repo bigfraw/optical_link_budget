@@ -1095,6 +1095,22 @@ The path forward for each is a second reference or a derivation.
   passes share screens, so they are correlated; that needs its own design.
 - **2-P3. No co-moving (spherical) screen.** `split_step` takes a flat grid
   only; a long slant path pays the pixel cost.
+  UPDATE (2026-09-06, owner-flagged): the TERRESTRIAL backbone (2-TC) shows
+  the case that needs it. One flat grid must resolve the 5 mm launch waist
+  (the feature rule asks for a 1.25 mm pixel) AND hold the 99 cm beam at
+  10 km inside the guard (a 9.2 m side), which is 7300 pixels a side; the
+  sizer clamps at `n_max` = 2048 and the 10 km cells take a 3.8 to 6.4 mm
+  pixel (16 to 26 pixels across the 10 cm aperture, 1.5 to 5 pixels per
+  rho_0). The P2 burial of the per-plane pitch chain (2-N3, gap S-14) covered
+  a space slab and the 2 km path only, where the dynamic range is small; it
+  does NOT cover this. THE FIX: a co-moving terrestrial split step, Schmidt
+  Listing 9.7 (DOI 10.1117/3.866274, Ch. 9, printed p. 179), the per-plane
+  pitch chain with each screen generated at the pitch of its own plane, so the
+  pixel follows the beam. Trigger rule: a terrestrial path whose
+  `side / dx_wanted` passes `n_max`. Until then the 10 km cells of 2-TC are
+  the COARSE end of the dataset, and a larger launch waist is the cheap
+  scenario-side workaround (a 2 cm waist gives a 25 cm beam at 10 km, so the
+  side and the feature rule both relax about four times).
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
   docs/api-waveoptics.md:824).
