@@ -21,20 +21,48 @@ statement that a plan under the cap has converged statistics, and olb has no
 terrestrial convergence sweep (WP7 measured a SLANT slab). So the count that a
 horizontal path really needs is UNMEASURED. This study measures it.
 
-## The cell
+## The cell is a CHOICE
 
-Exactly the backbone cell of `validation/terrestrial_campaigns/`. The constants
-and the scenario builder are IMPORTED from that module, so the two studies
-cannot drift apart.
+`--path-km` and `--cn2` select any backbone cell of
+`validation/terrestrial_campaigns/`. The constants and the scenario builder are
+IMPORTED from that module, so the two studies cannot drift apart.
 
-| Item | Value |
-| --- | --- |
-| path | 10 km horizontal, `Cn2 = 1e-14 m^(-2/3)`, no absorption |
-| transmit | 100 mm terminal, 5 mm waist, collimated, 1550 nm |
-| receive | 100 mm aperture, `SMF(optimal_focus=True)` |
-| preset | `standard` (grid 2048 px, 9.174 m side, 4.48 mm pixel) |
-| outer scale | `L0 = 25 m` (the owner decision of backlog 2-P5) |
-| precision | `single`; seed `20260906`; patch radius 5 cm; block size 50 |
+The reference screen count is NEVER hard-coded: the script asks the sizer for
+the count of the UNMODIFIED `standard` preset of the selected cell, and it
+labels the reference row `ref<count>`.
+
+| Item | 10 km cell (the default) | 5 km cell |
+| --- | --- | --- |
+| path | 10 km horizontal, `Cn2 = 1e-14 m^(-2/3)` | 5 km horizontal, `Cn2 = 3e-15 m^(-2/3)` |
+| reference count | 35 screens (the CAP binds) | 9 screens (the `min_screens` FLOOR binds) |
+| grid | 2048 px, 9.174 m side, 4.48 mm pixel | 2048 px, 3.704 m side, 1.81 mm pixel |
+| backbone root | `L10km_cn21e-14_standard_scipy_lean` | `L5km_cn23e-15_standard_scipy_lean` |
+| reference trials | 2000 | 2000 |
+
+The two cells ask the two halves of the question: is the CAP too high, and is
+the FLOOR enough?
+
+Everything else is common to both: no absorption; a 100 mm transmit terminal
+with a 5 mm collimated waist at 1550 nm; a 100 mm receive aperture with
+`SMF(optimal_focus=True)`; the `standard` preset; `L0 = 25 m` (the owner
+decision of backlog 2-P5); `single` precision; seed `20260906`; patch radius
+5 cm; block size 50.
+
+## The file names
+
+Every output name and every override root carries the CELL tag, so two cells
+never overwrite each other:
+
+| Cell | Override root | JSON | Log | Figure |
+| --- | --- | --- | --- | --- |
+| 10 km (default) | `L10km_cn21e-14_standard_n{n}_scipy_lean` | `screen_count_sweep_results.json` | `screen_count_sweep.log` | `figures/screen_count_sweep.png` |
+| 5 km | `L5km_cn23e-15_standard_n{n}_scipy_lean` | `screen_count_sweep_L5km_cn23e-15_results.json` | `screen_count_sweep_L5km_cn23e-15.log` | `figures/screen_count_sweep_L5km_cn23e-15.png` |
+
+The naming rule gives the DEFAULT cell an EMPTY tag, so the stored record of
+the 10 km cell keeps the plain names it already has on disk and it stays
+reproducible. Every other cell takes `_L<path>km_cn2<cn2>`. The override roots
+always carried the cell tag, because they are built from the backbone
+`cell_tag`, so those names do not move either.
 
 ## The override mechanism
 
@@ -56,13 +84,35 @@ The floor then binds, the guard loop never fires, and the script ASSERTS
 The GRID comes from the UNMODIFIED `standard` sizing, and it is passed to
 `Campaign(grid=..., plan=...)` explicitly, so the study moves the screens only.
 The script also sizes the grid that the modified preset would pick and it
-ASSERTS the two agree; they do at every count of this cell (the pixel count
-clamps at `n_max = 2048` in both cases), and the table column `grid held` says
-so.
+ASSERTS the two agree; they do at every count of both cells (the pixel count
+clamps at `n_max = 2048` in every case), and the table column `grid held` says
+so. The pixel count must be EQUAL and the side is compared with a relative
+tolerance of `1e-9`, because the sizer rebuilds that float from the screen
+plan and two plans of one cell can differ in the last bits.
 
 Both `grid` and `plan` enter the campaign fingerprint, so each count is its own
 store: `campaigns/L10km_cn21e-14_standard_n{n}/` (environment override
 `OLB_SCREEN_COUNT_ROOT`).
+
+## The reference-count bit-identity check
+
+ON by default; `--no-ref-check` skips it, `--ref-check-trials` sets its size
+(default 100). It runs BEFORE the sweep, so a broken pipeline stops the study
+before it costs an hour.
+
+The check builds the override campaign at `n` = the reference screen count,
+into its OWN root (`..._n9_...` for the 5 km cell, `..._n35_...` for the
+10 km cell), runs `--ref-check-trials` trials there, and asserts that the
+`collected_power` and the `smf_eta` of those trials equal the reference values
+EXACTLY (`==`). It first asserts that the override plan equals the production
+plan (`z_m` and `r0_m`), because the `min_screens = n` route and the production
+cap route could in principle place the screens differently; a difference gives
+a clear message and no run. The maximum absolute difference is printed either
+way.
+
+A PASS proves that the grid pinning, the plan override, the two speed opt-ins
+and the campaign reopen all reproduce the production path, so a delta at
+another count is a SCREEN-COUNT effect and nothing else.
 
 ## The two speed opt-ins
 
@@ -82,11 +132,12 @@ precision, about 6e-7 in the power and in the coupling efficiency
 
 ## The reference
 
-The 35-screen campaign of the backbone run, which on `bigfraw` is the OPT-IN
-cell
+The standard-preset campaign of the backbone run of the SAME cell, which on
+`bigfraw` is the OPT-IN root
 `validation/terrestrial_campaigns/campaigns/L10km_cn21e-14_standard_scipy_lean`
-(2000 trials, seed 20260906; environment override
-`OLB_TERRESTRIAL_CAMPAIGNS_ROOT`). So the sweep must run with
+or `..._L5km_cn23e-15_standard_scipy_lean` (2000 trials, seed 20260906;
+environment override `OLB_TERRESTRIAL_CAMPAIGNS_ROOT`). So the sweep must run
+with
 `--fft-backend scipy --screen-generator olb-lean`, and every override campaign
 then takes the same settings, which keeps the comparison like for like. This
 script **never runs the reference**: it reopens that store through
@@ -102,7 +153,12 @@ From the repository root, with the environment python:
     # size every count, print the table and the projected cost, run nothing
     python -m validation.terrestrial_screen_count.screen_count_sweep --dry-run
 
-    # the full sweep: 5, 10, 15 and 20 screens, 1000 trials each
+    # the same for the 5 km cell
+    python -m validation.terrestrial_screen_count.screen_count_sweep \
+        --dry-run --path-km 5 --cn2 3e-15 \
+        --fft-backend scipy --screen-generator olb-lean
+
+    # the full sweep: 5, 10, 15 and 20 screens, 2000 trials each
     python -m validation.terrestrial_screen_count.screen_count_sweep \
         --workers 12 --block-size 50 \
         --fft-backend scipy --screen-generator olb-lean
@@ -115,7 +171,23 @@ The counts run CHEAPEST FIRST, and `Campaign.run` skips a stored block, so the
 sweep is resumable after a kill. The priority boost of
 `olb.waveoptics.priority` is automatic inside `Campaign.run`.
 
-### The bigfraw queue note
+The DRY RUN projects the cost from a MEASURED backbone anchor of the cell: 6.0
+s for one trial at 35 screens on 8 workers for the 10 km cell (the backbone
+smoke run), and 1.12 s for one trial at 9 screens on 12 workers with the two
+opt-ins for the 5 km cell (the backbone full run). A trial is close to linear
+in the screen count, so the projection scales by `n / screens` and by the
+worker count. A cell that has no anchor takes the 5 km one, and its projection
+is a rough guide only.
+
+### The 5 km launch line on bigfraw
+
+    $cmd = 'cmd /c "cd /d D:\repos\optical_link_budget && C:\Users\alexf\anaconda3\envs\olb\python.exe -u -m validation.terrestrial_screen_count.screen_count_sweep --path-km 5 --cn2 3e-15 --counts 5 10 15 20 --n-trials 2000 --workers 12 --fft-backend scipy --screen-generator olb-lean > validation\terrestrial_screen_count\sweep_launch_L5km_cn23e-15.log 2>&1"'
+    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$cmd}
+
+The WMI launch detaches the process from the ssh session, so the run survives
+a disconnect.
+
+### The 10 km bigfraw queue note
 
 The sweep is QUEUED behind the terrestrial backbone run on `bigfraw`: it is
 launched by a `Wait-Process` wrapper that waits for the backbone python process
@@ -128,14 +200,14 @@ and then starts this module. The launch command:
 (3980 on 2026-09-06). The wrapper sleeps until that process ends, then it
 runs the sweep in the same detached way.
 
-## What CONVERGED means
+## The two verdicts
 
 Each case measures four quantities from the SAME stored trials:
 
 | Quantity | What it is |
 | --- | --- |
 | `P10cm` | the collected power of the 100 mm receive bucket |
-| `point` | the irradiance of the CENTRE PIXEL (the pixel is 4.48 mm here) |
+| `point` | the irradiance of the CENTRE PIXEL of the receive grid |
 | `smf_eta` | the single-mode-fibre coupling efficiency |
 | `P5cm` | the collected power of a 50 mm bucket, a post-hoc `recollect` |
 
@@ -144,17 +216,31 @@ For each one the script gives the scintillation index `var(x)/mean(x)^2`
 p1 of `-10 log10(x / <x>)`, each with a 1000-resample bootstrap 68 percent
 interval. Loss is positive dB, so a fade is a positive number.
 
-A count is **CONVERGED** when, for every one of the four quantities:
+Each count gets BOTH verdicts, because they answer different questions.
 
-- the p5 delta against the 35-screen reference sits inside the bootstrap
-  half-width of the reference, AND
+**1 RESOLUTION (inside the reference noise).** A count is CONVERGED when, for
+every one of the four quantities:
+
+- the p5 delta against the reference sits inside the bootstrap half-width of
+  the reference, AND
 - the p1 delta does too, AND
 - the index ratio sits inside `1 +/- 0.10`.
 
-Else the count is **NOT CONVERGED**, and the verdict line names the quantity
-and the failing test. A NOT CONVERGED verdict at 4 trials means nothing: the
-bootstrap bars are then wider than the whole effect. Read the verdict at 1000
-trials.
+Else the count is NOT CONVERGED, and the verdict line names the quantity and
+the failing test. This says whether the run can SEE a difference, not whether
+the difference matters.
+
+**2 TOLERANCE (`--tolerance-db`, default 1.0 dB).** A count is WITHIN the
+tolerance when every `|p5|` and `|p1|` delta of the 10 cm bucket AND of the SMF
+coupling is under that many dB. Those two are the two RECEIVER kinds of a real
+terrestrial link. This says whether the difference matters to a link budget.
+
+The bootstrap bar is the noise of the REFERENCE alone. Each count is an
+estimate of the same size, so the noise on a DELTA is about `sqrt(2)` times
+that, and the reference-bar block prints both numbers, one line each.
+
+A NOT CONVERGED verdict at 4 trials means nothing: the bootstrap bars are then
+wider than the whole effect. Read the verdicts at 2000 trials.
 
 The `point` quantity is the sharpest test, because nothing averages a point.
 The `P10cm` bucket holds much of the beam on this path, so its index is small
@@ -164,11 +250,14 @@ and it is the least sensitive.
 
 | File | What it holds |
 | --- | --- |
-| `screen_count_sweep_results.json` | every number, plus the `z_m` and the `sigma2_r` of each plan |
+| `screen_count_sweep_results.json` | every number, plus the `z_m` and the `sigma2_r` of each plan, and the `reference_check` record |
 | `screen_count_sweep.log` | the printed lines, written line by line |
 | `figures/screen_count_sweep.png` | the index and the p5 / p1 fade against the screen count, for `P10cm`, `point` and `smf_eta`. The reference is a horizontal band. |
 
-## Results
+A cell other than the default takes the same three names with the cell tag in
+them. See "The file names" above.
+
+## Results, the 10 km cell
 
 Run on bigfraw, 2026-09-06, queued behind the backbone run: counts 5 / 10 /
 15 at 1000 trials each (12 workers, the opt-ins `scipy` + `olb-lean`, roots
@@ -212,6 +301,20 @@ the bucket p5, +-1.05 dB at the SMF p5, +-3.4 dB at the SMF p1. Read this way:
   1 h). The "CONVERGED" rule in the log means "inside the reference noise",
   a resolution statement, not a tolerance.
 
+That reading is the reason the script now prints BOTH verdicts and the
+`sqrt(2)` delta bar: the owner had to do both by hand for the table above.
+
 The five other standard cells of the backbone sit at the `min_screens` floor
 (9 to 11), so the cap bound only this cell. The count rule should key on the
 receiver kind and a dB tolerance (2-I3), not on the cap alone.
+
+## Results, the 5 km cell
+
+NOT RUN YET. This cell sits at the `min_screens` FLOOR of 9 screens, so it asks
+the other half of the question: is the floor enough? The plan is the counts
+5 / 10 / 15 / 20 at 2000 trials each, against ALL 2000 trials of the backbone
+reference `L5km_cn23e-15_standard_scipy_lean`, with the reference-count
+bit-identity check at n = 9 first. The projected cost is about 3.5 h of pool
+time at 12 workers (0.35 + 0.69 + 1.04 + 1.38 h), plus about 2 minutes for the
+check. The 2000 trials, against the 1000 of the 10 km run, are what make the
+p1 fade resolve.
