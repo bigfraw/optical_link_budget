@@ -56,6 +56,99 @@ def _reject_spherical(Fin, name):
                          'Use Convert() first.')
 
 
+# THE FORVARD CACHE. The sign pattern depends on (N, dtype) only, and the
+# transfer function on (N, size, lam, |z|, dtype). A split-step Monte Carlo
+# makes the SAME hops in every trial, so without a cache each hop rebuilt
+# four N x N arrays (three of them in double precision) that never change.
+# The cache keeps them, so a hop moves only the field itself. The entries
+# are read-only, and a thread that misses at the same time as another one
+# computes the same array two times, which is safe. The bound is in BYTES,
+# so a caller can budget it for each process: a 1024 px transfer function is
+# 8 MB in single and 16 MB in double precision, so the default holds 32 or
+# 16 distinct hops. A sweep past the bound drops the oldest entry. Set
+# FORVARD_CACHE_BYTES before a run to change the budget.
+FORVARD_CACHE_BYTES = 256 * 2 ** 20
+_forvard_cache = {}
+
+
+def clear_forvard_cache():
+    """Drop every cached Forvard factor. A test or a memory-tight caller
+    may call it."""
+    _forvard_cache.clear()
+
+
+def forvard_cache_bytes():
+    """Give the bytes the Forvard cache holds now."""
+    return sum(v[1].nbytes for k, v in _forvard_cache.items() if len(k) == 5)
+
+
+def _forvard_factors(N, size, lam, z, cdtype):
+    """Give the sign pattern and the transfer function of one Forvard hop.
+
+    The arrays are the ones the body of Forvard built before the cache.
+    The values are bit-identical: the phase wrap runs in double precision
+    exactly as before, and the cache stores the finished factor only.
+
+    Args:
+        N:      the pixel count of one side.
+        size:   the grid side, in m.
+        lam:    the wavelength, in m.
+        z:      the hop length, in m, not negative.
+        cdtype: the complex type of the field.
+
+    Returns:
+        The pair (iiij, CC): the N x N real sign pattern and the N x N
+        complex transfer function, both read-only.
+    """
+    cdtype = np.dtype(cdtype)
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+    key = (int(N), float(size), float(lam), float(z), cdtype.str)
+    hit = _forvard_cache.get(key)
+    if hit is not None:
+        return hit
+
+    sign_key = (int(N), rdtype)
+    iiij = _forvard_cache.get(sign_key)
+    if iiij is None:
+        # The alternating sign pattern does the same as a double fftshift,
+        # but it is faster. See the LightPipes manual.
+        iiN = np.ones((N,), dtype=rdtype)
+        iiN[1::2] = -1
+        iiij = np.outer(iiN, iiN)
+        iiij.flags.writeable = False
+        _forvard_cache[sign_key] = iiij
+
+    # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
+    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6, Eq. (6.32), printed
+    # p. 95.
+    _2pi = 2. * 3.141592654
+    z1 = z * lam / 2
+    No2 = int(N / 2)
+    SW = np.arange(-No2, N - No2) / size
+    SW *= SW
+    SSW = SW.reshape((-1, 1)) + SW
+    Bus = z1 * SSW
+    # KEEP Bus IN DOUBLE PRECISION. Bus reaches thousands on a long hop, and
+    # the next line takes the fractional part. In single precision that
+    # subtraction loses 4 digits of the phase. So the wrap runs in double
+    # precision, and only the finished factor CC takes the field precision.
+    Ir = Bus.astype(int)            # truncate, do not round
+    Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
+    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
+    CC.flags.writeable = False
+
+    while (_forvard_cache
+           and forvard_cache_bytes() + CC.nbytes > FORVARD_CACHE_BYTES):
+        # Drop the oldest transfer function. The sign patterns stay.
+        oldest = next((k for k in _forvard_cache if len(k) == 5), None)
+        if oldest is None:
+            break
+        del _forvard_cache[oldest]
+    if CC.nbytes <= FORVARD_CACHE_BYTES:
+        _forvard_cache[key] = (iiij, CC)
+    return iiij, CC
+
+
 def Forvard(Fin, z):
     """Propagate the field with the FFT spectral method.
 
@@ -105,10 +198,8 @@ def Forvard(Fin, z):
     # loop in single precision: the working array, the sign pattern and the
     # transfer function. That halves the bytes each FFT moves.
     cdtype = Fin.field.dtype
-    rdtype = np.float32 if cdtype == np.complex64 else np.float64
 
-    in_out = np.zeros((N, N), dtype=cdtype)
-    in_out[:, :] = Fin.field
+    in_out = np.array(Fin.field, dtype=cdtype)     # one copy, no zero fill.
 
     # The legacy value of 2*pi keeps the port equal to the C++ LightPipes.
     _2pi = 2. * 3.141592654
@@ -118,29 +209,11 @@ def Forvard(Fin, z):
     cokz = np.cos(kz)
     sikz = np.sin(kz)
 
-    # The alternating sign pattern does the same as a double fftshift,
-    # but it is faster. See the LightPipes manual.
-    iiN = np.ones((N,), dtype=rdtype)
-    iiN[1::2] = -1
-    iiij = np.outer(iiN, iiN)
+    # The sign pattern and the transfer function come from the cache. A
+    # split-step trial makes the same hops as every other trial of the
+    # plan, so the two arrays are built ONE time for each process.
+    iiij, CC = _forvard_factors(N, size, lam, z, cdtype)
     in_out *= iiij
-
-    # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
-    # -2*pi*Bus. Schmidt, DOI 10.1117/3.866274, Ch. 6, Eq. (6.32), printed
-    # p. 95.
-    z1 = z * lam / 2
-    No2 = int(N / 2)
-    SW = np.arange(-No2, N - No2) / size
-    SW *= SW
-    SSW = SW.reshape((-1, 1)) + SW
-    Bus = z1 * SSW
-    # KEEP Bus IN DOUBLE PRECISION. Bus reaches thousands on a long hop, and
-    # the next line takes the fractional part. In single precision that
-    # subtraction loses 4 digits of the phase. So the wrap runs in double
-    # precision, and only the finished factor CC takes the field precision.
-    Ir = Bus.astype(int)            # truncate, do not round
-    Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
-    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
 
     if zz >= 0.0:
         in_out = _fft2(in_out)

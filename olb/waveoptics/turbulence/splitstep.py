@@ -178,10 +178,14 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
                          'Use Convert() first. A co-moving split step is not '
                          'implemented.')
     z = np.asarray(z_screens_m, dtype=float).ravel()
-    screens = list(screens)
-    if len(screens) != z.size:
-        raise ValueError(f'split_step: {len(screens)} screens for {z.size} '
-                         'distances')
+    # THE SCREENS ARE READ ONE AT A TIME. `screens` can be a list or a
+    # generator. A generator makes each screen when the hop reaches it, so
+    # only ONE screen is in memory at a time, not the whole stack. That cuts
+    # the peak memory of a trial by the screen count (15 screens at 1024 px
+    # in double precision held 120 MB as a list). A list keeps the old,
+    # eager behaviour, and the numbers do not change either way. The count
+    # check runs after the walk, because a generator has no length.
+    screens = iter(screens)
     if z_total_m < 0.0:
         raise ValueError('split_step: z_total_m must not be negative')
     if z.size:
@@ -191,10 +195,6 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
             raise ValueError('split_step: z_screens_m must stay inside '
                              f'[0, {z_total_m}]')
     shape = (Fin.N, Fin.N)
-    for i, scr in enumerate(screens):
-        if np.shape(scr) != shape:
-            raise ValueError(f'split_step: screen {i} is {np.shape(scr)}, '
-                             f'but the field is {shape}')
     if boundary is not None:
         # Cast the mask to the real type of the field ONE time, not at each
         # hop. A float64 mask on a complex64 field makes a complex128
@@ -219,12 +219,25 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
 
     Fout = Field.copy(Fin)
     here = 0.0
-    for zi, scr in zip(z, screens):
+    n_used = 0
+    for i, zi in enumerate(z):
+        scr = next(screens, None)
+        if scr is None:
+            raise ValueError(f'split_step: {i} screens for {z.size} '
+                             'distances')
+        if np.shape(scr) != shape:
+            raise ValueError(f'split_step: screen {i} is {np.shape(scr)}, '
+                             f'but the field is {shape}')
         Fout = hop(Fout, zi - here)
         Fout = Screen(Fout, scr)
+        del scr                     # Free the screen before the next one.
         if boundary is not None:
             Fout = _apply_mask(Fout, boundary)
         here = zi
+        n_used += 1
+    if next(screens, None) is not None:
+        raise ValueError(f'split_step: more than {z.size} screens for '
+                         f'{z.size} distances')
     return hop(Fout, z_total_m - here)
 
 

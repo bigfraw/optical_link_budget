@@ -29,9 +29,12 @@ against the same Terms. The remaining owner gate is whether fidelity 2 ever
 becomes a DEFAULT.
 
 The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`,
-`mmf.py`, `camera.py`) imports numpy and scipy only, and `threader.py` and
+`mmf.py`, `camera.py`) imports numpy and scipy only, `threader.py` and
 `priority.py` (the process priority boost of a long run, see the `boost`
-paragraph of Section 9g) import the standard library only. They import nothing
+paragraph of Section 9g) import the standard library only, and `resources.py`
+(the free memory, the per-worker memory estimate and the automatic pool size,
+see the `workers` paragraph of Section 9g) imports the standard library and
+numpy only. They import nothing
 from the rest of `olb`. Only `grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
 tiers (see Section 9).
 
@@ -106,7 +109,19 @@ the tilt.
 ## 3. The propagators (`olb/waveoptics/propagators.py`)
 
 - `Forvard(Fin, z)` — the FFT angular-spectrum method. A negative `z` propagates
-  back. The grid keeps its side and its pitch.
+  back. The grid keeps its side and its pitch. THE FACTORS ARE CACHED
+  (2026-09-06): the sign pattern (one for each `(N, dtype)`) and the wrapped
+  transfer function (one for each `(N, size, lam, |z|, dtype)`) live in a
+  module dict, because a split-step Monte Carlo makes the SAME hops in every
+  trial, and the old body rebuilt four `N x N` arrays (three in double
+  precision) on every hop. The cached value is bit-identical to the old one:
+  the phase wrap still runs in float64, and the cache stores the finished
+  factor only. The cache is bounded in BYTES by `FORVARD_CACHE_BYTES` (256 MiB
+  by default; a 1024 px factor is 8 MiB single, 16 MiB double), and past the
+  bound it drops the oldest factor. `clear_forvard_cache()` empties it, and
+  `forvard_cache_bytes()` reads its size. Measured on a 1024 px grid, one
+  serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
+  and 7.21 to 5.48 s double (15 screens), with the same numbers.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -619,7 +634,12 @@ backlog 2-P5.
   reads the rest of `olb`). It returns a new `Field` at `z_total_m`. It raises
   `ValueError` on a spherical field, on unsorted distances, on a distance outside
   `[0, z_total_m]`, on a screen count that does not match the distances, and on a
-  wrong-shape screen or mask.
+  wrong-shape screen or mask. `screens` is a list OR an iterator (2026-09-06):
+  the function reads one screen at a time, so a generator keeps ONE screen in
+  memory instead of the whole stack, and the runner passes a generator. The
+  count check runs after the walk, because a generator has no length. The
+  peak memory of a 1024 px trial fell from 321 to 201 MiB (double, 15
+  screens) and from 193 to 157 MiB (single, 9 screens), with the same numbers.
 
 **THE MASK IS NECESSARY. The sub-steps alone remove NO aliasing.** The sampled
 transfer function of one long step is the product of the sampled transfer
@@ -1121,7 +1141,7 @@ This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
 and which was RETIRED on 2026-09-04; the value of the key did not change, so an
 existing manifest still matches.
 
-#### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True)`
+#### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True, cpu_fraction=0.9, memory_fraction=0.9)`
 
 It computes and stores the MISSING blocks up to `n_trials` trials, and it
 returns the number of trials on disk. The call rounds `n_trials` up to a whole
@@ -1189,6 +1209,24 @@ campaign is ONE physics case: use a new directory, or match the stored settings.
   each process, so the scenario, the geometry, the `GridSpec` and the
   `ScreenPlan` cross the process boundary once, not once for each block. A block
   then runs SERIALLY inside its process.
+- `workers="auto"` (2026-09-06) opens a pool sized by `Campaign.auto_workers()`:
+  the smaller of the CPU limit, `cpu_fraction` (0.9) of the logical cores, and
+  the memory limit, `memory_fraction` (0.9) of the free memory divided by
+  `Campaign.worker_memory_bytes()`, and never more than the missing blocks.
+  `progress=True` prints the count, the binding limit and the per-worker
+  estimate. The estimate (`olb.waveoptics.resources.worker_memory_bytes`)
+  counts the field copies of the split step, ONE screen and its generator
+  transients, the mask and the sign pattern, the Forvard cache of the plan's
+  hops, the block patch two times, and a 160 MiB interpreter base, all times a
+  1.25 safety factor; it sits ABOVE the measured working set on purpose. The
+  free memory (`free_memory_bytes`) is `MemAvailable` on Linux,
+  `GlobalMemoryStatusEx` on Windows and `vm_stat` on macOS; a machine with no
+  probe takes the CPU limit only. The CPU limit is a TARGET: a
+  memory-bandwidth-bound grid can plateau under it (12 workers of 32 threads at
+  512 px before the 2026-09-06 changes), so measure a new box or a new grid
+  with `validation/campaign_resources/ --workers auto` before a long run. The
+  memory limit is a HARD one: past it a worker dies with `MemoryError` (the
+  2026-09-04 kill at 1024 px, 15 screens, 16 workers).
 
 Never both: threads inside processes over-subscribe the cores. The parent writes
 each block file as soon as that block arrives, so a killed campaign keeps every

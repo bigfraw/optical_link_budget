@@ -652,6 +652,27 @@ Open items:
   (the default) applies it to the parent AND to every pool worker through the
   initializer, because Windows does not pass the opt-out to a spawned child. A
   direct `propagate_turbulent_scenario` run over ssh must call it itself.
+- **The memory of a trial is CUT and the pool sizes itself (2026-09-06,
+  branch `claude/sims-ram-capacity-13rdl0`).** Three changes, ALL
+  bit-identical (a stored double campaign reads back unchanged): (1) the
+  runner passes the screens as a GENERATOR and `split_step` reads them one
+  at a time, so ONE screen is in memory instead of the stack (15 screens at
+  1024 px double held 120 MB); (2) `Forvard` CACHES its sign pattern and its
+  wrapped transfer function for each distinct `(N, size, lam, |z|, dtype)`,
+  bounded by `propagators.FORVARD_CACHE_BYTES` (256 MiB), because every trial
+  of a plan makes the same hops and the old body rebuilt four N x N arrays on
+  every hop; (3) `olb/waveoptics/resources.py` gives `free_memory_bytes()`,
+  `worker_memory_bytes()` and `auto_workers()`, and `Campaign.run(workers=
+  "auto", cpu_fraction=0.9, memory_fraction=0.9)` sizes the pool at 90
+  percent of the cores held under 90 percent of the free memory (and never
+  more than the missing blocks). Measured at 1024 px, one serial trial:
+  single 9 screens 3.69 to 2.88 s and 193 to 157 MiB peak; double 15 screens
+  7.21 to 5.48 s and 321 to 201 MiB peak. NOT YET MEASURED: the new
+  bandwidth plateau on bigfraw (it was 12 workers of 32 at 512 px); run
+  `validation/campaign_resources/ --workers auto` to find it. The next
+  levers, in order: in-place FFTs in the screen generator (four full complex
+  copies per screen today; not bit-identical), and a `cupy` backend for the
+  two FFT modules (a GPU has about ten times the memory bandwidth).
 - **The fidelity-2 speed campaign is DONE (2026-08-29; P0 to P4, see
   `docs/waveoptics-efficiency-plan.md` Section 8 and `validation/waveoptics_speed/`).**
   P0 found screen generation was ~80% of a trial. P1 added the fast

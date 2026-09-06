@@ -71,6 +71,7 @@ import numpy as np
 
 from ..grid import GridSpec
 from ..priority import boost_process_priority
+from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
@@ -456,7 +457,41 @@ class Campaign:
                 "screen_generator": self.screen_generator,
                 "precision": self.precision}
 
-    def run(self, n_trials, *, workers=None, progress=False, boost=True):
+    def worker_memory_bytes(self):
+        """Estimate the peak memory of one pool worker of this campaign.
+
+        It reads the grid, the precision, the block size, the patch and the
+        hop count of the plan. See olb.waveoptics.resources.
+
+        Returns:
+            An int, in bytes.
+        """
+        patch_pixels = 0 if self.patch is None else int(self.patch.indices.size)
+        return worker_memory_bytes(self.grid.n, self.precision,
+                                   block_size=self.block_size,
+                                   patch_pixels=patch_pixels,
+                                   n_hops=int(self.plan.z_m.size) + 1)
+
+    def auto_workers(self, *, cpu_fraction=0.9, memory_fraction=0.9):
+        """Give the pool size that fills the machine for this campaign.
+
+        The count is the smaller of the CPU limit (`cpu_fraction` of the
+        logical cores) and the memory limit (`memory_fraction` of the free
+        memory over `worker_memory_bytes()`), and it is at least 1. It is
+        also capped at the block count, because more workers than blocks
+        sit idle.
+
+        Returns:
+            The pair (workers, reason), with the reason "cpu", "memory" or
+            "blocks".
+        """
+        k, why = auto_workers(self.worker_memory_bytes(),
+                              cpu_fraction=cpu_fraction,
+                              memory_fraction=memory_fraction)
+        return k, why
+
+    def run(self, n_trials, *, workers=None, progress=False, boost=True,
+            cpu_fraction=0.9, memory_fraction=0.9):
         """Compute and store the MISSING blocks up to n_trials trials.
 
         A block that already sits on disk is not recomputed. The parent writes
@@ -469,8 +504,15 @@ class Campaign:
             workers:  None runs the blocks one after the other in this process,
                       each block threaded inside. An int W opens ONE process
                       pool of W processes for the whole call, and each block
-                      runs serially inside its process.
-            progress: True prints one line for each finished block.
+                      runs serially inside its process. The string "auto"
+                      opens a pool sized by `auto_workers()`: `cpu_fraction`
+                      of the logical cores, held under `memory_fraction` of
+                      the free memory, and never more than the missing
+                      blocks.
+            progress: True prints one line for each finished block, and the
+                      pool size and its reason for "auto".
+            cpu_fraction, memory_fraction: the two limits of "auto". They
+                      are ignored for None and for an int.
             boost:    True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS), and every pool worker does the
@@ -486,6 +528,18 @@ class Campaign:
         if not missing:
             return self.n_stored
 
+        if isinstance(workers, str):
+            if workers != "auto":
+                raise ValueError(f"Campaign.run: workers must be None, an int "
+                                 f"or 'auto', not {workers!r}.")
+            workers, why = self.auto_workers(cpu_fraction=cpu_fraction,
+                                             memory_fraction=memory_fraction)
+            if workers > len(missing):
+                workers, why = len(missing), "blocks"
+            if progress:
+                per = self.worker_memory_bytes() / 2 ** 20
+                print(f"  auto pool: {workers} workers ({why} limit, "
+                      f"{per:.0f} MiB per worker)")
         if boost:
             boost_process_priority()    # Threads inherit; workers boost themselves.
         t0 = time.time()
@@ -722,6 +776,24 @@ if __name__ == '__main__':
             # ---- 4. the Term reducer reads a loaded record unchanged ----
             small = camp.load(12, fields=False)
             assert small.fields is None and small.patch is None
+
+            # The auto pool. The estimate is positive, the count is at least
+            # one, and "auto" on a campaign with no missing block is a no-op.
+            assert camp.worker_memory_bytes() > 0
+            k, why = camp.auto_workers()
+            assert k >= 1 and why in ("cpu", "memory"), (k, why)
+            assert camp.run(12, workers="auto") == 12
+            # A third block through "auto" matches the seeded serial route.
+            bs = common["block_size"]
+            camp.run(4 * bs, workers="auto", progress=True)
+            with np.load(camp._block_path(3)) as za:
+                ref = propagate_turbulent_scenario(
+                    scn, orbit, n_trials=bs, start_index=3 * bs,
+                    seed=common["seed"], preset=camp.preset, grid=camp.grid,
+                    plan=camp.plan, patch_radius_m=camp.patch_radius_m,
+                    L0_m=camp.L0_m, precision=camp.precision, threader=None)
+                assert np.array_equal(za["fields"], ref.fields)
+            print(f"  auto pool                      {k} workers ({why})")
             term = waveoptics_turbulence_term(small, quantity="collected_power")
             assert term.mean_db is not None
 

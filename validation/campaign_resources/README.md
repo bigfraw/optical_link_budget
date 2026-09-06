@@ -15,11 +15,17 @@ blocks of 50 (80 blocks) on 16 workers.
 ```
 python -m validation.campaign_resources.campaign_resources
 python -m validation.campaign_resources.campaign_resources --workers 24
+python -m validation.campaign_resources.campaign_resources --workers auto
 python -m validation.campaign_resources.campaign_resources --threads
 python -m validation.campaign_resources.campaign_resources --precision single
 ```
 
-`--threads` gives the other level of parallelism (serial blocks, each one
+`--workers auto` (2026-09-06) lets `Campaign.run` size the pool: 90 percent
+of the logical cores, held under 90 percent of the free memory divided by the
+per-worker estimate of `olb.waveoptics.resources`. The log prints the count,
+the binding limit and the estimate. Use it to find the plateau of a new grid
+after the 2026-09-06 memory cut (lazy screens and the Forvard cache); the
+table below predates that cut. `--threads` gives the other level of parallelism (serial blocks, each one
 threaded inside) for a comparison. `--smoke` is a small local check.
 `--precision single` (the default since 2026-09-05) runs every trial in
 complex64 with float32 screens, which halves the bytes for each element. It is

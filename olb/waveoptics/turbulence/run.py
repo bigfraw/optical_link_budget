@@ -658,8 +658,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     def run_one(k):
         """Run trial k. It touches only its own state and read-only setup."""
         t0 = time.perf_counter()
-        stack = [build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
-                 for j in range(n_screens)]
+        # A GENERATOR, not a list: split_step makes each screen when its hop
+        # arrives, so one screen sits in memory at a time. The per-screen
+        # seed contract does not change, so every number stays bit-identical
+        # to the eager stack.
+        stack = (build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
+                 for j in range(n_screens))
         F_start = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
                    else F_in)
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
