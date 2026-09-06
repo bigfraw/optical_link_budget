@@ -239,6 +239,23 @@ are from 2026-08-26 and can drift.
   BOTH sides of a monostatic terminal, so a deliberately diverged terminal pays
   `|dz| + dz_curv` of receive defocus. Both limits are in the module docstrings;
   a converging launch needs fidelity 2.
+- **0-P17. A focused (converging) launch cannot be expressed (2026-09-06).**
+  olb models a collimated or a diverging transmit beam only. Four blocks, in
+  order of depth:
+  - `Transmitter` (olb/terminal.py) holds a waist and a divergence. It has NO
+    focus parameter, so a scenario cannot even ask for a converging beam.
+  - `olb.beam.virtual_waist` raises below the diffraction limit, which is the
+    same wall from the other side.
+  - `andrews.scintillation.beam_rytov_variance` REFUSES `Theta0 < 1`
+    (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 8,
+    Eq. (23)): the printed form covers the collimated and the divergent beam
+    only.
+  - the Dios on-axis index is called with `f0 = inf`, so the whole terrestrial
+    scintillation chain reads a collimated launch.
+  0-P16 already notes the matching limit of the bidirectional wrapper: `dz > 0`
+  is outside the fidelity-0 model. DEFERRED. It BLOCKS the focused-launch leg of
+  the 1-8 gate (b), and it needs a source for the focused-beam Rytov variance
+  before any of it moves.
 - **0-P12. The MMF NA gate is a flat factor.** No turbulence re-broadening
   of the focal spot, no mode-count saturation; `optimal_focus` is geometric
   (docs/physics.md:1354–1358).
@@ -477,7 +494,9 @@ The path forward for each is a second reference or a derivation.
   2.4 at 7.9 (unfilled). The certification of record is in the folder README
   and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
   item: a focused launch, a stronger Cn2, and a longer path. That sweep is now
-  step 1 of 1-9 (2026-09-05).
+  step 1 of 1-9 (2026-09-05). The stronger-Cn2 and longer-path half of it is now
+  2-TC (2026-09-06), the terrestrial campaign backbone, which is running; a
+  focused launch stays blocked by 0-P17.
 - **1-8. Terrestrial fidelity 1 = the calibrated lognormal draw (PROPOSED
   2026-09-01).** A terrestrial link has NO fidelity-1 rung: FAST is far-field
   only, so `terrestrial_budget(fidelity=1)` raises (1-1). The proposal fills that
@@ -516,6 +535,15 @@ The path forward for each is a second reference or a derivation.
   approved for the backlog only. It is NOT built, and it must not be started
   yet. See the memory `terrestrial-calibrated-draw-plan`. SUPERSEDED as the
   plan of record by 1-9 (2026-09-05), where it is one candidate route.
+  UPDATE ON GATE (b) (2026-09-06): the gate now reads the 2-TC terrestrial
+  campaigns. They give the stronger `Cn2` and the longer path that the gate
+  asks for, over `sigma_R^2` = 0.21 to 13.6, and the full run is in progress on
+  bigfraw. The ANALYSIS that closes the gate is DEFERRED by the owner: 2-TC
+  stores the trials only, and no script yet tests the SHAPE, the index or the
+  quantiles. Two limits stay. A FOCUSED launch is BLOCKED: olb cannot express a
+  converging beam at all (see 0-P17), so that leg of the gate cannot run. And
+  the DIVERGED launch is a command-line option of the runner
+  (`--launch diverged`), a spot check, not a stored cell of the twelve.
 - **1-9. HIGH (owner-flagged 2026-09-05) — the terrestrial fidelity-1 rung
   from FITTED POWER DISTRIBUTIONS, bucket AND fibre.** This is the extension
   of 1-6 (the aperture-averaged lognormal certification, one weak path, PASS)
@@ -905,6 +933,63 @@ The path forward for each is a second reference or a derivation.
   10x per screen, validated in validation/waveoptics_speed/) makes the broad
   sweep cheap, so the reason for the narrow one is gone. Source every floor from
   this catalogue and record it in the tracker.
+- **2-TC. The terrestrial campaign backbone — BUILT, RUNNING (2026-09-06).**
+  `validation/terrestrial_campaigns/run_campaigns.py` plus its README store a
+  backbone dataset of terrestrial fidelity-2 snapshots. It is a RUNNER only: it
+  stores the trials and it measures the time, the memory and the disk. It does
+  NO analysis.
+  THE CELLS. Three path lengths (2 / 5 / 10 km) x two turbulence strengths
+  (`Cn2` = 3e-15 / 1e-14 m^-2/3) x two presets (`rapid` / `standard`) = twelve
+  campaigns, 2000 trials in each. The band runs from firmly weak
+  (`sigma_R^2` = 0.21) to strongly saturated (`sigma_R^2` = 13.6). The link is
+  the same in every cell: 1550 nm, a collimated 5 mm launch waist, a 10 cm
+  receive aperture with a single-mode fibre at `optimal_focus`, no extinction,
+  `L0` = 25 m (the owner decision of 2026-09-05, 2-P5), single precision, seed
+  20260906.
+  WHAT A TRIAL STORES. The collected power of the 10 cm aperture, the `smf_eta`
+  of that aperture (UNTRACKED, `defocus_m` = 0), and the complex64 receive-plane
+  field on a 5 cm patch, BEFORE the aperture clip.
+  WHAT IS POST HOC. The patch makes these a `Campaign.recollect` or
+  `Campaign.recouple` with no new propagation: the 5 cm bucket and the 5 cm
+  fibre, another obscuration, focal length, mode field radius, defocus or
+  detector kind, the TRACKED (aligned) coupler at
+  `curvature_focus_shift` (`cell.json` holds that shift for each aperture), and
+  the centre-pixel point index.
+  NO TIP-TILT CORRECTION. Fidelity 2 models no adaptive optics and no tracking
+  (2-AO), so every stored fibre number is UNTRACKED and it holds the full beam
+  wander.
+  THE CLAMPED GRIDS — a caveat. The 5 mm waist gives a beam radius of 49 cm at
+  5 km and 99 cm at 10 km. The grid side must hold that beam plus the scattering
+  cone, so the pixel count the sizer wants passes the preset `n_max`. The sizer
+  then KEEPS the side and it takes a coarse pixel: 3.8 mm to 6.4 mm at 10 km.
+  Five of the twelve cells carry that warning. So the centre-pixel point index
+  is a COARSE point on the long paths. Every warning is in `cell.json` under
+  `sizer.warnings`.
+  THE SMOKE NUMBERS (bigfraw, 8 workers, `smoke.log`, all twelve cells pass the
+  post-hoc `recouple` cross-check to 8e-8): `rapid` runs 0.33 to 1.46 s/trial
+  (0.18 to 0.81 h per 2000 trials) at 1024 px; `standard` runs 1.8 to 6.0
+  s/trial (1.0 to 3.3 h) at 2048 px, at 630 MB for each worker. The whole set at
+  2000 trials is about 0.9 GB on disk.
+  WP1 — THE LAZY SCREEN STACK. `split_step` now takes the screens as ANY
+  iterable, a list or a GENERATOR, and the runner gives it a generator. It takes
+  the screens one at a time and it keeps no stack, so a strong path no longer
+  holds every screen in RAM (at 2048 px a float32 screen is 16 MB, and the
+  10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
+  STATE. The full run is IN PROGRESS on bigfraw (12 workers, launched
+  2026-09-06). The data stays on bigfraw under
+  `D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\` and
+  it is gitignored; the logs and the `cell.json` files come back when the run
+  ends.
+  DEFERRED — THE ANALYSIS (owner, 2026-09-06). There is NO analysis script yet.
+  The deferred questions are: the fade distribution (lognormal against
+  gamma-gamma) over the whole `sigma_R^2` band; the index split (the point index
+  against the aperture-averaged index, and the effective averaging factor); the
+  fade quantiles (p10, p5, p1) and their bootstrap intervals; the `rapid`
+  against `standard` usability verdict; beam filling (2-N2; `cell.json` gives
+  `w(L)` and the captured fraction of each aperture); the fidelity-2 fibre
+  coupling against `terrestrial_smf_coupling_term` and the walk-off Term
+  `terrestrial_smf_walkoff_term`; and the tracked-focus `recouple`.
+  WHO WAITS FOR IT: 1-8 gate (b), 1-9, and 2-N2.
 - **2-S1. The Schmidt cross-check gaps S-01 to S-28.** The Schmidt
   foundation layer (`olb/waveoptics/schmidt/`) is validation only, and its
   tracker holds 28 numbered gaps between the book and the production

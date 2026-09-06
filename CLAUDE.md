@@ -244,7 +244,11 @@ README fidelity ladder.
   for a plot); both take
   `screen_generator="olb"` (the default) | "aotools"; the two draw DIFFERENT
   atmospheres for the same seed, and the statistics agree; the
-  `folded_terrestrial` stub. The runner takes `start_index=0`: trial k seeds
+  `folded_terrestrial` stub. The runner gives the screens to `split_step` as a
+  GENERATOR (2026-09-06): `split_step` takes any iterable and it keeps no stack,
+  so a strong path holds only the screen it uses (at 2048 px a float32 screen is
+  16 MB, and a 35-screen plan is 560 MB). The change is BIT-IDENTICAL.
+  The runner takes `start_index=0`: trial k seeds
   off (entropy, k), so a run of n trials equals the concatenation of its
   blocks, trial for trial, bit-identically. It takes `patch_radius_m=None`:
   when set, each trial stores the UNCLIPPED receive-plane field at the pixels
@@ -762,5 +766,19 @@ Open items:
   `smf_eta_defocused(a, c)`. OPEN: a converging monostatic
   launch is outside the bidirectional model (backlog 0-P16); the deterministic
   (non-jitter) pointing offset is still not modelled.
+- **The TERRESTRIAL campaign backbone is BUILT and RUNNING (2026-09-06,
+  backlog 2-TC).** `validation/terrestrial_campaigns/run_campaigns.py` stores
+  twelve fidelity-2 campaigns of 2000 trials: paths 2 / 5 / 10 km x Cn2
+  3e-15 / 1e-14 x presets rapid / standard, a collimated 5 mm launch into a
+  10 cm SMF receiver, L0 = 25 m, single precision, seed 20260906. Each trial
+  keeps the collected power, the UNTRACKED `smf_eta` and a 5 cm complex64 field
+  patch, so a smaller aperture, another detector, another defocus, the tracked
+  focus and the point index are all post hoc through `Campaign.recollect` /
+  `recouple`. It is a RUNNER only: the DISTRIBUTION ANALYSIS (the fade family,
+  the index split, the quantiles, the rapid-against-standard verdict, the fibre
+  coupling against the analytic Terms) is DEFERRED by the owner, and no analysis
+  script exists. The full run is in progress on bigfraw and the data stays there
+  under `D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\`
+  (gitignored); the logs and the `cell.json` files come back when it ends.
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.
