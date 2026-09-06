@@ -122,6 +122,22 @@ the tilt.
   `forvard_cache_bytes()` reads its size. Measured on a 1024 px grid, one
   serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
   and 7.21 to 5.48 s double (15 screens), with the same numbers.
+- THE FFT BACKEND (an OPT-IN, 2026-09-06). `set_fft_backend("numpy"|"scipy")`
+  selects the transforms of `Forvard` and `Fresnel` for this process and it
+  returns the previous name; `get_fft_backend()` reads it; `FFT_BACKENDS`
+  lists the names. `"numpy"` (the default) is the backend of record: every
+  stored campaign was made with it. `"scipy"` runs the same transforms through
+  `scipy.fft` with `overwrite_x=True`, so the result lands in the work array.
+  On the tested machine the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy
+  and 15.6 ms in scipy, and a whole single-precision trial went 2.74 to
+  2.19 s (1.25x). The two agree at the rounding level of the field precision
+  (6e-7 relative on the collected power and the SMF eta of a single-precision
+  trial, 5e-16 in double), but a scipy run is NOT bit-identical to a numpy
+  run of the same seed. So the runner takes `fft_backend=` and restores the
+  previous backend when it returns, and a `Campaign` carries the name in its
+  fingerprint and manifest (only when `"scipy"`, so every stored key stays
+  valid) and sets it in every pool worker. See
+  `validation/memory_cut/README.md`.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -804,7 +820,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single")`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy")`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -821,9 +837,16 @@ it. The trials are independent snapshots.
 - A `"retro"` direction raises `NotImplementedError`.
 - `subharmonics=True` is the value to keep: the tilt content drives the beam
   wander, and the uplink overlap reads that wander.
-- `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`) or
-  `"aotools"` (the reference path). The two give DIFFERENT draws for the same
-  seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
+- `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`),
+  `"olb-lean"` (an OPT-IN, 2026-09-06: `ScreenFactory(lean=True)`, the same
+  physics and the SAME random stream through one third fewer full-grid
+  passes; it agrees with `"olb"` at the rounding level of the screen type,
+  1e-7 relative in float32 and 1e-16 in float64, and its structure-function
+  r0 matches inside the standard error, but it is NOT bit-identical; one
+  1024 px float32 screen goes 86 to 60 ms and 48 to 28 MiB peak; see
+  `validation/memory_cut/`) or
+  `"aotools"` (the reference path). `"olb"` and `"aotools"` give DIFFERENT
+  draws for the same seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
   unknown name raises `ValueError`. `propagate_turbulent_field()` takes the same
   argument, with the same default.
 - `precision` is `"single"` (the DEFAULT since 2026-09-05: a complex64 field
@@ -843,6 +866,11 @@ it. The trials are independent snapshots.
   complex64 in both modes. `recouple()` and `recollect()` rebuild the grid in
   complex128 whatever the mode. `propagate_turbulent_field()` takes the same
   argument, with the same default.
+- `fft_backend` is `"numpy"` (the default, the backend of record) or `"scipy"`
+  (an OPT-IN, 2026-09-06, see Section 3). The runner sets it for the process
+  for the length of the call and restores the previous backend after. A scipy
+  run agrees with a numpy run at the rounding level of the field precision and
+  it is NOT bit-identical.
 - `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one
   by one. A `Threader` runs them across threads and it keeps the trial order; the
   FFT releases the GIL, so it gives a real speed-up. `Threader()` with no
@@ -1089,7 +1117,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy")`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.

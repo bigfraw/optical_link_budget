@@ -32,8 +32,9 @@ Sources:
 """
 
 import numpy as np
-from numpy.fft import fft2 as _fft2
-from numpy.fft import ifft2 as _ifft2
+from numpy.fft import fft2 as _np_fft2
+from numpy.fft import ifft2 as _np_ifft2
+from scipy import fft as _scipy_fft
 from scipy.special import fresnel as _fresnel
 
 from .field import Field
@@ -54,6 +55,59 @@ def _reject_spherical(Fin, name):
     if Fin._curvature != 0.0:
         raise ValueError(f'{name}: the field is in spherical coordinates. '
                          'Use Convert() first.')
+
+
+# THE FFT BACKEND (an OPT-IN, 2026-09-06). "numpy" (the default) is the
+# backend of record: every stored campaign was made with it. "scipy" runs
+# the same transforms through scipy.fft with overwrite_x=True: it writes the
+# result into the work array, and on the tested machine it ran a 1024 px
+# complex64 transform 2.7 times faster (15.8 against 42.6 ms). The two
+# backends agree at the rounding level of the field precision (6e-7 relative
+# on the collected power and the SMF eta of a single-precision trial), but a
+# scipy run is NOT bit-identical to a numpy run of the same seed, so a
+# campaign carries the backend in its fingerprint. The setting is process
+# wide: a pool worker sets it for itself (Campaign does that through the
+# initializer).
+FFT_BACKENDS = ("numpy", "scipy")
+_fft_backend = "numpy"
+
+
+def set_fft_backend(name):
+    """Select the FFT backend of Forvard and Fresnel for this process.
+
+    Args:
+        name: "numpy" (the default, the backend of record) or "scipy".
+
+    Returns:
+        The previous backend name, so a caller can restore it.
+
+    Raises:
+        ValueError: the name is unknown.
+    """
+    global _fft_backend
+    if name not in FFT_BACKENDS:
+        raise ValueError(f"set_fft_backend: name must be one of "
+                         f"{FFT_BACKENDS}, not {name!r}.")
+    previous = _fft_backend
+    _fft_backend = name
+    return previous
+
+
+def get_fft_backend():
+    """Give the FFT backend name of this process."""
+    return _fft_backend
+
+
+def _fft2(a):
+    if _fft_backend == "scipy":
+        return _scipy_fft.fft2(a, overwrite_x=True, workers=1)
+    return _np_fft2(a)
+
+
+def _ifft2(a):
+    if _fft_backend == "scipy":
+        return _scipy_fft.ifft2(a, overwrite_x=True, workers=1)
+    return _np_ifft2(a)
 
 
 # THE FORVARD CACHE. The sign pattern depends on (N, dtype) only, and the
@@ -473,6 +527,32 @@ if __name__ == '__main__':
     # ---- Forvard conserves power ----
     FF = Forvard(F0, z)
     assert abs(Power(FF) / Power(F0) - 1.0) < 1e-12
+
+    # ---- the factor cache gives the same field warm as cold ----
+    clear_forvard_cache()
+    FF_cold = Forvard(F0, z)
+    assert forvard_cache_bytes() > 0
+    FF_warm = Forvard(F0, z)
+    assert np.array_equal(FF_cold.field, FF_warm.field)
+    assert np.array_equal(FF_cold.field, FF.field)
+
+    # ---- the scipy backend agrees at the rounding level, and restores ----
+    assert get_fft_backend() == "numpy"
+    prev = set_fft_backend("scipy")
+    try:
+        FS = Forvard(F0, z)
+    finally:
+        set_fft_backend(prev)
+    assert get_fft_backend() == "numpy"
+    rel = np.sqrt(np.mean(np.abs(FS.field - FF.field) ** 2)
+                  / np.mean(np.abs(FF.field) ** 2))
+    assert rel < 1e-12, rel
+    print(f"scipy vs numpy Forvard rel rms {rel:.1e}")
+    try:
+        set_fft_backend("fftw")
+        raise AssertionError("an unknown backend must raise")
+    except ValueError:
+        pass
 
     # ---- the three routes agree on a well sampled grid ----
     FR = Fresnel(F0, z)

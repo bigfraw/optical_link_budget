@@ -1,0 +1,132 @@
+{
+  "cores": 4,
+  "draws": [
+    {
+      "n": 512,
+      "dtype": "float64",
+      "rel_rms": 2.1948147560098123e-16
+    },
+    {
+      "n": 512,
+      "dtype": "float32",
+      "rel_rms": 1.1796921484119594e-07
+    },
+    {
+      "n": 1024,
+      "dtype": "float64",
+      "rel_rms": 3.5826153828499775e-16
+    },
+    {
+      "n": 1024,
+      "dtype": "float32",
+      "rel_rms": 1.9359617908776272e-07
+    }
+  ],
+  "statistics": {
+    "default": {
+      "r0_fit_m": 0.11114355013867225,
+      "sem_m": 0.0010138287113123136
+    },
+    "lean": {
+      "r0_fit_m": 0.11114355007867491,
+      "sem_m": 0.0010138287110478235
+    }
+  },
+  "screen_cost": [
+    {
+      "n": 1024,
+      "dtype": "float32",
+      "lean": false,
+      "ms_per_screen": 86.30005253333668,
+      "peak_mib": 48.00663375854492
+    },
+    {
+      "n": 1024,
+      "dtype": "float32",
+      "lean": true,
+      "ms_per_screen": 59.50082576666773,
+      "peak_mib": 28.026458740234375
+    },
+    {
+      "n": 1024,
+      "dtype": "float64",
+      "lean": false,
+      "ms_per_screen": 137.1584979666674,
+      "peak_mib": 80.00658416748047
+    },
+    {
+      "n": 1024,
+      "dtype": "float64",
+      "lean": true,
+      "ms_per_screen": 87.43527473333566,
+      "peak_mib": 56.049964904785156
+    },
+    {
+      "n": 2048,
+      "dtype": "float32",
+      "lean": false,
+      "ms_per_screen": 448.43934830000006,
+      "peak_mib": 192.0065803527832
+    },
+    {
+      "n": 2048,
+      "dtype": "float32",
+      "lean": true,
+      "ms_per_screen": 298.78373846666665,
+      "peak_mib": 112.04989624023438
+    },
+    {
+      "n": 2048,
+      "dtype": "float64",
+      "lean": false,
+      "ms_per_screen": 769.6654595000003,
+      "peak_mib": 320.00658416748047
+    },
+    {
+      "n": 2048,
+      "dtype": "float64",
+      "lean": true,
+      "ms_per_screen": 587.6138834333384,
+      "peak_mib": 224.09683990478516
+    }
+  ],
+  "transform_ms": {
+    "numpy": 69.53857329999664,
+    "scipy": 15.622456900018733,
+    "scipy_overwrite": 13.01581829998213
+  },
+  "trial": {
+    "n": 1024,
+    "n_screens": 9,
+    "rows": [
+      {
+        "fft_backend": "numpy",
+        "screen_generator": "olb",
+        "s_per_trial": 2.739082254333274,
+        "rel_diff_power": 0.0,
+        "rel_diff_eta": 0.0
+      },
+      {
+        "fft_backend": "scipy",
+        "screen_generator": "olb",
+        "s_per_trial": 2.1861254636666367,
+        "rel_diff_power": 5.607948122543505e-07,
+        "rel_diff_eta": 6.118768065555003e-07
+      },
+      {
+        "fft_backend": "numpy",
+        "screen_generator": "olb-lean",
+        "s_per_trial": 2.569858344666651,
+        "rel_diff_power": 1.1215896245087009e-07,
+        "rel_diff_eta": 1.5111212192664425e-07
+      },
+      {
+        "fft_backend": "scipy",
+        "screen_generator": "olb-lean",
+        "s_per_trial": 1.99193324033331,
+        "rel_diff_power": 5.607948122543505e-07,
+        "rel_diff_eta": 2.3046058506004385e-07
+      }
+    ]
+  }
+}

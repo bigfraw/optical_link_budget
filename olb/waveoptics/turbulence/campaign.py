@@ -194,7 +194,8 @@ def _run_block(b):
         L0_m=_W["kwargs"]["L0_m"],
         subharmonics=_W["kwargs"]["subharmonics"],
         screen_generator=_W["kwargs"]["screen_generator"],
-        precision=_W["kwargs"]["precision"])
+        precision=_W["kwargs"]["precision"],
+        fft_backend=_W["kwargs"]["fft_backend"])
     return int(b), _columns_of(res)
 
 
@@ -220,7 +221,7 @@ class Campaign:
                  sizing_aperture_m=None, grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
                  subharmonics=True, screen_generator="olb",
-                 precision="single"):
+                 precision="single", fft_backend="numpy"):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -260,7 +261,14 @@ class Campaign:
             h_top_m:       the atmosphere top for the continuous integral.
             L0_m:          the outer scale of the screens, in m.
             subharmonics:  True adds the three subharmonic levels.
-            screen_generator: "olb" (the default) or "aotools".
+            screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
+                           not bit-identical) or "aotools".
+            fft_backend:   "numpy" (the default, the backend of record) or
+                           "scipy" (an OPT-IN, 2026-09-06, faster, agreement
+                           at the rounding level, NOT bit-identical). It
+                           enters the fingerprint only when "scipy", so every
+                           stored key stays valid. See
+                           olb.waveoptics.propagators.set_fft_backend.
             precision:     "single" (the default) or "double". "single" runs
                            every trial in complex64, with float32 phase
                            screens. WHY: a campaign is memory-bandwidth bound,
@@ -279,6 +287,10 @@ class Campaign:
                         unknown, or an existing campaign in this directory
                         holds different settings.
         """
+        if fft_backend not in ("numpy", "scipy"):
+            raise ValueError(
+                f"Campaign: fft_backend must be 'numpy' or 'scipy', not "
+                f"{fft_backend!r}.")
         if precision not in ("double", "single"):
             raise ValueError(
                 f"Campaign: precision must be 'double' or 'single', not "
@@ -295,6 +307,7 @@ class Campaign:
         self.block_size = int(block_size)
         self.screen_generator = screen_generator
         self.precision = precision
+        self.fft_backend = fft_backend
         self.L0_m = float(L0_m)
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
@@ -312,7 +325,7 @@ class Campaign:
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
             block_size=self.block_size, grid=grid, plan=plan,
-            precision=self.precision)
+            precision=self.precision, fft_backend=self.fft_backend)
 
         os.makedirs(self.root_dir, exist_ok=True)
         manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
@@ -366,10 +379,12 @@ class Campaign:
                 "patch_radius_m": self.patch_radius_m,
                 "sizing_aperture_m": self.sizing_aperture_m,
                 "precision": self.precision,
+                "fft_backend": self.fft_backend,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
-        defaults = {"precision": "double"}
+        # The same for the FFT backend: an older manifest is a numpy store.
+        defaults = {"precision": "double", "fft_backend": "numpy"}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -394,6 +409,7 @@ class Campaign:
             "sizing_aperture_m": self.sizing_aperture_m,
             "screen_generator": self.screen_generator,
             "precision": self.precision,
+            "fft_backend": self.fft_backend,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -455,7 +471,8 @@ class Campaign:
                 "patch_radius_m": self.patch_radius_m, "L0_m": self.L0_m,
                 "subharmonics": self.subharmonics,
                 "screen_generator": self.screen_generator,
-                "precision": self.precision}
+                "precision": self.precision,
+                "fft_backend": self.fft_backend}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
@@ -553,7 +570,8 @@ class Campaign:
                     patch_radius_m=self.patch_radius_m, L0_m=self.L0_m,
                     subharmonics=self.subharmonics,
                     screen_generator=self.screen_generator,
-                    precision=self.precision, threader=threader)
+                    precision=self.precision, threader=threader,
+                    fft_backend=self.fft_backend)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "
