@@ -103,3 +103,59 @@ double-to-single switch measured (`validation/precision/`).
   `screen_generator="olb-lean"` (the script does not take those flags yet).
 - Whether either opt-in becomes a DEFAULT is an owner decision, because each
   one changes every seeded fidelity-2 number at the rounding level.
+
+## Merge notes (for the agent that brings this branch into another one)
+
+The branch `claude/sims-ram-capacity-13rdl0` holds two commits on top of its
+base. The first one is the bit-identical cut (lazy screens, the Forvard cache,
+the pool sizer), on by default. The second one adds the two opt-ins, these
+scripts, and backlog items 2-N7 and 2-N8.
+
+**The files that changed.** Each of the runner, the campaign and the
+fingerprint grew ONE keyword argument, so those are the likely conflict
+points.
+
+- `olb/waveoptics/propagators.py`: the factor cache and the FFT backend switch.
+- `olb/waveoptics/turbulence/splitstep.py`: reads an iterator of screens.
+- `olb/waveoptics/turbulence/run.py`: the screen generator, the `fft_backend`
+  argument, the `"olb-lean"` name.
+- `olb/waveoptics/turbulence/screens.py`: the `lean` flag of `ScreenFactory`.
+- `olb/waveoptics/turbulence/campaign.py`: `fft_backend`, `workers="auto"`,
+  `worker_memory_bytes()`, `auto_workers()`.
+- `olb/waveoptics/turbulence/fingerprint.py`: `fft_backend` enters the key
+  only when it is `"scipy"`.
+- `olb/waveoptics/resources.py`: new.
+- `validation/campaign_resources/campaign_resources.py`: `--workers auto`.
+
+**How a campaign turns the gains on.**
+
+```python
+Campaign(..., fft_backend="scipy", screen_generator="olb-lean")
+campaign.run(n, workers="auto")
+```
+
+**Three cautions.**
+
+- A stored campaign is safe: neither opt-in enters an existing key. A campaign
+  that adds them is a NEW fingerprint and a new directory. A long run that is
+  half done must keep its old settings to resume, or restart with the new
+  ones.
+- `ScreenFactory(lean=True)` needs an even grid side. Every sizer grid is a
+  power of two, so this matters only for a hand-built odd grid.
+- A terrestrial path runs on one flat grid end to end, with few distinct hops,
+  so the Forvard cache stays small there.
+
+**After the merge**, run from the repository root and expect "passed" from
+each:
+
+```
+python -m olb.waveoptics.propagators
+python -m olb.waveoptics.turbulence.splitstep
+python -m olb.waveoptics.turbulence.screens
+python -m olb.waveoptics.turbulence.fingerprint
+python -m olb.waveoptics.turbulence.run
+python -m olb.waveoptics.turbulence.campaign
+python -m olb.waveoptics.resources
+python -m validation.memory_cut.memory_cut_check
+python -m validation.memory_cut.screen_generator_lean
+```
