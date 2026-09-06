@@ -1111,6 +1111,34 @@ The path forward for each is a second reference or a derivation.
   the COARSE end of the dataset, and a larger launch waist is the cheap
   scenario-side workaround (a 2 cm waist gives a 25 cm beam at 10 km, so the
   side and the feature rule both relax about four times).
+  MEASURED (2026-09-06, a vacuum propagation on each cell grid): the
+  pixelised 5 mm waist is harmless through 5 km (1.8 to 2.5 pixels across
+  the waist, the received beam radius and the 10 cm bucket power agree with
+  the analytic Gaussian to 0.02 dB), a +0.11 dB bucket bias at 10 km
+  standard (1.1 pixels, the beam 1.3 percent wide), and a +0.72 dB bias at
+  10 km rapid (0.8 pixels, the beam 7 percent wide). A vacuum run on the
+  same grid divides the mean bias out (the terrestrial fidelity-2 Term
+  already normalises that way).
+  TWO CHEAPER ROUTES THAN THE FULL CO-MOVING CHAIN (owner, 2026-09-06):
+  (a) DROP THE WAIST FROM THE PIXEL RULE and resolve the launch on its own
+  small fine grid, then resample the field onto the coarse propagation grid
+  once the beam has spread (the LightPipes `Interpol`, which the trimmed
+  port does not carry yet; a `scipy.ndimage` map onto the new pitch). The
+  r0 and the Fresnel rules are met at every cell of 2-TC without the waist
+  rule, so the 2048 px grids would fall to 512 or 1024 px.
+  (b) CLIP THE BEAM TO THE LIGHT THAT CAN REACH THE RECEIVER. The sizer
+  holds the WHOLE beam plus the scatter cone to the receiver, but only the
+  light inside the back-projected cone of the aperture, about
+  D + 2 (lambda / r0) x (distance to the receiver), can land on it. At
+  10 km that cone is about 1.7 m at the receiver and about 2 m at mid path,
+  against the 9.2 m side today: a 4.5x smaller side, so 4.5x finer pixels
+  at 2048 px, or 512 px at the pixel of today. A converging absorbing
+  boundary that follows the cone is the receive-end mirror of the co-moving
+  grid. VALIDATION FIRST: a matched-seed run with and without the clip on a
+  mid-strength cell (5 km / 1e-14, 1024 px, a few minutes), comparing the
+  received field INSIDE the aperture; the claim is that the clipped light
+  never reaches the aperture, and the test must show the difference is at
+  the single-precision floor before the clip becomes a sizer rule.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens;
   docs/api-waveoptics.md:824).
