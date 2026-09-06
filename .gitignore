@@ -17,3 +17,4 @@ validation/waveoptics_vs_fast/campaigns/
 validation/campaign_resources/campaign_*/
 examples/waveoptics/_campaigns/
 validation/terrestrial_campaigns/campaigns/
+validation/terrestrial_screen_count/campaigns/

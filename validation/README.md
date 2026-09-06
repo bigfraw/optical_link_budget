@@ -178,6 +178,23 @@ See [terrestrial_campaigns/README.md](terrestrial_campaigns/README.md).
 | --- | --- |
 | [terrestrial_campaigns/run_campaigns.py](terrestrial_campaigns/run_campaigns.py) | The runner. `--dry-run` sizes every cell and prints the grid, the screen count and the memory of each one; `--smoke` runs a few trials for each cell and reports the seconds for each trial, the projected hours, the peak working set and a post-hoc `recouple` cross-check; the plain call stores the trials. Each campaign root gets a `cell.json` with the Rytov variance, `rho_0`, `w(L)`, the beam-fill fraction and the curvature focus shift of each aperture, the grid, the screen plan and every sizer warning. |
 
+## terrestrial_screen_count/
+
+The terrestrial SCREEN-COUNT convergence sweep (backlog 2-TC1). At the Schmidt
+per-screen cap the 10 km / `Cn2` = 1e-14 standard cell asks for 35 screens, and
+that cap is a thin-screen VALIDITY rule (Schmidt, DOI 10.1117/3.866274, Listing
+9.5, printed p. 175), not a convergence result. The study holds that cell's GRID
+fixed and it OVERRIDES the screen count with a caller plan at n = 5, 10, 15 and
+20, against the 35-screen backbone campaign as the reference (it is reopened,
+never rerun). It compares the collected power, the centre-pixel irradiance, the
+fibre coupling and a 5 cm bucket: the index and the p10 / p5 / p1 fades, each
+with a bootstrap interval. NOT YET RUN (it is queued behind the backbone run).
+See [terrestrial_screen_count/README.md](terrestrial_screen_count/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [terrestrial_screen_count/screen_count_sweep.py](terrestrial_screen_count/screen_count_sweep.py) | The sweep. `--dry-run` sizes every count and prints the grid, the per-screen `sigma2_r` maximum and the projected cost; the plain call stores the trials cheapest first (resumable), then analyses; `--analyse-only` reads what is stored. It writes a results JSON, a run log and `figures/screen_count_sweep.png`, and it prints ONE table with the reference row first and a delta against 35 screens for each quantity, plus a CONVERGED / NOT CONVERGED verdict for each count. |
+
 ## screen_stacking/
 
 The phase-screen STACKING test, phase only. Does a stack of N screens hold the
