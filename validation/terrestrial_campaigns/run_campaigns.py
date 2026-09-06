@@ -47,6 +47,16 @@ Run it from the repository root:
     python -m validation.terrestrial_campaigns.run_campaigns --workers 8 --block-size 50
     python -m validation.terrestrial_campaigns.run_campaigns --cells 2km:3e-15:rapid
     python -m validation.terrestrial_campaigns.run_campaigns --launch diverged
+    python -m validation.terrestrial_campaigns.run_campaigns \
+        --fft-backend scipy --screen-generator olb-lean --workers auto
+
+THE TWO SPEED OPT-INS. `--fft-backend scipy` and `--screen-generator olb-lean`
+make a trial faster (validation/memory_cut/). They agree with the default
+settings at the rounding level of single precision, about 6e-7 in the
+collected power and in the coupling efficiency, but each one ENTERS the
+campaign fingerprint. So a campaign that takes them gets its OWN root, through
+the suffix `_scipy`, `_lean` or `_scipy_lean`, and it never mixes with a store
+that the default settings made.
 """
 
 import argparse
@@ -103,6 +113,15 @@ L0_M = 25.0
 
 SEED = 20260906
 PRECISION = "single"
+
+# The DEFAULT settings of the two speed opt-ins. "numpy" and "olb" are the
+# settings of record: the eight finished cells hold them. The opt-ins
+# "scipy" and "olb-lean" agree with them at the rounding level of single
+# precision (about 6e-7 in the collected power and in the coupling
+# efficiency, validation/memory_cut/), but they ENTER the campaign
+# fingerprint, so they need their own roots.
+FFT_BACKEND = "numpy"
+SCREEN_GENERATOR = "olb"
 
 # The optional diverged launch. The diffraction divergence of a 5 mm waist is
 # about 1.0e-4 rad, so this is a beam opened by about a factor of two. Same
@@ -165,10 +184,30 @@ def parse_cells(tokens):
     return out
 
 
-def cell_tag(path_m, cn2, preset, launch, smoke):
+def settings_suffix(fft_backend=FFT_BACKEND, screen_generator=SCREEN_GENERATOR):
+    """Give the root suffix of the two speed opt-ins.
+
+    Each opt-in ENTERS the campaign fingerprint, so a campaign that takes one
+    of them cannot reopen a store that a default run made. The suffix keeps
+    the two stores apart: "_scipy", "_lean", or "_scipy_lean". The defaults
+    give an empty suffix, so every old root keeps its name.
+
+    Args:
+        fft_backend:      "numpy" (the default) or "scipy".
+        screen_generator: "olb" (the default) or "olb-lean".
+
+    Returns:
+        The suffix string.
+    """
+    return (("_scipy" if fft_backend != FFT_BACKEND else "")
+            + ("_lean" if screen_generator != SCREEN_GENERATOR else ""))
+
+
+def cell_tag(path_m, cn2, preset, launch, smoke, suffix=""):
     """Give the directory name of one campaign."""
     return (f"L{_path_tag(path_m)}_cn2{cn2:.0e}_{preset}"
             + ("_diverged" if launch == "diverged" else "")
+            + suffix
             + ("_smoke" if smoke else ""))
 
 
@@ -346,12 +385,15 @@ def cell_record(path_m, cn2, preset, launch, camp, report, sizer_warnings):
             "patch_n": int(camp.patch.n),
             "patch_pixels": int(camp.patch.indices.size),
             "patch_pixel_m": float(camp.patch.pixel_m),
+            "fft_backend": camp.fft_backend,
+            "screen_generator": camp.screen_generator,
             "fingerprint": camp.fingerprint,
         },
     }
 
 
-def make_campaign(path_m, cn2, preset, launch, block_size, smoke):
+def make_campaign(path_m, cn2, preset, launch, block_size, smoke,
+                  fft_backend=FFT_BACKEND, screen_generator=SCREEN_GENERATOR):
     """Size one campaign, and give it with its sizing record.
 
     The construction only SIZES the grid and plans the screens. It runs no
@@ -365,13 +407,17 @@ def make_campaign(path_m, cn2, preset, launch, block_size, smoke):
         launch:     "collimated" or "diverged".
         block_size: the trials in one block.
         smoke:      True gives the campaign its own `_smoke` root.
+        fft_backend:      "numpy" or the "scipy" opt-in.
+        screen_generator: "olb" or the "olb-lean" opt-in.
 
     Returns:
         The tuple (Campaign, SamplingReport or None, the warning texts).
     """
     scn, geom = build_scenario(path_m, cn2, launch)
     root = os.path.join(campaigns_root(),
-                        cell_tag(path_m, cn2, preset, launch, smoke))
+                        cell_tag(path_m, cn2, preset, launch, smoke,
+                                 settings_suffix(fft_backend,
+                                                 screen_generator)))
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         # A fresh sizing gives the SamplingReport, which the Campaign does not
@@ -383,7 +429,8 @@ def make_campaign(path_m, cn2, preset, launch, block_size, smoke):
         camp = Campaign(scn, geom, root, seed=SEED, preset=preset,
                         block_size=block_size,
                         patch_radius_m=PATCH_RADIUS_M, L0_m=L0_M,
-                        precision=PRECISION)
+                        precision=PRECISION, fft_backend=fft_backend,
+                        screen_generator=screen_generator)
     texts = sorted({str(w.message) for w in caught})
     return camp, report, texts
 
@@ -433,7 +480,7 @@ def dry_run_rows(specs):
     """
     head = ["cell", "preset", "sigma_R^2", "rho0 cm", "w(L) cm", "n px",
             "side m", "px mm", "screens", "MB/worker", "clamp", "px/feat",
-            "warn"]
+            "warn", "root"]
     rows = [head]
     for s in specs:
         rec, camp = s["record"], s["camp"]
@@ -453,6 +500,9 @@ def dry_run_rows(specs):
             (f"{rec['sizer']['feature_pixels']:.1f}"
              if rec['sizer']['feature_pixels'] is not None else "-"),
             f"{len(rec['sizer']['warnings']):d}",
+            # The directory name carries the opt-in suffix, so the dry run
+            # shows WHICH store each cell writes into.
+            os.path.basename(camp.root_dir),
         ])
     return rows
 
@@ -573,7 +623,8 @@ def make_say(*paths):
 # The work
 # ---------------------------------------------------------------------------
 
-def size_all(cells, launch, block_size, smoke, order):
+def size_all(cells, launch, block_size, smoke, order,
+             fft_backend=FFT_BACKEND, screen_generator=SCREEN_GENERATOR):
     """Size every cell, and give the specs in the run order.
 
     Args:
@@ -583,6 +634,8 @@ def size_all(cells, launch, block_size, smoke, order):
         smoke:      True gives the `_smoke` roots.
         order:      "cheap-first" sorts by grid.n^2 * n_screens; "table" keeps
                     the given order.
+        fft_backend:      "numpy" or the "scipy" opt-in.
+        screen_generator: "olb" or the "olb-lean" opt-in.
 
     Returns:
         A list of dicts with the keys path_m, cn2, preset, camp, record, cost.
@@ -590,7 +643,8 @@ def size_all(cells, launch, block_size, smoke, order):
     specs = []
     for path_m, cn2, preset in cells:
         camp, report, texts = make_campaign(path_m, cn2, preset, launch,
-                                            block_size, smoke)
+                                            block_size, smoke, fft_backend,
+                                            screen_generator)
         record = cell_record(path_m, cn2, preset, launch, camp, report, texts)
         specs.append({"path_m": path_m, "cn2": cn2, "preset": preset,
                       "camp": camp, "record": record,
@@ -700,14 +754,18 @@ def run_full(specs, args, say):
         say:   the shared log function.
     """
     n_blocks = -(-args.n_trials // args.block_size)
-    if n_blocks < args.workers:
+    # "auto" sizes itself against the block count, so the warning is for an
+    # explicit worker count only.
+    if isinstance(args.workers, int) and n_blocks < args.workers:
         say(f"WARNING: only {n_blocks} blocks for {args.workers} workers; the "
             f"pool can use at most {n_blocks} processes. Lower --block-size.")
     for spec in specs:
         camp = spec["camp"]
         token = spec["record"]["cell"]
         tag = cell_tag(spec["path_m"], spec["cn2"], spec["preset"],
-                       args.launch, False)
+                       args.launch, False,
+                       settings_suffix(args.fft_backend,
+                                       args.screen_generator))
         cell_say = make_say(*args.log_paths,
                             os.path.join(HERE, f"run_{tag}.log"))
         cell_say(f"--- {token} ---")
@@ -740,6 +798,27 @@ def run_full(specs, args, say):
 # main
 # ---------------------------------------------------------------------------
 
+def parse_workers(text):
+    """Turn the --workers argument into an int or the string "auto".
+
+    Args:
+        text: the command-line text.
+
+    Returns:
+        An int, or the string "auto".
+
+    Raises:
+        argparse.ArgumentTypeError: the text is neither.
+    """
+    if text == "auto":
+        return "auto"
+    try:
+        return int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--workers takes an integer or 'auto', not {text!r}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cells", nargs="*", default=None,
@@ -749,8 +828,19 @@ def main(argv=None):
     ap.add_argument("--n-trials", type=int, default=None,
                     help=f"the trials for each cell (default {FULL_TRIALS}, "
                          f"or {SMOKE_TRIALS} with --smoke)")
-    ap.add_argument("--workers", type=int, default=8,
-                    help="the process-pool size of Campaign.run")
+    ap.add_argument("--workers", type=parse_workers, default=8,
+                    help="the process-pool size of Campaign.run: an integer, "
+                         "or 'auto' to let the campaign size the pool")
+    ap.add_argument("--fft-backend", choices=("numpy", "scipy"),
+                    default=FFT_BACKEND,
+                    help=f"the Forvard transform backend (default "
+                         f"{FFT_BACKEND}). 'scipy' is a speed OPT-IN, and it "
+                         f"gives the root the suffix _scipy.")
+    ap.add_argument("--screen-generator", choices=("olb", "olb-lean"),
+                    default=SCREEN_GENERATOR,
+                    help=f"the phase-screen generator (default "
+                         f"{SCREEN_GENERATOR}). 'olb-lean' is a speed OPT-IN, "
+                         f"and it gives the root the suffix _lean.")
     ap.add_argument("--block-size", type=int, default=None,
                     help=f"the trials in one block (default {FULL_BLOCK}, or "
                          f"{SMOKE_BLOCK} with --smoke)")
@@ -786,10 +876,13 @@ def main(argv=None):
     say(f"fixed         : lambda {LAM * 1e9:.0f} nm, waist {WAIST_M * 1e3:.0f} mm, "
         f"rx {RX_APERTURE_M * 100:.0f} cm, patch {PATCH_RADIUS_M * 100:.0f} cm, "
         f"L0 {L0_M:.0f} m, seed {SEED}, {PRECISION} precision")
+    say(f"speed opt-ins : fft {args.fft_backend}, screens "
+        f"{args.screen_generator}, root suffix "
+        f"{settings_suffix(args.fft_backend, args.screen_generator) or '(none)'}")
     say()
 
     specs = size_all(cells, args.launch, args.block_size, args.smoke,
-                     args.order)
+                     args.order, args.fft_backend, args.screen_generator)
     for spec in specs:
         write_cell_json(spec["camp"], spec["record"])
 

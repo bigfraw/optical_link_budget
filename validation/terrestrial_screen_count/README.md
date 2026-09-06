@@ -64,16 +64,36 @@ Both `grid` and `plan` enter the campaign fingerprint, so each count is its own
 store: `campaigns/L10km_cn21e-14_standard_n{n}/` (environment override
 `OLB_SCREEN_COUNT_ROOT`).
 
+## The two speed opt-ins
+
+`--fft-backend scipy` and `--screen-generator olb-lean` are the same two
+opt-ins that the backbone runner takes, and the same suffix rule holds. They
+go to BOTH the reference reopen and every override campaign, so the roots
+become `campaigns/L10km_cn21e-14_standard_n{n}_scipy_lean/`. The `--dry-run`
+table shows the root of each count in its last column.
+
+Each opt-in ENTERS the campaign fingerprint, so a reopen with the wrong
+settings RAISES a fingerprint mismatch. The settings must match the store the
+reference was made with. The physics agrees at the rounding level of single
+precision, about 6e-7 in the power and in the coupling efficiency
+(`validation/memory_cut/`). See
+`validation/terrestrial_campaigns/README.md` for the owner decision of
+2026-09-06.
+
 ## The reference
 
-The 35-screen campaign of the backbone run,
-`validation/terrestrial_campaigns/campaigns/L10km_cn21e-14_standard`
+The 35-screen campaign of the backbone run, which on `bigfraw` is the OPT-IN
+cell
+`validation/terrestrial_campaigns/campaigns/L10km_cn21e-14_standard_scipy_lean`
 (2000 trials, seed 20260906; environment override
-`OLB_TERRESTRIAL_CAMPAIGNS_ROOT`). This script **never runs it**: it reopens
-that store through `run_campaigns.make_campaign`, so the settings and the
-fingerprint match, and it reads the FIRST `--n-trials` trials. Those trials are
-bit-identical to a shorter run of the same seed, because the runner seeds trial
-k off `(entropy, k)`.
+`OLB_TERRESTRIAL_CAMPAIGNS_ROOT`). So the sweep must run with
+`--fft-backend scipy --screen-generator olb-lean`, and every override campaign
+then takes the same settings, which keeps the comparison like for like. This
+script **never runs the reference**: it reopens that store through
+`run_campaigns.make_campaign`, so the settings and the fingerprint match, and
+it reads the FIRST `--n-trials` trials. Those trials are bit-identical to a
+shorter run of the same seed, because the runner seeds trial k off
+`(entropy, k)`.
 
 ## How to run
 
@@ -84,7 +104,8 @@ From the repository root, with the environment python:
 
     # the full sweep: 5, 10, 15 and 20 screens, 1000 trials each
     python -m validation.terrestrial_screen_count.screen_count_sweep \
-        --workers 12 --block-size 50
+        --workers 12 --block-size 50 \
+        --fft-backend scipy --screen-generator olb-lean
 
     # read what is stored, and redo the analysis and the figure
     python -m validation.terrestrial_screen_count.screen_count_sweep \
@@ -100,7 +121,7 @@ The sweep is QUEUED behind the terrestrial backbone run on `bigfraw`: it is
 launched by a `Wait-Process` wrapper that waits for the backbone python process
 and then starts this module. The launch command:
 
-    $cmd = 'powershell -NoProfile -Command "Wait-Process -Id <backbone PID> -ErrorAction SilentlyContinue; cd D:\repos\optical_link_budget; & C:\Users\alexf\anaconda3\envs\olb\python.exe -u -m validation.terrestrial_screen_count.screen_count_sweep --workers 12 > validation\terrestrial_screen_count\sweep_launch.log 2>&1"'
+    $cmd = 'powershell -NoProfile -Command "Wait-Process -Id <backbone PID> -ErrorAction SilentlyContinue; cd D:\repos\optical_link_budget; & C:\Users\alexf\anaconda3\envs\olb\python.exe -u -m validation.terrestrial_screen_count.screen_count_sweep --workers 12 --fft-backend scipy --screen-generator olb-lean > validation\terrestrial_screen_count\sweep_launch.log 2>&1"'
     Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$cmd}
 
 `<backbone PID>` is the process id that the backbone WMI launch returned

@@ -153,8 +153,59 @@ root and the trials already on disk before it runs anything.
 
 Other switches: `--cells 2km:3e-15:rapid 5km:1e-14:standard` picks the cells,
 `--order table` keeps the table order (the default `cheap-first` runs the small
-grids first), `--launch diverged` opens the launch, and
+grids first), `--launch diverged` opens the launch, `--workers auto` lets the
+campaign size its own pool (`--workers` takes an integer or `auto`), and
 `OLB_TERRESTRIAL_CAMPAIGNS_ROOT` moves the whole store off this folder.
+
+## The two speed opt-ins
+
+Two settings make a trial faster. Each one is OFF by default:
+
+| flag | default | the opt-in | the root suffix |
+|---|---|---|---|
+| `--fft-backend` | `numpy` | `scipy` | `_scipy` |
+| `--screen-generator` | `olb` | `olb-lean` | `_lean` |
+
+Both together give the suffix `_scipy_lean`, so the 5 km standard cell writes
+into `campaigns/L5km_cn23e-15_standard_scipy_lean/` and it logs to
+`run_L5km_cn23e-15_standard_scipy_lean.log`. `cell.json` records both settings
+under `campaign.fft_backend` and `campaign.screen_generator`, next to the
+campaign fingerprint it already holds. The `--dry-run` table shows the root of
+each cell in its last column, so the suffix is visible before a run.
+
+**THE FINGERPRINT RULE.** Each opt-in ENTERS the campaign fingerprint. So a
+`Campaign` that reopens an existing root with different settings RAISES:
+
+    ValueError: the campaign in ...\L2km_cn23e-15_rapid_scipy_lean was made
+    with fft_backend='scipy', and this Campaign asks for fft_backend='numpy'.
+    A stored campaign is ONE physics case. Use a new directory, or match the
+    stored settings.
+
+A campaign that takes an opt-in therefore needs a NEW directory. It cannot
+resume a store that the default settings made.
+
+**THE PHYSICS AGREES.** The opt-ins keep the same random stream and the same
+equations. Measured in `validation/memory_cut/`, they move the collected power
+and the coupling efficiency by about 6e-7 in relative terms, the rounding
+level of single precision, the same level that the double-to-single switch
+measured (`validation/precision/`).
+
+**THE OWNER DECISION (2026-09-06).** The REMAINING standard cells run with
+BOTH opt-ins on, so the 5 km and the 10 km standard cells carry
+`_scipy_lean`. The other cells do NOT:
+
+- the eight finished cells keep their old directories and their old manifests:
+  all six `rapid` cells, and the two 2 km `standard` cells;
+- the partial `L5km_cn23e-15_standard` (24 blocks, the default settings) stays
+  on disk untouched as a cross-check. It is NOT resumed.
+
+To run the remaining standard cells:
+
+    python -m validation.terrestrial_campaigns.run_campaigns \
+        --cells 5km:3e-15:standard 5km:1e-14:standard \
+                10km:3e-15:standard 10km:1e-14:standard \
+        --fft-backend scipy --screen-generator olb-lean \
+        --workers 8 --block-size 50
 
 ## Run it on bigfraw
 

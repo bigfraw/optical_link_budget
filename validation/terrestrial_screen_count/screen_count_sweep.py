@@ -78,6 +78,15 @@ Run it from the repository root:
     python -m validation.terrestrial_screen_count.screen_count_sweep --dry-run
     python -m validation.terrestrial_screen_count.screen_count_sweep --workers 12
     python -m validation.terrestrial_screen_count.screen_count_sweep --analyse-only
+    python -m validation.terrestrial_screen_count.screen_count_sweep \
+        --fft-backend scipy --screen-generator olb-lean
+
+THE TWO SPEED OPT-INS. `--fft-backend scipy` and `--screen-generator olb-lean`
+go to BOTH the reference reopen and every override campaign, and each one
+ENTERS the campaign fingerprint. So they give every root the suffix `_scipy`,
+`_lean` or `_scipy_lean`, and the reference they name is the opt-in backbone
+cell `L10km_cn21e-14_standard_scipy_lean`. A reopen with the wrong settings
+RAISES a fingerprint mismatch. See validation/terrestrial_campaigns/README.md.
 """
 
 import argparse
@@ -155,10 +164,24 @@ def campaigns_root():
     return os.environ.get(ENV_ROOT) or os.path.join(HERE, "campaigns")
 
 
-def case_tag(n_screens):
-    """Give the directory name of one override campaign."""
+def case_tag(n_screens, fft_backend=backbone.FFT_BACKEND,
+             screen_generator=backbone.SCREEN_GENERATOR):
+    """Give the directory name of one override campaign.
+
+    The two speed opt-ins enter the campaign fingerprint, so they give the
+    root the same suffix that the backbone gives its own roots.
+
+    Args:
+        n_screens:        the screen count.
+        fft_backend:      "numpy" or the "scipy" opt-in.
+        screen_generator: "olb" or the "olb-lean" opt-in.
+
+    Returns:
+        The directory name.
+    """
     return (backbone.cell_tag(PATH_M, CN2, PRESET, LAUNCH, False)
-            + f"_n{int(n_screens)}")
+            + f"_n{int(n_screens)}"
+            + backbone.settings_suffix(fft_backend, screen_generator))
 
 
 def override_plan(n_screens):
@@ -202,33 +225,41 @@ def override_plan(n_screens):
             "warnings": sorted({str(w.message) for w in caught})}
 
 
-def make_override_campaign(n_screens, block_size):
+def make_override_campaign(n_screens, block_size,
+                           fft_backend=backbone.FFT_BACKEND,
+                           screen_generator=backbone.SCREEN_GENERATOR):
     """Open (or make) the campaign of one screen count.
 
     The campaign takes the PINNED grid and the caller plan. Both enter the
     fingerprint, so each count is its own store.
 
     Args:
-        n_screens:  the screen count.
-        block_size: the trials in one block.
+        n_screens:        the screen count.
+        block_size:       the trials in one block.
+        fft_backend:      "numpy" or the "scipy" opt-in.
+        screen_generator: "olb" or the "olb-lean" opt-in.
 
     Returns:
         The pair (Campaign, the dict of `override_plan`).
     """
     scn, geom = backbone.build_scenario(PATH_M, CN2, LAUNCH)
     spec = override_plan(n_screens)
-    root = os.path.join(campaigns_root(), case_tag(n_screens))
+    root = os.path.join(campaigns_root(),
+                        case_tag(n_screens, fft_backend, screen_generator))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         camp = Campaign(scn, geom, root, seed=backbone.SEED, preset=PRESET,
                         block_size=int(block_size),
                         patch_radius_m=backbone.PATCH_RADIUS_M,
                         L0_m=backbone.L0_M, precision=backbone.PRECISION,
+                        fft_backend=fft_backend,
+                        screen_generator=screen_generator,
                         grid=spec["grid"], plan=spec["plan"])
     return camp, spec
 
 
-def reference_campaign(block_size):
+def reference_campaign(block_size, fft_backend=backbone.FFT_BACKEND,
+                       screen_generator=backbone.SCREEN_GENERATOR):
     """Reopen the 35-screen backbone campaign. It is NEVER run here.
 
     The call goes through `run_campaigns.make_campaign`, so the settings are
@@ -236,14 +267,18 @@ def reference_campaign(block_size):
     mismatch raises inside `Campaign`.
 
     Args:
-        block_size: the block size of the reference store (50 in the backbone
-                    run).
+        block_size:       the block size of the reference store (50 in the
+                          backbone run).
+        fft_backend:      "numpy" or the "scipy" opt-in. It must match the
+                          settings the reference store was made with.
+        screen_generator: "olb" or the "olb-lean" opt-in. The same rule.
 
     Returns:
         The Campaign.
     """
     camp, _, _ = backbone.make_campaign(PATH_M, CN2, PRESET, LAUNCH,
-                                        int(block_size), False)
+                                        int(block_size), False, fft_backend,
+                                        screen_generator)
     return camp
 
 
@@ -492,14 +527,14 @@ def dry_run_rows(specs, n_trials, workers):
         A list of string lists, the header first.
     """
     rows = [["case", "screens", "n px", "side m", "px mm", "max sigma2_r",
-             "grid held", "s/trial", "h at %d workers" % workers]]
+             "grid held", "s/trial", "h at %d workers" % workers, "root"]]
     for s in specs:
         camp, spec = s["camp"], s["spec"]
         s_per = REF_S_PER_TRIAL * camp.plan.z_m.size / REF_SCREENS
         same = ((spec["grid_override"].n, spec["grid_override"].size_m)
                 == (camp.grid.n, camp.grid.size_m))
         rows.append([
-            case_tag(s["n_screens"]).rsplit("_", 1)[-1],
+            f"n{int(s['n_screens'])}",
             f"{camp.plan.z_m.size:d}",
             f"{camp.grid.n:d}",
             f"{camp.grid.size_m:.3f}",
@@ -508,6 +543,9 @@ def dry_run_rows(specs, n_trials, workers):
             "yes" if same else "NO",
             f"{s_per:.2f}",
             f"{n_trials * s_per * REF_WORKERS / max(workers, 1) / 3600.0:.2f}",
+            # The directory name carries the opt-in suffix, so the dry run
+            # shows WHICH store each count writes into.
+            os.path.basename(camp.root_dir),
         ])
     return rows
 
@@ -661,6 +699,17 @@ def main(argv=None):
                     help="skip the runs and read what is stored")
     ap.add_argument("--dry-run", action="store_true",
                     help="size every count, print the table, and run nothing")
+    ap.add_argument("--fft-backend", choices=("numpy", "scipy"),
+                    default=backbone.FFT_BACKEND,
+                    help=f"the Forvard transform backend (default "
+                         f"{backbone.FFT_BACKEND}). It goes to the REFERENCE "
+                         f"reopen and to every override campaign, and 'scipy' "
+                         f"gives every root the suffix _scipy.")
+    ap.add_argument("--screen-generator", choices=("olb", "olb-lean"),
+                    default=backbone.SCREEN_GENERATOR,
+                    help=f"the phase-screen generator (default "
+                         f"{backbone.SCREEN_GENERATOR}). The same rule, with "
+                         f"the suffix _lean.")
     args = ap.parse_args(argv)
 
     counts = sorted({int(c) for c in args.counts})      # cheapest first
@@ -681,6 +730,9 @@ def main(argv=None):
         f"and it is NEVER run here)")
     say(f"trials        : {args.n_trials} for each case")
     say(f"store         : {campaigns_root()}")
+    say(f"speed opt-ins : fft {args.fft_backend}, screens "
+        f"{args.screen_generator}, root suffix "
+        f"{backbone.settings_suffix(args.fft_backend, args.screen_generator) or '(none)'}")
     say(f"mode          : "
         f"{'DRY RUN' if args.dry_run else ('ANALYSE ONLY' if args.analyse_only else 'RUN')}")
     say("correction    : NONE. Fidelity 2 applies no tip-tilt removal and no "
@@ -690,7 +742,9 @@ def main(argv=None):
     # ---- size every case ----
     specs = []
     for n in counts:
-        camp, spec = make_override_campaign(n, args.block_size)
+        camp, spec = make_override_campaign(n, args.block_size,
+                                            args.fft_backend,
+                                            args.screen_generator)
         same = ((spec["grid_override"].n, spec["grid_override"].size_m)
                 == (camp.grid.n, camp.grid.size_m))
         assert same, (
@@ -728,7 +782,8 @@ def main(argv=None):
     rows, deltas = [], {}
     ref_row = None
     try:
-        ref_camp = reference_campaign(args.ref_block_size)
+        ref_camp = reference_campaign(args.ref_block_size, args.fft_backend,
+                                      args.screen_generator)
         n_ref = min(args.n_trials, ref_camp.n_stored)
         if n_ref == 0:
             say(f"WARNING: the reference store {ref_camp.root_dir} holds no "
@@ -798,6 +853,8 @@ def main(argv=None):
         "counts": counts, "reference_screens": REF_SCREENS,
         "n_trials": args.n_trials, "workers": args.workers,
         "block_size": args.block_size,
+        "fft_backend": args.fft_backend,
+        "screen_generator": args.screen_generator,
         "analyse_only": bool(args.analyse_only),
         "exceedance": list(EXCEEDANCE), "n_bootstrap": N_BOOT,
         "bootstrap_interval": BOOT_INTERVAL,
