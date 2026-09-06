@@ -782,12 +782,20 @@ A frozen dataclass. What the grid ACHIEVES, against what the preset asks for.
 | `step_over_limit_max` | float | The largest planned gap between two screens, divided by `forvard_max_z()`. 1.0 or less is good. The engine cuts a longer gap into sub-steps. |
 | `sigma2_r_screen_max` | float | The largest per-screen Rytov contribution that the plan holds. |
 | `n_clamped` | bool | True means the pixel count hit `n_max`. |
+| `clamp_factor` | float | `n_wanted / n`. 1.0 means the grid has the pixel it wants. Above 1.0 it says how much coarser the pixel is than the rules ask for (only when `n_clamped`). |
+| `feature_m` | float | The smallest hard feature of the path, in m: the launch waist, or an aperture or obscuration edge. |
+| `feature_pixels` | float | The achieved `feature_m / dx`. The edge rule asks for `PIXELS_PER_FEATURE / 2 = 4` or more. Under that, the launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. |
 | `warnings` | tuple | The warning texts that the sizer sent. |
 
-The sizer warns when the pixel count hits `n_max`, when the achieved
-`pixels_per_r0` is below the preset value, when `fresnel_pixels_min` is below
-2.0, when the strongest screen passes `sigma2_r_screen_max`, and when the plan
-hits `MAX_SCREENS`.
+The sizer warns when the pixel count hits `n_max` (and that warning NAMES the
+sampling rules the coarse pixel breaks: pixels per r0, pixels across the
+smallest feature, pixels per Fresnel scale, with the `clamp_factor`), when
+the achieved `pixels_per_r0` is below the preset value, when `feature_pixels`
+is below 4, when `fresnel_pixels_min` is below 2.0, when the strongest screen
+passes `sigma2_r_screen_max`, and when the plan hits `MAX_SCREENS`. A
+terrestrial path with a small launch waist and a long range is the case that
+clamps: one flat grid must resolve the waist and hold the spread beam (see
+backlog 2-P3).
 
 The report gives the achieved numbers of ONE grid. The layer runs NO automatic
 convergence check. To prove a case, run it again on a finer preset, or on a wider

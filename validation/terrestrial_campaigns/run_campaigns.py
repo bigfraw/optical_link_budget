@@ -330,6 +330,11 @@ def cell_record(path_m, cn2, preset, launch, camp, report, sizer_warnings):
             "fresnel_pixels_min": (None if report is None
                                    else float(report.fresnel_pixels_min)),
             "n_clamped": (None if report is None else bool(report.n_clamped)),
+            "clamp_factor": (None if report is None
+                             else float(report.clamp_factor)),
+            "feature_m": (None if report is None else float(report.feature_m)),
+            "feature_pixels": (None if report is None
+                               else float(report.feature_pixels)),
         },
         "campaign": {
             "root": camp.root_dir,
@@ -427,7 +432,8 @@ def dry_run_rows(specs):
         A list of string lists, the header first.
     """
     head = ["cell", "preset", "sigma_R^2", "rho0 cm", "w(L) cm", "n px",
-            "side m", "px mm", "screens", "MB/worker", "warn"]
+            "side m", "px mm", "screens", "MB/worker", "clamp", "px/feat",
+            "warn"]
     rows = [head]
     for s in specs:
         rec, camp = s["record"], s["camp"]
@@ -442,9 +448,27 @@ def dry_run_rows(specs):
             f"{rec['grid']['pixel_m'] * 1e3:.2f}",
             f"{camp.plan.z_m.size:d}",
             f"{worker_bytes(camp.grid.n) / 2 ** 20:.1f}",
+            (f"{rec['sizer']['clamp_factor']:.1f}x"
+             if rec['sizer']['clamp_factor'] is not None else "-"),
+            (f"{rec['sizer']['feature_pixels']:.1f}"
+             if rec['sizer']['feature_pixels'] is not None else "-"),
             f"{len(rec['sizer']['warnings']):d}",
         ])
     return rows
+
+
+def dry_run_warning_lines(specs):
+    """Give one line for each sizer warning, so the dry run shows the text.
+
+    The table gives the count only. A clamped grid says WHICH sampling rules
+    it breaks, and that text is the flag a reader needs before a run.
+    """
+    lines = []
+    for s in specs:
+        for w in s["record"]["sizer"]["warnings"]:
+            lines.append(f"  {_path_tag(s['path_m'])}:{s['cn2']:.0e}:"
+                         f"{s['preset']}: {w}")
+    return lines
 
 
 def print_table(rows, say):
@@ -770,6 +794,12 @@ def main(argv=None):
         write_cell_json(spec["camp"], spec["record"])
 
     print_table(dry_run_rows(specs), say)
+    warn_lines = dry_run_warning_lines(specs)
+    if warn_lines:
+        say("")
+        say("sizer warnings (a clamped grid names the rules it breaks):")
+        for line in warn_lines:
+            say(line)
     say()
     if args.dry_run:
         say("dry run: nothing ran. Drop --dry-run to store the trials.")

@@ -257,6 +257,19 @@ class SamplingReport:
                              it is 4 times the book quantity. See
                              QualityPreset.sigma2_r_screen_max.
         n_clamped:           True means the pixel count hit n_max.
+        clamp_factor:        n_wanted / n. 1.0 means the grid has the pixel it
+                             wants. A value above 1.0 says how much coarser the
+                             pixel is than the rules ask for; it is above 1.0
+                             only when n_clamped is True.
+        feature_m:           the smallest hard feature of the path, in m: the
+                             launch waist, or an aperture edge or an
+                             obscuration edge (see grid._features).
+        feature_pixels:      the achieved feature_m / dx. The rule asks for
+                             PIXELS_PER_FEATURE / 2 = 4 or more, so a hard edge
+                             or the launch waist keeps its shape. A smaller
+                             value means the launch field is under-resolved: the
+                             truncation and the vacuum spread are wrong by the
+                             pixelised edge, before any turbulence.
         warnings:            a tuple of the warning texts that the sizer sent.
     """
 
@@ -266,6 +279,9 @@ class SamplingReport:
     step_over_limit_max: float
     sigma2_r_screen_max: float
     n_clamped: bool
+    clamp_factor: float
+    feature_m: float
+    feature_pixels: float
     warnings: tuple
 
 
@@ -850,10 +866,36 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
     step_ratio = (float(gaps.max() / forvard_max_z(grid, lam))
                   if gaps.size else 0.0)
 
+    feature_pixels = float(feature / dx)
+    clamp_factor = float(n_wanted / n)
+
     if n_clamped:
+        # Say WHICH rules the coarse pixel breaks, so a caller can judge the
+        # damage. The rules are the three terms of dx_wanted above.
+        broken = []
+        if achieved_r0 < p.pixels_per_r0:
+            broken.append(f"pixels per r0 {achieved_r0:.2f} < "
+                          f"{p.pixels_per_r0}")
+        if feature_pixels < PIXELS_PER_FEATURE / 2:
+            broken.append(f"pixels per smallest feature {feature_pixels:.2f} "
+                          f"< {PIXELS_PER_FEATURE / 2:g} (feature "
+                          f"{feature * 1e3:.1f} mm)")
+        if fresnel_pixels < 2.0:
+            broken.append(f"pixels per Fresnel scale {fresnel_pixels:.2f} < 2")
         warns.append(
             f"turbulent_grid: the pixel count wants {n_wanted}, but n_max is "
-            f"{p.n_max}. The grid keeps its side and takes a coarse pixel.")
+            f"{p.n_max}. The grid keeps its side and takes a pixel "
+            f"{clamp_factor:.1f}x coarser than the rules ask for. "
+            + ("Broken rules: " + "; ".join(broken) + "."
+               if broken else "Every sampling rule still holds."))
+    if feature_pixels < PIXELS_PER_FEATURE / 2:
+        warns.append(
+            f"turbulent_grid: the grid gives {feature_pixels:.2f} pixels "
+            f"across the smallest feature ({feature * 1e3:.1f} mm), under the "
+            f"{PIXELS_PER_FEATURE / 2:g} the edge rule asks for. The launch "
+            f"field is under-resolved: the truncation and the vacuum spread "
+            f"carry a pixelised edge before any turbulence. Schmidt, "
+            f"DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.")
     if achieved_r0 < p.pixels_per_r0:
         warns.append(
             f"turbulent_grid: the grid gives {achieved_r0:.2f} pixels per r0, "
@@ -881,7 +923,9 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
         pixels_per_r0=float(achieved_r0), grid_margin=float(grid_margin),
         fresnel_pixels_min=fresnel_pixels, step_over_limit_max=step_ratio,
         sigma2_r_screen_max=float(plan.sigma2_r.max()) if plan.z_m.size else 0.0,
-        n_clamped=bool(n_clamped), warnings=tuple(warns))
+        n_clamped=bool(n_clamped), clamp_factor=clamp_factor,
+        feature_m=float(feature), feature_pixels=feature_pixels,
+        warnings=tuple(warns))
     for text in warns:
         warnings.warn(text)
     return grid, plan, report
@@ -1312,4 +1356,39 @@ if __name__ == '__main__':
         print(f"  {name:<12}{path_m * 1e-3:>11.0f}{n_lo:>14}{n_hi:>14}")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
+    # ---- 10. the clamp report names the broken rules ----
+    # The 10 km / 1e-14 cell of validation/terrestrial_campaigns: the 5 mm
+    # waist asks for a 1.25 mm pixel over a 9 m side, so the count clamps at
+    # n_max and the smallest-feature rule breaks. The 2 km cell of the same
+    # family holds every rule.
+    def _cell(path_m, cn2):
+        return TerrestrialScenario(
+            near=Terminal(aperture_m=0.10, wavelength_m=lam,
+                          transmitter=Transmitter(waist_m=5e-3)),
+            far=Terminal(aperture_m=0.10, wavelength_m=lam,
+                         detector=Aperture(sensitivity_dbm=-40)),
+            channel=TerrestrialChannel(path_length_m=path_m,
+                                       attenuation_db_per_km=0.0, cn2=cn2))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        g_far, _, r_far = turbulent_grid(_cell(10e3, 1e-14),
+                                         HorizontalPath(10e3),
+                                         preset="standard")
+        g_near, _, r_near = turbulent_grid(_cell(2e3, 3e-15),
+                                           HorizontalPath(2e3),
+                                           preset="standard")
+    assert r_far.n_clamped and r_far.clamp_factor > 3.0, r_far
+    assert abs(r_far.feature_m - 5e-3) < 1e-12, r_far.feature_m
+    assert r_far.feature_pixels < PIXELS_PER_FEATURE / 2, r_far.feature_pixels
+    assert any("Broken rules" in w and "smallest feature" in w
+               for w in r_far.warnings), r_far.warnings
+    assert any("under-resolved" in w for w in r_far.warnings), r_far.warnings
+    assert not r_near.n_clamped and r_near.clamp_factor == 1.0, r_near
+    assert r_near.feature_pixels >= PIXELS_PER_FEATURE / 2, r_near.feature_pixels
+    assert not any("under-resolved" in w for w in r_near.warnings)
+    print(f"case 10: the 10 km clamp reports {r_far.clamp_factor:.1f}x coarser, "
+          f"{r_far.feature_pixels:.2f} px across the {r_far.feature_m * 1e3:.0f} "
+          f"mm waist; the 2 km grid holds {r_near.feature_pixels:.1f} px")
+
     print("self-check passed")
