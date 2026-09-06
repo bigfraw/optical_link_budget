@@ -347,16 +347,38 @@ The five other standard cells of the backbone sit at the `min_screens` floor
 (9 to 11), so the cap bound only this cell. The count rule should key on the
 receiver kind and a dB tolerance (2-I3), not on the cap alone.
 
-## Results, the 5 km cell
+## Results, the 5 km cell (2026-09-06 to 07)
 
-LAUNCHED 2026-09-06 on bigfraw at 12 workers, with the counts as `--run-only`
-stages and ONE analysis pass at the end. The results are PENDING. The launch
-log is `sweep_launch_L5km_cn23e-15.log`.
-This cell sits at the `min_screens` FLOOR of 9 screens, so it asks
-the other half of the question: is the floor enough? The plan is the counts
-5 / 10 / 15 / 20 at 2000 trials each, against ALL 2000 trials of the backbone
-reference `L5km_cn23e-15_standard_scipy_lean`, with the reference-count
-bit-identity check at n = 9 first. The projected cost is about 3.5 h of pool
-time at 12 workers (0.35 + 0.69 + 1.04 + 1.38 h), plus about 2 minutes for the
-check. The 2000 trials, against the 1000 of the 10 km run, are what make the
-p1 fade resolve.
+Run on bigfraw, 12 workers, `--run-only` stages and one analysis at the end,
+counts 5 / 10 / 15 / 20 at 2000 trials each, against all 2000 trials of the
+9-screen backbone reference `L5km_cn23e-15_standard_scipy_lean`. The
+reference-count check passed first (100 trials at 9 screens, bit-identical
+to the reference). Stage rates: 5 screens 0.54 s/trial, 10 screens
+1.23, 15 screens 1.77, 20 screens 2.27 (pool
+wall at 12 workers). The record is `screen_count_sweep_L5km_cn23e-15.log`,
+`_results.json`, `_runs.json`, `figures/screen_count_sweep_L5km_cn23e-15.png`
+and `sweep_launch_L5km_cn23e-15.log`.
+
+| count | 10 cm bucket p5 / p1 [dB] | SMF p5 / p1 [dB] | 5 cm bucket p5 / p1 [dB] | index ratio bucket / SMF / 5 cm / point |
+|---|---|---|---|---|
+| 5 | +0.06 / +0.09 | +0.06 / +0.68 | -0.03 / -0.01 | 0.98 / 1.04 / 0.97 / 0.92 |
+| 10 | +0.05 / -0.05 | +0.43 / +0.06 | +0.12 / -0.29 | 1.00 / 1.01 / 1.01 / 0.96 |
+| 15 | +0.04 / +0.00 | +0.32 / +0.09 | +0.05 / +0.20 | 0.99 / 1.03 / 0.98 / 0.93 |
+| 20 | +0.12 / +0.06 | -0.07 / -0.76 | +0.09 / +0.24 | 0.98 / 0.99 / 0.96 / 0.92 |
+
+Delta bars (68 percent, sqrt(2) x the reference bootstrap half-width):
+10 cm bucket p5 +-0.10, p1 +-0.18 dB; SMF p5 +-0.39, p1 +-1.40 dB; 5 cm
+bucket p5 +-0.22, p1 +-0.12 dB; centre pixel p5 +-0.19, p1 +-0.51 dB.
+
+VERDICT. On this moderate cell (`sigma_R^2` = 1.14) the screen count does
+not matter between 5 and 20: every count passes the 1 dB tolerance, every
+delta of the 10 cm bucket and the fibre coupling sits inside about one delta
+bar, and there is NO trend with the count in either direction, so the
+9-screen `min_screens` floor is converged and 5 screens is acceptable here.
+The resolution rule flags the centre-pixel p5 at every count (about -0.4 dB,
+two bars) and a few p1 entries at one to two bars; the centre-pixel deltas
+carry the same sign and size at 5 AND at 20 screens, so they are the shared
+reference sample sitting two bars high, not a count effect. Against the
+10 km / 1e-14 cell (deep saturation, a consistent optimistic bias below 35
+screens on the bucket and point statistics), the count starts to matter only
+in saturation, and even there not for the fibre.

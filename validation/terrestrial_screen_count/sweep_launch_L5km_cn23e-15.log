@@ -1,0 +1,605 @@
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 18:48:06
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5, 10, 15, 20]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : 100 trials at n=9
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=10: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=10: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=15: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=15: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=20: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=20: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=9: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=9: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case          screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                   root
+  ------------  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  -------------------------------------
+  n5                  5  2048   3.704   1.81        0.2345        yes    2000     0.62             0.35   L5km_cn23e-15_standard_n5_scipy_lean
+  n10                10  2048   3.704   1.81        0.1172        yes    2000     1.24             0.69  L5km_cn23e-15_standard_n10_scipy_lean
+  n15                15  2048   3.704   1.81        0.0782        yes    2000     1.87             1.04  L5km_cn23e-15_standard_n15_scipy_lean
+  n20                20  2048   3.704   1.81        0.0586        yes    2000     2.49             1.38  L5km_cn23e-15_standard_n20_scipy_lean
+  n9 ref-check        9  2048   3.704   1.81        0.1303        yes     100     1.12             0.03   L5km_cn23e-15_standard_n9_scipy_lean
+
+  REF CHECK: the plans agree (9 screens). Running 100 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n9_scipy_lean
+  block     0 done (1/2, 259.5 s)
+  block     1 done (2/2, 259.5 s)
+    compared 100 trials: max |d collected_power| 0.000e+00, max |d smf_eta| 0.000e+00
+    bit-identical: collected_power True, smf_eta True
+
+RUN n=5: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n5_scipy_lean
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep.py", line 1217, in <module>
+    main()
+  File "D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep.py", line 1103, in main
+    n_done = camp.run(args.n_trials, workers=args.workers,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\repos\optical_link_budget\olb\waveoptics\turbulence\campaign.py", line 590, in run
+    b, cols = future.result()
+              ^^^^^^^^^^^^STAGE n=5 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 18:56:50
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                  root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  ------------------------------------
+  n5          5  2048   3.704   1.81        0.2345        yes    2000     0.62             0.35  L5km_cn23e-15_standard_n5_scipy_lean
+
+RUN n=5: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n5_scipy_lean
+STAGE n=5 workers=12 to 1000 trials 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 19:00:03
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 1000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                  root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  ------------------------------------
+  n5          5  2048   3.704   1.81        0.2345        yes    1000     0.62             0.17  L5km_cn23e-15_standard_n5_scipy_lean
+
+RUN n=5: 1000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n5_scipy_lean
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\queues.py", line 246, in _feed
+    send_bytes(obj)
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 184, in send_bytes
+    self._check_closed()
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\multiprocessing\connection.py", line 137, in _check_closed
+    raise OSError("handle is closed")
+OSError: handle is closed
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep.py", line 1217, in <module>
+    main()
+  File "D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep.py", line 1103, in main
+    n_done = camp.run(args.n_trials, workers=args.workers,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\repos\optical_link_budget\olb\waveoptics\turbulence\campaign.py", line 590, in run
+    b, cols = future.result()
+              ^^^^^^^^^^^^^^^
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alexf\anaconda3\envs\olb\Lib\concurrent\futures\_base.py", line 401, in __get_result
+    raise self._exception
+concurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.
+STAGE n=5 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 19:01:15
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                  root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  ------------------------------------
+  n5          5  2048   3.704   1.81        0.2345        yes    2000     0.62             0.35  L5km_cn23e-15_standard_n5_scipy_lean
+
+RUN n=5: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n5_scipy_lean
+Traceback (most recent call last):
+STAGE n=5 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 19:34:30
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                  root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  ------------------------------------
+  n5          5  2048   3.704   1.81        0.2345        yes    2000     0.62             0.35  L5km_cn23e-15_standard_n5_scipy_lean
+
+RUN n=5: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n5_scipy_lean
+  block     0 done (1/40, 301.7 s)
+  block     8 done (2/40, 302.1 s)
+  block    11 done (3/40, 302.3 s)
+  block     6 done (4/40, 302.9 s)
+  block     4 done (5/40, 303.0 s)
+  block     3 done (6/40, 303.2 s)
+  block     2 done (7/40, 303.2 s)
+  block     9 done (8/40, 303.4 s)
+  block     7 done (9/40, 303.4 s)
+  block     5 done (10/40, 303.6 s)
+  block     1 done (11/40, 303.9 s)
+  block    10 done (12/40, 304.0 s)
+  block    16 done (13/40, 605.7 s)
+  block    22 done (14/40, 606.0 s)
+  block    14 done (15/40, 606.5 s)
+  block    19 done (16/40, 606.6 s)
+  block    13 done (17/40, 607.4 s)
+  block    17 done (18/40, 607.4 s)
+  block    23 done (19/40, 608.0 s)
+  block    21 done (20/40, 608.1 s)
+  block    18 done (21/40, 608.6 s)
+  block    15 done (22/40, 608.7 s)
+  block    12 done (23/40, 609.1 s)
+  block    20 done (24/40, 609.3 s)
+  block    25 done (25/40, 917.7 s)
+  block    31 done (26/40, 918.0 s)
+  block    27 done (27/40, 918.1 s)
+  block    24 done (28/40, 918.5 s)
+  block    29 done (29/40, 918.8 s)
+  block    33 done (30/40, 919.6 s)
+  block    28 done (31/40, 919.9 s)
+  block    30 done (32/40, 920.4 s)
+  block    26 done (33/40, 920.5 s)
+  block    32 done (34/40, 921.0 s)
+  block    34 done (35/40, 921.1 s)
+  block    35 done (36/40, 921.8 s)
+  block    36 done (37/40, 1071.4 s)
+  block    37 done (38/40, 1072.1 s)
+  block    38 done (39/40, 1072.1 s)
+  block    39 done (40/40, 1072.5 s)
+  n=5: 2000 trials on disk, 2000 new in 1072.7 s wall, 0.54 s/trial (the new trials of this call)
+
+run only: the trials are stored. wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15_runs.json
+STAGE n=10 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 19:52:24
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [10]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=10: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  n=10: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                   root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  -------------------------------------
+  n10        10  2048   3.704   1.81        0.1172        yes    2000     1.24             0.69  L5km_cn23e-15_standard_n10_scipy_lean
+
+RUN n=10: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n10_scipy_lean
+  block     0 done (1/40, 685.5 s)
+  block     2 done (2/40, 686.0 s)
+  block     1 done (3/40, 686.6 s)
+  block    10 done (4/40, 687.3 s)
+  block    11 done (5/40, 688.1 s)
+  block     4 done (6/40, 688.6 s)
+  block     7 done (7/40, 688.9 s)
+  block     3 done (8/40, 689.5 s)
+  block     5 done (9/40, 690.5 s)
+  block     8 done (10/40, 691.0 s)
+  block     9 done (11/40, 691.4 s)
+  block     6 done (12/40, 693.4 s)
+  block    12 done (13/40, 1398.0 s)
+  block    13 done (14/40, 1400.6 s)
+  block    19 done (15/40, 1402.0 s)
+  block    15 done (16/40, 1402.1 s)
+  block    14 done (17/40, 1403.5 s)
+  block    18 done (18/40, 1406.6 s)
+  block    16 done (19/40, 1406.8 s)
+  block    21 done (20/40, 1407.0 s)
+  block    22 done (21/40, 1408.9 s)
+  block    17 done (22/40, 1409.0 s)
+  block    20 done (23/40, 1410.7 s)
+  block    23 done (24/40, 1411.6 s)
+  block    25 done (25/40, 2113.6 s)
+  block    24 done (26/40, 2113.7 s)
+  block    28 done (27/40, 2116.7 s)
+  block    26 done (28/40, 2116.8 s)
+  block    27 done (29/40, 2119.5 s)
+  block    31 done (30/40, 2121.8 s)
+  block    29 done (31/40, 2121.9 s)
+  block    32 done (32/40, 2122.1 s)
+  block    30 done (33/40, 2123.5 s)
+  block    34 done (34/40, 2124.9 s)
+  block    33 done (35/40, 2125.7 s)
+  block    35 done (36/40, 2126.8 s)
+  block    36 done (37/40, 2464.1 s)
+  block    37 done (38/40, 2464.2 s)
+  block    38 done (39/40, 2465.6 s)
+  block    39 done (40/40, 2465.7 s)
+  n=10: 2000 trials on disk, 2000 new in 2466.0 s wall, 1.23 s/trial (the new trials of this call)
+
+run only: the trials are stored. wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15_runs.json
+STAGE n=15 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 20:33:31
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [15]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=15: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=15: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                   root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  -------------------------------------
+  n15        15  2048   3.704   1.81        0.0782        yes    2000     1.87             1.04  L5km_cn23e-15_standard_n15_scipy_lean
+
+RUN n=15: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n15_scipy_lean
+  block     5 done (1/40, 971.7 s)
+  block     7 done (2/40, 972.9 s)
+  block     9 done (3/40, 974.1 s)
+  block     1 done (4/40, 974.6 s)
+  block     0 done (5/40, 974.9 s)
+  block     6 done (6/40, 976.1 s)
+  block     4 done (7/40, 976.7 s)
+  block     3 done (8/40, 977.1 s)
+  block     2 done (9/40, 977.7 s)
+  block    10 done (10/40, 977.8 s)
+  block    11 done (11/40, 978.6 s)
+  block     8 done (12/40, 980.5 s)
+  block    13 done (13/40, 1988.1 s)
+  block    12 done (14/40, 1988.4 s)
+  block    20 done (15/40, 1988.7 s)
+  block    16 done (16/40, 1988.9 s)
+  block    14 done (17/40, 1991.0 s)
+  block    15 done (18/40, 1991.2 s)
+  block    23 done (19/40, 1991.3 s)
+  block    19 done (20/40, 1991.4 s)
+  block    18 done (21/40, 1992.3 s)
+  block    22 done (22/40, 1993.0 s)
+  block    21 done (23/40, 1994.4 s)
+  block    17 done (24/40, 1994.7 s)
+  block    31 done (25/40, 3043.1 s)
+  block    26 done (26/40, 3044.0 s)
+  block    27 done (27/40, 3044.1 s)
+  block    30 done (28/40, 3046.2 s)
+  block    32 done (29/40, 3046.5 s)
+  block    24 done (30/40, 3046.9 s)
+  block    29 done (31/40, 3047.0 s)
+  block    28 done (32/40, 3047.3 s)
+  block    25 done (33/40, 3047.8 s)
+  block    33 done (34/40, 3048.1 s)
+  block    35 done (35/40, 3051.3 s)
+  block    34 done (36/40, 3052.6 s)
+  block    36 done (37/40, 3536.3 s)
+  block    38 done (38/40, 3536.8 s)
+  block    39 done (39/40, 3537.3 s)
+  block    37 done (40/40, 3539.2 s)
+  n=15: 2000 trials on disk, 2000 new in 3539.4 s wall, 1.77 s/trial (the new trials of this call)
+
+run only: the trials are stored. wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15_runs.json
+STAGE n=20 workers=12 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 21:32:32
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [20]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : RUN
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=20: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=20: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                   root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  -------------------------------------
+  n20        20  2048   3.704   1.81        0.0586        yes    2000     2.49             1.38  L5km_cn23e-15_standard_n20_scipy_lean
+
+RUN n=20: 2000 trials into D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns\L5km_cn23e-15_standard_n20_scipy_lean
+  block     2 done (1/40, 1280.7 s)
+  block     5 done (2/40, 1281.3 s)
+  block     9 done (3/40, 1283.6 s)
+  block     4 done (4/40, 1284.5 s)
+  block     1 done (5/40, 1284.9 s)
+  block     0 done (6/40, 1285.2 s)
+  block    11 done (7/40, 1286.5 s)
+  block     8 done (8/40, 1289.2 s)
+  block     3 done (9/40, 1289.2 s)
+  block     7 done (10/40, 1289.6 s)
+  block    10 done (11/40, 1290.1 s)
+  block     6 done (12/40, 1293.5 s)
+  block    12 done (13/40, 2591.2 s)
+  block    14 done (14/40, 2594.7 s)
+  block    13 done (15/40, 2595.2 s)
+  block    19 done (16/40, 2598.2 s)
+  block    16 done (17/40, 2598.4 s)
+  block    18 done (18/40, 2601.0 s)
+  block    15 done (19/40, 2601.2 s)
+  block    17 done (20/40, 2602.5 s)
+  block    20 done (21/40, 2602.7 s)
+  block    21 done (22/40, 2605.9 s)
+  block    22 done (23/40, 2608.5 s)
+  block    23 done (24/40, 2611.0 s)
+  block    25 done (25/40, 3905.1 s)
+  block    27 done (26/40, 3906.4 s)
+  block    24 done (27/40, 3908.7 s)
+  block    28 done (28/40, 3908.9 s)
+  block    26 done (29/40, 3911.4 s)
+  block    29 done (30/40, 3913.7 s)
+  block    30 done (31/40, 3913.8 s)
+  block    32 done (32/40, 3915.1 s)
+  block    31 done (33/40, 3916.3 s)
+  block    34 done (34/40, 3918.8 s)
+  block    33 done (35/40, 3919.4 s)
+  block    35 done (36/40, 3922.8 s)
+  block    36 done (37/40, 4529.7 s)
+  block    39 done (38/40, 4531.3 s)
+  block    37 done (39/40, 4531.8 s)
+  block    38 done (40/40, 4532.7 s)
+  n=20: 2000 trials on disk, 2000 new in 4533.0 s wall, 2.27 s/trial (the new trials of this call)
+
+run only: the trials are stored. wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15_runs.json
+STAGE analysis 
+The terrestrial screen-count convergence sweep (backlog 2-TC1), 2026-09-06 22:48:06
+cell          : 5 km, Cn2 = 3e-15, standard preset, L0 = 25 m, single precision, seed 20260906
+counts        : [5, 10, 15, 20]   (the reference is 9 screens, the count the production sizer picks, and it is NEVER run here)
+trials        : 2000 for each case
+ref check     : OFF
+tolerance     : 1 dB on P10cm and smf_eta
+store         : D:\repos\optical_link_budget\validation\terrestrial_screen_count\campaigns
+speed opt-ins : fft scipy, screens olb-lean, root suffix _scipy_lean
+mode          : ANALYSE ONLY
+correction    : NONE. Fidelity 2 applies no tip-tilt removal and no AO (backlog 2-AO).
+
+  n=5: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=5: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=10: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=10: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=15: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=15: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  n=20: sizer warning: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  n=20: sizer warning: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  case  screens  n px  side m  px mm  max sigma2_r  grid held  trials  s/trial  h at 12 workers                                   root
+  ----  -------  ----  ------  -----  ------------  ---------  ------  -------  ---------------  -------------------------------------
+  n5          5  2048   3.704   1.81        0.2345        yes    2000     0.62             0.35   L5km_cn23e-15_standard_n5_scipy_lean
+  n10        10  2048   3.704   1.81        0.1172        yes    2000     1.24             0.69  L5km_cn23e-15_standard_n10_scipy_lean
+  n15        15  2048   3.704   1.81        0.0782        yes    2000     1.87             1.04  L5km_cn23e-15_standard_n15_scipy_lean
+  n20        20  2048   3.704   1.81        0.0586        yes    2000     2.49             1.38  L5km_cn23e-15_standard_n20_scipy_lean
+
+
+THE RESULTS (the reference row first)
+case     scr     n  s2r_max         P10cm s2         P10cm p5         P10cm p1         point s2         point p5         point p1       smf_eta s2       smf_eta p5       smf_eta p1          P5cm s2          P5cm p5          P5cm p1
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ref9       9  2000   0.1303           0.1558             3.18             4.53           0.5012             6.40             9.00           0.1390             5.04            10.08           0.2855             4.37             6.12
+n5         5  2000   0.2345    0.1526(x0.98)      3.24(+0.06)      4.62(+0.09)    0.4591(x0.92)      6.01(-0.40)      8.93(-0.08)    0.1447(x1.04)      5.10(+0.06)     10.76(+0.68)    0.2768(x0.97)      4.34(-0.03)      6.11(-0.01)
+n10       10  2000   0.1172    0.1563(x1.00)      3.23(+0.05)      4.48(-0.05)    0.4791(x0.96)      5.98(-0.42)      8.74(-0.26)    0.1408(x1.01)      5.47(+0.43)     10.14(+0.06)    0.2890(x1.01)      4.49(+0.12)      5.84(-0.29)
+n15       15  2000   0.0782    0.1538(x0.99)      3.22(+0.04)      4.53(+0.00)    0.4676(x0.93)      6.09(-0.32)      8.60(-0.41)    0.1425(x1.03)      5.36(+0.32)     10.17(+0.09)    0.2803(x0.98)      4.42(+0.05)      6.32(+0.20)
+n20       20  2000   0.0586    0.1524(x0.98)      3.30(+0.12)      4.59(+0.06)    0.4620(x0.92)      5.93(-0.47)      9.24(+0.24)    0.1380(x0.99)      4.97(-0.07)      9.32(-0.76)    0.2730(x0.96)      4.46(+0.09)      6.36(+0.24)
+  scr = the screen count. s2 = the scintillation index var(x)/mean(x)^2, with the ratio to the reference in brackets.
+  p5 and p1 = the fade -10 log10(x/<x>) EXCEEDED 5 and 1 percent of the time [dB], with the delta against the 9-screen reference.
+  P10cm    the collected power of the 100 mm receive bucket
+  point    the irradiance of the CENTRE PIXEL of the receive grid
+  smf_eta  the single-mode-fibre coupling efficiency
+  P5cm     the collected power of a 50 mm bucket (a post-hoc recollect)
+
+THE REFERENCE BOOTSTRAP HALF-WIDTHS (68 percent, 1000 resamples). A delta inside these bars is not resolved. The 'delta' bar is sqrt(2) times the reference bar, because a count is an estimate of the same size.
+  P10cm    p10 +-0.07  p5 +-0.07  p1 +-0.13 dB   index 0.1558 +-0.0055   mean loss 17.102 dB
+           delta bar (x sqrt 2): p10 +-0.09  p5 +-0.10  p1 +-0.18 dB
+  point    p10 +-0.17  p5 +-0.13  p1 +-0.36 dB   index 0.5012 +-0.0443   mean loss -3.922 dB
+           delta bar (x sqrt 2): p10 +-0.24  p5 +-0.19  p1 +-0.51 dB
+  smf_eta  p10 +-0.16  p5 +-0.28  p1 +-0.99 dB   index 0.1390 +-0.0049   mean loss 3.461 dB
+           delta bar (x sqrt 2): p10 +-0.22  p5 +-0.39  p1 +-1.40 dB
+  P5cm     p10 +-0.06  p5 +-0.16  p1 +-0.09 dB   index 0.2855 +-0.0125   mean loss 23.155 dB
+           delta bar (x sqrt 2): p10 +-0.09  p5 +-0.22  p1 +-0.12 dB
+
+THE VERDICTS (two lines for each count)
+  1 RESOLUTION (inside the reference noise). CONVERGED means: every p5 and p1 delta sits inside the reference bootstrap half-width, AND every index ratio sits inside 1 +/- 0.10.
+  2 TOLERANCE. WITHIN means: every |p5| and |p1| delta of P10cm and smf_eta is under 1 dB.
+  n=5   resolution: NOT CONVERGED: point: p5
+         tolerance : WITHIN 1 dB.
+  n=10  resolution: NOT CONVERGED: point: p5; smf_eta: p5; P5cm: p1
+         tolerance : WITHIN 1 dB.
+  n=15  resolution: NOT CONVERGED: point: p5, p1; smf_eta: p5; P5cm: p1
+         tolerance : WITHIN 1 dB.
+  n=20  resolution: NOT CONVERGED: P10cm: p5; point: p5; P5cm: p1
+         tolerance : WITHIN 1 dB.
+
+wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15_results.json
+wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\figures\screen_count_sweep_L5km_cn23e-15.png
+wrote D:\repos\optical_link_budget\validation\terrestrial_screen_count\screen_count_sweep_L5km_cn23e-15.log

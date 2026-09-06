@@ -1388,8 +1388,21 @@ The path forward for each is a second reference or a derivation.
   (`validation/terrestrial_campaigns/optin_crosscheck.py`, 2.1e-6 / 3.1e-6
   over 1200 trials). STATUS: launched 2026-09-06 on bigfraw at 12 workers
   (the measured setting of record), `--run-only` stages and one analysis at
-  the end; results pending in `validation/terrestrial_screen_count/`
-  (`screen_count_sweep_L5km_cn23e-15_results.json` and the README).
+  the end. DONE (2026-09-07). VERDICT: on the moderate cell the count does
+  NOT matter between 5 and 20 screens. Every count passes the 1 dB tolerance;
+  the 10 cm bucket p5 / p1 deltas sit inside +-0.12 dB (bars +-0.10 /
+  +-0.18), the fibre p5 inside +-0.43 dB (bar +-0.39), the index ratios
+  inside 0.96 to 1.04, with NO trend in the count in either direction, so the
+  9-screen floor is converged and 5 screens is acceptable there. The only
+  resolution flags are the centre-pixel p5 (about -0.4 dB at 5 AND at 20
+  screens alike, the shared reference sample two bars high) and a few p1
+  entries at one to two bars. The speed changes are ruled out as a cause of
+  anything (the reference check and the same-seed cross-check). READ TOGETHER
+  WITH THE 10 KM CELL: the count matters only in deep saturation
+  (`sigma_R^2` about 14, a consistent optimistic bias below 35 screens on the
+  bucket and point statistics), and not for the fibre even there. Record:
+  `validation/terrestrial_screen_count/` (`screen_count_sweep_L5km_cn23e-15_*`
+  and the README).
 - **2-I1. `TurbWaveResult` — the rich record is DONE (2026-09-04).** The rule
   was: a minimal scalar record, do NOT extend it piece by piece; the E-field
   inside the receive aperture gets its own design session
