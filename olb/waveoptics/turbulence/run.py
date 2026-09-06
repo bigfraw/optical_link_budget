@@ -657,7 +657,6 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
     seed_entropy = _resolve_seed(seed)
     n_screens = int(plan.z_m.size)
-    previous_backend = set_fft_backend(fft_backend)
     build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
                                    dtype=cdtype)
 
@@ -719,6 +718,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                          mmf_eta=mmf_eta, detector_etas=detector_etas)
 
     bar = _progress_bar(progress, n_trials, "turbulent trials")
+    # The backend changes the process state, so it is set immediately before
+    # the try. Then the finally below always restores it, whatever happens.
+    previous_backend = set_fft_backend(fft_backend)
     try:
         ks = range(int(start_index), int(start_index) + int(n_trials))
         if threader is None:

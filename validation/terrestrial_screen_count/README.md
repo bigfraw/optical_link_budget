@@ -250,12 +250,19 @@ and it is the least sensitive.
 
 | File | What it holds |
 | --- | --- |
-| `screen_count_sweep_results.json` | every number, plus the `z_m` and the `sigma2_r` of each plan, and the `reference_check` record |
+| `screen_count_sweep_results.json` | every number, plus the `z_m` and the `sigma2_r` of each plan. A run that takes the reference-count check also holds a `reference_check` record. The committed 10 km JSON has NO such record: that run is older than the check. The 5 km JSON will hold one. |
 | `screen_count_sweep.log` | the printed lines, written line by line |
+| `sweep_analysis.log` | the 10 km analysis-only pass (the stored trials read again, with no new run) |
 | `figures/screen_count_sweep.png` | the index and the p5 / p1 fade against the screen count, for `P10cm`, `point` and `smf_eta`. The reference is a horizontal band. |
 
 A cell other than the default takes the same three names with the cell tag in
 them. See "The file names" above.
+
+THE LOG ENCODING. A PowerShell redirect (`> file.log`) on bigfraw writes
+UTF-16, not UTF-8. So the two launch logs, `sweep_launch.log` and
+`sweep_launch_L5km_cn23e-15.log`, arrive as UTF-16 and they are converted to
+UTF-8 before they go into the repository. Read the bytes, decode `utf-16`
+when the byte-order mark is there, and write `utf-8`.
 
 ## The worker plateau after the memory cut (2026-09-06)
 
@@ -342,7 +349,10 @@ receiver kind and a dB tolerance (2-I3), not on the cap alone.
 
 ## Results, the 5 km cell
 
-NOT RUN YET. This cell sits at the `min_screens` FLOOR of 9 screens, so it asks
+LAUNCHED 2026-09-06 on bigfraw at 12 workers, with the counts as `--run-only`
+stages and ONE analysis pass at the end. The results are PENDING. The launch
+log is `sweep_launch_L5km_cn23e-15.log`.
+This cell sits at the `min_screens` FLOOR of 9 screens, so it asks
 the other half of the question: is the floor enough? The plan is the counts
 5 / 10 / 15 / 20 at 2000 trials each, against ALL 2000 trials of the backbone
 reference `L5km_cn23e-15_standard_scipy_lean`, with the reference-count

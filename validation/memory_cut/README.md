@@ -97,10 +97,18 @@ double-to-single switch measured (`validation/precision/`).
   cache.
 - On a memory-bandwidth-bound pool the gain in trials per second can be
   larger than the one-core gain, because both opt-ins cut the bytes each
-  trial moves. That is NOT measured: measure it on bigfraw with
-  `validation/campaign_resources/ --workers auto` when the box is free, once
-  with the defaults and once with `fft_backend="scipy"` and
-  `screen_generator="olb-lean"` (the script does not take those flags yet).
+  trial moves. The terrestrial campaigns show that: the four `standard`
+  cells with the opt-ins ran 1.53x faster at the same 12 workers.
+- THE WORKER PLATEAU AFTER THE CUT IS MEASURED (2026-09-06,
+  `validation/terrestrial_screen_count/`, the worker section of its README,
+  `workers_L5km_cn23e-15.log` and `resources_L5km_cn23e-15.csv`). On a
+  2048 px terrestrial cell (5 km / Cn2 = 3e-15, 9 screens, the two opt-ins
+  on), 8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06 s for one
+  trial. The curve is FLAT, so the pool stays memory-bandwidth bound after
+  the cut, and 12 WORKERS is the setting of record. Each worker commits
+  about 2.2 GB (it touches 0.6 GB), and the 61 GB commit limit of bigfraw
+  caps the pool near 20 workers. Still add the two opt-in flags to
+  `validation/campaign_resources/` (that script does not take them yet).
 - Whether either opt-in becomes a DEFAULT is an owner decision, because each
   one changes every seeded fidelity-2 number at the rounding level.
 

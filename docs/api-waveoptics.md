@@ -586,7 +586,8 @@ the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
   screen is a thin, pure phase element, so the power does not change. It raises
   `ValueError` on a spherical field and on a wrong-shape phase array.
 - `ScreenFactory(n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-  n_sub_levels=3, dtype=np.float64)` — the FAST screen generator, and the
+  n_sub_levels=3, dtype=np.float64, lean=False)` — the FAST screen generator,
+  and the
   DEFAULT of the runner (`screen_generator="olb"`). It caches the sqrt-PSD
   filter and the separable subharmonic basis ONE time for the grid, then it
   scales them for each screen by the scalar `r0^(-5/6)`. `make(r0_m, rng)` gives
@@ -861,7 +862,8 @@ it. The trials are independent snapshots.
   `"olb-lean"` (an OPT-IN, 2026-09-06: `ScreenFactory(lean=True)`, the same
   physics and the SAME random stream through one third fewer full-grid
   passes; it agrees with `"olb"` at the rounding level of the screen type,
-  1e-7 relative in float32 and 1e-16 in float64, and its structure-function
+  1e-7 relative in float32 and 2e-16 to 4e-16 in float64, and its
+  structure-function
   r0 matches inside the standard error, but it is NOT bit-identical; one
   1024 px float32 screen goes 86 to 60 ms and 48 to 28 MiB peak; see
   `validation/memory_cut/`) or
@@ -888,7 +890,10 @@ it. The trials are independent snapshots.
   argument, with the same default.
 - `fft_backend` is `"numpy"` (the default, the backend of record) or `"scipy"`
   (an OPT-IN, 2026-09-06, see Section 3). The runner sets it for the process
-  for the length of the call and restores the previous backend after. A scipy
+  immediately before the trial loop, and a `finally` always restores the
+  previous backend (corrected 2026-09-06: the call moved inside the guarded
+  block, because it sat before the `try` and an error in the setup left the
+  backend changed). A scipy
   run agrees with a numpy run at the rounding level of the field precision and
   it is NOT bit-identical.
 - `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one

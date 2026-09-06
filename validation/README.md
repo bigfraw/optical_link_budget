@@ -172,11 +172,18 @@ distribution, the index split, the fade quantiles, the rapid-against-standard
 verdict, the comparison with the analytic terrestrial Terms). The dataset
 serves backlog 1-8 gate (b), the rapid-preset question, backlog 2-N2 beam
 filling, and the single-mode-fibre coupling distribution of a horizontal link.
+STATUS: the run is DONE (2026-09-06). Twelve campaigns of 2000 trials, about
+0.9 GB, stay on bigfraw; the four `standard` cells past 2 km ran with the two
+speed opt-ins, under the `_scipy_lean` roots. The run logs, the `cell.json`
+records and the block census are committed under
+`terrestrial_campaigns/records/`.
 See [terrestrial_campaigns/README.md](terrestrial_campaigns/README.md).
 
 | File | Purpose |
 | --- | --- |
 | [terrestrial_campaigns/run_campaigns.py](terrestrial_campaigns/run_campaigns.py) | The runner. `--dry-run` sizes every cell and prints the grid, the screen count and the memory of each one; `--smoke` runs a few trials for each cell and reports the seconds for each trial, the projected hours, the peak working set and a post-hoc `recouple` cross-check; the plain call stores the trials. Each campaign root gets a `cell.json` with the Rytov variance, `rho_0`, `w(L)`, the beam-fill fraction and the curvature focus shift of each aperture, the grid, the screen plan and every sizer warning. |
+| [terrestrial_campaigns/waist_bias_check.py](terrestrial_campaigns/waist_bias_check.py) | The grid-bias check. It propagates the launch field in VACUUM on each cell grid, with no screens, and it reports the pixels across the 5 mm waist, the second-moment beam radius against `olb.beam.gaussz`, and the 10 cm bucket power against the analytic Gaussian capture, with the difference in dB. It needs no stored trials. It writes `waist_bias_check.log` and `waist_bias_check_results.json`. |
+| [terrestrial_campaigns/optin_crosscheck.py](terrestrial_campaigns/optin_crosscheck.py) | The opt-in cross-check. It opens the default-settings `L5km_cn23e-15_standard` campaign and the opt-in `L5km_cn23e-15_standard_scipy_lean` campaign, and it compares them trial by trial: the maximum and the median relative difference of the collected power and of `smf_eta`, plus the mean loss and the p5 and p1 fades of both. It needs BOTH stores, so it runs on bigfraw; `--dry-run` prints the two roots. It writes `optin_crosscheck.log` and `optin_crosscheck_results.json`. |
 
 ## terrestrial_screen_count/
 
@@ -184,16 +191,27 @@ The terrestrial SCREEN-COUNT convergence sweep (backlog 2-TC1). At the Schmidt
 per-screen cap the 10 km / `Cn2` = 1e-14 standard cell asks for 35 screens, and
 that cap is a thin-screen VALIDITY rule (Schmidt, DOI 10.1117/3.866274, Listing
 9.5, printed p. 175), not a convergence result. The study holds that cell's GRID
-fixed and it OVERRIDES the screen count with a caller plan at n = 5, 10, 15 and
-20, against the 35-screen backbone campaign as the reference (it is reopened,
-never rerun). It compares the collected power, the centre-pixel irradiance, the
+fixed and it OVERRIDES the screen count with a caller plan at n = 5, 10 and 15
+(the owner stopped it before the planned 20), against the 35-screen backbone
+campaign as the reference (it is reopened, never rerun). It compares the collected power, the centre-pixel irradiance, the
 fibre coupling and a 5 cm bucket: the index and the p10 / p5 / p1 fades, each
-with a bootstrap interval. NOT YET RUN (it is queued behind the backbone run).
+with a bootstrap interval. THE 10 km CELL IS DONE (2026-09-06): the counts 5,
+10 and 15 ran at 1000 trials each, and the owner stopped the sweep before the
+20-screen count. The verdict is BY RECEIVER KIND. An SMF receiver shows NO
+detectable screen-count effect: the p5 and p1 deltas carry no sign pattern and
+they sit inside the noise, because the fibre fade in saturation is tilt and
+low-order phase, which few screens already carry. A BUCKET receiver shows a
+small, consistently OPTIMISTIC bias: the 10 cm bucket p5 reads 0.46 to 0.62 dB
+less fade, with the same sign at every count. THE 5 km CELL IS LAUNCHED
+(2026-09-06 on bigfraw, 12 workers, the counts 5 / 10 / 15 / 20 at 2000 trials
+each). Its results are PENDING. That cell sits at the `min_screens` floor, so it
+asks the other half of the question: is the floor enough?
+The worker plateau after the memory cut is measured here too.
 See [terrestrial_screen_count/README.md](terrestrial_screen_count/README.md).
 
 | File | Purpose |
 | --- | --- |
-| [terrestrial_screen_count/screen_count_sweep.py](terrestrial_screen_count/screen_count_sweep.py) | The sweep. `--dry-run` sizes every count and prints the grid, the per-screen `sigma2_r` maximum and the projected cost; the plain call stores the trials cheapest first (resumable), then analyses; `--analyse-only` reads what is stored. It writes a results JSON, a run log and `figures/screen_count_sweep.png`, and it prints ONE table with the reference row first and a delta against 35 screens for each quantity, plus a CONVERGED / NOT CONVERGED verdict for each count. |
+| [terrestrial_screen_count/screen_count_sweep.py](terrestrial_screen_count/screen_count_sweep.py) | The sweep. It takes ANY cell (`--path-km`, `--cn2`, `--counts`, `--n-trials`, `--tolerance-db`), and the file names carry the cell tag. `--dry-run` sizes every count and prints the grid, the per-screen `sigma2_r` maximum and the projected cost. The plain call stores the trials cheapest first (resumable), then analyses; `--run-only` stores the trials and skips the analysis (so a staged run does not pay the analysis every time); `--analyse-only` reads what is stored. It first runs a REFERENCE-COUNT check: an override plan at the reference count must give bit-identical trials, which proves the caller plan is the only change. It writes a results JSON, a run log and a figure, and it prints ONE table with the reference row first, a delta against the reference for each quantity, and TWO verdicts for each count: CONVERGED / NOT CONVERGED against the bootstrap noise, and a pass or fail against a dB tolerance. |
 
 ## receiver_cone_clip/
 
@@ -272,3 +290,23 @@ results JSON and one run log; none touches production code.
 | [waveoptics_speed/beam_grid_experiment.py](waveoptics_speed/beam_grid_experiment.py) | P2 experiment (b): a grid that follows the beam. BURIED for the wired scenarios (the flat grid already wins). |
 | [waveoptics_speed/scaling_study.py](waveoptics_speed/scaling_study.py) | P3: how trials scale across workers (threads, processes, batched split step). Processes beat threads; threads saturate at 8 to 16 workers. |
 | [waveoptics_speed/make_plots.py](waveoptics_speed/make_plots.py) | Draw one PNG per speed task from its results JSON, into `figures/`. Skips a task whose JSON is absent. |
+
+## memory_cut/
+
+The MEMORY cut of one fidelity-2 trial, and the two speed OPT-INS (2026-09-06).
+It has two halves. The first half checks the bit-identical cut: the lazy screen
+stack (`split_step` reads its screens one at a time), the `Forvard` transfer-
+function cache, and the pool sizer of `olb/waveoptics/resources.py`
+(`Campaign.run(workers="auto")`). The second half measures the two OPT-INS that
+are NOT defaults, because each one moves every seeded number at the rounding
+level: `screen_generator="olb-lean"` (the same physics and the same random
+stream through fewer full-grid passes) and `fft_backend="scipy"`. The
+measurements are from a 4-core container, so the RATIOS carry over and the
+seconds do not. The worker plateau that goes with them was measured later on
+bigfraw; it is in `terrestrial_screen_count/`.
+See [memory_cut/README.md](memory_cut/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [memory_cut/memory_cut_check.py](memory_cut/memory_cut_check.py) | The bit-identical half. It proves the lazy screens, the `Forvard` cache and the pool sizer, and it times one serial trial with the cache off and on (single 9 screens 3.61 to 2.58 s; double 15 screens 8.09 to 6.64 s). It writes `memory_cut_check.json`. |
+| [memory_cut/screen_generator_lean.py](memory_cut/screen_generator_lean.py) | The opt-in half. The lean generator against the default one (the same draw to 1e-7 in float32 and 2e-16 to 4e-16 in float64, the fitted `r0` inside the standard error), the cost of one screen, the raw transform time of the two FFT backends, and one trial in each of the four combinations (1.38x together). It writes `screen_generator_lean.json`. |

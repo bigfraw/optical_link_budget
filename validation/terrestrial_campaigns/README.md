@@ -99,15 +99,36 @@ the full beam wander.
 The 5 mm launch waist gives a beam radius of 49 cm at 5 km and 99 cm at 10 km.
 The grid side must hold that beam plus the scattering cone, so the pixel count
 the sizer wants passes the preset `n_max`. The sizer then KEEPS the side and it
-takes a coarser pixel, and it says so. Five of the twelve cells carry that
-warning today, for example:
+takes a coarser pixel, and it says so. Eight of the twelve cells carry that
+warning today, every 5 km and every 10 km cell, for example:
 
-    turbulent_grid: the pixel count wants 4096, but n_max is 1024. The grid
-    keeps its side and takes a coarse pixel.
+    10km:3e-15:standard: turbulent_grid: the pixel count wants 8192, but
+    n_max is 2048. The grid keeps its side and takes a pixel 4.0x coarser
+    than the rules ask for. Broken rules: pixels per smallest feature
+    1.31 < 4 (feature 5.0 mm).
 
 Every warning is stored in `cell.json` under `sizer.warnings`, next to
 `sizer.pixels_per_r0`, `sizer.fresnel_pixels_min` and
 `sizer.step_over_limit_max`. Read them before you read a long-path result.
+
+HOW MUCH THE CLAMP COSTS (measured 2026-09-06 by
+`waist_bias_check.py`, the record `waist_bias_check.log` and
+`waist_bias_check_results.json`). The script propagates the launch field in
+VACUUM on each cell grid, with no screens, and it compares the second-moment
+beam radius against `olb.beam.gaussz` and the 10 cm bucket power against the
+analytic Gaussian capture. The reading:
+
+- The four 2 km cells and the four 5 km cells are CLEAN. The received radius
+  agrees with the theory to three decimals, and the bucket power agrees to
+  0.015 dB, even at 1.8 to 2.8 pixels across the 5 mm waist.
+- The bias starts only at 10 km, where the waist gets under 1.4 pixels. The
+  10 km / 1e-14 `rapid` cell is the worst: 0.78 pixels, the beam reads
+  7.1 percent too wide, and the 10 cm bucket loses 0.72 dB. The 10 km /
+  3e-15 `rapid` cell loses 0.13 dB at 0.96 pixels.
+- The `standard` preset (2048 px) holds the 10 km bias at 0.11 dB or less,
+  so a doubled pixel count is the fix.
+- No cell loses power at the absorbing boundary. The bias is the
+  under-sampled LAUNCH beam only, not a clipped edge.
 
 ## The storage
 
@@ -156,6 +177,23 @@ Other switches: `--cells 2km:3e-15:rapid 5km:1e-14:standard` picks the cells,
 grids first), `--launch diverged` opens the launch, `--workers auto` lets the
 campaign size its own pool (`--workers` takes an integer or `auto`), and
 `OLB_TERRESTRIAL_CAMPAIGNS_ROOT` moves the whole store off this folder.
+The `--launch diverged` spot check is NOT part of the twelve stored cells,
+and it was NOT run.
+
+**The grid-bias check.** It propagates the launch field in VACUUM on each
+cell grid and it measures the pixels across the waist, the received beam
+radius and the 10 cm bucket power against the analytic Gaussian (see "The
+clamped grids"). It takes a minute or two, and it needs no stored trials:
+
+    python -m validation.terrestrial_campaigns.waist_bias_check
+
+**The opt-in cross-check.** It opens the default-settings
+`L5km_cn23e-15_standard` campaign and the opt-in
+`L5km_cn23e-15_standard_scipy_lean` campaign, and it compares them trial by
+trial. It needs BOTH stores, so it runs on bigfraw. Use `--dry-run` first to
+see the two roots it opens:
+
+    python -m validation.terrestrial_campaigns.optin_crosscheck --dry-run
 
 ## The two speed opt-ins
 
@@ -263,8 +301,7 @@ The owner deferred all of this. This script must NOT do it:
 The full run is DONE (2026-09-06, bigfraw, 12 workers, blocks of 50, seed
 20260906, L0 = 25 m, single precision). Every cell holds 2000 trials, and
 the whole set is about 0.9 GB of blocks. The data stays on bigfraw under
-`D:
-epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+`D:/repos/optical_link_budget/validation/terrestrial_campaigns/campaigns/`
 (gitignored); the run logs and every `cell.json` are in this folder
 (`run_<cell>.log`, `records/<root>.cell.json`, `records/blocks_on_bigfraw.txt`).
 
@@ -316,4 +353,12 @@ so the 2048 px pool was memory-bandwidth bound. The four `standard` cells
 with the opt-ins ran 1.53x faster than that at the same 12 workers (1.12
 against 1.71 s/trial at 9 screens), more than the 1.38x one-core gain of
 `validation/memory_cut/`, because the opt-ins cut the bytes each trial
-moves. Whether the new plateau sits above 12 workers is NOT measured.
+moves. THE NEW PLATEAU IS MEASURED (2026-09-06,
+`validation/terrestrial_screen_count/`, the worker section of its README):
+on the same 2048 px cell (5 km / Cn2 = 3e-15, 9 screens, the opt-ins on)
+8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06 s for one trial.
+The curve is FLAT, so the pool stays memory-bandwidth bound and 12 WORKERS
+is the setting of record. Each worker commits about 2.2 GB (it touches
+0.6 GB), and the 61 GB commit limit of bigfraw caps the pool near 20
+workers. The record files are `workers_L5km_cn23e-15.log` and
+`resources_L5km_cn23e-15.csv`.

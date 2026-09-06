@@ -495,7 +495,8 @@ The path forward for each is a second reference or a derivation.
   and physics.md Section 9e. WHAT REMAINS is the 1-8 gate (b) sweep, not this
   item: a focused launch, a stronger Cn2, and a longer path. That sweep is now
   step 1 of 1-9 (2026-09-05). The stronger-Cn2 and longer-path half of it is now
-  2-TC (2026-09-06), the terrestrial campaign backbone, which is running; a
+  2-TC (2026-09-06), the terrestrial campaign backbone, which is DONE
+  (2026-09-06: twelve campaigns of 2000 trials, about 0.9 GB); a
   focused launch stays blocked by 0-P17.
 - **1-8. Terrestrial fidelity 1 = the calibrated lognormal draw (PROPOSED
   2026-09-01).** A terrestrial link has NO fidelity-1 rung: FAST is far-field
@@ -537,8 +538,12 @@ The path forward for each is a second reference or a derivation.
   plan of record by 1-9 (2026-09-05), where it is one candidate route.
   UPDATE ON GATE (b) (2026-09-06): the gate now reads the 2-TC terrestrial
   campaigns. They give the stronger `Cn2` and the longer path that the gate
-  asks for, over `sigma_R^2` = 0.21 to 13.6, and the full run is in progress on
-  bigfraw. The ANALYSIS that closes the gate is DEFERRED by the owner: 2-TC
+  asks for, over `sigma_R^2` = 0.21 to 13.6, and the full run is DONE
+  (2026-09-06): twelve campaigns of 2000 trials, about 0.9 GB on bigfraw, with
+  the four `standard` cells past 2 km under the `_scipy_lean` roots. The run
+  logs, the `cell.json` records and the block census are committed under
+  `validation/terrestrial_campaigns/records/`.
+  The ANALYSIS that closes the gate is DEFERRED by the owner: 2-TC
   stores the trials only, and no script yet tests the SHAPE, the index or the
   quantiles. Two limits stay. A FOCUSED launch is BLOCKED: olb cannot express a
   converging beam at all (see 0-P17), so that leg of the gate cannot run. And
@@ -962,11 +967,12 @@ The path forward for each is a second reference or a derivation.
   5 km and 99 cm at 10 km. The grid side must hold that beam plus the scattering
   cone, so the pixel count the sizer wants passes the preset `n_max`. The sizer
   then KEEPS the side and it takes a coarse pixel: 3.8 mm to 6.4 mm at 10 km.
-  Five of the twelve cells carry that warning. So the centre-pixel point index
+  Eight of the twelve cells carry that warning, every 5 km and every 10 km
+  cell. So the centre-pixel point index
   is a COARSE point on the long paths. Every warning is in `cell.json` under
   `sizer.warnings`.
   THE SMOKE NUMBERS (bigfraw, 8 workers, `smoke.log`, all twelve cells pass the
-  post-hoc `recouple` cross-check to 8e-8): `rapid` runs 0.33 to 1.46 s/trial
+  post-hoc `recouple` cross-check to 1.2e-7): `rapid` runs 0.33 to 1.46 s/trial
   (0.18 to 0.81 h per 2000 trials) at 1024 px; `standard` runs 1.8 to 6.0
   s/trial (1.0 to 3.3 h) at 2048 px, at 630 MB for each worker. The whole set at
   2000 trials is about 0.9 GB on disk.
@@ -977,8 +983,7 @@ The path forward for each is a second reference or a derivation.
   10 km / 1e-14 cell asks for 35 of them). The change is BIT-IDENTICAL.
   STATE. The full run is DONE (2026-09-06): twelve campaigns of 2000 trials,
   0.9 GB of blocks, on bigfraw under
-  `D:
-epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
+  `D:/repos/optical_link_budget/validation/terrestrial_campaigns/campaigns/`
   (gitignored). The run logs, every `cell.json` and the block census are in
   the study folder (`records/`), and the README "Results" table gives the
   timing and the sanity means of every cell. The run was stopped after eight
@@ -1148,8 +1153,10 @@ epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   the COARSE end of the dataset, and a larger launch waist is the cheap
   scenario-side workaround (a 2 cm waist gives a 25 cm beam at 10 km, so the
   side and the feature rule both relax about four times).
-  MEASURED (2026-09-06, a vacuum propagation on each cell grid): the
-  pixelised 5 mm waist is harmless through 5 km (1.8 to 2.5 pixels across
+  MEASURED (2026-09-06, a vacuum propagation on each cell grid; the record
+  is `validation/terrestrial_campaigns/waist_bias_check.py`,
+  `waist_bias_check.log` and `waist_bias_check_results.json`): the
+  pixelised 5 mm waist is harmless through 5 km (1.8 to 2.8 pixels across
   the waist, the received beam radius and the 10 cm bucket power agree with
   the analytic Gaussian to 0.02 dB), a +0.11 dB bucket bias at 10 km
   standard (1.1 pixels, the beam 1.3 percent wide), and a +0.72 dB bias at
@@ -1178,7 +1185,7 @@ epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   the single-precision floor before the clip becomes a sizer rule.
   ROUTE (b) IS CLOSED (2026-09-06, `validation/receiver_cone_clip/`, matched
   screens, 6 trials, 5 km and 10 km at 1e-14, rapid). In VACUUM the ray
-  picture is exact: a cone at 1.5x removes 96 to 98 percent of the launched
+  picture is exact: a cone at 1.5x removes 96 to 99 percent of the launched
   power and the aperture field does not move. Under TURBULENCE no cone
   holds the field: with the scatter term left un-mapped (the correct form)
   the aperture-field RMS error falls as a POWER LAW in the cone factor c
@@ -1365,10 +1372,21 @@ epos\optical_link_budgetalidation	errestrial_campaigns\campaigns\`
   90 percent of the cores under 90 percent of the free memory). Two OPT-INS,
   not defaults, because each moves every seeded number at the rounding
   level: `screen_generator="olb-lean"` and `fft_backend="scipy"`. Measured
-  on one core: the cache 1.3x, the two opt-ins together 1.38x on top. OPEN:
-  (a) the new bandwidth plateau on bigfraw is NOT measured (run
-  `validation/campaign_resources/ --workers auto` when the box is free, and
-  add the two opt-in flags to that script); (b) the OWNER decision on whether
+  on one core: the cache 1.3x, the two opt-ins together 1.38x on top.
+  (a) THE PLATEAU AFTER THE CUT IS MEASURED (2026-09-06) on a 2048 px
+  terrestrial cell (5 km / Cn2 = 3e-15, 9 screens, the two opt-ins on):
+  8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06 s for one trial.
+  The curve is FLAT, so the pool stays memory-bandwidth bound and 12 WORKERS
+  is the setting of record for a 2048 px cell. Each worker commits about
+  2.2 GB (it touches 0.6 GB), and the 61 GB commit limit of bigfraw caps the
+  pool near 20 workers. The record is `validation/terrestrial_screen_count/`
+  (the worker section of the README, `workers_L5km_cn23e-15.log`,
+  `resources_L5km_cn23e-15.csv`). Still add the two opt-in flags to
+  `validation/campaign_resources/`. THE PAGE FILE IS NOT CHANGED (owner
+  decision, 2026-09-06): a larger page file raises the commit limit at no
+  runtime cost, because the reserved pages are never written, but the flat
+  curve makes more workers pointless, so the change has no value. OPEN:
+  (b) the OWNER decision on whether
   either opt-in becomes a default; (c) `Screen()` costs 40 ms per 1024 px
   call, about a third of a hop, and a cos/sin pair in float32 may halve it.
 - **2-N8. A GPU FFT backend — an explicit OPT-IN (owner-flagged 2026-09-06).**

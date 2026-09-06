@@ -242,8 +242,12 @@ README fidelity ladder.
   `run.py` (`TurbTrial`, `TurbWaveResult`, `propagate_turbulent_scenario`,
   `propagate_turbulent_field` (one snapshot as a complex receive-plane Field,
   for a plot); both take
-  `screen_generator="olb"` (the default) | "aotools"; the two draw DIFFERENT
-  atmospheres for the same seed, and the statistics agree; the
+  `screen_generator="olb"` (the default) | "olb-lean" (an OPT-IN: the same
+  physics and the same random stream through fewer full-grid passes) |
+  "aotools"; the two draw DIFFERENT
+  atmospheres for the same seed, and the statistics agree; both also take
+  `fft_backend="numpy"` (the default) | "scipy" (an OPT-IN), which the runner
+  sets for the trial loop and always restores; the
   `folded_terrestrial` stub. The runner gives the screens to `split_step` as a
   GENERATOR (2026-09-06): `split_step` takes any iterable and it keeps no stack,
   so a strong path holds only the screen it uses (at 2048 px a float32 screen is
@@ -263,9 +267,12 @@ README fidelity ladder.
   detector, or defocus inside the patch), `campaign.py` (`Campaign`, the
   on-disk campaign of thousands of trials: npz blocks that are bit-identical
   slices of one seeded run through `start_index`, a manifest that rebuilds
-  the grid and the plan so a resume never re-sizes, `run(n, workers=None|W)`
+  the grid and the plan so a resume never re-sizes,
+  `run(n, workers=None|W|"auto")`
   where W opens ONE warm `ProcessPoolExecutor` for the whole call with the
-  blocks serial inside a process (ONE level of parallelism), `load`, the
+  blocks serial inside a process (ONE level of parallelism) and `"auto"` sizes
+  the pool from the cores and the free memory
+  (`olb/waveoptics/resources.py`), `load`, the
   streaming `recouple`/`recollect`, `grid=` and `plan=` (a caller grid and a
   caller screen plan, both fingerprinted, so a convergence study holds the
   grid and moves the screens only), and `sizing_aperture_m`, which sizes the
@@ -678,11 +685,19 @@ Open items:
   `worker_memory_bytes()` and `auto_workers()`, and `Campaign.run(workers=
   "auto", cpu_fraction=0.9, memory_fraction=0.9)` sizes the pool at 90
   percent of the cores held under 90 percent of the free memory (and never
-  more than the missing blocks). Measured at 1024 px, one serial trial:
-  single 9 screens 3.69 to 2.88 s and 193 to 157 MiB peak; double 15 screens
-  7.21 to 5.48 s and 321 to 201 MiB peak. NOT YET MEASURED: the new
-  bandwidth plateau on bigfraw (it was 12 workers of 32 at 512 px); run
-  `validation/campaign_resources/ --workers auto` to find it. The next
+  more than the missing blocks). Measured at 1024 px, one serial trial
+  (`validation/memory_cut/memory_cut_check.json`): single 9 screens 3.61 to
+  2.58 s and 193 to 157 MiB peak; double 15 screens 8.09 to 6.64 s and 321 to
+  201 MiB peak. THE PLATEAU AFTER THE CUT IS MEASURED (2026-09-06) on a
+  2048 px terrestrial cell (5 km / Cn2 = 3e-15, 9 screens, the two opt-ins
+  on): 8 / 12 / 16 / 20 workers give 1.16 / 1.10 / 1.06 / 1.06 s for one
+  trial. The curve is FLAT, so the pool stays memory-bandwidth bound and 12
+  WORKERS is the setting of record. Each worker commits about 2.2 GB (it
+  touches 0.6 GB), and the 61 GB commit limit of bigfraw caps the pool near
+  20 workers. The record is `validation/terrestrial_screen_count/` (the
+  worker section of the README, `workers_L5km_cn23e-15.log`,
+  `resources_L5km_cn23e-15.csv`). Add the two opt-in flags to
+  `validation/campaign_resources/` when that script runs again. The next
   levers are BUILT as OPT-INS (2026-09-06, `validation/memory_cut/`), and
   NEITHER is a default, because each changes every seeded fidelity-2 number
   at the rounding level: `screen_generator="olb-lean"` (`ScreenFactory(lean=
@@ -797,7 +812,7 @@ Open items:
   `smf_eta_defocused(a, c)`. OPEN: a converging monostatic
   launch is outside the bidirectional model (backlog 0-P16); the deterministic
   (non-jitter) pointing offset is still not modelled.
-- **The TERRESTRIAL campaign backbone is BUILT and RUNNING (2026-09-06,
+- **The TERRESTRIAL campaign backbone is BUILT, and the run is DONE (2026-09-06,
   backlog 2-TC).** `validation/terrestrial_campaigns/run_campaigns.py` stores
   twelve fidelity-2 campaigns of 2000 trials: paths 2 / 5 / 10 km x Cn2
   3e-15 / 1e-14 x presets rapid / standard, a collimated 5 mm launch into a
@@ -808,8 +823,20 @@ Open items:
   `recouple`. It is a RUNNER only: the DISTRIBUTION ANALYSIS (the fade family,
   the index split, the quantiles, the rapid-against-standard verdict, the fibre
   coupling against the analytic Terms) is DEFERRED by the owner, and no analysis
-  script exists. The full run is in progress on bigfraw and the data stays there
-  under `D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\`
-  (gitignored); the logs and the `cell.json` files come back when it ends.
+  script exists. The full run is DONE (2026-09-06): twelve campaigns of 2000
+  trials, about 0.9 GB, with the four `standard` cells past 2 km under the
+  `_scipy_lean` roots (the two speed opt-ins). The data stays on bigfraw under
+  `D:/repos/optical_link_budget/validation/terrestrial_campaigns/campaigns/`
+  (gitignored); the run logs, the `cell.json` records and the block census are
+  committed under `validation/terrestrial_campaigns/records/`. The SCREEN-COUNT
+  sweep on that dataset (2-TC1, `validation/terrestrial_screen_count/`) reads
+  BY RECEIVER KIND on the 10 km cell: an SMF receiver shows no detectable
+  screen-count effect on the fade, and a bucket receiver shows a small,
+  consistently optimistic bias (0.46 to 0.62 dB less fade at the 10 cm p5);
+  the 5 km cell, which sits at the `min_screens` floor, is launched and
+  pending. The CONVERGING absorbing boundary (2-P3, route (b)) is CLOSED as
+  NO (`validation/receiver_cone_clip/`): a cone mask holds the aperture field
+  in vacuum, but under turbulence the field error falls only as a power law
+  in the cone factor, so no practical cone is safe.
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.

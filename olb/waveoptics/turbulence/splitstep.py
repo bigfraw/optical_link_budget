@@ -163,9 +163,9 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
                      function takes the screens one at a time and it keeps no
                      stack, so a strong path with many screens holds only the
                      screen it uses. At 2048 px a float32 screen is 16 MB, so
-                     a stack of tens of screens is hundreds of MB. A list that
-                     has MORE arrays than z_screens_m keeps the extra arrays
-                     unused: the loop stops at the last distance.
+                     a stack of tens of screens is hundreds of MB. The count
+                     must agree with z_screens_m: MORE screens than distances
+                     is an error, and the function raises ValueError.
         z_total_m:   the distance from the input plane to the output plane,
                      in m.
         boundary:    an N x N mask, or None. The function applies it after

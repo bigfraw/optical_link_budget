@@ -894,8 +894,11 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
             f"across the smallest feature ({feature * 1e3:.1f} mm), under the "
             f"{PIXELS_PER_FEATURE / 2:g} the edge rule asks for. The launch "
             f"field is under-resolved: the truncation and the vacuum spread "
-            f"carry a pixelised edge before any turbulence. Schmidt, "
-            f"DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.")
+            f"carry a pixelised edge before any turbulence. The "
+            f"pixels-per-feature count is an olb rule "
+            f"(grid.PIXELS_PER_FEATURE), not a book equation. It follows the "
+            f"sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, "
+            f"in general terms only.")
     if achieved_r0 < p.pixels_per_r0:
         warns.append(
             f"turbulent_grid: the grid gives {achieved_r0:.2f} pixels per r0, "
