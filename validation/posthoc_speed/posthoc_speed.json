@@ -1,0 +1,50 @@
+{
+  "n": 1024,
+  "trials": 256,
+  "block_size": 8,
+  "workers": 4,
+  "crop_side": 271,
+  "grid_n": 1024,
+  "pixel_ratio": 14.277801228196783,
+  "agreement": {
+    "recollect": 4.440892098500626e-16,
+    "recouple SMF": 3.1086244689504383e-15,
+    "recouple MMF": 0.0,
+    "recouple_compensated screens": 2.886579864025407e-15,
+    "recouple_compensated slopes": 1.1102230246251565e-15
+  },
+  "per_trial": {
+    "recouple SMF": {
+      "full_s": 0.034761837109272165,
+      "crop_s": 0.013960015234260936,
+      "speedup": 2.490100227395096
+    },
+    "recouple_compensated slopes": {
+      "full_s": 0.5651852207031425,
+      "crop_s": 0.04766449843737064,
+      "speedup": 11.857571971428056
+    },
+    "recouple_compensated screens": {
+      "full_s": 0.08417740585923639,
+      "crop_s": 0.017756348828243063,
+      "speedup": 4.740693409072066
+    },
+    "recollect": {
+      "full_s": 0.017451669531055813,
+      "crop_s": 0.0014925851562566095,
+      "speedup": 11.69224379453461
+    }
+  },
+  "parallel": {
+    "recouple SMF": {
+      "serial_s": 3.639409199997317,
+      "pool_s": 6.2006131000234745,
+      "speedup": 0.58694344273529
+    },
+    "recouple_compensated slopes": {
+      "serial_s": 12.218214299995452,
+      "pool_s": 9.514383300032932,
+      "speedup": 1.2841835266352115
+    }
+  }
+}

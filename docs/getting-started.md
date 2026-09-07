@@ -36,6 +36,12 @@ default turbulent run needs NO `aotools`. `aotools` is the OPT-IN reference
 generator, selected with `screen_generator="aotools"`; `olb` imports it lazily
 for that path only and it does not copy it, because `aotools` is LGPL-3.0.
 
+`gpu` is a third optional extra (`pip install -e .[gpu]`). It installs
+`cupy-cuda12x` and the nvidia CUDA wheels, and it turns on the CUDA FFT backend
+for the fidelity-2 layer. A CUDA device runs one trial 18.7x faster than one CPU
+core, and one GPU stream beats the 12-worker CPU pool by about 4x. Section 6
+explains when to use it. A machine with no device does not need this extra.
+
 ## 2. The mental model
 
 All hardware lives on a `Terminal`. A `Terminal` owns a telescope aperture, an
@@ -208,3 +214,48 @@ to fidelity 0. Then `fade_margin_db()` raises a `ValueError`, and `monte_carlo()
 suppresses the fade and reports the mean only. Read `budget.provides_fade` to
 test this. Read `budget.total_loss_db()` for the mean loss. Use a statistical
 (fidelity-1) coupling model to get the coupling fade.
+
+## 6. Hardware acceleration (running campaigns faster)
+
+A deep fade statistic needs thousands of fidelity-2 trials, and a trial is a
+stack of fast Fourier transforms. So the transform library sets the run time of
+a `Campaign`. `olb.waveoptics` has one process-wide switch for it,
+`fft_backend`, with three settings:
+
+- `"numpy"` (the default) — the CPU backend of record. Every stored campaign
+  was made with it.
+- `"scipy"` (an opt-in) — `scipy.fft` in place. About 1.25x faster on one CPU
+  core. It needs no extra package.
+- `"cupy"` (an opt-in) — the CUDA GPU backend. It needs the `gpu` extra (see
+  Section 1) and a CUDA device. It runs the whole trial on the device (the
+  transforms, the phase screens, the split step, the setup, and the receive-
+  plane coupling), and it keeps the random draw on the host, so the same seed
+  gives the same atmosphere as the CPU. One GPU stream beats the 12-worker CPU
+  pool by about 4x.
+
+Pass the setting to `run_fidelity2`, to `propagate_turbulent_scenario`, or to a
+`Campaign`:
+
+```python
+from olb.waveoptics.turbulence import Campaign
+
+campaign = Campaign(scenario, geometry, root_dir,
+                    seed=20260907, fft_backend="cupy")
+campaign.run(10000)            # one device, one stream, blocks run serial.
+```
+
+A `"cupy"` campaign runs its blocks one after the other in the calling process,
+whatever `run(workers=)` says: one device runs one stream. A `"numpy"` or
+`"scipy"` campaign uses the process pool (`run(workers="auto")` sizes it from the
+free cores and memory). The backend enters the campaign fingerprint, so a GPU
+campaign and a CPU campaign never mix their stored blocks; to reproduce an old
+`"numpy"` campaign bit for bit, keep `"numpy"`.
+
+To run a heavy campaign on a remote desktop over ssh, keep `Campaign.run(
+boost=True)` (the default), which raises the process priority of the parent and
+every worker. A direct `propagate_turbulent_scenario` run must call
+`olb.waveoptics.priority.boost_process_priority()` itself.
+
+The full reference is [api-waveoptics.md](api-waveoptics.md) Section 12, and the
+measured speedups are in
+[`validation/gpu_fft/README.md`](../validation/gpu_fft/README.md).

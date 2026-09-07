@@ -22,8 +22,10 @@ full-path wave vacuum run is skipped — it is slow and grid-noise-limited;
 terrestrial link (FAST is far-field; a near-field Gaussian beam needs fidelity 2).
 Fidelity 2 needs a precomputed `wave` record from
 `olb.models.waveoptics.run_fidelity2`, or an `olb.waveoptics.turbulence.Campaign`
-passed as `wave=campaign`; the budget never runs the sim itself. See the
-README fidelity ladder.
+passed as `wave=campaign`; the budget never runs the sim itself. Fidelity 2 also
+takes an OPT-IN PERFECT-AO correction (2026-09-07,
+`run_fidelity2(compensation="terminal")`), so a PRE-COMPENSATED uplink now OPENS
+at fidelity 2 with a corrected record. See the README fidelity ladder.
 
 ## Architecture (one-way dependency: turbulence <- models and links)
 
@@ -146,7 +148,12 @@ README fidelity ladder.
   Monte-Carlo Term (`uplink_fast_term`) with the point-ahead decorrelation and a
   real fade; `fidelity=0` is the analytic pair = fitting error (Noll) +
   point-ahead anisoplanatism (Stone), PHASE-ONLY and MEAN-ONLY: no scintillation
-  and no fade; `fidelity=2` raises (reciprocity has no AO/point-ahead). An
+  and no fade; `fidelity=2` OPENS from 2026-09-07 with a CORRECTED wave record
+  (`run_fidelity2(compensation="terminal")`): the ground stack corrects the
+  ground-plane field before the Shapiro overlap, so the launched beam carries the
+  conjugate wavefront. It flags PERFECT AO and NO ANISOPLANATISM (no point-ahead
+  decorrelation, backlog 2-P4), so it is OPTIMISTIC and the model of record stays
+  fidelity 1; an UNCORRECTED record raises. An
   UNCORRECTED uplink: `fidelity=1` (default) = coupled flux; `fidelity=0` raises
   (no analytic mean-only); `fidelity=2` = the two wave-optics Terms. That
   mean-only limit is a DECISION (2026-08-27): no trustworthy analytic form exists
@@ -214,7 +221,21 @@ README fidelity ladder.
   Gaussian), the flat Fresnel convolution, or the three-call lens recipe
   (Lens -> LensFresnel -> Convert) on a scaled grid. The core is
   pure numpy and scipy. It imports nothing from the rest of olb, so the turbulent
-  split-step layer uses the same propagators. That layer is the sub-package
+  split-step layer uses the same propagators. A SIXTH olb-native sub-package sits
+  beside them: `olb/waveoptics/compensation/` (2026-09-07, backlog 2-AO), the
+  PERFECT-AO modal machinery. `zernike.py` gives the NOLL mode order, the mode
+  rasters and the circular mask (R. J. Noll, DOI 10.1364/JOSA.66.000207, Table I
+  and Eqs. (2) to (4)); `modal.py` gives `ApertureModes` (the least-squares
+  projector over one aperture, with `estimate`/`estimate_from_slopes`/
+  `reconstruct`/`apply` kept APART, so a later point-ahead model senses at one
+  direction and applies at another) and `modes_from_stack` (a `TipTilt` stage
+  removes 3 Noll modes, an `AO(n)` stage removes `n`, the SAME count as
+  `olb/turbulence/ao.py` and the FAST ZMAX map; it reads the class NAME of a
+  stage, so it does not import `olb.terminal`); `slopes.py` gives the
+  wrapped-gradient slopes of a stored field and their modal fit. The package is
+  pure numpy and scipy, it imports no other olb module, and it builds NO Term.
+  The dependency is one-way: compensation <- turbulence/run, turbulence/campaign
+  and models/waveoptics. That layer is the sub-package
   `olb/waveoptics/turbulence/`: `screens.py` (the phase screens: `screen_r0`,
   `phase_screen`, `Screen`, and TWO generators — the DEFAULT `ScreenFactory`, a
   fast self-contained generator (cached sqrt-PSD filter, separable
@@ -287,10 +308,44 @@ README fidelity ladder.
   indices). That is the owner-decided (2026-09-04) rich record: the scalars
   stay, and a budget never reads the fields. `recouple(result, detector,
   aperture_m, obscuration_ratio, lam)` and `recollect(result, aperture_m,
-  obscuration_ratio)` rebuild the FULL grid from the patch (a crop would move
-  the focal-plane pixel scale) and give the post-hoc coupling efficiency and
-  the unnormalised collected power of ANY receive aperture, obscuration,
-  detector, or defocus inside the patch), `campaign.py` (`Campaign`, the
+  obscuration_ratio)` give the post-hoc coupling efficiency and the
+  unnormalised collected power of ANY receive aperture, obscuration, detector,
+  or defocus inside the patch.
+  THE POST-HOC READ WORKS ON THE CROP (2026-09-07): a stored trial comes back
+  on the square CROP that just holds the patch disc, and THE RULE is
+  PUPIL-plane quantities on the crop, FOCAL-plane quantities on the padded grid
+  (an MMF or a Camera focuses, and the focal-plane pixel scale reads the grid
+  EXTENT, so those pad the crop back). Every read-back function takes
+  `compact=True` (the default) with `compact=False` as the full-grid comparison
+  route, and it builds the clip mask, the fibre mode, the modal basis and the
+  slope reconstructor ONE time for a call. `trial_field(result, row, lam)` and
+  `Campaign.field(row)` are the PUBLIC readers of a stored trial as a Field,
+  and `Campaign.map_trials(fn, workers=...)` is the ONE post-hoc primitive that
+  the three campaign helpers wrap. Measured
+  (`validation/posthoc_speed/`, 1024 px): the pupil routes agree to 3e-15 (the
+  padded MMF route is bit-identical) and one trial is 2.4x to 12.5x faster; a
+  process pool LOSES on a light read (the Windows spawn) and wins 1.28x on a
+  compensated read.
+  THE PERFECT-AO CORRECTION is two more runner options (2026-09-07, backlog
+  2-AO, an OPT-IN, DEFAULT OFF, so an uncorrected run is BIT-IDENTICAL):
+  `compensation=None|"terminal"|[stages]` removes the first N Noll modes over
+  the receive aperture in EACH trial, BEFORE the clip, the coupling, the
+  multi-arm `detector_etas` and the reciprocity overlap; `store_screen_phase=
+  False` keeps the summed screen phase of each trial at the patch pixels
+  (float32, the only new stored array; it needs `patch_radius_m`). The SENSING
+  SOURCE follows the family: SPACE reads the summed screen phase (the slab
+  starts from a plane wave, so no unwrap is needed) and TERRESTRIAL reads the
+  wrapped-gradient slopes of the receive field (it fits `max(n,
+  SLOPE_MIN_MODES=21)` modes and zeros the extra, because a short slope fit
+  aliases the tilt 6 percent low; it warns near a phase step of pi per pixel).
+  The stored patch keeps the UNCORRECTED field, so `recouple_compensated(
+  result, compensation, ..., source="screens"|"slopes")` and
+  `Campaign.recouple_compensated(..., source=None)` (None picks by family)
+  correct a stored campaign with ANY stack and no rerun; the screens route
+  needs `store_screen_phase=True`. `TurbWaveResult` gained `compensation`,
+  `n_modes_corrected` and `screen_phase`. A compensated or screen-storing cupy
+  trial falls back to the HOST tail (one download per trial); a device-side
+  projection is a later step), `campaign.py` (`Campaign`, the
   on-disk campaign of thousands of trials: npz blocks that are bit-identical
   slices of one seeded run through `start_index`, a manifest that rebuilds
   the grid and the plan so a resume never re-sizes,
@@ -508,6 +563,70 @@ Open items:
   and the spot position for a tracking loop, and they build NO Term. The
   power-to-pixel-brightness (a holistic camera model) is DEFERRED to backlog
   2-W3.
+- **The fidelity-2 PERFECT-AO correction is BUILT (2026-09-07, branch
+  `waveoptics-ao`, backlog 2-AO).** It is an OPT-IN and the DEFAULT is OFF, so
+  every uncorrected number is unchanged (measured: the `olb.multidetector`
+  self-check output is byte-identical, and every seeded fidelity-2 self-check
+  number is identical). The new package is
+  `olb/waveoptics/compensation/` (see the architecture bullet). THE MODE COUNT
+  IS NOLL and it is the count of `olb/turbulence/ao.py`: `TipTilt` = the first 3
+  Noll modes, `AO(n)` = the first n (`modes_from_stack`; Noll 1976,
+  DOI 10.1364/JOSA.66.000207, Table I). THE CORRECTION RUNS IN THE RUNNER, per
+  trial, before the clip, the coupling, the multi-arm `detector_etas` and the
+  Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492); the stored patch
+  keeps the UNCORRECTED field, so `recouple_compensated` answers any stack post
+  hoc. The two options (`compensation`, `store_screen_phase`) enter the
+  fingerprint ONLY when non-default (the append-only tail rule of `precision`
+  and `fft_backend`), so EVERY existing campaign key stays valid. THE UPLINK
+  PRE-COMPENSATION IS OPEN at fidelity 2: the ground stack corrects the
+  ground-plane field before the overlap, so the launched beam carries the
+  conjugate wavefront; an UNCORRECTED record raises and the message names
+  `run_fidelity2(compensation="terminal")`. THREE FLAGS: PERFECT AO (an ideal
+  modal fit: no WFS noise, no servo, no aliasing, no branch points, snapshot
+  only, so it is the UPPER BOUND of the AO benefit), NO ANISOPLANATISM (the
+  pre-compensated uplink corrects the SAME screens it reads back, so there is no
+  point-ahead decorrelation, backlog 2-P4; the model of record stays fidelity 1
+  FAST), and UNCORRECTED (`flag_uncorrected_compensation`, on all three
+  fidelity-2 budgets, when a terminal declares a stack the record did not use).
+  NUMBERS from the self-checks, SMALL GRIDS: downlink 30 deg D=0.4 m SMF eta
+  0.105 uncorrected -> 0.399 TipTilt -> 0.602 AO(10); uplink eta_turb 0.354 ->
+  0.805 AO(10); the post-hoc route reproduces the in-run coupling to 9e-08
+  (screens) and 2e-02 (slopes); the slope and the screen tilt gain agree to
+  0.993; the package Noll ratio at D/r0 = 6 is 0.971 / 0.987 / 0.969 for J =
+  3 / 10 / 21, and 0.72 at J = 1 (the finite outer scale, 2-P5). THE CAMPAIGN
+  VALIDATION IS DONE (2026-09-07, `validation/waveoptics_ao/`, V0 to V4 on the
+  cupy backend, 9 campaigns of the hero 0.7 m SMF downlink, 8200 trials,
+  `L0 = 25 m`; `docs/physics.md` Section 9l): the modal chain matches the Noll
+  residual law inside 2 percent from J = 3 up (J = 1 reads 0.55, the outer
+  scale, and a single-screen control proves it moves J = 1 only); the
+  summed-screen source is TRUSTED down to 20 deg (tilt gain 0.999 against the
+  field slopes); the post-hoc route equals the in-run route to 1.4e-07; the
+  SMF p5 fade improves by 9.4 / 22.1 / 24.3 dB at 30 deg and 8.6 / 23.3 / 26.6
+  dB at 20 deg for TipTilt / AO(10) / AO(21), and the bucket power does not
+  move by one digit; the corrected field and the tracked fidelity-1 FAST Term
+  agree on the mean to -0.5 to +0.1 dB, as close as the uncorrected rung, so
+  the 2-AO like-for-like blocker of 2-W1 is CLEARED. On a space link keep the
+  screen source: the slope route reads AO(21) 4 to 6 percent low. On a
+  terrestrial path the slope route holds while the phase step per pixel stays
+  under the 2.8 rad warning (the 2 km 2-TC cell is clean; the 10 km /
+  `3e-15` cell has 42.8 percent of its trials past it, so its AO line is
+  aliasing, not a result). THE TERRESTRIAL SOURCE RULE IS MEASURED (V5,
+  2026-09-07, four new terrestrial campaigns with the screen phase stored):
+  on a near-field horizontal path the summed screens are NOT the arriving
+  wavefront, because a summed screen weights every plane equally while the
+  arriving tilt carries the `(1 - z/L)` path lever, so the screen-sensed tilt
+  reads about 1.9x the field tilt (tilt gain 0.53 to 0.54 at 2 and 5 km,
+  0.42 at 10 km, at every Cn2), and a screen-sensed AO(21) buys 0.7 dB of p5
+  at 2 km and LOSES 2.5 dB at 10 km where the slope-sensed one buys 5.0 and
+  7.3 dB. A wrong sensing source is worse than none. So the runner's family
+  rule stands: screens on a space link, slopes on a terrestrial link.
+  `Campaign.load(fields=False)` KEEPS `screen_phase` from 2026-09-07 (it
+  dropped it before). NOT BUILT (phase 2): the point-ahead shift
+  of the sensing source (2-P4; the hinge is the source/target split of
+  `ApertureModes.estimate` against `.apply`), the LaserGuideStar, a WFS-limited
+  AO knob, the device-side projection (a compensated cupy trial falls back to
+  the host tail), and the temporal axis. Whether a corrected record ever becomes
+  a DEFAULT is an OWNER decision.
 - **The turbulent screen-count floor `min_screens` is RESOLVED (work package
   7).** In `olb/waveoptics/turbulence/sampling.py`, `_merge_layers` now clamps a
   weak path UP to EXACTLY `min_screens` contiguous Cn2-weighted groups, through
@@ -638,9 +757,10 @@ Open items:
   the space full-path scatter. All default budgets are UNCHANGED (terrestrial
   fidelity=0, downlink/uplink fidelity=1). Fidelity 1 is
   UNAVAILABLE for terrestrial (raises, backlog 1-1); fidelity 0 is unavailable
-  for an uncorrected uplink (raises); fidelity 2 is unavailable for a
-  pre-compensated uplink and for retro (raises — the folded double pass shares
-  screens). The turbulence Term carries a SNAPSHOT-ONLY flag (fade depth, not
+  for an uncorrected uplink (raises); fidelity 2 is unavailable for retro
+  (raises — the folded double pass shares screens), and, for a PRE-COMPENSATED
+  uplink, it needs a CORRECTED wave record from 2026-09-07 (an uncorrected one
+  raises; see the perfect-AO item below). The turbulence Term carries a SNAPSHOT-ONLY flag (fade depth, not
   rate/duration) and an under-sampled-tail quantile warning
   (`olb.results.EmpiricalSampler`). `examples/waveoptics/budget_wiring.py`
   demonstrates all three; it reads a `Campaign`, not `run_fidelity2`. STILL owner-gated: whether wave optics ever becomes a
@@ -776,12 +896,11 @@ Open items:
   campaigns of 1000 trials, 0.17 s/trial at 512 px on a warm 16-worker pool,
   262 MB for 1000 trials at 1024 px, and a real resume after an out-of-memory
   kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted). ONE
-  campaign gap is OPEN (2026-09-05, found in the examples migration): no
-  PUBLIC helper gives a stored trial back as a `Field` — `recouple` gives an
-  efficiency and `recollect` gives a power, so
-  `examples/waveoptics/camera_tracking.py` imports the two private helpers
-  `_rebuilt_fields` and `_patch_field` of `olb.waveoptics.turbulence.run`; a
-  `Campaign.field(row)` wrapper is missing. A second gap is FIXED (owner
+  campaign gap of 2026-09-05 is CLOSED (2026-09-07): `Campaign.field(row)` and
+  `trial_field(result, row, lam)` are the public readers of a stored trial as a
+  `Field`, and `examples/waveoptics/camera_tracking.py` uses
+  `Campaign.field(row, compact=False)` and no private helper. A second gap is
+  FIXED (owner
   decision, 2026-09-05): the CLIP terminal of a space link is the GROUND
   terminal in EVERY direction, because the field is always the downlink slab at
   the ground and an uplink reads it through reciprocity. `run.clip_terminal` is

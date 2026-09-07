@@ -357,6 +357,32 @@ turbulence physics for the whole link. It replaces the old per-component knobs
   `Fidelity2Bundle` from `olb.models.waveoptics.run_fidelity2`); the budget never
   runs the simulation itself.
 
+#### The compensation stack at fidelity 2 (2026-09-07)
+
+A `Terminal.compensation` stack (`TipTilt`, `AO(n)`) drives the fidelity-0 and
+the fidelity-1 coupling Terms. At fidelity 2 it drives the WAVE RECORD, and the
+record is UNCORRECTED unless the caller asks for the correction:
+
+    wave = run_fidelity2(scenario, geometry, compensation="terminal")
+
+Each trial then removes the first N Noll modes of the wavefront over the receive
+aperture (`TipTilt` gives 3, `AO(n)` gives `n`; R. J. Noll, J. Opt. Soc. Am. 66,
+207 (1976), DOI 10.1364/JOSA.66.000207, Table I). That is the SAME mode count
+that `olb.turbulence.ao` uses, so the two ladders count the same modes. See
+[api-waveoptics.md](api-waveoptics.md) Sections 9d, 9h and 11a.
+
+Three flags report the state on the Term:
+
+| Flag | When it fires | What it means |
+|---|---|---|
+| `PERFECT AO` | The record carries a correction. | The fit is IDEAL: no wavefront-sensor noise, no servo lag, no aliasing, no branch points, and it is a snapshot. So the Term is the UPPER BOUND of the AO benefit, not a realistic corrector. |
+| `UNCORRECTED` | The clip terminal declares a stack, and the record carries no correction. | The budget ignores the declared hardware, so the fade is too deep. Run again with `compensation="terminal"`. |
+| `NO ANISOPLANATISM` | A PRE-COMPENSATED uplink at fidelity 2. | The ground stack corrects the SAME screens the uplink reads back by reciprocity, so nothing decorrelates over the point-ahead angle (backlog 2-P4). It is OPTIMISTIC. |
+
+The correction is a phase factor, so it never changes the collected power. It is
+OFF by default, and an uncorrected fidelity-2 budget gives the numbers it always
+gave.
+
 #### The fidelity-2 coupling faces
 
 When a receiver has a fibre or a light-bucket detector, the fidelity-2
@@ -484,9 +510,18 @@ PRE-COMPENSATED (`DownlinkBeacon` with an `AO` stage):
   fade, so `fade_margin_db()` works. It is the pure turbulence penalty: the
   standalone pointing Term still fires and carries the mechanical jitter. Needs
   `fast-aosim`; without it the `ImportError` names the fallback.
-- `fidelity=2`: raises `ValueError`. The reciprocity screens carry no
-  adaptive-optics correction or point-ahead decorrelation, so wave optics does
-  not model a pre-compensated uplink. Use `fidelity=1` (FAST).
+- `fidelity=2` (OPEN since 2026-09-07): the same two wave-optics Terms, from a
+  CORRECTED wave record. Run `run_fidelity2(..., compensation="terminal")`. The
+  perfect-AO correction applies the GROUND stack to the ground-plane field
+  BEFORE the Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492), so the
+  launched beam carries the conjugate wavefront. That IS a pre-compensation. It
+  is an IDEAL reference: the ground stack corrects the SAME screens the uplink
+  reads back, so there is NO point-ahead decorrelation (backlog 2-P4), no
+  wavefront-sensor noise and no servo lag. The Term carries the `PERFECT AO`
+  and the `NO ANISOPLANATISM` flags, and it is OPTIMISTIC. The model of record
+  for a real pre-compensated uplink stays `fidelity=1` (FAST). An UNCORRECTED
+  record raises `ValueError`, and the message names
+  `run_fidelity2(..., compensation='terminal')`.
 
 `LaserGuideStar`: not modelled yet. `uplink_budget` raises `NotImplementedError`.
 

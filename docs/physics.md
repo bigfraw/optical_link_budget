@@ -1481,6 +1481,106 @@ exactly 1.0, and `-10*log10(eta_turb)` sits on the free-space baseline of the
 analytic Terms. Point-ahead anisoplanatism is NOT modelled here: the uplink and
 the downlink read the same screens.
 
+### The perfect-AO modal correction (an opt-in, 2026-09-07)
+
+Files: `olb/waveoptics/compensation/` (`zernike.py`, `modal.py`, `slopes.py`).
+Backlog 2-AO. The correction is OFF by default, so every uncorrected fidelity-2
+number stays what it was.
+
+**What the code models.** The runner removes the first J Zernike modes of the
+wavefront over the receive aperture, in each trial, before the clip, the
+coupling and the reciprocity overlap. The order is NOLL: `j = 1` is piston,
+`j = 2` and `j = 3` are the two tilts, `j = 4` is defocus. Source: R. J. Noll,
+"Zernike polynomials and atmospheric turbulence," J. Opt. Soc. Am. 66(3),
+207-211 (1976), DOI 10.1364/JOSA.66.000207, Table I, printed p. 208. A `TipTilt`
+stage gives J = 3, and an `AO(n)` stage gives J = n. That is the count rule of
+`olb.turbulence.ao` and of the FAST `ZMAX` map, so the analytic ladder
+(Section 5f) and the wave-optics ladder correct the SAME modes.
+
+The mode raster is Noll's normalised form, each mode of unit variance over the
+unit disc:
+
+    Z_j = sqrt(n+1) R_n^0(rho)                       for m = 0
+    Z_j = sqrt(2(n+1)) R_n^m(rho) cos(m theta)       for m > 0
+    Z_j = sqrt(2(n+1)) R_n^|m|(rho) sin(|m| theta)   for m < 0
+
+Noll 1976, DOI 10.1364/JOSA.66.000207, Eqs. (2) to (4), printed p. 208. The fit
+is a least-squares projection over the in-mask pixels through a pseudo-inverse,
+because the DISCRETE modes are only near-orthogonal and a central obscuration
+breaks the orthogonality outright. The correction then multiplies the field by
+`exp(-i phi_fit)`. It is a PHASE factor, so it never changes the collected power:
+a real corrector does not fix the scintillation.
+
+**The residual law.** A fit that removes the first J Noll modes leaves
+
+    sigma^2 = Delta_J (D/r0)^(5/3)      [rad^2]
+
+Noll 1976, DOI 10.1364/JOSA.66.000207, Table IV, printed p. 210. The self-check
+of `modal.py` measures that law against the book on real screens.
+
+**Two sensing sources, one per channel family.** A corrector senses the pupil
+wavefront. The layer has no wavefront sensor, so it reads the wavefront from what
+the trial already holds:
+
+- **SPACE, the summed screen phase.** A space scenario propagates the DOWNLINK
+  slab from a unit PLANE WAVE, so the sum of the screens IS the phase the plane
+  wave accumulates on its way to the ground. The runner adds each screen as the
+  split step applies it, and it fits that sum. The sum is not wrapped, so the fit
+  needs no phase unwrap. The approximation is that it omits the DIFFRACTION
+  between the screens, so it is the geometric-optics wavefront of the slab, and
+  it is exact in the limit of a weak slab. This is the source the code trusts for
+  a space link.
+- **TERRESTRIAL, the wrapped-gradient slopes.** A terrestrial launch is a finite
+  Gaussian beam, so the summed screen phase is NOT the receive wavefront. The
+  runner therefore senses the field itself. A stored field holds the phase modulo
+  2 pi, and a modal fit of a wrapped map is wrong, so the code takes the phase
+  DIFFERENCE of two adjacent pixels and rewraps it into `(-pi, pi]`:
+
+      sx[i, k] = angle( E[i, k+1] conj(E[i, k]) )
+
+  The rewrapped difference is the TRUE local gradient wherever the true phase
+  step per pixel stays below pi. The reconstructor differences each mode raster
+  with the SAME finite-difference stencil, so the model and the measurement carry
+  the same discretisation error and the two cancel; it does NOT use the analytic
+  Zernike derivative. On the sampling of a phase screen see Schmidt,
+  DOI 10.1117/3.866274, Ch. 9.
+
+**The two limits of the slope route.** (1) It ALIASES above a phase step of pi
+per pixel, and the runner warns one time for each run past 2.8 rad per pixel.
+(2) The slope metric and the direct phase metric alias an UNFITTED mode
+differently, so a short slope fit reads the tilt low: on a Kolmogorov screen a
+6-mode fit is 6 percent low and a 21-mode fit agrees to 0.1 percent. So the code
+always fits `max(J, 21)` modes and it zeros the extra coefficients before it
+corrects. Piston is unobservable from slopes, and a constant phase does not
+change a coupling efficiency, so the fit returns zero for `j = 1`.
+
+**The uplink pre-compensation.** The correction runs on the GROUND-plane field
+before the Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492) of the
+paragraph above. The overlap then reads a field whose sensed wavefront is
+removed, which is exactly a launched beam that carries the conjugate wavefront.
+So a corrected record IS a pre-compensated uplink, and `uplink_budget(fidelity=2)`
+accepts a pre-compensated scenario from 2026-09-07.
+
+**The caveats. Read them before you quote a corrected number.**
+
+- **PERFECT.** The fit is ideal: no wavefront-sensor noise, no finite
+  subaperture, no aliasing, no servo lag, and no branch point. The residual is
+  the pure fitting error of the higher modes. So a corrected Term is the UPPER
+  BOUND of the benefit of a corrector of that mode count, and it is NOT a
+  realistic corrector.
+- **NO ANISOPLANATISM (uplink).** The ground stack corrects the SAME screens the
+  uplink reads back, so nothing decorrelates over the point-ahead angle. The
+  analytic Stone model of Section 5g and the fidelity-1 FAST Term both charge
+  that decorrelation; the fidelity-2 route does not. The model of record for a
+  real pre-compensated uplink stays fidelity 1. Backlog 2-P4.
+- **SNAPSHOT.** There is no time axis, so the correction gives no fade rate and
+  no fade duration, the same limit as the rest of the layer.
+- **THE OUTER SCALE.** The measured piston-only residual reads low against the
+  book, because the screens hold a finite outer scale. See Section 9k and
+  backlog 2-P5.
+
+The measured validity is in Section 9l.
+
 ### Two numerical gotchas
 
 - **The subharmonics fight the periodic propagator.** The subharmonic content of
@@ -1533,12 +1633,19 @@ anti-pattern.
   generator (`screen_generator="aotools"`, LGPL-3.0, the optional extra
   `screens`) is the reference path; `olb` imports it lazily and does not copy it.
   The two give different draws for the same seed; the statistics agree.
+- The adaptive-optics correction is an OPT-IN and it is PERFECT. The default run
+  models NO correction. A corrected run gives the upper bound of the benefit; see
+  the subsection above.
 - Measured validity: see Sections 9g (how much tilt a screen holds), 9h (the two
-  generators against each other, the analytic index and the fade tail) and 9i
-  (the screen-count floor).
+  generators against each other, the analytic index and the fade tail), 9i
+  (the screen-count floor) and 9l (the perfect-AO correction).
 
 ### Source
 
+- R. J. Noll, "Zernike polynomials and atmospheric turbulence," J. Opt. Soc.
+  Am. 66(3), 207-211 (1976), DOI 10.1364/JOSA.66.000207, Table I (the mode
+  order), Eqs. (2) to (4) (the mode rasters) and Table IV (the residual law):
+  the perfect-AO modal correction.
 - J. D. Schmidt, *Numerical Simulation of Optical Wave Propagation with Examples
   in MATLAB*, SPIE Press (2010), DOI 10.1117/3.866274, Ch. 6, Ch. 7 and Ch. 9:
   the split step, the Fourier screen, the subharmonics, the absorbing boundary,
@@ -2118,6 +2225,133 @@ run log, a memory note or a backlog aside is not documented.
   the tracker note is in [schmidt-crosscheck.md](schmidt-crosscheck.md) after
   the post-WP7 measurement. See backlog 2-I2T, 2-N6, 2-P5.
 
+### 9l. Is the fidelity-2 perfect-AO correction faithful, and what does it buy?
+
+- **Question.** The fidelity-2 layer took an opt-in modal correction on
+  2026-09-07 (Section 7, the perfect-AO subsection; backlog 2-AO). Four things
+  need a measurement. (1) Does the modal projector reproduce the Noll residual
+  law? (2) Does the SPACE sensing source (the summed screen phase) agree with
+  the TERRESTRIAL sensing source (the wrapped-gradient slopes of the receive
+  field) where the two overlap? (3) Does the post-hoc route
+  (`recouple_compensated`) reproduce the in-run correction? (4) How much
+  coupling does the correction buy on the hero cases, and does an uncorrected
+  run stay bit-identical?
+- **Model under test.** `olb/waveoptics/compensation/` and the correction leg of
+  `propagate_turbulent_scenario`, `Campaign` and `run_fidelity2`.
+- **Reference.** For (1) the Noll residual law
+  `sigma^2 = Delta_J (D/r0)^(5/3)`, Noll 1976, DOI 10.1364/JOSA.66.000207,
+  Table IV, printed p. 210. For (2) the direct phase fit of the same trial, which
+  needs no slope stencil. For (3) the in-run coupling of the same seed. For (4)
+  the uncorrected run of the same seed, and the fidelity-0 and fidelity-1
+  AO-corrected Terms of Sections 5f and 6b.
+- **Measured (self-checks, 2026-09-07, SMALL grids; the campaign numbers are
+  pending).** The package self-check measures the Noll ratio at `D/r0 = 6`:
+  0.971 / 0.987 / 0.969 of the book value for J = 3, 10 and 21 removed modes,
+  and 0.72 for J = 1 (piston only), which the finite outer scale explains (a
+  wider grid moves it to 0.81; see 9k and backlog 2-P5). On the runner
+  self-check (a downlink at 30 deg, `D = 0.4 m`, an SMF at the ground, 12
+  trials, `rapid`) the mean fibre coupling reads 0.105 uncorrected, 0.399 with
+  `TipTilt` and 0.602 with `AO(10)`, and the collected power does not move,
+  because the correction is a phase factor. The uplink self-check reads
+  `eta_turb` 0.354 uncorrected against 0.805 with `AO(10)`. The post-hoc route
+  reproduces the in-run coupling to 9e-08 from the stored screen phase and to
+  2e-02 from the stored field slopes. The slope route and the screen route agree
+  on the tilt gain to 0.993. An UNCORRECTED run is bit-identical: the
+  `olb.multidetector` self-check output is byte-identical, and every seeded
+  fidelity-2 self-check number is unchanged.
+
+  **Measured at campaign scale (2026-09-07, `validation/waveoptics_ao/`, the
+  hero downlink, a 0.7 m SMF ground terminal, `L0 = 25 m`, `standard`, the
+  cupy backend; 9 campaigns, 8200 trials, 11 min of GPU wall).** These numbers
+  supersede the small-grid self-check numbers above.
+  - V0, the trust gate of the summed-screen source (200 trials at 60, 30 and
+    20 deg, `sigma2_R` 0.08 to 0.44): the tilt that the summed screen phase
+    gives against the tilt that the field slopes give has a regression gain of
+    0.9999, 0.9998 and 0.9987, and the first 21 modes a gain of 0.988 at every
+    elevation. The residual of the field against its own 21-mode fit is a
+    constant 0.255 of the screen RMS, so it is the fitting error of the higher
+    modes and not a source disagreement. The summed-screen source is TRUSTED
+    down to 20 deg.
+  - V2, the Noll residual law (200 trials, `r0 = plan.r0_total_m`, which agrees
+    with `plane_wave_fried_parameter_profile` to 2.3 percent): the ratio of the
+    measured residual variance to `Delta_J (D/r0)^(5/3)` is 0.997 to 1.017 at
+    J = 3, 10, 21 and 35 over the three elevations. J = 1 (piston only) reads
+    0.54 to 0.58, and a single-screen control shows that the outer scale moves
+    J = 1 only (0.61 at `L0 = 25 m`, 0.80 at `L0 = inf`, the 2-P5 subharmonic
+    reach) and J >= 3 by less than 0.6 percent. The modal chain matches Noll.
+  - V1, the fade (1000 trials for each stack; the SMF loss in dB):
+
+    | elev | stack | mean | p50 | p5 | p1 | p5 gain |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 30 | none | 16.83 | 16.08 | 27.51 | 35.30 | 0.00 |
+    | 30 | TipTilt | 9.86 | 8.86 | 18.09 | 24.53 | 9.42 |
+    | 30 | AO(10) | 3.95 | 3.85 | 5.41 | 6.29 | 22.10 |
+    | 30 | AO(21) | 2.59 | 2.56 | 3.17 | 3.36 | 24.34 |
+    | 20 | none | 19.06 | 18.14 | 31.12 | 38.58 | 0.00 |
+    | 20 | TipTilt | 13.11 | 12.00 | 22.53 | 28.59 | 8.60 |
+    | 20 | AO(10) | 5.49 | 5.30 | 7.79 | 8.82 | 23.33 |
+    | 20 | AO(21) | 3.56 | 3.51 | 4.48 | 4.89 | 26.64 |
+
+    The bucket (collected-power) loss does not move by one printed digit
+    across the four stacks, because the correction is a phase factor. The
+    post-hoc route reproduces the in-run coupling to 1.4e-07 (worst relative
+    difference over 200 trials).
+  - V1, the fidelity-1 FAST comparison (the same `L0`, the same stack, the
+    composite `-10 log10(power * eta)`, 1000 FAST draws with the NPXLS guard):
+    the mean gap field minus FAST is -0.02 / -0.40 / +0.09 / +0.01 dB at
+    30 deg and +0.07 / -0.50 / +0.12 / -0.07 dB at 20 deg for none / TipTilt /
+    AO(10) / AO(21). That is as close as the uncorrected rung of Section 9k
+    (-0.34 to +0.12 dB). The largest gap sits on the tip-tilt rung, where the
+    tilt statistic (the outer scale) matters most.
+  - V3, the slope source against the screen source on the SPACE link (200
+    trials): the mean coupling agrees to 0.3 percent for TipTilt and reads 4
+    to 6 percent LOW on the slope route for AO(21) (conservative). The
+    per-trial spread grows toward 20 deg (a worst single trial of 4.5 dB at
+    TipTilt), where the worst phase step per pixel (2.65 rad) nears the 2.8 rad
+    warning level of the slope stencil. Keep the screen source on a space link.
+  - V4, the terrestrial sanity (500 trials of the 2-TC `rapid` cells, post
+    hoc through the slope route, the SMF loss in dB): the 2 km / `Cn2 = 3e-15`
+    cell reads a p5 of 6.10 untracked, 4.27 with TipTilt and 1.11 with AO(21),
+    with no trial over the step warning. The 10 km cell reads 15.29 / 8.45 /
+    8.04, but 42.8 percent of its trials exceed the step warning (the worst
+    step is pi), so its AO(21) line measures aliasing and is NOT a result.
+  - V5, the two sensing sources on the TERRESTRIAL link (four new campaigns of
+    500 trials that store the screen phase: 2, 5 and 10 km at
+    `Cn2 = 3e-15` and 2 km at `1e-14`, `sigma2_R` 0.21 to 4.07). The two
+    sources DISAGREE, as the near field demands: the tilt regression gain of
+    the slopes against the screens reads 0.5365, 0.5301 and 0.5361 on the three
+    well-sampled cells, against 0.999 on the space link. So the summed screen
+    phase holds about TWICE the tilt that arrives, which is the mean of the
+    `(1 - z/L)` path lever over a uniform-Cn2 path. The fade follows: an AO(21)
+    corrector that senses the screens buys 0.7 dB of p5 at 2 km and LOSES
+    2.5 dB at 10 km (17.82 against 15.29 dB untracked), while the same
+    corrector on the field slopes buys 5.0 dB at 2 km and 7.3 dB at 10 km. The
+    slope stencil is clean at 2 and 5 km (worst step 0.17 and 1.42 rad for each
+    pixel) and at its limit at 10 km (42.8 percent of the trials over the
+    2.8 rad warning).
+
+- **VERDICT.** The correction is faithful: the modal chain matches the Noll
+  residual law inside 2 percent from J = 3 up, the summed-screen source is
+  trusted down to 20 deg, and the post-hoc route equals the in-run route. It
+  buys 9 dB at p5 with tip-tilt and 22 to 27 dB with AO(10) to AO(21) on the
+  hero SMF downlink, and the corrected field agrees with the tracked
+  fidelity-1 FAST Term to -0.5 to +0.1 dB on the mean, so the like-for-like
+  AO comparison that 2-AO blocked is now measured (2-W1). The slope source is
+  valid on a terrestrial path while the phase step per pixel stays under the
+  warning level; a 10 km / `3e-15` path at the 2-TC grid is past it. On a
+  TERRESTRIAL link the slope source is also the only correct one: V5 measures a
+  tilt gain of 0.53 for the summed screens, so that source over-states the
+  arriving tilt by about two and its correction can read worse than no
+  correction, and the runner is right to sense the slopes there. The
+  standing caveats do NOT depend on the measurement: the fit is PERFECT (no
+  sensor noise, no servo, no aliasing, no branch points), it is a SNAPSHOT,
+  and the pre-compensated uplink route carries NO point-ahead decorrelation
+  (backlog 2-P4). So a corrected fidelity-2 Term is an UPPER BOUND, and the
+  model of record for a real pre-compensated uplink stays fidelity 1.
+- **Script.** `validation/waveoptics_ao/`; the write-up is
+  [validation/waveoptics_ao/README.md](../validation/waveoptics_ao/README.md).
+  See backlog 2-AO, 2-P4 and 2-W1.
+
 ---
 
 ## Source summary
@@ -2132,7 +2366,8 @@ run log, a memory note or a backlog aside is not documented.
 - Stone, Hu, Mills and Ma, J. Opt. Soc. Am. A 11(1), 347-357 (1994), DOI
   10.1364/JOSAA.11.000347: angular anisoplanatism (5g).
 - Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976): AO and tip-tilt residual (5f, 6a),
-  the Zernike mode count (5g).
+  the Zernike mode count (5g), and the mode order, the mode rasters and the
+  residual law of the fidelity-2 perfect-AO correction (7).
 - Fried (1966): the Fried parameter (5f).
 - Dikmelik and Davidson, Appl. Opt. 44(23), 4946-4952 (2005): analytic SMF coupling
   (6a).

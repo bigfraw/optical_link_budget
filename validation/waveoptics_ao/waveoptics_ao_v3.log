@@ -1,0 +1,32 @@
+V3: the slope source against the summed-screen source (backlog 2-AO)
+date          : 2026-09-07      seed: 20260907      preset: standard
+outer scale   : L0 = 25 m (the owner rule, backlog 2-P5)
+precision     : single      fft backend: cupy      workers: None
+scenario      : downlink, 1550 nm, 500 km, 700 mm ground SMF, 100 mm space terminal
+caveat        : PERFECT AO. It is an ideal modal fit of one snapshot: no sensor noise, no lag, no anisoplanatism.
+
+Both routes correct the SAME stored field of the SAME uncorrected campaign. Only the sensing source changes.
+
+ELEVATION 30 deg
+  1000 trials already on disk. No trial computed.
+
+ELEVATION 20 deg
+  1000 trials already on disk. No trial computed.
+
+ELEVATION 60 deg
+  200 trials already on disk. No trial computed.
+
+THE V3 TABLE
+  elev    stack     n  eta screens  eta slopes   rel RMS   rel max   dB RMS   dB max
+------------------------------------------------------------------------------------
+    30  tiptilt   200      0.14578     0.14576    0.0310    0.2420    0.141    1.203
+    30     ao21   200      0.55394     0.51922    0.0712    0.1834    0.325    0.880
+    20  tiptilt   200      0.08128     0.08154    0.1101    1.0260    0.478    4.463
+    20     ao21   200      0.44839     0.41844    0.0851    0.2991    0.398    1.543
+    60  tiptilt   200      0.27682     0.27671    0.0056    0.0412    0.025    0.183
+    60     ao21   200      0.65856     0.63169    0.0456    0.1104    0.205    0.508
+  rel = (slopes - screens) / screens on the coupling efficiency of each trial.
+  dB = -10 log10(slopes / screens), the per-trial coupling difference.
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v3_results.json
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v3.log

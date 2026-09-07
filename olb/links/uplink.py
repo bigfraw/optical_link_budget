@@ -496,15 +496,21 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
     jitter). `wave` is a Fidelity2Bundle from
     olb.models.waveoptics.run_fidelity2.
 
-    The reciprocity route reads the SAME screens up and down, so it does NOT model
-    an adaptive-optics correction or the point-ahead decorrelation. So it fits the
-    uncorrected uplink only, not a pre-compensated one.
+    THE PRE-COMPENSATED CASE (2026-09-07). A wave record that carries a
+    perfect-AO correction (run_fidelity2(compensation="terminal")) applies the
+    GROUND compensation stack to the ground-plane field BEFORE the reciprocity
+    overlap. That IS an uplink pre-compensation: the launched beam carries the
+    conjugate of the sensed wavefront. The reciprocity route still reads the
+    SAME screens up and down, so it models NO point-ahead decorrelation. The
+    Term below flags that. An UNCORRECTED record fits the uncorrected uplink
+    only.
 
     With `turbulence` False, or with a VACUUM-ONLY bundle (turbulent None), the
     reciprocity Term is dropped and the DETERMINISTIC geometric Terms stand
     alone.
     '''
-    from ..models.waveoptics import (waveoptics_vacuum_term,
+    from ..models.waveoptics import (flag_uncorrected_compensation,
+                                     waveoptics_vacuum_term,
                                      waveoptics_turbulence_term)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
     if elev.size == 1:
@@ -555,6 +561,21 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
              "turbulence penalty: the free-space spread, the launch truncation, "
              "and the satellite-aperture capture are in the vacuum-optics Term, "
              "and the tracking jitter is in the pointing Term.")
+    if pen.meta.get("n_modes_corrected", 0):
+        # A CORRECTED record is a PERFECT pre-compensation reference. The
+        # ground stack corrects the same screens the uplink reads back, so
+        # nothing decorrelates over the point-ahead angle.
+        pen.assumptions.flag(
+            "NO ANISOPLANATISM: the fidelity-2 pre-compensation applies the "
+            "ground AO stack to the SAME screens the uplink reads by "
+            "reciprocity (Shapiro, DOI 10.1364/JOSA.61.000492). There is no "
+            "point-ahead decorrelation (backlog 2-P4), no wavefront-sensor "
+            "noise, no servo lag. This is a PERFECT pre-compensation "
+            "reference and it is OPTIMISTIC. The model of record for a real "
+            "pre-compensated uplink stays fidelity=1 (uplink_fast_term)."
+        )
+    else:
+        flag_uncorrected_compensation(pen, scenario)
     return geo + [pen]
 
 
@@ -591,9 +612,14 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             decorrelation, and the uncorrected log-amplitude, by reciprocity. It
             carries a real fade. It needs the optional `fast-aosim` package. The
             standalone pointing Term carries the tracking jitter.
-        fidelity=2 : raises. The reciprocity screens carry no adaptive-optics
-            correction or point-ahead decorrelation, so wave optics does not model
-            a pre-compensated uplink. Use fidelity=1 (FAST).
+        fidelity=2 : the same two wave-optics Terms, from a CORRECTED wave
+            record (run_fidelity2(..., compensation="terminal")). The perfect-AO
+            correction applies the ground stack to the ground-plane field, so
+            the reciprocity overlap reads a PRE-COMPENSATED beam. It is an
+            IDEAL reference: no point-ahead decorrelation, no wavefront-sensor
+            noise, no servo lag, so it is OPTIMISTIC and the Term flags it. The
+            model of record stays fidelity=1 (FAST). An UNCORRECTED record
+            raises.
       LaserGuideStar: not implemented yet. It raises NotImplementedError.
 
     Pointing jitter: the coupled-flux Term (uncorrected fidelity 1) carries the
@@ -640,7 +666,8 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             If the scenario uses a LaserGuideStar pre-compensation source.
         ValueError
             If fidelity is not 0/1/2; if fidelity=0 for an uncorrected uplink; if
-            fidelity=2 for a pre-compensated uplink or without a `wave` bundle.
+            fidelity=2 without a `wave` bundle, or with an UNCORRECTED bundle
+            for a pre-compensated uplink.
         ImportError
             If fidelity=1 pre-compensated and `fast-aosim` is not installed.
     '''
@@ -665,19 +692,28 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         # A Campaign is a wave record too: turn it into the bundle it holds.
         from ..models.waveoptics import resolve_wave
         wave = resolve_wave(wave)
-        if precomp:
-            raise ValueError(
-                "fidelity=2 does not model a PRE-COMPENSATED uplink. The "
-                "reciprocity screens carry no adaptive-optics correction or "
-                "point-ahead decorrelation. Use fidelity=1 (FAST) for the "
-                "pre-compensated case, or remove the pre-compensation source."
-            )
         if wave is None:
             raise ValueError(
                 "fidelity=2 needs a precomputed `wave` bundle. Run "
                 "olb.models.waveoptics.run_fidelity2(scenario, geometry, ...) and "
                 "pass it as wave. The budget does not run the split-step "
                 "propagation implicitly."
+            )
+        # A PRE-COMPENSATED uplink needs a CORRECTED record. The perfect-AO
+        # correction applies the ground stack to the ground-plane field before
+        # the reciprocity overlap, so the launched beam carries the conjugate
+        # wavefront. An uncorrected record models no pre-compensation at all,
+        # so it would report the fade of a bare beam.
+        turb = getattr(wave, "turbulent", None)
+        corrected = turb is not None and turb.compensation is not None
+        if precomp and turbulence and not corrected:
+            raise ValueError(
+                "fidelity=2 needs a CORRECTED wave record for a "
+                "PRE-COMPENSATED uplink. This record carries no correction, "
+                "so it models a bare launched beam. Run "
+                "olb.models.waveoptics.run_fidelity2(..., "
+                "compensation='terminal'), or use fidelity=1 (FAST), which is "
+                "the model of record for a real pre-compensated uplink."
             )
         if cn2_profile is None:
             cn2_profile = default_cn2_profile(scenario.channel.site)
@@ -1156,6 +1192,51 @@ if __name__ == '__main__':
         assert wo_up.provides_fade and np.isfinite(wo_up.fade_margin_db(0.9))
         print(f"uplink fidelity 2 (600 km, 60 deg, rapid, 16 trials): analytic "
               f"geometry {geo.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB")
+        # An UNCORRECTED record carries no PERFECT AO flag, and the ground
+        # terminal of this scenario declares no stack, so no flag fires.
+        assert turb.meta["n_modes_corrected"] == 0
+        assert not any("PERFECT AO" in v for v in turb.assumptions.violations)
+
+        # --- the PRE-COMPENSATED fidelity-2 route (2026-09-07) --------------
+        # The ground AO stack corrects the ground-plane field BEFORE the
+        # reciprocity overlap, so the launched beam carries the conjugate
+        # wavefront. That IS a pre-compensation, and the Term flags that it
+        # models no point-ahead decorrelation.
+        pre_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
+                          ground_aperture=0.5, compensation=[AO(20)],
+                          precompensation=DownlinkBeacon())
+        pre_cn2 = default_cn2_profile(pre_scn.channel.site)
+        pre_bundle = run_fidelity2(
+            pre_scn, budget_geom, preset="rapid", n_trials=16, seed=9,
+            progress=False, compensation="terminal", cn2_profile=pre_cn2)
+        pre_up = uplink_budget(pre_scn, budget_geom, fidelity=2,
+                               wave=pre_bundle, cn2_profile=pre_cn2)
+        pre_turb = next(t for t in pre_up.terms
+                        if t.meta.get("model") == "waveoptics")
+        assert pre_turb.meta["n_modes_corrected"] == 20
+        assert any("NO ANISOPLANATISM" in v
+                   for v in pre_turb.assumptions.violations)
+        assert any("PERFECT AO" in v for v in pre_turb.assumptions.violations)
+        # The correction must not deepen the fade of the same seed.
+        bare_bundle = run_fidelity2(
+            pre_scn, budget_geom, preset="rapid", n_trials=16, seed=9,
+            progress=False, cn2_profile=pre_cn2)
+        bare = np.array([t.eta_turb for t in bare_bundle.turbulent.trials])
+        good = np.array([t.eta_turb for t in pre_bundle.turbulent.trials])
+        assert good.mean() > bare.mean(), (good.mean(), bare.mean())
+        # An UNCORRECTED record raises for a pre-compensated scenario, and the
+        # message names the way to fix it.
+        try:
+            uplink_budget(pre_scn, budget_geom, fidelity=2, wave=bare_bundle,
+                          cn2_profile=pre_cn2)
+        except ValueError as e:
+            assert "compensation='terminal'" in str(e), str(e)
+        else:
+            raise AssertionError("an uncorrected record must raise here")
+        print(f"uplink fidelity 2, PRE-COMPENSATED (AO(20), 60 deg): "
+              f"turbulence {pre_turb.mean_db:.2f} dB "
+              f"(uncorrected mean overlap {bare.mean():.4f}, "
+              f"corrected {good.mean():.4f})")
 
     print('\n' + '=' * 40)
     print(f"point-ahead angle: {pa_term.meta['theta_paa_rad'] * 1e6:.2f} urad, "

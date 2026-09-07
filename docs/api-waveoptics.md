@@ -72,6 +72,7 @@ tiers (see Section 9).
   - [9e. The stubs](#9e-the-stubs)
   - [9f. The example scripts](#9f-the-example-scripts)
   - [9g. The campaign store (`olb/waveoptics/turbulence/campaign.py`)](#9g-the-campaign-store-olbwaveopticsturbulencecampaignpy)
+  - [9h. The perfect-AO correction (`olb/waveoptics/compensation/`)](#9h-the-perfect-ao-correction-olbwaveopticscompensation)
 - [10. The Schmidt foundation layer (`olb/waveoptics/schmidt/`)](#10-the-schmidt-foundation-layer-olbwaveopticsschmidt)
   - [10a. The transforms (`fourier.py`)](#10a-the-transforms-fourierpy)
   - [10b. The propagation kernels (`fresnel.py`)](#10b-the-propagation-kernels-fresnelpy)
@@ -81,6 +82,10 @@ tiers (see Section 9).
 - [11. The fidelity-2 runner and the Terms (`olb/models/waveoptics.py`)](#11-the-fidelity-2-runner-and-the-terms-olbmodelswaveopticspy)
   - [11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`](#11a-run_fidelity2scenario-geometry--n_trials200-presetstandard-seednone-threadernone-cn2none-hsnone-cn2_profilenone-h_top_mnone-l0_mnpinf-subharmonicstrue-progresstrue-vacuumnone-turbulencetrue-detectorsnone-precisionsingle)
   - [11b. `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *, beam_type=BEAM_GAUSSIAN, name=None, note=None, meta_extra=None)`](#11b-waveoptics_vacuum_mmf_termvacuum_result-detector-aperture_m--beam_typebeam_gaussian-namenone-notenone-meta_extranone)
+- [12. Hardware acceleration: the compute backends](#12-hardware-acceleration-the-compute-backends)
+  - [12a. What the CUDA path runs, and what stays on the host](#12a-what-the-cuda-path-runs-and-what-stays-on-the-host)
+  - [12b. Reproducibility and the campaign fingerprint](#12b-reproducibility-and-the-campaign-fingerprint)
+  - [12c. How to turn it on](#12c-how-to-turn-it-on)
 
 ## 1. The field (`olb/waveoptics/field.py`)
 
@@ -171,52 +176,14 @@ the tilt.
   `"cupy"` to count one place). Measured on a 1024 px grid, one
   serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
   and 7.21 to 5.48 s double (15 screens), with the same numbers.
-- THE FFT BACKEND (an OPT-IN, 2026-09-06).
-  `set_fft_backend("numpy"|"scipy"|"cupy")` selects the transforms of `Forvard` and `Fresnel` for this process and it
-  returns the previous name; `get_fft_backend()` reads it; `FFT_BACKENDS`
-  lists the names. `"numpy"` (the default) is the backend of record: every
-  stored campaign was made with it. `"scipy"` runs the same transforms through
-  `scipy.fft` with `overwrite_x=True`, so the result lands in the work array.
-  On the tested machine the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy
-  and 15.6 ms in scipy, and a whole single-precision trial went 2.74 to
-  2.19 s (1.25x). The two agree at the rounding level of the field precision
-  (6e-7 relative on the collected power and the SMF eta of a single-precision
-  trial, 5e-16 in double), but a scipy run is NOT bit-identical to a numpy
-  run of the same seed. So the runner takes `fft_backend=` and restores the
-  previous backend when it returns, and a `Campaign` carries the name in its
-  fingerprint and manifest (only when `"scipy"`, so every stored key stays
-  valid) and sets it in every pool worker. See
-  `validation/memory_cut/README.md`.
-- THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8). `"cupy"` is the
-  third backend. It runs the transforms of `Forvard`, the split step, the
-  boundary mask, the phase screens AND (2026-09-07) the receive-plane TAIL of
-  a trial on a CUDA device. The tail is the aperture clip, the collected
-  power, the single-mode fibre coupling and the reciprocity overlap: none of
-  the four depends on the atmosphere, so the runner caches the clip mask, the
-  fibre mode and the defocus phase on the device ONE time for the run and
-  applies them there. A trial then downloads the stored patch pixels only,
-  and nothing at all when the caller stores no patch. An MMF receiver keeps
-  the HOST tail and the one full download through
-  `olb.waveoptics.field.to_host`. It needs the optional `cupy-cuda12x` package
-  with the nvidia CUDA wheels (the `gpu` extra); `set_fft_backend("cupy")`
-  imports cupy, so a machine with no device fails at that call and not in the
-  middle of a run. THE RANDOM STREAM DOES NOT MOVE: the white noise of a
-  screen stays a numpy PCG64 host draw, in the same order and the same double
-  precision, so the same seed gives the same atmosphere, and a device trial
-  agrees with a host trial at the float32 rounding level (5.7e-06 on the
-  collected power and 1.6e-05 on the SMF eta, 48 trials at 2048 px). The
-  runner hides that draw: it draws the noise of the next trial in threads
-  while the device runs this trial (`ScreenFactory.draw` and
-  `make_from_noise`). `ScreenFactory(lean=True)` has no device route and it
-  raises. THE ONE-TIME SETUP RUNS ON THE DEVICE TOO (2026-09-07): the vacuum
-  baseline of a space slab is a whole split step, and a `Campaign` pays it at
-  every block, so under `"cupy"` it runs where the trials run and its receive
-  field comes back to the host for the clip and the power. A HOST backend
-  builds the setup under the backend the caller had, exactly as before.
-  Measured on bigfraw (RTX 4070 Laptop): one SERIAL 1024 px trial 1751 ms
-  with numpy and 93 ms with cupy (18.7x), and ONE GPU stream against the
-  12-worker CPU pool of record is 4.1x at 1024 px and 4.0x at 2048 px. See
-  `validation/gpu_fft/README.md`.
+- THE FFT BACKEND. `set_fft_backend("numpy"|"scipy"|"cupy")` selects the
+  transforms of `Forvard` and `Fresnel` for this process and returns the
+  previous name; `get_fft_backend()` reads it; `FFT_BACKENDS` lists the names;
+  `xp()` gives the array module of the backend (numpy, or cupy for `"cupy"`).
+  `"numpy"` is the default and the backend of record. `"scipy"` and `"cupy"`
+  are opt-ins, and the `"cupy"` path accelerates more than the transforms.
+  Section 12 documents the three backends, what the GPU path runs on the
+  device, and what stays on the host.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -920,7 +887,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy")`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1001,6 +968,16 @@ it. The trials are independent snapshots.
   m. `None` (the default) stores no field, and the record is bit for bit the old
   record. A float fills `TurbWaveResult.fields` and `TurbWaveResult.patch`. See
   the paragraph below.
+- `compensation` is the perfect-AO correction (an OPT-IN, 2026-09-07, default
+  OFF). `None` (the default) makes no correction, and the run stays bit for bit
+  the old run. The string `"terminal"` reads the compensation stack of the CLIP
+  terminal. A sequence of `TipTilt` and `AO` stages gives an explicit stack. An
+  empty stack acts as `None`. See Section 9h and the paragraph below.
+- `store_screen_phase=True` stores the summed screen phase of each trial at the
+  patch pixels, as `float32`, in `TurbWaveResult.screen_phase`. It NEEDS
+  `patch_radius_m`; without one the call raises `ValueError`. `False` (the
+  default) stores nothing. It is the sensing source of the post-hoc SPACE
+  correction (`recouple_compensated`).
 
 **THE BLOCK CONTRACT (`start_index`).** The runner seeds trial `k` off
 `(seed, k)`, so a block of trials is a SLICE of one long run. A run of `n`
@@ -1033,6 +1010,45 @@ the mode overlap of Section 4, an `MMF` arm gives the core capture of Section 4a
 capture is already in `collected_power`), and a `Camera` arm gives `None`,
 because a `Camera` has no coupling model. An unknown detector type raises
 `ValueError`.
+
+**THE PERFECT-AO CORRECTION (`compensation`, 2026-09-07).** With a stack, each
+trial removes the first N Noll modes of the wavefront over the receive aperture,
+BEFORE the clip, the coupling, the multi-arm `detector_etas` and the reciprocity
+overlap. N comes from `modes_from_stack` (Section 9h): a `TipTilt` stage removes
+the first 3 Noll modes, and an `AO(n)` stage removes the first `n`. That is the
+count rule of `olb.turbulence.ao`, so the analytic ladder and the wave-optics
+ladder count the same modes. Source: R. J. Noll, J. Opt. Soc. Am. 66, 207
+(1976), DOI 10.1364/JOSA.66.000207, Table I.
+
+- **THE CORRECTION KEEPS THE AMPLITUDE.** It multiplies the field by a phase
+  factor, so `collected_power` does not move. A real corrector does not fix the
+  scintillation.
+- **THE SENSING SOURCE FOLLOWS THE CHANNEL FAMILY.** A SPACE link senses the
+  SUMMED SCREEN PHASE, because the slab starts from a plane wave, so the sum of
+  the screens IS the wavefront that arrives at the ground. It needs no phase
+  unwrap. A TERRESTRIAL link senses the WRAPPED-GRADIENT SLOPES of the receive
+  field, because its screens are not the receive wavefront. The slope route fits
+  `max(N, SLOPE_MIN_MODES)` modes and it zeros the extra coefficients, because a
+  short slope fit reads the tilt about 6 percent low (Section 9h).
+  `SLOPE_MIN_MODES` is 21. The slope route WARNS one time for each run when the
+  largest phase step of the receive field passes `SLOPE_STEP_WARN_RAD` (2.8 rad
+  per pixel): a wrapped difference aliases above pi, so the fit is then not
+  trustworthy, and the grid must be finer.
+- **THE STORED PATCH KEEPS THE UNCORRECTED FIELD.** Each trial writes its patch
+  row BEFORE the correction. So `recouple_compensated()` corrects a stored trial
+  with ANY stack, after the run.
+- **THE PROJECTOR BUILDS ONE TIME** for the run, on the CLIP aperture mask. That
+  mask keeps exactly the pixels that the clip keeps (the module self-check
+  asserts it), so the fit and the clip read the same pixels.
+- **THE CUDA FALLBACK.** A trial that asks for the correction, or for
+  `store_screen_phase`, keeps the HOST tail: it takes ONE full download of the
+  receive field (about 8 MB at 1024 px) and it runs the projection in host
+  numpy. A device-side projection is a later step. An uncorrected `"cupy"` run
+  keeps the device tail of Section 12a.
+- **THE FIT IS IDEAL.** There is no wavefront-sensor noise, no servo lag, no
+  aliasing and no branch point. So the record is the UPPER BOUND of the benefit
+  of a corrector of that mode count, and every Term it feeds carries a
+  `PERFECT AO` flag.
 
 **THE BOUNDARY MASK IS ALWAYS ON.** The runner builds
 `super_gaussian_boundary(grid.n, preset.boundary_width_frac)` and it gives that
@@ -1114,6 +1130,10 @@ A frozen dataclass. The result of a set of trials.
 | `seed_entropy` | int | The integer that seeds every trial. Give it back to repeat the set. |
 | `fields` | `np.ndarray` or None | The stored receive-plane field on the patch, a `complex64` array of the shape `(n_trials, n_patch)`. The row order is the trial order. `None` when the caller asks for no patch. |
 | `patch` | `FieldPatch` or None | The `FieldPatch` of those columns, or `None`. |
+| `fft_backend` | str or None | The backend that made the trials: `"numpy"`, `"scipy"` or `"cupy"`. `None` for a record that a reader assembled from a store. |
+| `compensation` | tuple or None | The perfect-AO stack that each trial removed, as a tuple of stages. `None` for an UNCORRECTED record. |
+| `n_modes_corrected` | int | The number of removed Noll modes. `0` for an uncorrected record. |
+| `screen_phase` | `np.ndarray` or None | The summed screen phase at the patch pixels, a `float32` array of the shape `(n_trials, n_patch)`. `None` unless the run used `store_screen_phase=True`. |
 
 **The record holds the per-trial SCALARS, and, when the caller asks for it, the
 OPTIONAL masked receive field (`fields` and `patch`).** The field capture is an
@@ -1134,20 +1154,50 @@ patch is a disc at the centre of the grid, in the pixel-centre convention of
 | `pixel_m` | float | The distance between two pixels, in m. |
 | `indices` | `np.ndarray` | The flat indices of the disc pixels, an `int32` array. The order is the C order of the `n` x `n` grid. |
 
-#### `recouple(result, detector, aperture_m, obscuration_ratio, lam, *, trials=None)`
+`FieldPatch.crop()` gives the `PatchCrop` of the patch, and it keeps it. A
+`PatchCrop` is the smallest SQUARE that holds every patch pixel and that keeps
+the centre pixel `int(n/2)` of the full grid at its own centre. It carries
+`offset` (the index of the first crop pixel on the grid), `side` (an ODD pixel
+count) and `indices` (the patch pixels, as flat crop indices).
+
+**THE CROP RULE (2026-09-07): PUPIL-plane quantities on the crop, FOCAL-plane
+quantities on the padded grid.** A stored trial holds the pixels of the patch
+disc only. The old read-back scattered them into the FULL grid, and every later
+step then swept the zero padding, which is most of the grid. The read now works
+on the crop, and it builds the clip mask, the fibre mode, the modal basis and
+the slope reconstructor ONE time for a call. The crop keeps the pixel pitch and
+the centre pixel of the grid, so the clip, the collected power, the single-mode
+overlap and the modal fit read the SAME pixels and give the same value. An
+`MMF` or a `Camera` FOCUSES the field, and the focal-plane pixel scale reads the
+grid EXTENT, so those pad the crop back to the full grid. Every read-back
+function takes `compact=True` (the default), and `compact=False` is the
+full-grid comparison route. Measured (`validation/posthoc_speed/`, 1024 px):
+the pupil routes agree to 3e-15 relative, the padded MMF route is bit-identical,
+and one trial is 2.4x to 12.5x faster.
+
+#### `trial_field(result, row, lam, *, compact=True)`
+
+It gives one STORED trial back as a `Field`. This is the PUBLIC reader of a
+stored receive field: it rebuilds the pixels of the patch and it wraps them as a
+`Field`, so a diagnostic (a camera image, a phase map, a plot) reads a stored
+trial with NO new propagation. `compact=True` gives the crop; `compact=False`
+gives the full grid, which a focal-plane quantity needs.
+`Campaign.field(row)` is the campaign-level wrapper.
+
+#### `recouple(result, detector, aperture_m, obscuration_ratio, lam, *, trials=None, compact=True)`
 
 It couples a STORED receive field into a detector, after the run. The function
 rebuilds the receive-plane field of each stored trial, it clips that field at
 the receive aperture, and it gives the coupling efficiency of the detector. So a
 campaign tries a NEW detector, a new focal length or a new defocus with NO new
-propagation. The physics is the physics of the run: the function calls the same
-internal helper on the same clipped field.
+propagation. The physics is the physics of the run: the clip mask, the fibre
+mode and the defocus phase are the arrays of the runner, and the function builds
+each one ONE time for the whole call.
 
-The reconstruction keeps the FULL grid. It scatters the stored patch values into
-a zero array of the whole grid, because a crop would change the zero padding,
-and the focal-plane pixel scale of a fibre coupling reads that padding. So the
-value equals the in-run value. The rebuild gives ONE grid at a time, so the
-memory holds one field only.
+The read obeys the CROP RULE above: it works on the square crop, and it pads the
+crop back to the full grid for an `MMF`. `compact=False` reads every trial on
+the full grid, which is the pre-2026-09-07 path. The rebuild gives ONE array at
+a time, so the memory holds one field only.
 
 - `detector` is an `SMF`, an `MMF`, an `Aperture`, a `Camera`, or `None`. A
   detector with no coupling model (a `Camera`, or `None`) gives `NaN`.
@@ -1157,14 +1207,44 @@ memory holds one field only.
 - A result that holds no field raises `ValueError`. A receive aperture larger
   than the stored patch also raises `ValueError`.
 
-#### `recollect(result, aperture_m, obscuration_ratio, *, trials=None)`
+#### `recouple_compensated(result, compensation, detector, aperture_m, obscuration_ratio, lam, *, source, trials=None, compact=True)`
+
+It corrects a STORED receive field, then it couples that field into a detector.
+This is the post-hoc twin of the runner correction, and the sibling of
+`recouple()`. It removes the first N Noll modes of each stored trial over the
+receive aperture, it clips the corrected field, and it couples it. So a stored
+campaign gives the fade of ANY compensation stack, with NO new propagation.
+
+- `compensation` is a sequence of `TipTilt` and `AO` stages. A stack that removes
+  no mode raises `ValueError`.
+- `source` is `"screens"` or `"slopes"`. `"screens"` reads the stored summed
+  screen phase, and it is the SPACE source; the result must hold a
+  `screen_phase` array (`store_screen_phase=True`), else the call raises
+  `ValueError`. `"slopes"` reads the wrapped-gradient slopes of the stored
+  field, and it is the TERRESTRIAL source. The slope route fits at least
+  `SLOPE_MIN_MODES` modes and it zeros the extra coefficients, exactly as the
+  runner does.
+- `detector`, `aperture_m`, `obscuration_ratio`, `lam`, `trials` and `compact`
+  act as they act in `recouple()`. The correction and the coupling both run on
+  the crop, and the modal basis and the slope reconstructor are built ONE time
+  for the whole call.
+- It returns a float array, one value for each selected trial. A detector with
+  no coupling model (a `Camera`, or `None`) gives `NaN`.
+
+The post-hoc route reproduces the in-run correction. Measured in the self-checks
+of `run.py` and `campaign.py` (a small grid): the `"screens"` route agrees with
+the in-run coupling to 9e-08, and the `"slopes"` route to 2e-02. The screen route
+is exact, because it reads the same sensed phase; the slope route senses the
+stored field, so it carries the sampling limit of Section 9h.
+
+#### `recollect(result, aperture_m, obscuration_ratio, *, trials=None, compact=True)`
 
 It gives the collected power of each STORED trial, in grid units. The value is
 the power of the clipped rebuilt field, and it is NOT normalised: the runner
 divides its `collected_power` by a vacuum reference, and this function does not
 know that reference. So divide by your OWN reference, or take the RATIO of two
-trials, which needs no reference. The rebuild is the full-grid rebuild of
-`recouple()` above.
+trials, which needs no reference. The power is a masked sum, so the crop of
+`recouple()` above gives it exactly.
 
 - `trials` is an optional sequence of trial row indices. `None` takes every
   stored trial.
@@ -1226,7 +1306,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1271,8 +1351,21 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   its own store, and a reopen with the other precision raises, so pass
   `precision="double"` to reopen an old store.
 
+- `compensation` passes to the runner (Section 9d): `None` (the default),
+  `"terminal"`, or a list of stages. The campaign RESOLVES the stack BEFORE the
+  fingerprint, so a campaign that asks for the terminal stack and a campaign
+  that gives the same stages share one key. It enters the manifest, and the
+  fingerprint when it is not `None`, so a corrected campaign never mixes its
+  blocks with an uncorrected one. A reopen that drops the stack raises
+  `ValueError`, and the message names the field.
+- `store_screen_phase` passes to the runner (Section 9d). It adds ONE array to
+  each block file, and it enters the fingerprint when it is `True`. Store it
+  when a SPACE campaign must answer post-hoc AO questions
+  (`recouple_compensated(source="screens")`).
+
 Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
-`patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`.
+`patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`, `precision`,
+`compensation`, `n_modes_corrected`, `store_screen_phase`.
 
 **The fingerprint.** `fingerprint` is `cache_key(...)` from
 `olb/waveoptics/turbulence/fingerprint.py`: one SHA-256 of everything that
@@ -1280,6 +1373,13 @@ changes a trial (the scenario repr, a canonical geometry signature, the preset,
 the seed, the screen generator, the outer scale, the subharmonic switch, the
 Cn2 inputs, the block size, a caller grid and plan, and `KEY_VERSION`). The manifest
 stores it, and an existing campaign whose fingerprint does not match raises.
+
+**THE APPEND-ONLY TAIL RULE.** An option that came after the first campaigns
+enters the key ONLY when it is not its default: `precision` when it is
+`"single"`, `fft_backend` when it is not `"numpy"`, `compensation` when it is not
+`None`, and `store_screen_phase` when it is `True`. A default therefore adds NO
+line to the hashed text, so every key that a stored campaign holds stays valid.
+Follow that rule for each new option.
 This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
 and which was RETIRED on 2026-09-04; the value of the key did not change, so an
 existing manifest still matches.
@@ -1303,21 +1403,85 @@ TRUE trial index, so
 `olb.models.waveoptics.waveoptics_turbulence_term` reads it unchanged.
 `n_trials=None` takes every stored trial. `fields=False` leaves
 `TurbWaveResult.fields` and `TurbWaveResult.patch` `None`, so a budget-only load
-stays small.
+stays small. `fields=False` KEEPS the stored screen phase: the two arrays are
+separate, and a caller that reads the phase does not always want the field.
 
-#### `Campaign.recouple(detector, aperture_m=None, obscuration_ratio=None, n_trials=None)`
+#### `Campaign.field(row, *, compact=True)`
+
+It gives one STORED trial back as a `Field`. This is the PUBLIC reader of a
+stored receive field, and the campaign-level wrapper of `trial_field()` of
+Section 9d. It reads the block that holds the trial only, so it needs no
+whole-campaign load. `compact=True` (the default) gives the square CROP of the
+patch; `compact=False` gives the FULL grid, which a focal-plane quantity needs
+(an `MMF`, a `Camera`). `examples/waveoptics/camera_tracking.py` uses it.
+
+#### `Campaign.map_trials(fn, *, n_trials=None, workers=None, fields=True, screen_phase=None, compact=True, boost=True)`
+
+**This is the ONE post-hoc primitive.** It maps a picklable per-trial callable
+over the stored blocks, and it returns the concatenation in trial order.
+`recouple`, `recollect` and `recouple_compensated` are thin wrappers over it,
+and a study writes its own `fn` for anything else.
+
+- `fn(record)` takes ONE `TrialRecord` and it gives a scalar, a tuple or a small
+  array. Every trial must give the same shape.
+- A `TrialRecord` carries `row` (the trial index), `array` (the rebuilt field,
+  on the crop), `patch`, `lam`, `scalars` (the stored columns, as a dict),
+  `screen_phase` (or `None`) and `context`. `record.field(compact=)` wraps the
+  array as a `Field`.
+- `context` is a plain dict that lives for ONE BLOCK. A callable that needs a
+  cached object (an aperture mask, a fibre mode, a modal basis) builds it on the
+  first trial of the block and it keeps it there. So the build happens one time
+  for each block, and it never crosses a process boundary.
+- The method reads ONE block at a time, so ten thousand trials never sit in
+  memory together.
+- `workers=None` (the default) runs the blocks in this process. An int `W` or
+  `"auto"` opens the SAME kind of warm `ProcessPoolExecutor` that `run()` uses,
+  with one task for each block; `fn` and the block results must pickle.
+  `boost=True` raises each worker to the Above Normal priority.
+- `fields=False` leaves `TrialRecord.array` `None`, which is cheaper for a
+  scalar-only pass. `screen_phase=False` never reads the phase; `True` raises
+  when the campaign holds none.
+
+**A process pool does not pay for a light read.** The Windows spawn costs 2.5 to
+4.4 s, and each worker imports olb again. Measured on the laptop at 1024 px with
+4 workers (`validation/posthoc_speed/`): a 256-trial `recouple` reads 0.59x (it
+LOSES), and the heavier compensated slope read 1.28x. Use `workers=` for a heavy
+read of a large campaign, and leave the default otherwise.
+
+#### `Campaign.recouple(detector, aperture_m=None, obscuration_ratio=None, n_trials=None, workers=None, compact=True)`
 
 It couples the STORED fields into a detector, with no new propagation, and it
 returns a float array of the coupling efficiency of each trial. `aperture_m` and
 `obscuration_ratio` of `None` take the values of the scenario receive terminal.
-The call STREAMS: it reads one block at a time, so ten thousand trials never sit
-in RAM at the same time. The physics is `recouple()` of Section 9d.
+The call is a `map_trials` wrapper, so it reads one block at a time and it takes
+`workers=` and `compact=`. The physics is `recouple()` of Section 9d, and it
+obeys the crop rule there.
 
-#### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None)`
+#### `Campaign.recouple_compensated(compensation, detector, aperture_m=None, obscuration_ratio=None, n_trials=None, source=None, workers=None, compact=True)`
+
+It corrects the STORED fields with a perfect-AO stack, then it couples them into
+a detector, and it returns a float array of the coupling efficiency of each
+trial. It is a `map_trials` wrapper, exactly as `Campaign.recouple` is, and the
+modal basis and the slope reconstructor are built ONE time for each block. The
+physics is `recouple_compensated()` of Section 9d.
+
+- `source=None` (the default) follows the channel family: `"screens"` for a
+  space campaign, `"slopes"` for a terrestrial one. `"screens"` needs a campaign
+  that ran with `store_screen_phase=True`, else the call raises `ValueError`.
+- `aperture_m` and `obscuration_ratio` of `None` take the values of the scenario
+  receive terminal.
+
+So an UNCORRECTED space campaign that stored its screen phase answers every AO
+question after the fact. The campaign self-check measures that: a post-hoc
+`TipTilt` correction of an uncorrected campaign agrees with an in-run `TipTilt`
+campaign of the same seed to better than 1e-04.
+
+#### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None, workers=None, compact=True)`
 
 It gives the collected power of each STORED trial, in grid units, as a float
 array. The value is NOT normalised: it holds no vacuum reference, so take the
-RATIO of two trials, or divide by your own reference. It streams the same way.
+RATIO of two trials, or divide by your own reference. It is a `map_trials`
+wrapper too, and the power is a masked sum, so the crop gives it exactly.
 
 #### `Campaign.n_stored`
 
@@ -1327,8 +1491,8 @@ A property. The number of trials on disk, counted from block 0 with no gap.
 
 | File | What it holds |
 |---|---|
-| `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. |
-| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the olb version, the scenario text, the grid, the plan and the patch shape. |
+| `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. A campaign with `store_screen_phase=True` adds ONE more array, the `float32` `screen_phase` rows. A block that a run wrote without it holds no such array, and a reader gives `None`. |
+| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the precision, the FFT backend, the compensation stack, the screen-phase switch, the olb version, the scenario text, the grid, the plan and the patch shape. A manifest from before an option reads that option's default (no compensation, no stored screen phase, `"double"`, `"numpy"`). |
 | `patch_indices.npy` | The flat pixel indices of the `FieldPatch`. |
 
 A block file holds ONE block, and the parent writes it with an atomic replace.
@@ -1494,6 +1658,125 @@ tens of milliseconds, and ten thousand trials of screens would take 200 to
 | The disk of one trial | about 320 KB |
 | The disk of 10,000 trials | about 3.2 GB |
 
+### 9h. The perfect-AO correction (`olb/waveoptics/compensation/`)
+
+The package holds the modal machinery that the runner of Section 9d applies. It
+is pure numpy and scipy, and it imports no other olb module, so the one-way
+dependency holds: `compensation/` <- `turbulence/run.py`, `campaign.py` and
+`olb/models/waveoptics.py`. It builds NO Term.
+
+**"PERFECT" MEANS AN IDEAL MODAL FIT.** There is no wavefront-sensor noise, no
+finite subaperture, no aliasing, no servo lag and no branch point. The residual
+is the pure fitting error of the higher modes. So the package gives the UPPER
+BOUND of the benefit of a corrector of that mode count, and it is the correct
+reference for the adaptive-optics fidelity-0 and fidelity-1 Terms. The
+correction is also a SNAPSHOT: no fade rate, and no fade duration.
+
+**THE ORDER IS NOLL, NOT ANSI/OSA.** The index starts at `j = 1` (piston),
+`j = 2` is the x tilt, `j = 3` is the y tilt and `j = 4` is defocus. Source:
+R. J. Noll, "Zernike polynomials and atmospheric turbulence," J. Opt. Soc.
+Am. 66(3), 207-211 (1976), DOI 10.1364/JOSA.66.000207, Table I. It is also the
+order that `olb.turbulence.ao` counts, so the analytic ladder and the
+wave-optics ladder count the SAME modes.
+
+#### `zernike.py` — the Noll modes and the mask
+
+- `noll_to_nm(j)` — the radial order `n` and the azimuthal order `m` of the Noll
+  index `j`. Noll 1976, Table I, printed p. 208. `j < 1` raises `ValueError`.
+- `zernike_j(N, j, mask=None, radius_px=None)` — the raster of one Noll mode on
+  an `N` x `N` grid, zero outside the unit circle and outside the mask. The
+  normalisation is Noll's, so each mode has unit variance over the unit disc.
+  Noll 1976, Eqs. (2) to (4), printed p. 208.
+- `zernike_basis(N, n_modes, mask, radius_px=None)` — the modes `j = 1 ..
+  n_modes` at the in-mask pixels, a `(n_pix, n_modes)` array.
+- `circle(N, d_px, obscuration_ratio=0.0)` — a hard circular mask of the
+  diameter `d_px` pixels, with an optional central obscuration. It keeps exactly
+  the pixels that `olb.waveoptics.sources.CircAperture` keeps, so a mode raster
+  and a stored field patch sit on the same pixels. Do not change that
+  convention.
+- `mask_radius_px(mask)` — the radius of the outermost in-mask pixel. A modal
+  fit uses it to normalise the modes over the APERTURE, not over the grid.
+
+#### `modal.py` — the projector
+
+- `modes_from_stack(stack)` — the number of Noll modes that a compensation stack
+  removes. The best-correcting stage wins: a `TipTilt` stage gives 3, and an
+  `AO(n)` stage gives `n`. An empty stack gives 0, and an unknown stage raises
+  `ValueError`. It reads the CLASS NAME of a stage, so the package does not
+  import `olb.terminal`.
+- `ApertureModes(n_modes, N, mask, radius_px=None)` — the Noll basis over one
+  aperture, and its least-squares reconstructor. Build it ONE time for one
+  `(n_modes, N, mask)` and keep it: the build cost is the pseudo-inverse of the
+  `(n_pix, n_modes)` matrix. The discrete modes are only near-orthogonal, and an
+  obscured mask breaks the orthogonality outright, so the object uses the
+  pseudo-inverse. Attributes: `n_modes`, `n`, `mask`, `indices`, `basis`,
+  `radius_px`, `n_pix`.
+  - `estimate(phase)` — the Noll coefficients of a sensing phase. The phase is
+    ARBITRARY, and it must NOT be wrapped.
+  - `estimate_from_slopes(sx, sy)` — the same coefficients from wrapped-gradient
+    slopes. The piston coefficient is `0.0`.
+  - `reconstruct(coeffs)` — the `(N, N)` phase map of a set of coefficients,
+    zero outside the mask.
+  - `apply(field, coeffs, sign=-1)` — `field * exp(sign * 1j *
+    reconstruct(coeffs))`. Use `sign=-1` to REMOVE the sensed phase, which is a
+    receive-side correction. Use `sign=+1` to ADD the conjugate phase, which is
+    the pre-distortion of an uplink pre-compensation. The amplitude does not
+    change.
+  - `residual_variance(phase, coeffs)` — the phase variance that the fit leaves
+    over the aperture. Noll's Table IV reports the same quantity.
+
+**THE SOURCE AND THE TARGET STAY APART.** `estimate` takes any sensing phase, and
+it does not assume that the phase comes from the field that `apply` corrects.
+That split is the hinge of a later point-ahead model (backlog 2-P4): a
+pre-compensation must estimate at the source direction and apply at the target
+direction.
+
+**THE RESIDUAL LAW.** A fit that removes the first J Noll modes leaves
+`sigma^2 = Delta_J (D/r0)^(5/3)` rad^2. Noll 1976, Table IV, printed p. 210. The
+module self-check measures it against the book: at `D/r0 = 6` the measured
+residual is 0.971 / 0.987 / 0.969 of the book value for J = 3, 10 and 21. The
+piston-only value (J = 1) reads 0.72, because the screens hold a FINITE outer
+scale; the self-check shows that cause, because a wider grid moves the value to
+0.81. See backlog 2-P5.
+
+#### `slopes.py` — the wrapped-gradient sensing route
+
+A stored receive-plane field holds the phase modulo 2 pi, and a modal fit of a
+wrapped phase map is wrong. A 2D phase unwrap is slow and fragile. So the module
+takes the phase DIFFERENCE of two adjacent pixels and it rewraps that difference
+into `(-pi, pi]`. For a complex field the difference is one product,
+`sx[i, k] = angle(E[i, k+1] * conj(E[i, k]))`.
+
+- `wrapped_gradient(field_or_phase, mask=None)` — the pair `(sx, sy)`, in radians
+  per pixel, of the shapes `(N, N-1)` and `(N-1, N)`. A pair with one pixel
+  outside the mask reads `0.0`.
+- `max_abs_step(sx, sy)` — the largest absolute phase step of a slope pair. A
+  value near pi means the grid is too coarse for the turbulence strength, and
+  the fit is then wrong. The runner warns past 2.8 rad per pixel.
+- `SlopeReconstructor(n_modes, N, mask, radius_px=None)` — the least-squares fit
+  of Noll coefficients to those slopes. It builds the slope-influence matrix one
+  time: it rasters each Noll mode, then it differences the raster with the SAME
+  finite-difference stencil. So the model and the measurement carry the same
+  discretisation error, and the two cancel. The module does NOT use the analytic
+  Zernike derivative. `measure(sx, sy)` selects the used pairs, and
+  `estimate(sx, sy)` gives the coefficients.
+
+**TWO LIMITS OF THE SLOPE ROUTE.**
+
+1. **It aliases above pi per pixel.** The rewrapped difference is the TRUE local
+   gradient only below that step. Test a grid with `max_abs_step`.
+2. **It needs enough modes.** The slope metric and the direct phase metric are
+   two different least-squares metrics, and an unfitted mode aliases into the
+   fitted modes differently in each one. On a Kolmogorov screen a 6-mode fit
+   reads a tilt 6 percent below the direct phase fit, and a 21-mode fit agrees
+   to 0.1 percent. So the runner always fits `max(N, 21)` modes and it zeros the
+   extra coefficients before it corrects (`SLOPE_MIN_MODES` in
+   `turbulence/run.py`).
+
+**PISTON IS UNOBSERVABLE** from slopes: its influence column is zero, so the fit
+returns `0.0` for `j = 1`. A piston is a constant phase, and it does not change a
+coupling efficiency.
+
 ---
 
 ## 10. The Schmidt foundation layer (`olb/waveoptics/schmidt/`)
@@ -1625,8 +1908,9 @@ passes them in. See [api-budget.md](api-budget.md) for the budget side.
 | `waveoptics_mmf_coupling_term(result, ...)` | The turbulent MMF-coupling face (`quantity="mmf_eta"`). |
 | `waveoptics_vacuum_term(result, ...)` | The deterministic vacuum-optics Term (launch to detector, no fade). |
 | `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
+| `flag_uncorrected_compensation(term, scenario)` | Not a factory. It flags a Term whose terminal declares a compensation stack that the wave record did not use. It returns the same Term. |
 
-### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
 
 It runs the wave-optics propagations that a fidelity-2 budget needs, one time
 each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence
@@ -1674,6 +1958,38 @@ terrestrial link. A space link with the default `vacuum="analytic"` makes NO
 vacuum run at all; `vacuum="wave"` makes one full-path solve for each arm, and
 that is slow (about 14 s each).
 
+**THE PERFECT-AO CORRECTION (`compensation`, 2026-09-07).** `compensation` and
+`store_screen_phase` pass to the runner of Section 9d, with the same meanings and
+the same defaults. `compensation="terminal"` reads the stack of the CLIP terminal
+(the GROUND terminal of a space link in EVERY direction), so:
+
+- A DOWNLINK or a TERRESTRIAL record then holds the corrected receive coupling.
+- An UPLINK record then holds a PRE-COMPENSATED beam. The correction touches the
+  ground-plane field BEFORE the Shapiro reciprocity overlap
+  (DOI 10.1364/JOSA.61.000492), so the launched beam carries the conjugate
+  wavefront.
+
+The fit is IDEAL, and the reciprocity route reads the SAME screens up and down,
+so the record carries NO point-ahead decorrelation, no wavefront-sensor noise and
+no servo lag. It is the UPPER BOUND of the benefit (Noll 1976,
+DOI 10.1364/JOSA.66.000207). The Terms say so; see the flags below.
+`store_screen_phase` needs a stored patch, which this entry point does not make.
+Use a `Campaign` for the post-hoc route.
+
+**THE TWO COMPENSATION FLAGS.**
+
+- `PERFECT AO` — `waveoptics_turbulence_term` adds it whenever the record
+  carries a correction. The Term `meta` then holds `compensation` (the stack
+  repr) and `n_modes_corrected`, and the note names the removed modes.
+- `UNCORRECTED` — `flag_uncorrected_compensation(term, scenario)` adds it when
+  the CLIP terminal declares a `TipTilt` or an `AO` stage but the record carries
+  NO correction. The reported fade is then too deep, because the budget ignores
+  that hardware. The function does nothing when the record IS corrected, or when
+  the terminal declares no stack, and it returns the same Term. The Term factory
+  has no scenario, so the three fidelity-2 budgets call it.
+- The pre-compensated uplink adds a third, `NO ANISOPLANATISM`; see
+  [api-budget.md](api-budget.md).
+
 `progress=True` (the default) prints a recap of the auto-chosen grid, the screen
 plan and the sampling quality, then it shows a tqdm bar over the turbulent
 trials. The one-time vacuum run has no bar. Pass `progress=False` for a quiet
@@ -1720,3 +2036,113 @@ received beam couples best at a POSITIVE `defocus_m`. The focal length comes
 from `SMF.focal_length_m`, or from `SMF.optimal_focus`
 (`f = pi*(D/2)*w_m/(lambda*1.12)`); a defocus with neither raises `ValueError`.
 `defocus_m=0.0` (the default) keeps the old focal-plane overlap exactly.
+
+---
+
+## 12. Hardware acceleration: the compute backends
+
+The fidelity-2 layer runs one work load, the fast Fourier transform. A trial is
+a stack of transforms: about 40 `Forvard` transforms at 1024 px (60 at 2048 px),
+plus one screen transform for each screen of the plan. So the transform library
+sets the speed of a trial and of a `Campaign`.
+
+`olb/waveoptics/propagators.py` holds one process-wide switch for that library:
+
+- `set_fft_backend(name)` — select the backend of `Forvard` and `Fresnel` for
+  this process. `name` is `"numpy"`, `"scipy"` or `"cupy"`. It returns the
+  previous name, so a caller can restore it. `"cupy"` imports cupy here, so a
+  machine with no CUDA device fails at this call and not in the middle of a run.
+- `get_fft_backend()` — read the current name.
+- `FFT_BACKENDS` — the tuple `("numpy", "scipy", "cupy")`.
+- `xp()` — the array module of the backend. It is numpy for `"numpy"` and
+  `"scipy"`, and cupy for `"cupy"`. A caller uses it in place of numpy where an
+  array must follow the backend. The screen factory and the split step read it.
+
+The three backends:
+
+| Backend | Device | Default | Bit-identical to numpy | Notes |
+|---|---|---|---|---|
+| `"numpy"` | CPU | yes | — | The backend of record. Every stored campaign was made with it. |
+| `"scipy"` | CPU | no (opt-in, 2026-09-06) | no | `scipy.fft` in place (`overwrite_x=True`). Transforms only. |
+| `"cupy"` | CUDA GPU | no (opt-in, 2026-09-07) | no | Accelerates the whole trial, not just the transforms. See 12a. |
+
+Neither opt-in is bit-identical to numpy, but both agree at the rounding level
+of the field precision (6e-7 relative on the collected power of a
+single-precision trial, 5e-16 in double for scipy). Measured on the test box,
+the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy and 15.6 ms in scipy, and
+a whole single-precision trial went 2.74 to 2.19 s with scipy (1.25x). See
+[`validation/memory_cut/README.md`](../validation/memory_cut/README.md) for the
+scipy measurements and [`validation/gpu_fft/README.md`](../validation/gpu_fft/README.md)
+for the cupy measurements.
+
+### 12a. What the CUDA path runs, and what stays on the host
+
+`"cupy"` is not an FFT-only backend. It runs the WHOLE trial on the device,
+except one deliberate part (see below). On the device:
+
+- The propagation transforms of `Forvard` and `Fresnel`.
+- The split step and the super-Gaussian boundary mask.
+- The phase screens. `ScreenFactory` reads `xp()` one time in `__init__`, so
+  the sqrt-PSD filter multiply, the subharmonic matrix products and the inverse
+  transform all run on the device.
+- The one-time SETUP (2026-09-07). The vacuum baseline of a space slab is a
+  whole split step, and a `Campaign` pays it at every block, so under `"cupy"`
+  it runs where the trials run.
+- The receive-plane TAIL (2026-09-07). The tail is the aperture clip, the
+  collected power, the single-mode fibre coupling and the reciprocity overlap.
+  None of the four depends on the atmosphere, so the runner caches the clip
+  mask, the fibre mode and the defocus phase on the device one time for the run
+  and applies them there. A trial then downloads the stored patch pixels only,
+  and nothing at all when the caller stores no patch. An MMF receiver keeps the
+  HOST tail and the one full download through `olb.waveoptics.field.to_host`.
+
+The ONE part that stays on the host, by design, is the white-noise random draw.
+The screen noise stays a numpy PCG64 host draw, in the same order and the same
+double precision, for every backend. The device route uploads the small cast
+noise grids only. The reason is reproducibility (see 12b). The runner hides the
+cost of the host draw: it draws the noise of the NEXT trial in threads while the
+device runs this trial (`ScreenFactory.draw` and `make_from_noise`). numpy
+releases the GIL on a big draw, so the threads give a real overlap.
+`ScreenFactory(lean=True)` has no device route and it raises.
+
+Measured on bigfraw (RTX 4070 Laptop): one SERIAL 1024 px trial ran 1751 ms with
+numpy and 93 ms with cupy (18.7x), and ONE GPU stream against the 12-worker CPU
+pool of record is 4.1x at 1024 px and 4.0x at 2048 px.
+
+### 12b. Reproducibility and the campaign fingerprint
+
+The random stream DOES NOT MOVE between backends. The same seed gives the same
+atmosphere on the CPU and on the GPU, because the PCG64 draw stays on the host.
+A device trial agrees with a host trial at the float32 rounding level (5.7e-06
+on the collected power and 1.6e-05 on the SMF eta, 48 trials at 2048 px). So a
+GPU run is a rounding-level match of a CPU run of the same seed, not a bit-for-
+bit match.
+
+A `Campaign` carries the backend name in its manifest, and in its fingerprint
+when the name is not `"numpy"`. So every stored `"numpy"` key stays valid, and a
+GPU campaign never mixes its blocks with a CPU one. To reproduce an old numpy
+run bit for bit, use `"numpy"`.
+
+The runner takes `fft_backend=` and always restores the previous backend when it
+returns. A `Campaign` sets the backend in the parent and in every pool worker.
+
+### 12c. How to turn it on
+
+The GPU backend needs the optional `cupy-cuda12x` package with the nvidia CUDA
+wheels. Install the `gpu` extra:
+
+```
+pip install -e .[gpu]
+```
+
+Then pass `fft_backend="cupy"` to the runner, to `run_fidelity2`, or to a
+`Campaign`. A `"cupy"` campaign runs its blocks one after the other in the
+CALLING process, whatever `run(workers=)` says: one device runs one stream. A
+`threader` with `"cupy"` raises `ValueError` for the same reason. A direct
+`propagate_turbulent_scenario` run over ssh must call
+`olb.waveoptics.priority.boost_process_priority()` itself; a
+`Campaign.run(boost=True)` does it for the parent and the workers.
+
+See [`validation/gpu_fft/README.md`](../validation/gpu_fft/README.md) for the
+microbenchmark, the measured speedups, and the host-versus-device random-draw
+design question.

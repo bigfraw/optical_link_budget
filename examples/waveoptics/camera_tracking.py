@@ -56,7 +56,6 @@ from olb.turbulence.profiles import DEFAULT_HS, default_cn2_profile
 from olb.waveoptics.camera import camera_image, spot_metrics
 from olb.waveoptics.run import _clip
 from olb.waveoptics.turbulence import Campaign
-from olb.waveoptics.turbulence.run import _patch_field, _rebuilt_fields
 
 WAVELENGTH_M = 1550e-9
 ALTITUDE_M = 600e3
@@ -130,25 +129,25 @@ def build_scenario():
                          channel=Channel(altitude_m=ALTITUDE_M))
 
 
-def measure(result, row):
-    '''Rebuild one STORED snapshot, clip it, and measure the camera image.
+def measure(campaign, row):
+    '''Read one STORED snapshot, clip it, and measure the camera image.
 
     The campaign keeps the receive-plane field of a trial on a disc of the
-    receive-aperture radius. The rebuild scatters that disc back on the FULL
-    grid, because the focal-plane pixel scale reads the whole grid. It uses the
-    helpers of olb.waveoptics.turbulence.run, the same rebuild the post-hoc
-    coupling (recouple) uses, so the image is the image of the run.
+    receive-aperture radius. `Campaign.field(row, compact=False)` gives that
+    disc back on the FULL grid, because the focal-plane pixel scale reads the
+    whole grid. It is the public reader of a stored trial, and it does the same
+    rebuild that the post-hoc coupling (recouple) does. So the image is the
+    image of the run.
 
     Args:
-        result: the TurbWaveResult of a campaign, loaded with fields=True.
-        row:    the trial index.
+        campaign: the Campaign that holds the trial.
+        row:      the trial index.
 
     Returns:
         The pair (image, metrics). The clip applies the ground aperture, so the
         image holds the light the telescope collects.
     '''
-    _, array = next(_rebuilt_fields(result, GROUND_APERTURE_M, [row]))
-    field = _patch_field(result.patch, array, WAVELENGTH_M)
+    field = campaign.field(row, compact=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         clipped = _clip(field, GROUND_APERTURE_M, GROUND_OBSCURATION)
@@ -265,7 +264,6 @@ def main():
                                 grid=grid, plan=plan, hs=hs,
                                 cn2_profile=cn2_profile)
             campaign.run(N_SNAPSHOTS, workers=WORKERS)
-            turb = campaign.load(N_SNAPSHOTS)
 
             # The still atmosphere: the same grid and the same screen
             # positions, with a very large Fried parameter, so the screens are
@@ -276,11 +274,11 @@ def main():
             still.run(1)
         print(f"  campaign {campaign.root_dir}")
 
-        img_still, m_still = measure(still.load(1), 0)
+        img_still, m_still = measure(still, 0)
 
         images, metrics = [], []
         for trial in range(N_SNAPSHOTS):
-            img, m = measure(turb, trial)
+            img, m = measure(campaign, trial)
             images.append(img)
             metrics.append(m)
 
