@@ -1,0 +1,145 @@
+{
+  "environment": {
+    "python": "3.11.16",
+    "numpy": "2.4.6",
+    "cupy": "14.2.0",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "cores": 32,
+    "gpu": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "platform": "Windows-10-10.0.26200-SP0"
+  },
+  "raw": {
+    "512": {
+      "numpy_c64_s": 0.006285600014962256,
+      "scipy_c64_s": 0.0008514999644830823,
+      "cupy_c64_s": 4.5900000259280205e-05,
+      "numpy_c128_s": 0.004457900009583682,
+      "scipy_c128_s": 0.0015181999769993126,
+      "cupy_c128_s": 0.00022490002447739244
+    },
+    "1024": {
+      "numpy_c64_s": 0.030563100008293986,
+      "scipy_c64_s": 0.004199600021820515,
+      "cupy_c64_s": 7.399998139590025e-05,
+      "numpy_c128_s": 0.0240079999784939,
+      "scipy_c128_s": 0.007278800010681152,
+      "cupy_c128_s": 0.0009630999993532896
+    },
+    "2048": {
+      "numpy_c64_s": 0.15405509999254718,
+      "scipy_c64_s": 0.022048900020308793,
+      "cupy_c64_s": 0.0006119000026956201,
+      "numpy_c128_s": 0.13959460001206025,
+      "scipy_c128_s": 0.06246759998612106,
+      "cupy_c128_s": 0.003888599982019514
+    },
+    "4096": {
+      "numpy_c64_s": 0.7001306000165641,
+      "scipy_c64_s": 0.15728039998793975,
+      "cupy_c64_s": 0.04154099995503202,
+      "numpy_c128_s": 0.5791317000403069,
+      "scipy_c128_s": 0.29222659999504685,
+      "cupy_c128_s": 0.016726600006222725
+    }
+  },
+  "cases": [
+    {
+      "n": 1024,
+      "n_screens": 9,
+      "cpu": {
+        "numpy": {
+          "s_per_trial": 1.939897966668165,
+          "n_forvard_ffts": 40,
+          "collected_power": 1.0628600120544434
+        },
+        "scipy": {
+          "s_per_trial": 1.5160008999907102,
+          "n_forvard_ffts": 40,
+          "collected_power": 1.0628597736358643
+        }
+      },
+      "gpu_noise_host": {
+        "s_per_trial": 0.30994745999341833,
+        "host_draw_s": 0.20634159998735413,
+        "gpu_only_s": 0.24484890000894666,
+        "download_s": 0.001478100020904094,
+        "n_hops": 20,
+        "n_screens": 9,
+        "noise": "host"
+      },
+      "speedup_host_vs_numpy_serial": 6.258796141479457,
+      "speedup_host_vs_scipy_serial": 4.891154455735505,
+      "gpu_noise_threads": {
+        "s_per_trial": 0.06603188000153751,
+        "host_draw_s": 0.03951159998541698,
+        "gpu_only_s": 0.06947639997815713,
+        "download_s": 0.0014542000135406852,
+        "n_hops": 20,
+        "n_screens": 9,
+        "noise": "threads"
+      },
+      "speedup_threads_vs_numpy_serial": 29.378202871446273,
+      "speedup_threads_vs_scipy_serial": 22.958620895776573,
+      "gpu_noise_device": {
+        "s_per_trial": 0.020591159991454333,
+        "host_draw_s": 0.0,
+        "gpu_only_s": 0.019931000017095357,
+        "download_s": 0.001497299992479384,
+        "n_hops": 20,
+        "n_screens": 9,
+        "noise": "device"
+      },
+      "speedup_device_vs_numpy_serial": 94.21023232655442,
+      "speedup_device_vs_scipy_serial": 73.62387066196733
+    },
+    {
+      "n": 2048,
+      "n_screens": 9,
+      "cpu": {
+        "numpy": {
+          "s_per_trial": 12.31460299998677,
+          "n_forvard_ffts": 60,
+          "collected_power": 1.0105739831924438
+        },
+        "scipy": {
+          "s_per_trial": 8.99609136666792,
+          "n_forvard_ffts": 60,
+          "collected_power": 1.0105726718902588
+        }
+      },
+      "gpu_noise_host": {
+        "s_per_trial": 1.1726967600057834,
+        "host_draw_s": 0.8445648000342771,
+        "gpu_only_s": 1.1606504999799654,
+        "download_s": 0.005294200032949448,
+        "n_hops": 30,
+        "n_screens": 9,
+        "noise": "host"
+      },
+      "speedup_host_vs_numpy_serial": 10.501097487406751,
+      "speedup_host_vs_scipy_serial": 7.67128525760023,
+      "gpu_noise_threads": {
+        "s_per_trial": 0.34927394000114875,
+        "host_draw_s": 0.16384910000488162,
+        "gpu_only_s": 0.4762297000270337,
+        "download_s": 0.005516399978660047,
+        "n_hops": 30,
+        "n_screens": 9,
+        "noise": "threads"
+      },
+      "speedup_threads_vs_numpy_serial": 35.25772063024876,
+      "speedup_threads_vs_scipy_serial": 25.75654904754226,
+      "gpu_noise_device": {
+        "s_per_trial": 0.28423790000379084,
+        "host_draw_s": 0.0,
+        "gpu_only_s": 0.28172660002019256,
+        "download_s": 0.0054682999616488814,
+        "n_hops": 30,
+        "n_screens": 9,
+        "noise": "device"
+      },
+      "speedup_device_vs_numpy_serial": 43.32498586508883,
+      "speedup_device_vs_scipy_serial": 31.649865716528094
+    }
+  ]
+}
