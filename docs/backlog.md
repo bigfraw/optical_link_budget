@@ -1417,7 +1417,23 @@ The path forward for each is a second reference or a derivation.
   unmeasured (a 3-screen run on 5 km / 1e-14 gives 1.27 per screen; a
   2-screen run on 5 km / 3e-15 gives 0.57 but sits under the 4-screen moment
   floor of Schmidt Eq. (9.65)); each is a 15-minute run with the sweep
-  script. The only other
+  script.
+  NEXT (owner, 2026-09-07, to run in another session): THE RAYLEIGH-RANGE
+  ANGLE. Every sweep so far used the 5 mm waist, whose Rayleigh range is
+  5 cm, so every screen sees a spherical wave from a point source and the
+  screen placement changes nothing qualitative; that may be part of why the
+  count was so forgiving. The owner posits more count sensitivity when the
+  screen placement moves relative to the Rayleigh range. The waist that makes
+  it bite on the 5 km cell is about 2 cm: z_R = 0.8 km against the 0.55 km
+  screen spacing of 9 screens, the beam is 12.6 cm at 5 km and the 10 cm
+  aperture captures about 73 percent of it (the beam-filling regime of
+  2-N2), the first screens see a near-planar wavefront and the last a
+  spherical one, and the planner's plane-wave weight stops being a uniform
+  approximation. THE BUILD: a `--waist-m` option on the sweep script and a
+  reference taken from one override count (the 20-screen count, the finest
+  cut) instead of the backbone campaign; counts 3 / 5 / 9 / 15 / 20 at 2000
+  trials, about 1.5 h at 12 workers (the grid is cheaper: the feature rule
+  wants a 5 mm pixel). The only other
   resolution flags are the centre-pixel p5 (about -0.4 dB at 5 AND at 20
   screens alike, the shared reference sample two bars high) and a few p1
   entries at one to two bars. The speed changes are ruled out as a cause of
