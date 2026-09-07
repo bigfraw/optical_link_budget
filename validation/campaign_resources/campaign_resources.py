@@ -309,8 +309,10 @@ def plot(rows, ncpu, workers, path):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--n-trials", type=int, default=4000)
-    ap.add_argument("--workers", type=int, default=16,
-                    help="the process-pool size; --threads ignores it")
+    ap.add_argument("--workers", default="16",
+                    help="the process-pool size, an int or 'auto' (90 percent "
+                         "of the cores under the free memory); --threads "
+                         "ignores it")
     ap.add_argument("--threads", action="store_true",
                     help="workers=None: serial blocks, threaded inside")
     ap.add_argument("--block-size", type=int, default=50)
@@ -332,10 +334,12 @@ def main(argv=None):
                     help="8 trials, blocks of 2, 2 workers, rapid preset")
     args = ap.parse_args(argv)
     if args.smoke:
-        args.n_trials, args.block_size, args.workers = 8, 2, 2
+        args.n_trials, args.block_size, args.workers = 8, 2, "2"
         args.preset = "rapid"
 
     boost_process_priority()    # Campaign.run repeats it; the monitor thread runs boosted too.
+    if not args.threads and args.workers != "auto":
+        args.workers = int(args.workers)
     workers = None if args.threads else args.workers
     n_blocks = -(-args.n_trials // args.block_size)
     if workers is not None and n_blocks < workers:

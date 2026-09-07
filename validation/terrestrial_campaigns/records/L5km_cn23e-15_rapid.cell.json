@@ -1,0 +1,83 @@
+{
+ "cell": "5km:3e-15:rapid",
+ "path_length_m": 5000.0,
+ "cn2_m_m23": 3e-15,
+ "preset": "rapid",
+ "launch": "collimated",
+ "divergence_rad": null,
+ "wavelength_m": 1.55e-06,
+ "waist_m": 0.005,
+ "sigma2_R_plane": 1.141898684564992,
+ "rho0_m": 0.029262789744014018,
+ "r0_m": 0.06145185846242944,
+ "beam_radius_m": 0.4934056583590388,
+ "apertures": [
+  {
+   "aperture_m": 0.05,
+   "eta_fill": 0.005121383370994548,
+   "curvature_focus_shift_m": 1.1068603647975112e-05,
+   "smf_focal_length_m": 0.23525751438172413,
+   "smf_mode_field_radius_m": 5.2e-06
+  },
+  {
+   "aperture_m": 0.1,
+   "eta_fill": 0.020328698696444825,
+   "curvature_focus_shift_m": 4.4276497751734145e-05,
+   "smf_focal_length_m": 0.47051502876344825,
+   "smf_mode_field_radius_m": 5.2e-06
+  }
+ ],
+ "grid": {
+  "n": 1024,
+  "side_m": 2.493924550542612,
+  "pixel_m": 0.0024354731938892697,
+  "scaled": false
+ },
+ "screens": {
+  "n": 5,
+  "z_m": [
+   286.497577697247,
+   894.4519745996354,
+   1591.3167848609103,
+   2444.199465396214,
+   3960.8370774376917
+  ],
+  "sigma2_r": [
+   0.2278928503293114,
+   0.2279057193629878,
+   0.22793744806485092,
+   0.2280584242131334,
+   0.23446425666559767
+  ],
+  "r0_m": [
+   0.2257431872249519,
+   0.21067530885227728,
+   0.19194867446576608,
+   0.1661563763126821,
+   0.1042022362985076
+  ],
+  "r0_total_m": 0.0615351438126442
+ },
+ "sizer": {
+  "warnings": [
+   "turbulent_grid: the pixel count wants 2048, but n_max is 1024. The grid keeps its side and takes a coarse pixel."
+  ],
+  "step_over_limit_max": 0.3870319837342729,
+  "pixels_per_r0": 25.266196305111922,
+  "grid_margin": 1.7982002131729142,
+  "fresnel_pixels_min": 16.478751953183934,
+  "n_clamped": true
+ },
+ "campaign": {
+  "root": "D:\\repos\\optical_link_budget\\validation\\terrestrial_campaigns\\campaigns\\L5km_cn23e-15_rapid",
+  "seed": 20260906,
+  "block_size": 50,
+  "L0_m": 25.0,
+  "precision": "single",
+  "patch_radius_m": 0.05,
+  "patch_n": 1024,
+  "patch_pixels": 1321,
+  "patch_pixel_m": 0.0024354731938892697,
+  "fingerprint": "d9ccd65f1c24d73f2353c6500424a640e5c0a37a54795e2d6ff304dfc4820458"
+ }
+}

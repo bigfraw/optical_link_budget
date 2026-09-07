@@ -1,0 +1,9 @@
+--- 10km:1e-14:standard ---
+  root        : D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\L10km_cn21e-14_standard_scipy_lean
+  grid        : 2048 px, 9.174 m, 35 screens, L0 = 25.0 m
+  on disk     : 0 trials before this call
+  sizer warns : turbulent_grid: the grid gives 1.12 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.59), printed p. 127.
+  sizer warns : turbulent_grid: the pixel count wants 8192, but n_max is 2048. The grid keeps its side and takes a pixel 4.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 1.12 < 4 (feature 5.0 mm).
+  ran         : 2000 new trials in 7616.0 s (3.808 s/trial), 2000 on disk
+  mean loss   : collected power 23.63 dB, SMF coupling 9.83 dB
+

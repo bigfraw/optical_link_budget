@@ -72,8 +72,9 @@ The numbers below print when the scripts run. They are stable across seeds.
   caps the LOG-AMPLITUDE variance `sigma_chi^2` at `rmax = 0.1` (Listing 9.5,
   printed p. 175). The production planner caps the plane-wave RYTOV variance
   `sigma_R^2`, and `sigma_R^2 = 4 sigma_chi^2`. So the book cap is 0.4 on the
-  production number, and the presets 0.05 / 0.10 / 0.25 are 8x / 4x / 1.6x
-  stricter than the book.
+  production number. Since 2026-09-06 the presets are 0.2 / 0.4 / 0.4:
+  `standard` and `rapid` take the book cap exactly, and `reference` is 2x
+  stricter.
 
 ## Wiring status
 

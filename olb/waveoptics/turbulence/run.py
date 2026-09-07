@@ -43,7 +43,7 @@ from ...beam import virtual_waist
 from ...terminal import Aperture, Camera, SMF, MMF
 from ..field import Begin, Power, field_dtype
 from ..mmf import mmf_coupling_efficiency
-from ..propagators import GForvard
+from ..propagators import GForvard, set_fft_backend
 from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
 from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
@@ -364,17 +364,18 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
                                seed=seed_int, subharmonics=subharmonics)
             return scr.astype(np.float32) if single else scr
         return build
-    if screen_generator == "olb":
+    if screen_generator in ("olb", "olb-lean"):
         factory = ScreenFactory(grid.n, grid.pixel_m, L0_m=L0_m,
                                 subharmonics=subharmonics,
-                                dtype=np.float32 if single else np.float64)
+                                dtype=np.float32 if single else np.float64,
+                                lean=(screen_generator == "olb-lean"))
 
         def build(seed_int, r0_m):
             return factory.make(r0_m, np.random.default_rng(seed_int))
         return build
     raise ValueError(
-        f"propagate_turbulent_scenario: screen_generator must be 'aotools' or "
-        f"'olb', not {screen_generator!r}.")
+        f"propagate_turbulent_scenario: screen_generator must be 'aotools', "
+        f"'olb' or 'olb-lean', not {screen_generator!r}.")
 
 
 def _start_field(scenario, grid, lam, is_space, dtype=np.complex128):
@@ -465,7 +466,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  subharmonics=True, threader=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None, start_index=0,
-                                 patch_radius_m=None, precision="single"):
+                                 patch_radius_m=None, precision="single",
+                                 fft_backend="numpy"):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -523,7 +525,19 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         threader:     an optional olb.waveoptics.Threader. None runs the trials
                       one by one. A Threader runs them across threads, and it
                       keeps the trial order.
-        screen_generator: "olb" (the default) or "aotools". The default is the
+        fft_backend:  "numpy" (the default, the backend of record) or
+                      "scipy" (an OPT-IN, 2026-09-06). "scipy" runs the
+                      Forvard transforms in place through scipy.fft, 2.7
+                      times faster on the tested machine, and it agrees with
+                      "numpy" at the rounding level of the field precision.
+                      It is NOT bit-identical. The setting is process wide
+                      for the length of the call; a Campaign passes it to
+                      every pool worker.
+        screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
+                      2026-09-06: the same physics through the lean body of
+                      `ScreenFactory`, one third fewer full-grid passes, the
+                      SAME random stream, agreement at the rounding level,
+                      NOT bit-identical) or "aotools". The default is the
                       fast cached ScreenFactory of screens.py. "aotools" keeps
                       an old aotools run bit-identical. The two generators give
                       DIFFERENT random draws for the same seed; the statistics
@@ -658,8 +672,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     def run_one(k):
         """Run trial k. It touches only its own state and read-only setup."""
         t0 = time.perf_counter()
-        stack = [build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
-                 for j in range(n_screens)]
+        # A GENERATOR, not a list: split_step takes the screens one at a time,
+        # so a strong path never holds the full stack. At 2048 px a float32
+        # screen is 16 MB. ScreenFactory makes two screens for each FFT and it
+        # caches the spare, so the peak is two screens, not one. The seed of
+        # screen j does not depend on the order, so the values do not change.
+        stack = (build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
+                 for j in range(n_screens))
         F_start = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
                    else F_in)
         F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
@@ -699,6 +718,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                          mmf_eta=mmf_eta, detector_etas=detector_etas)
 
     bar = _progress_bar(progress, n_trials, "turbulent trials")
+    # The backend changes the process state, so it is set immediately before
+    # the try. Then the finally below always restores it, whatever happens.
+    previous_backend = set_fft_backend(fft_backend)
     try:
         ks = range(int(start_index), int(start_index) + int(n_trials))
         if threader is None:
@@ -711,6 +733,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             cb = (lambda done, total: bar.update(1)) if bar is not None else None
             trials = threader.map(run_one, ks, progress=cb)
     finally:
+        set_fft_backend(previous_backend)
         if bar is not None:
             bar.close()
 
@@ -758,7 +781,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                       Space only.
         L0_m:         the outer scale of the screens, in m.
         subharmonics: True adds the three subharmonic levels to each screen.
-        screen_generator: "olb" (the default) or "aotools". See
+        screen_generator: "olb" (the default), "olb-lean" or "aotools". See
                       propagate_turbulent_scenario. The two give different draws
                       for the same seed.
         precision:    "single" (the default) or "double". "single" runs the
@@ -804,8 +827,11 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     entropy = _resolve_seed(seed)
     build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
                                    dtype=cdtype)
-    stack = [build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
-             for j in range(int(plan.z_m.size))]
+    # A GENERATOR, not a list. See run_one in propagate_turbulent_scenario:
+    # split_step takes the screens one at a time, so the memory holds two
+    # screens (ScreenFactory caches the spare of each FFT), not the stack.
+    stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
+             for j in range(int(plan.z_m.size)))
     F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
     F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m, boundary=mask)
     return F_rx, grid, plan

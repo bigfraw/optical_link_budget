@@ -71,6 +71,7 @@ import numpy as np
 
 from ..grid import GridSpec
 from ..priority import boost_process_priority
+from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
@@ -193,7 +194,8 @@ def _run_block(b):
         L0_m=_W["kwargs"]["L0_m"],
         subharmonics=_W["kwargs"]["subharmonics"],
         screen_generator=_W["kwargs"]["screen_generator"],
-        precision=_W["kwargs"]["precision"])
+        precision=_W["kwargs"]["precision"],
+        fft_backend=_W["kwargs"]["fft_backend"])
     return int(b), _columns_of(res)
 
 
@@ -219,7 +221,7 @@ class Campaign:
                  sizing_aperture_m=None, grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
                  subharmonics=True, screen_generator="olb",
-                 precision="single"):
+                 precision="single", fft_backend="numpy"):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -259,7 +261,14 @@ class Campaign:
             h_top_m:       the atmosphere top for the continuous integral.
             L0_m:          the outer scale of the screens, in m.
             subharmonics:  True adds the three subharmonic levels.
-            screen_generator: "olb" (the default) or "aotools".
+            screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
+                           not bit-identical) or "aotools".
+            fft_backend:   "numpy" (the default, the backend of record) or
+                           "scipy" (an OPT-IN, 2026-09-06, faster, agreement
+                           at the rounding level, NOT bit-identical). It
+                           enters the fingerprint only when "scipy", so every
+                           stored key stays valid. See
+                           olb.waveoptics.propagators.set_fft_backend.
             precision:     "single" (the default) or "double". "single" runs
                            every trial in complex64, with float32 phase
                            screens. WHY: a campaign is memory-bandwidth bound,
@@ -278,6 +287,10 @@ class Campaign:
                         unknown, or an existing campaign in this directory
                         holds different settings.
         """
+        if fft_backend not in ("numpy", "scipy"):
+            raise ValueError(
+                f"Campaign: fft_backend must be 'numpy' or 'scipy', not "
+                f"{fft_backend!r}.")
         if precision not in ("double", "single"):
             raise ValueError(
                 f"Campaign: precision must be 'double' or 'single', not "
@@ -294,6 +307,7 @@ class Campaign:
         self.block_size = int(block_size)
         self.screen_generator = screen_generator
         self.precision = precision
+        self.fft_backend = fft_backend
         self.L0_m = float(L0_m)
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
@@ -311,7 +325,7 @@ class Campaign:
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
             block_size=self.block_size, grid=grid, plan=plan,
-            precision=self.precision)
+            precision=self.precision, fft_backend=self.fft_backend)
 
         os.makedirs(self.root_dir, exist_ok=True)
         manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
@@ -365,10 +379,12 @@ class Campaign:
                 "patch_radius_m": self.patch_radius_m,
                 "sizing_aperture_m": self.sizing_aperture_m,
                 "precision": self.precision,
+                "fft_backend": self.fft_backend,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
-        defaults = {"precision": "double"}
+        # The same for the FFT backend: an older manifest is a numpy store.
+        defaults = {"precision": "double", "fft_backend": "numpy"}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -393,6 +409,7 @@ class Campaign:
             "sizing_aperture_m": self.sizing_aperture_m,
             "screen_generator": self.screen_generator,
             "precision": self.precision,
+            "fft_backend": self.fft_backend,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -454,9 +471,44 @@ class Campaign:
                 "patch_radius_m": self.patch_radius_m, "L0_m": self.L0_m,
                 "subharmonics": self.subharmonics,
                 "screen_generator": self.screen_generator,
-                "precision": self.precision}
+                "precision": self.precision,
+                "fft_backend": self.fft_backend}
 
-    def run(self, n_trials, *, workers=None, progress=False, boost=True):
+    def worker_memory_bytes(self):
+        """Estimate the peak memory of one pool worker of this campaign.
+
+        It reads the grid, the precision, the block size, the patch and the
+        hop count of the plan. See olb.waveoptics.resources.
+
+        Returns:
+            An int, in bytes.
+        """
+        patch_pixels = 0 if self.patch is None else int(self.patch.indices.size)
+        return worker_memory_bytes(self.grid.n, self.precision,
+                                   block_size=self.block_size,
+                                   patch_pixels=patch_pixels,
+                                   n_hops=int(self.plan.z_m.size) + 1)
+
+    def auto_workers(self, *, cpu_fraction=0.9, memory_fraction=0.9):
+        """Give the pool size that fills the machine for this campaign.
+
+        The count is the smaller of the CPU limit (`cpu_fraction` of the
+        logical cores) and the memory limit (`memory_fraction` of the free
+        memory over `worker_memory_bytes()`), and it is at least 1. It is
+        also capped at the block count, because more workers than blocks
+        sit idle.
+
+        Returns:
+            The pair (workers, reason), with the reason "cpu", "memory" or
+            "blocks".
+        """
+        k, why = auto_workers(self.worker_memory_bytes(),
+                              cpu_fraction=cpu_fraction,
+                              memory_fraction=memory_fraction)
+        return k, why
+
+    def run(self, n_trials, *, workers=None, progress=False, boost=True,
+            cpu_fraction=0.9, memory_fraction=0.9):
         """Compute and store the MISSING blocks up to n_trials trials.
 
         A block that already sits on disk is not recomputed. The parent writes
@@ -469,8 +521,15 @@ class Campaign:
             workers:  None runs the blocks one after the other in this process,
                       each block threaded inside. An int W opens ONE process
                       pool of W processes for the whole call, and each block
-                      runs serially inside its process.
-            progress: True prints one line for each finished block.
+                      runs serially inside its process. The string "auto"
+                      opens a pool sized by `auto_workers()`: `cpu_fraction`
+                      of the logical cores, held under `memory_fraction` of
+                      the free memory, and never more than the missing
+                      blocks.
+            progress: True prints one line for each finished block, and the
+                      pool size and its reason for "auto".
+            cpu_fraction, memory_fraction: the two limits of "auto". They
+                      are ignored for None and for an int.
             boost:    True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS), and every pool worker does the
@@ -486,6 +545,18 @@ class Campaign:
         if not missing:
             return self.n_stored
 
+        if isinstance(workers, str):
+            if workers != "auto":
+                raise ValueError(f"Campaign.run: workers must be None, an int "
+                                 f"or 'auto', not {workers!r}.")
+            workers, why = self.auto_workers(cpu_fraction=cpu_fraction,
+                                             memory_fraction=memory_fraction)
+            if workers > len(missing):
+                workers, why = len(missing), "blocks"
+            if progress:
+                per = self.worker_memory_bytes() / 2 ** 20
+                print(f"  auto pool: {workers} workers ({why} limit, "
+                      f"{per:.0f} MiB per worker)")
         if boost:
             boost_process_priority()    # Threads inherit; workers boost themselves.
         t0 = time.time()
@@ -499,7 +570,8 @@ class Campaign:
                     patch_radius_m=self.patch_radius_m, L0_m=self.L0_m,
                     subharmonics=self.subharmonics,
                     screen_generator=self.screen_generator,
-                    precision=self.precision, threader=threader)
+                    precision=self.precision, threader=threader,
+                    fft_backend=self.fft_backend)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "
@@ -722,6 +794,24 @@ if __name__ == '__main__':
             # ---- 4. the Term reducer reads a loaded record unchanged ----
             small = camp.load(12, fields=False)
             assert small.fields is None and small.patch is None
+
+            # The auto pool. The estimate is positive, the count is at least
+            # one, and "auto" on a campaign with no missing block is a no-op.
+            assert camp.worker_memory_bytes() > 0
+            k, why = camp.auto_workers()
+            assert k >= 1 and why in ("cpu", "memory"), (k, why)
+            assert camp.run(12, workers="auto") == 12
+            # A third block through "auto" matches the seeded serial route.
+            bs = common["block_size"]
+            camp.run(4 * bs, workers="auto", progress=True)
+            with np.load(camp._block_path(3)) as za:
+                ref = propagate_turbulent_scenario(
+                    scn, orbit, n_trials=bs, start_index=3 * bs,
+                    seed=common["seed"], preset=camp.preset, grid=camp.grid,
+                    plan=camp.plan, patch_radius_m=camp.patch_radius_m,
+                    L0_m=camp.L0_m, precision=camp.precision, threader=None)
+                assert np.array_equal(za["fields"], ref.fields)
+            print(f"  auto pool                      {k} workers ({why})")
             term = waveoptics_turbulence_term(small, quantity="collected_power")
             assert term.mean_db is not None
 

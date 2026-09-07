@@ -29,9 +29,12 @@ against the same Terms. The remaining owner gate is whether fidelity 2 ever
 becomes a DEFAULT.
 
 The core (`field.py`, `sources.py`, `propagators.py`, `lenses.py`, `smf.py`,
-`mmf.py`, `camera.py`) imports numpy and scipy only, and `threader.py` and
+`mmf.py`, `camera.py`) imports numpy and scipy only, `threader.py` and
 `priority.py` (the process priority boost of a long run, see the `boost`
-paragraph of Section 9g) import the standard library only. They import nothing
+paragraph of Section 9g) import the standard library only, and `resources.py`
+(the free memory, the per-worker memory estimate and the automatic pool size,
+see the `workers` paragraph of Section 9g) imports the standard library and
+numpy only. They import nothing
 from the rest of `olb`. Only `grid.py` and `run.py` read a scenario. The turbulent sub-package keeps the same
 tiers (see Section 9).
 
@@ -106,7 +109,35 @@ the tilt.
 ## 3. The propagators (`olb/waveoptics/propagators.py`)
 
 - `Forvard(Fin, z)` — the FFT angular-spectrum method. A negative `z` propagates
-  back. The grid keeps its side and its pitch.
+  back. The grid keeps its side and its pitch. THE FACTORS ARE CACHED
+  (2026-09-06): the sign pattern (one for each `(N, dtype)`) and the wrapped
+  transfer function (one for each `(N, size, lam, |z|, dtype)`) live in a
+  module dict, because a split-step Monte Carlo makes the SAME hops in every
+  trial, and the old body rebuilt four `N x N` arrays (three in double
+  precision) on every hop. The cached value is bit-identical to the old one:
+  the phase wrap still runs in float64, and the cache stores the finished
+  factor only. The cache is bounded in BYTES by `FORVARD_CACHE_BYTES` (256 MiB
+  by default; a 1024 px factor is 8 MiB single, 16 MiB double), and past the
+  bound it drops the oldest factor. `clear_forvard_cache()` empties it, and
+  `forvard_cache_bytes()` reads its size. Measured on a 1024 px grid, one
+  serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
+  and 7.21 to 5.48 s double (15 screens), with the same numbers.
+- THE FFT BACKEND (an OPT-IN, 2026-09-06). `set_fft_backend("numpy"|"scipy")`
+  selects the transforms of `Forvard` and `Fresnel` for this process and it
+  returns the previous name; `get_fft_backend()` reads it; `FFT_BACKENDS`
+  lists the names. `"numpy"` (the default) is the backend of record: every
+  stored campaign was made with it. `"scipy"` runs the same transforms through
+  `scipy.fft` with `overwrite_x=True`, so the result lands in the work array.
+  On the tested machine the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy
+  and 15.6 ms in scipy, and a whole single-precision trial went 2.74 to
+  2.19 s (1.25x). The two agree at the rounding level of the field precision
+  (6e-7 relative on the collected power and the SMF eta of a single-precision
+  trial, 5e-16 in double), but a scipy run is NOT bit-identical to a numpy
+  run of the same seed. So the runner takes `fft_backend=` and restores the
+  previous backend when it returns, and a `Campaign` carries the name in its
+  fingerprint and manifest (only when `"scipy"`, so every stored key stays
+  valid) and sets it in every pool worker. See
+  `validation/memory_cut/README.md`.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -555,7 +586,8 @@ the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
   screen is a thin, pure phase element, so the power does not change. It raises
   `ValueError` on a spherical field and on a wrong-shape phase array.
 - `ScreenFactory(n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-  n_sub_levels=3, dtype=np.float64)` — the FAST screen generator, and the
+  n_sub_levels=3, dtype=np.float64, lean=False)` — the FAST screen generator,
+  and the
   DEFAULT of the runner (`screen_generator="olb"`). It caches the sqrt-PSD
   filter and the separable subharmonic basis ONE time for the grid, then it
   scales them for each screen by the scalar `r0^(-5/6)`. `make(r0_m, rng)` gives
@@ -619,7 +651,14 @@ backlog 2-P5.
   reads the rest of `olb`). It returns a new `Field` at `z_total_m`. It raises
   `ValueError` on a spherical field, on unsorted distances, on a distance outside
   `[0, z_total_m]`, on a screen count that does not match the distances, and on a
-  wrong-shape screen or mask.
+  wrong-shape screen or mask. `screens` can be ANY iterable, a list or a
+  GENERATOR (2026-09-06): the loop takes one screen at a time and keeps no
+  stack, so a strong path with many screens holds only the screen it uses (at
+  2048 px a float32 screen is 16 MB). The runners in `turbulence/run.py` give a
+  generator. The count check runs after the walk, because a generator has no
+  length, and a stack with MORE screens than distances raises. The peak memory
+  of a 1024 px trial fell from 321 to 201 MiB (double, 15 screens) and from 193
+  to 157 MiB (single, 9 screens), with the same numbers.
 
 **THE MASK IS NECESSARY. The sub-steps alone remove NO aliasing.** The sampled
 transfer function of one long step is the product of the sampled transfer
@@ -716,7 +755,7 @@ name or a `QualityPreset`.
 | `pixels_per_r0` | 4 | 3 | 2 | `dx <= r0_total / pixels_per_r0`. Martin and Flatte, DOI 10.1364/AO.27.002111. Schmidt, DOI 10.1117/3.866274, Sec. 9.4, printed p. 172, gives the same rule from Johnston and Lane, and with Eq. (9.44) it reads 3.01 pixels per r0. So `standard` lands on the book value. |
 | `guard` | 4 | 3 | 2 | The grid half-side over the beam radius. The same meaning as the guard of `GridSpec.for_scenario`. |
 | `n_max` | 4096 | 2048 | 1024 | The largest pixel count. |
-| `sigma2_r_screen_max` | 0.05 | 0.10 | 0.25 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. The book cap is `rmax = 0.1` on the LOG-AMPLITUDE variance (Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175), and `sigma_R^2 = 4 sigma_chi^2`, so the book cap is 0.4 on this field. The three presets are 8x / 4x / 1.6x stricter than the book. |
+| `sigma2_r_screen_max` | 0.2 | 0.4 | 0.4 | The largest plane-wave Rytov contribution of ONE screen. A stronger screen breaks the thin-screen approximation. The book cap is `rmax = 0.1` on the LOG-AMPLITUDE variance (Schmidt, DOI 10.1117/3.866274, Listing 9.5, printed p. 175), and `sigma_R^2 = 4 sigma_chi^2`, so the book cap is 0.4 on this field. Since 2026-09-06 (owner decision) `standard` and `rapid` take the book cap exactly, and `reference` is 2x stricter. |
 | `min_screens` | 15 | 9 | 5 | The smallest screen count. `_merge_layers` clamps a weak path UP to exactly this count, so the count follows the PRESET and not the layer count of the `Cn2` profile. THE SOURCE IS olb, NOT THE BOOK: Schmidt gives no screen-count floor, and these integers come from an olb convergence sweep. The aperture scintillation index of a 30 degree downlink slab is 19 percent low at 3 screens, 10 percent low at 5, and flat from 7 up. No preset may go under 4, the moment floor of Eq. (9.65), printed p. 164. See WP7 in [schmidt-crosscheck.md](schmidt-crosscheck.md). |
 | `fresnel_weight_min` | 0.005 | 0.02 | 0.05 | The Rytov share above which a screen must obey the Fresnel-scale pixel rule. The exemption is an olb rule; Schmidt, Sec. 9.4, applies the rule to every step. |
 | `boundary_width_frac` | 0.125 | 0.125 | 0.10 | The width of the absorbing band, as a fraction of the half-side. It goes to `super_gaussian_boundary()`. |
@@ -744,10 +783,20 @@ Eqs. (36) and (38).
 
 Where the boundaries go:
 
-- **Terrestrial.** The path is uniform, so the screens share it EQUALLY and each
-  screen sits at the centre of its slab. The planner starts from the mean-share
-  estimate `sigma2_total / sigma2_r_screen_max` and raises the count until the
-  STRONGEST screen (the one farthest from the receiver) obeys the cap.
+- **Terrestrial.** The planner cuts EQUAL-RYTOV-WEIGHT slabs, the same rule as
+  the space planner (2026-09-06). The plane-wave weight density is
+  `(L - z)^(5/6)` (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8, Eq. (20);
+  Schmidt, DOI 10.1117/3.866274, Ch. 9, Eqs. (9.63) and (9.73), printed pp. 163
+  and 165), so the slab edge `i` of `n` has the closed form
+  `z_i = L * (1 - (1 - i / n)^(6/11))`. The slabs are THIN at the transmitter
+  and FAT at the receiver, and each screen sits at the `Cn2`-weighted centroid
+  of its slab, which is the slab MIDPOINT here, because a horizontal path holds
+  one uniform `Cn2`. Each screen then holds a DIFFERENT `r0`, which is the
+  book's own form (Schmidt, Listing 9.5, printed p. 175). The count is
+  `max(min_screens, ceil(sigma_R^2 / sigma2_r_screen_max))`, and a guard loop
+  adds one or two screens where the midpoint of the last slab overshoots its
+  own share by about 3 percent. The old EQUAL-THICKNESS cut asked for about
+  1.8x that count.
 - **Space.** The layers of the `Cn2` profile come from
   `olb.turbulence.profiles.default_cn2_profile`, times the airmass `sec(zenith)`
   (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14)). The planner
@@ -769,12 +818,20 @@ A frozen dataclass. What the grid ACHIEVES, against what the preset asks for.
 | `step_over_limit_max` | float | The largest planned gap between two screens, divided by `forvard_max_z()`. 1.0 or less is good. The engine cuts a longer gap into sub-steps. |
 | `sigma2_r_screen_max` | float | The largest per-screen Rytov contribution that the plan holds. |
 | `n_clamped` | bool | True means the pixel count hit `n_max`. |
+| `clamp_factor` | float | `n_wanted / n`. 1.0 means the grid has the pixel it wants. Above 1.0 it says how much coarser the pixel is than the rules ask for (only when `n_clamped`). |
+| `feature_m` | float | The smallest hard feature of the path, in m: the launch waist, or an aperture or obscuration edge. |
+| `feature_pixels` | float | The achieved `feature_m / dx`. The edge rule asks for `PIXELS_PER_FEATURE / 2 = 4` or more. Under that, the launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. |
 | `warnings` | tuple | The warning texts that the sizer sent. |
 
-The sizer warns when the pixel count hits `n_max`, when the achieved
-`pixels_per_r0` is below the preset value, when `fresnel_pixels_min` is below
-2.0, when the strongest screen passes `sigma2_r_screen_max`, and when the plan
-hits `MAX_SCREENS`.
+The sizer warns when the pixel count hits `n_max` (and that warning NAMES the
+sampling rules the coarse pixel breaks: pixels per r0, pixels across the
+smallest feature, pixels per Fresnel scale, with the `clamp_factor`), when
+the achieved `pixels_per_r0` is below the preset value, when `feature_pixels`
+is below 4, when `fresnel_pixels_min` is below 2.0, when the strongest screen
+passes `sigma2_r_screen_max`, and when the plan hits `MAX_SCREENS`. A
+terrestrial path with a small launch waist and a long range is the case that
+clamps: one flat grid must resolve the waist and hold the spread beam (see
+backlog 2-P3).
 
 The report gives the achieved numbers of ONE grid. The layer runs NO automatic
 convergence check. To prove a case, run it again on a finer preset, or on a wider
@@ -784,7 +841,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single")`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy")`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -801,9 +858,17 @@ it. The trials are independent snapshots.
 - A `"retro"` direction raises `NotImplementedError`.
 - `subharmonics=True` is the value to keep: the tilt content drives the beam
   wander, and the uplink overlap reads that wander.
-- `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`) or
-  `"aotools"` (the reference path). The two give DIFFERENT draws for the same
-  seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
+- `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`),
+  `"olb-lean"` (an OPT-IN, 2026-09-06: `ScreenFactory(lean=True)`, the same
+  physics and the SAME random stream through one third fewer full-grid
+  passes; it agrees with `"olb"` at the rounding level of the screen type,
+  1e-7 relative in float32 and 2e-16 to 4e-16 in float64, and its
+  structure-function
+  r0 matches inside the standard error, but it is NOT bit-identical; one
+  1024 px float32 screen goes 86 to 60 ms and 48 to 28 MiB peak; see
+  `validation/memory_cut/`) or
+  `"aotools"` (the reference path). `"olb"` and `"aotools"` give DIFFERENT
+  draws for the same seed; the statistics agree. Only `"aotools"` needs the `aotools` package. An
   unknown name raises `ValueError`. `propagate_turbulent_field()` takes the same
   argument, with the same default.
 - `precision` is `"single"` (the DEFAULT since 2026-09-05: a complex64 field
@@ -823,6 +888,14 @@ it. The trials are independent snapshots.
   complex64 in both modes. `recouple()` and `recollect()` rebuild the grid in
   complex128 whatever the mode. `propagate_turbulent_field()` takes the same
   argument, with the same default.
+- `fft_backend` is `"numpy"` (the default, the backend of record) or `"scipy"`
+  (an OPT-IN, 2026-09-06, see Section 3). The runner sets it for the process
+  immediately before the trial loop, and a `finally` always restores the
+  previous backend (corrected 2026-09-06: the call moved inside the guarded
+  block, because it sat before the `try` and an error in the setup left the
+  backend changed). A scipy
+  run agrees with a numpy run at the rounding level of the field precision and
+  it is NOT bit-identical.
 - `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one
   by one. A `Threader` runs them across threads and it keeps the trial order; the
   FFT releases the GIL, so it gives a real speed-up. `Threader()` with no
@@ -1069,7 +1142,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy")`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1121,7 +1194,7 @@ This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
 and which was RETIRED on 2026-09-04; the value of the key did not change, so an
 existing manifest still matches.
 
-#### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True)`
+#### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True, cpu_fraction=0.9, memory_fraction=0.9)`
 
 It computes and stores the MISSING blocks up to `n_trials` trials, and it
 returns the number of trials on disk. The call rounds `n_trials` up to a whole
@@ -1189,6 +1262,24 @@ campaign is ONE physics case: use a new directory, or match the stored settings.
   each process, so the scenario, the geometry, the `GridSpec` and the
   `ScreenPlan` cross the process boundary once, not once for each block. A block
   then runs SERIALLY inside its process.
+- `workers="auto"` (2026-09-06) opens a pool sized by `Campaign.auto_workers()`:
+  the smaller of the CPU limit, `cpu_fraction` (0.9) of the logical cores, and
+  the memory limit, `memory_fraction` (0.9) of the free memory divided by
+  `Campaign.worker_memory_bytes()`, and never more than the missing blocks.
+  `progress=True` prints the count, the binding limit and the per-worker
+  estimate. The estimate (`olb.waveoptics.resources.worker_memory_bytes`)
+  counts the field copies of the split step, ONE screen and its generator
+  transients, the mask and the sign pattern, the Forvard cache of the plan's
+  hops, the block patch two times, and a 160 MiB interpreter base, all times a
+  1.25 safety factor; it sits ABOVE the measured working set on purpose. The
+  free memory (`free_memory_bytes`) is `MemAvailable` on Linux,
+  `GlobalMemoryStatusEx` on Windows and `vm_stat` on macOS; a machine with no
+  probe takes the CPU limit only. The CPU limit is a TARGET: a
+  memory-bandwidth-bound grid can plateau under it (12 workers of 32 threads at
+  512 px before the 2026-09-06 changes), so measure a new box or a new grid
+  with `validation/campaign_resources/ --workers auto` before a long run. The
+  memory limit is a HARD one: past it a worker dies with `MemoryError` (the
+  2026-09-04 kill at 1024 px, 15 screens, 16 workers).
 
 Never both: threads inside processes over-subscribe the cores. The parent writes
 each block file as soon as that block arrives, so a killed campaign keeps every

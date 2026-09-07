@@ -1,0 +1,72 @@
+==============================================================================
+THE RECEIVER-CONE CLIP: a converging absorbing boundary
+==============================================================================
+path                     5.00 km
+Cn2                  1.00e-14 m^-2/3
+wavelength             1550.0 nm
+launch waist             5.00 mm
+receive aperture        10.00 cm
+preset                  rapid
+grid                     1024 px, side 2.8576 m, pixel 2.791 mm
+screens                    10
+r0 of the whole path     2.99 cm
+outer scale L0           25.0 m
+precision              single, seed 20260906
+boundary band           0.100 of the half-side
+aperture pixels          1005
+
+CHECK 1  the hand loop equals propagate_turbulent_field, bit for bit.
+CHECK 2  the clipped loop with an empty mask is the same array.
+
+------------------------------------------------------------------------------
+TURBULENCE   beam-radius floor ON  (R >= 3 w(z), the rule as written)   (6 trial(s))
+------------------------------------------------------------------------------
+    c    removed     max RMS  max |dP| dB  max |d eta|  centre ratio  verdict
+ 1.00  5.284e-04   1.066e-03    3.995e-05    1.768e-06      1.000248  FAIL
+ 1.50  5.259e-04   1.041e-03    4.147e-05    1.429e-06      1.000259  FAIL
+ 2.00  5.250e-04   1.031e-03    4.185e-05    1.291e-06      1.000267  FAIL
+ 3.00  5.150e-04   9.975e-04    4.604e-05    1.213e-06      1.000255  PASS
+ 5.00  4.895e-04   9.267e-04    4.984e-05    8.355e-07      1.000197  PASS
+
+------------------------------------------------------------------------------
+VACUUM   beam-radius floor ON  (R >= 3 w(z), the rule as written)   (1 trial(s))
+------------------------------------------------------------------------------
+    c    removed     max RMS  max |dP| dB  max |d eta|  centre ratio  verdict
+ 1.00  7.212e-06   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+ 1.50  7.212e-06   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+ 2.00  7.212e-06   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+ 3.00  7.212e-06   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+ 5.00  7.212e-06   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+
+------------------------------------------------------------------------------
+TURBULENCE   beam-radius floor OFF (the cone alone)   (6 trial(s))
+------------------------------------------------------------------------------
+    c    removed     max RMS  max |dP| dB  max |d eta|  centre ratio  verdict
+ 1.00  9.913e-01   2.298e-01    9.128e-01    2.730e-02      0.957536  FAIL
+ 1.50  9.782e-01   7.862e-02    2.841e-02    1.348e-03      0.972179  FAIL
+ 2.00  9.594e-01   5.680e-02    1.546e-02    9.606e-04      0.999912  FAIL
+ 3.00  8.939e-01   3.297e-02    6.628e-03    3.938e-04      1.005358  FAIL
+ 5.00  7.195e-01   1.234e-02    1.242e-03    5.583e-05      1.007120  FAIL
+
+------------------------------------------------------------------------------
+VACUUM   beam-radius floor OFF (the cone alone)   (1 trial(s))
+------------------------------------------------------------------------------
+    c    removed     max RMS  max |dP| dB  max |d eta|  centre ratio  verdict
+ 1.00  9.824e-01   1.742e-01    6.507e-01    4.505e-02      1.000000  FAIL
+ 1.50  9.609e-01   3.589e-04    1.419e-03    1.177e-04      1.000000  PASS
+ 2.00  9.316e-01   3.597e-06    1.438e-05    1.254e-06      1.000000  PASS
+ 3.00  8.527e-01   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+ 5.00  6.433e-01   0.000e+00    0.000e+00    0.000e+00      1.000000  PASS
+
+==============================================================================
+THE VERDICT
+==============================================================================
+with the 3 w(z) guard : the smallest passing factor is c = 3.
+                        the cone removes 5.150e-04 of the launched power (a real clip)
+                        max_z R(z)        1.4802 m
+                        side it implies   3.2894 m  (the sizer asks for 2.8576 m, a factor of 0.87)
+                        pixels at the SAME 2.791 mm pixel: 2048 (today 1024)
+with no guard         : NO factor of the sweep passes.
+
+elapsed 158.8 s
+wrote receiver_cone_clip_results.json, receiver_cone_clip.log and figures/receiver_cone_clip.png

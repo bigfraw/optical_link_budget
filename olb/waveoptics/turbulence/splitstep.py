@@ -159,6 +159,13 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
                      The distances go up, and they stay inside
                      [0, z_total_m].
         screens:     one N x N phase array, in radians, for each distance.
+                     It can be any iterable, a list or a GENERATOR. The
+                     function takes the screens one at a time and it keeps no
+                     stack, so a strong path with many screens holds only the
+                     screen it uses. At 2048 px a float32 screen is 16 MB, so
+                     a stack of tens of screens is hundreds of MB. The count
+                     must agree with z_screens_m: MORE screens than distances
+                     is an error, and the function raises ValueError.
         z_total_m:   the distance from the input plane to the output plane,
                      in m.
         boundary:    an N x N mask, or None. The function applies it after
@@ -178,10 +185,6 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
                          'Use Convert() first. A co-moving split step is not '
                          'implemented.')
     z = np.asarray(z_screens_m, dtype=float).ravel()
-    screens = list(screens)
-    if len(screens) != z.size:
-        raise ValueError(f'split_step: {len(screens)} screens for {z.size} '
-                         'distances')
     if z_total_m < 0.0:
         raise ValueError('split_step: z_total_m must not be negative')
     if z.size:
@@ -191,10 +194,6 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
             raise ValueError('split_step: z_screens_m must stay inside '
                              f'[0, {z_total_m}]')
     shape = (Fin.N, Fin.N)
-    for i, scr in enumerate(screens):
-        if np.shape(scr) != shape:
-            raise ValueError(f'split_step: screen {i} is {np.shape(scr)}, '
-                             f'but the field is {shape}')
     if boundary is not None:
         # Cast the mask to the real type of the field ONE time, not at each
         # hop. A float64 mask on a complex64 field makes a complex128
@@ -219,12 +218,27 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
 
     Fout = Field.copy(Fin)
     here = 0.0
-    for zi, scr in zip(z, screens):
+    # Take the screens ONE at a time. The iterator can be a generator, so the
+    # loop keeps no stack and it checks the shape of each screen here.
+    it = iter(screens)
+    for i, zi in enumerate(z):
+        try:
+            scr = next(it)
+        except StopIteration:
+            raise ValueError(f'split_step: the stack gave {i} screens, but '
+                             f'z_screens_m has {z.size}') from None
+        if np.shape(scr) != shape:
+            raise ValueError(f'split_step: screen {i} is {np.shape(scr)}, '
+                             f'but the field is {shape}')
         Fout = hop(Fout, zi - here)
         Fout = Screen(Fout, scr)
+        del scr                     # Free the screen before the next one.
         if boundary is not None:
             Fout = _apply_mask(Fout, boundary)
         here = zi
+    if next(it, None) is not None:
+        raise ValueError(f'split_step: more than {z.size} screens for '
+                         f'{z.size} distances')
     return hop(Fout, z_total_m - here)
 
 
@@ -316,6 +330,19 @@ if __name__ == '__main__':
     p_bd = Power(split_step(F0, z5, scr5, z, boundary=mask))
     assert abs(p_no / p_in - 1.0) < 1e-10, (p_no, p_in)
     assert p_bd <= p_no * (1.0 + 1e-12), (p_bd, p_no)
+
+    # ---- 5a. a generator stack gives the same field as a list ----
+    # The screens come one at a time on a strong path, so the loop must give
+    # the same result for a list and for a generator over the same arrays.
+    F_list = split_step(F0, z5, scr5, z, boundary=mask)
+    F_gen = split_step(F0, z5, (s for s in scr5), z, boundary=mask)
+    assert np.array_equal(F_list.field, F_gen.field), 'the generator moved it'
+    # A stack that stops too early is an error, not a short path.
+    try:
+        split_step(F0, z5, (s for s in scr5[:2]), z)
+        raise AssertionError('split_step must refuse a short generator')
+    except ValueError as exc:
+        assert 'gave 2 screens' in str(exc), str(exc)
 
     # ---- 5b. the single-precision path ----
     # A complex64 field keeps complex64 through the screens and the mask, and

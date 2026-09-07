@@ -1,0 +1,52 @@
+waist bias check, 2026-09-06 19:58:53
+launch        : collimated
+fixed         : lambda 1550 nm, waist 5 mm, bucket 10 cm, L0 25 m, single precision
+test          : one VACUUM propagation for each cell, flat screens, the campaign grid and the campaign boundary mask
+
+  2km:3e-15:rapid         1024 px,  5.42 px per waist, w ratio 1.000, bucket -0.003 dB, 1.2 s
+  2km:3e-15:standard      2048 px,  7.19 px per waist, w ratio 1.000, bucket -0.001 dB, 6.6 s
+  2km:1e-14:rapid         1024 px,  5.01 px per waist, w ratio 1.000, bucket +0.005 dB, 1.0 s
+  2km:1e-14:standard      2048 px,  6.79 px per waist, w ratio 1.000, bucket +0.008 dB, 6.5 s
+  5km:3e-15:rapid         1024 px,  2.05 px per waist, w ratio 1.000, bucket +0.010 dB, 0.9 s
+  5km:3e-15:standard      2048 px,  2.76 px per waist, w ratio 1.000, bucket +0.015 dB, 6.4 s
+  5km:1e-14:rapid         1024 px,  1.79 px per waist, w ratio 1.000, bucket +0.015 dB, 1.6 s
+  5km:1e-14:standard      2048 px,  2.49 px per waist, w ratio 1.000, bucket +0.015 dB, 6.6 s
+  10km:3e-15:rapid        1024 px,  0.96 px per waist, w ratio 1.039, bucket +0.131 dB, 1.7 s
+  10km:3e-15:standard     2048 px,  1.31 px per waist, w ratio 1.002, bucket -0.012 dB, 7.1 s
+  10km:1e-14:rapid        1024 px,  0.78 px per waist, w ratio 1.071, bucket +0.716 dB, 4.8 s
+  10km:1e-14:standard     2048 px,  1.12 px per waist, w ratio 1.013, bucket +0.108 dB, 20.0 s
+
+  cell          preset  n px  px mm  px/w0  clamp  scr  w(L) cm  w_2m cm  w ratio    kept  eta sim  eta thy    d dB     s
+  ----------  --------  ----  -----  -----  -----  ---  -------  -------  -------  ------  -------  -------  ------  ----
+  2km:3e-15      rapid  1024   0.92   5.42     no    5    19.74    19.74    1.000  1.0000   0.1205   0.1204  -0.003   1.2
+  2km:3e-15   standard  2048   0.70   7.19     no    9    19.74    19.74    1.000  1.0000   0.1204   0.1204  -0.001   6.6
+  2km:1e-14      rapid  1024   1.00   5.01     no    5    19.74    19.74    1.000  1.0000   0.1203   0.1204  +0.005   1.0
+  2km:1e-14   standard  2048   0.74   6.79     no    9    19.74    19.74    1.000  1.0000   0.1202   0.1204  +0.008   6.5
+  5km:3e-15      rapid  1024   2.44   2.05    yes    5    49.34    49.34    1.000  1.0000   0.0203   0.0203  +0.010   0.9
+  5km:3e-15   standard  2048   1.81   2.76    yes    9    49.34    49.34    1.000  1.0000   0.0203   0.0203  +0.015   6.4
+  5km:1e-14      rapid  1024   2.79   1.79    yes   10    49.34    49.34    1.000  1.0000   0.0203   0.0203  +0.015   1.6
+  5km:1e-14   standard  2048   2.01   2.49    yes   10    49.34    49.34    1.000  1.0000   0.0203   0.0203  +0.015   6.6
+  10km:3e-15     rapid  1024   5.21   0.96    yes   11    98.68   102.56    1.039  1.0000   0.0050   0.0051  +0.131   1.7
+  10km:3e-15  standard  2048   3.80   1.31    yes   11    98.68    98.87    1.002  1.0000   0.0051   0.0051  -0.012   7.1
+  10km:1e-14     rapid  1024   6.38   0.78    yes   35    98.68   105.72    1.071  1.0000   0.0043   0.0051  +0.716   4.8
+  10km:1e-14  standard  2048   4.48   1.12    yes   35    98.68   100.00    1.013  1.0000   0.0050   0.0051  +0.108  20.0
+
+sizer warnings (a clamped grid names the rules it breaks):
+  5km:3e-15:rapid: turbulent_grid: the grid gives 2.05 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  5km:3e-15:rapid: turbulent_grid: the pixel count wants 2048, but n_max is 1024. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.05 < 4 (feature 5.0 mm).
+  5km:3e-15:standard: turbulent_grid: the grid gives 2.76 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  5km:3e-15:standard: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.76 < 4 (feature 5.0 mm).
+  5km:1e-14:rapid: turbulent_grid: the grid gives 1.79 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  5km:1e-14:rapid: turbulent_grid: the pixel count wants 4096, but n_max is 1024. The grid keeps its side and takes a pixel 4.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 1.79 < 4 (feature 5.0 mm).
+  5km:1e-14:standard: turbulent_grid: the grid gives 2.49 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  5km:1e-14:standard: turbulent_grid: the pixel count wants 4096, but n_max is 2048. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.49 < 4 (feature 5.0 mm).
+  10km:3e-15:rapid: turbulent_grid: the grid gives 0.96 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  10km:3e-15:rapid: turbulent_grid: the pixel count wants 8192, but n_max is 1024. The grid keeps its side and takes a pixel 8.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 0.96 < 4 (feature 5.0 mm).
+  10km:3e-15:standard: turbulent_grid: the grid gives 1.31 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  10km:3e-15:standard: turbulent_grid: the pixel count wants 8192, but n_max is 2048. The grid keeps its side and takes a pixel 4.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 1.31 < 4 (feature 5.0 mm).
+  10km:1e-14:rapid: turbulent_grid: the grid gives 0.78 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  10km:1e-14:rapid: turbulent_grid: the pixel count wants 8192, but n_max is 1024. The grid keeps its side and takes a pixel 8.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 0.78 < 4 (feature 5.0 mm).
+  10km:1e-14:standard: turbulent_grid: the grid gives 1.12 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  10km:1e-14:standard: turbulent_grid: the pixel count wants 8192, but n_max is 2048. The grid keeps its side and takes a pixel 4.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 1.12 < 4 (feature 5.0 mm).
+
+outputs       : C:\repos\optical_link_budget\validation\terrestrial_campaigns\waist_bias_check_results.json
