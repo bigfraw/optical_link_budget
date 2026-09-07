@@ -1146,7 +1146,44 @@ The path forward for each is a second reference or a derivation.
   (b) the OWNER decision on whether
   either opt-in becomes a default; (c) `Screen()` costs 40 ms per 1024 px
   call, about a third of a hop, and a cos/sin pair in float32 may halve it.
-- **2-N8. A GPU FFT backend — an explicit OPT-IN (owner-flagged 2026-09-06).**
+- **2-N8. A GPU FFT backend — an explicit OPT-IN. BUILT (2026-09-07).**
+  `fft_backend="cupy"` is the third backend, next to `"numpy"` and
+  `"scipy"`. MILESTONE 1 moved the kernels: `Forvard` and its factor cache,
+  `split_step` with the mask uploaded one time, and `ScreenFactory` (it
+  reads the backend in `__init__`, so the backend must be set BEFORE the
+  factory is built; `lean=True` has no device route and it raises). It
+  added `Field.to_host`, `asnumpy` and `is_device_array`, the ONE download
+  point. MILESTONE 2 made the knob work end to end: the runner
+  `propagate_turbulent_scenario` and `propagate_turbulent_field`,
+  `Campaign` (its blocks run in ONE process, whatever `workers` says),
+  `run_waveoptics` and `run_fidelity2` all take `fft_backend`. THE RANDOM
+  STREAM DOES NOT MOVE: the white noise stays a numpy PCG64 host draw, and
+  the runner draws the noise of the next trial in threads while the device
+  runs this trial (`ScreenFactory.draw` and `make_from_noise`). So one seed
+  gives one atmosphere on both routes, and the trials agree at the float32
+  rounding level (5.7e-06 on the collected power, 1.6e-05 on the SMF eta,
+  48 trials at 2048 px). The numpy and the scipy paths stay BIT-IDENTICAL.
+  A `threader` with `"cupy"` raises. The backend enters the campaign
+  fingerprint, so a GPU campaign never mixes with a CPU one; `cupy-cuda12x`
+  and the nvidia CUDA wheels are the optional `gpu` extra.
+
+  THE MEASURED SPEED (bigfraw, RTX 4070 Laptop, 32 cores, the 30 deg hero
+  downlink, single precision, `standard`, L0 = 25 m): one SERIAL 1024 px
+  trial 1727 ms with numpy and 333 ms with cupy, a 5.2x speed-up. But ONE
+  GPU stream against the 12-worker CPU pool of record is 3.06 against 3.16
+  trials/s at 1024 px (a TIE) and 0.26 against 0.48 trials/s at 2048 px
+  (the pool WINS by 2x). The microbench estimated 3x to 4x for the GPU; the
+  difference is the host tail of a real trial (the aperture clip, the
+  power, the fibre coupling, the patch store) plus the host screen draw,
+  none of which the synthetic trial had. OPEN, and an owner decision:
+  whether to move that tail to the device, and whether
+  `propagators.FORVARD_CACHE_BYTES` (256 MiB) must follow the route — at
+  2048 px the plan wants 640 MiB of factors, so the cache thrashes and one
+  device trial goes 6116 to 4772 ms when the bound is raised (1.28x). The
+  bound also holds the memory of each of the 12 pool workers on the CPU
+  route, so it cannot simply grow. See `validation/gpu_fft/README.md`.
+
+  THE ORIGINAL PLAN, for the record:
   The FFTs are the whole workload of a trial (80 numpy transforms of Forvard
   plus 9 of the screens at 1024 px), and the pool is memory-bandwidth bound,
   so a GPU (about ten times the memory bandwidth of the desktop DDR5
@@ -1159,7 +1196,8 @@ The path forward for each is a second reference or a derivation.
   it. It MUST stay an opt-in: not every machine has a CUDA or ROCm device,
   `cupy` is an optional extra like `aotools`, the default of record stays
   `"numpy"`, and a GPU run is a different fingerprint. A campaign of one
-  process per device replaces the process pool. Not started.
+  process per device replaces the process pool. Every part of that plan is
+  built.
 - **2-I4. The fidelity-2 entry points have DRIFTED apart — audit and unify
   (owner-flagged 2026-09-05).** Four callers run the split-step Monte Carlo,
   and each one grew its own keyword list as features landed: the runner

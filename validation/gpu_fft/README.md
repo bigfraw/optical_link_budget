@@ -139,3 +139,78 @@ uploaded once) and `screens.py` (the filter and the subharmonics through
 `xp`, the rng on the host) move to the device; the runner downloads the
 receive field once after `split_step`, and the clip, the coupling and the
 patch store stay CPU code. A GPU campaign runs one process, not the pool.
+
+## Milestone 2: the backend end to end (2026-09-07)
+
+Milestone 1 moved the kernels. Milestone 2 makes `fft_backend="cupy"` work
+through the ONE knob a caller has: the runner, `Campaign`,
+`run_waveoptics` and `run_fidelity2` all take it, and nothing else changes.
+The record is `cupy_campaign_check.py` and `cupy_campaign_check.json`, run
+on bigfraw (RTX 4070 Laptop, cupy 14.2, 32 cores) with the pool idle. The
+case is the 30 deg hero downlink, single precision, `standard`,
+L0 = 25 m, seed 7.
+
+### The trials agree
+
+The white noise stays a numpy PCG64 host draw, so the device and the host
+see the SAME atmosphere for one seed. The trial-for-trial agreement is the
+float32 rounding level:
+
+| n px | trials | max rel `collected_power` | max rel `smf_eta` |
+|---|---|---|---|
+| 1024 | 10 (runner)   | 3.5e-06 | 1.1e-05 |
+| 1024 | 120 (campaign)| 4.9e-06 | 1.1e-05 |
+| 2048 | 48 (campaign) | 5.7e-06 | 1.6e-05 |
+
+### The speed
+
+One SERIAL trial at 1024 px: 1727 ms with numpy, 333 ms with cupy, a 5.2x
+speed-up.
+
+One GPU stream against the CPU pool of record (12 workers, one process for
+each block; the GPU runs the blocks one after the other in one process):
+
+| n px | trials | cupy trials/s | numpy pool trials/s | GPU / pool |
+|---|---|---|---|---|
+| 1024 | 120 | 3.06 | 3.16 | 1.0x |
+| 2048 |  48 | 0.26 | 0.48 | 0.5x |
+
+SO THE GPU TIES THE POOL AT 1024 PX AND IT LOSES BY 2X AT 2048 PX. That is
+much less than the 3x to 4x the microbench estimated, and the reason is
+that the synthetic trial has no Python glue: the real trial pays a HOST
+tail that the device does not touch (the aperture clip, the power, the
+fibre coupling, the patch store) plus the host screen draw. The device
+work itself stays as fast as milestone 1 measured.
+
+CAUTION, the block count. A pool with more workers than blocks leaves
+workers idle. The first run of this script used 3 blocks for 12 workers
+and it read a false 2.3x for the GPU. The script now warns when the block
+count is under the pool size.
+
+### The Forvard factor cache is too small at 2048 px
+
+`propagators.FORVARD_CACHE_BYTES` is 256 MiB. One 2048 px single-precision
+transfer function is 33 MB, and the plan of this case makes about 20
+distinct hops, so it wants 640 MiB. The cache therefore drops entries and
+it rebuilds them (a host build in double precision) at every trial.
+Measured on the device, 4 trials at 2048 px:
+
+| cache bound | ms per trial | the cache holds |
+|---|---|---|
+| 256 MiB (the default) | 6116 | 256 MiB |
+| 4096 MiB | 4772 | 640 MiB |
+
+That is a 1.28x speed-up for one number. It is NOT changed here, because
+the same bound holds the memory of each of the 12 pool workers on the CPU
+route (640 MiB each is 7.7 GB). An OWNER DECISION: make the bound follow
+the route, or expose it in the campaign.
+
+### What the caller does
+
+    result = propagate_turbulent_scenario(..., fft_backend="cupy")
+    camp = Campaign(..., fft_backend="cupy")
+    camp.run(2000, workers=12)     # it says it uses one process, and it does
+
+A "cupy" campaign is a SEPARATE store: the backend enters the fingerprint,
+so a GPU campaign never mixes with a CPU one. A threader with "cupy"
+raises ValueError: one device runs one stream.

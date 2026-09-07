@@ -263,11 +263,16 @@ class Campaign:
             subharmonics:  True adds the three subharmonic levels.
             screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
                            not bit-identical) or "aotools".
-            fft_backend:   "numpy" (the default, the backend of record) or
+            fft_backend:   "numpy" (the default, the backend of record),
                            "scipy" (an OPT-IN, 2026-09-06, faster, agreement
-                           at the rounding level, NOT bit-identical). It
-                           enters the fingerprint only when "scipy", so every
-                           stored key stays valid. See
+                           at the rounding level, NOT bit-identical) or
+                           "cupy" (an OPT-IN, 2026-09-07, the CUDA device).
+                           A "cupy" campaign runs its blocks in ONE process,
+                           in the calling process, whatever `run(workers=)`
+                           says: one device runs one stream. The name enters
+                           the fingerprint when it is not "numpy", so every
+                           stored key stays valid AND a GPU campaign never
+                           mixes with a CPU one. See
                            olb.waveoptics.propagators.set_fft_backend.
             precision:     "single" (the default) or "double". "single" runs
                            every trial in complex64, with float32 phase
@@ -287,10 +292,10 @@ class Campaign:
                         unknown, or an existing campaign in this directory
                         holds different settings.
         """
-        if fft_backend not in ("numpy", "scipy"):
+        if fft_backend not in ("numpy", "scipy", "cupy"):
             raise ValueError(
-                f"Campaign: fft_backend must be 'numpy' or 'scipy', not "
-                f"{fft_backend!r}.")
+                f"Campaign: fft_backend must be 'numpy', 'scipy' or 'cupy', "
+                f"not {fft_backend!r}.")
         if precision not in ("double", "single"):
             raise ValueError(
                 f"Campaign: precision must be 'double' or 'single', not "
@@ -519,7 +524,10 @@ class Campaign:
             n_trials: the number of trials the campaign must hold. The call
                       rounds it up to a whole number of blocks.
             workers:  None runs the blocks one after the other in this process,
-                      each block threaded inside. An int W opens ONE process
+                      each block threaded inside. With the "cupy" FFT backend
+                      EVERY value acts as None (the call prints one line to
+                      say so), because one device runs one stream. An int W
+                      opens ONE process
                       pool of W processes for the whole call, and each block
                       runs serially inside its process. The string "auto"
                       opens a pool sized by `auto_workers()`: `cpu_fraction`
@@ -545,6 +553,16 @@ class Campaign:
         if not missing:
             return self.n_stored
 
+        if self.fft_backend == "cupy" and workers is not None:
+            # ONE DEVICE, ONE STREAM. A process pool would put several
+            # processes on the same device, and each one would hold its own
+            # CUDA context and its own copy of the field. So a GPU campaign
+            # runs its blocks one after the other, here.
+            print("  cupy backend: the blocks run one after the other in "
+                  "this process (one device, one stream). The workers "
+                  f"request ({workers!r}) is not used.")
+            workers = None
+
         if isinstance(workers, str):
             if workers != "auto":
                 raise ValueError(f"Campaign.run: workers must be None, an int "
@@ -561,7 +579,8 @@ class Campaign:
             boost_process_priority()    # Threads inherit; workers boost themselves.
         t0 = time.time()
         if workers is None:
-            threader = Threader()
+            # The CUDA route refuses a threader: one device, one stream.
+            threader = None if self.fft_backend == "cupy" else Threader()
             for i, b in enumerate(missing):
                 res = propagate_turbulent_scenario(
                     self.scenario, self.geometry, n_trials=self.block_size,

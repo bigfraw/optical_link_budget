@@ -109,8 +109,9 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         block_size:       the block size.
         grid, plan:       an optional caller-supplied grid and plan.
         precision:        "single" (the default) or "double".
-        fft_backend:      "numpy" (the default) or "scipy". It enters the key
-                          only when "scipy".
+        fft_backend:      "numpy" (the default), "scipy" or "cupy". It enters
+                          the key when it is not "numpy", so a GPU campaign
+                          never mixes with a CPU campaign.
 
     Returns:
         A 64-character hex string.

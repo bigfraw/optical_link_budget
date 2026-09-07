@@ -246,9 +246,25 @@ README fidelity ladder.
   physics and the same random stream through fewer full-grid passes) |
   "aotools"; the two draw DIFFERENT
   atmospheres for the same seed, and the statistics agree; both also take
-  `fft_backend="numpy"` (the default) | "scipy" (an OPT-IN), which the runner
-  sets for the trial loop and always restores; the
-  `folded_terrestrial` stub. The runner gives the screens to `split_step` as a
+  `fft_backend="numpy"` (the default) | "scipy" (an OPT-IN) | "cupy" (an
+  OPT-IN, the CUDA device), which the runner
+  sets BEFORE it builds the screen factory and always restores; the
+  `folded_terrestrial` stub.
+  THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8) runs the split step,
+  the boundary mask and the phase screens on the device and it downloads the
+  receive field ONE time for each trial; the clip, the coupling and the patch
+  store stay host code. It needs the `gpu` extra (`cupy-cuda12x` plus the
+  nvidia CUDA wheels). The host PCG64 draw does not change, so the SAME seed
+  gives the SAME atmosphere and a device trial agrees with a host trial at the
+  float32 rounding level (5.7e-06 on the collected power); the runner draws the
+  noise of the next trial in threads while the device works. It runs ONE
+  process for ONE device: a `threader` raises, and a `Campaign` runs its blocks
+  serially in the calling process whatever `workers` says. The backend enters
+  the campaign fingerprint, so a GPU campaign never mixes with a CPU one. One
+  SERIAL 1024 px trial is 5.2x faster (1727 to 333 ms), but one GPU stream
+  TIES the 12-worker CPU pool at 1024 px and it LOSES by 2x at 2048 px, because
+  a real trial pays a host tail the device does not touch. See
+  `validation/gpu_fft/README.md`. The runner gives the screens to `split_step` as a
   GENERATOR (2026-09-06): `split_step` takes any iterable and it keeps no stack,
   so a strong path holds only the screen it uses (at 2048 px a float32 screen is
   16 MB, and a 35-screen plan is 560 MB). The change is BIT-IDENTICAL.

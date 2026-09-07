@@ -19,6 +19,19 @@ turbulence = ["fast-aosim"]
 # split-step layer (olb.waveoptics.turbulence). olb imports it. olb does
 # not copy it.
 screens = ["aotools"]
+# cupy plus the nvidia CUDA wheels give the OPT-IN fidelity-2 FFT backend
+# `fft_backend="cupy"` (olb.waveoptics.propagators). cupy 14 does not bundle
+# the CUDA libraries, so the wheels are necessary; no CUDA toolkit is needed.
+# The default of record stays "numpy", and a machine with no device does not
+# need this extra.
+gpu = [
+    "cupy-cuda12x",
+    "nvidia-cufft-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cuda-nvrtc-cu12",
+    "nvidia-cublas-cu12",
+]
 
 [build-system]
 requires = ["setuptools>=61"]

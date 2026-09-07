@@ -390,14 +390,29 @@ class ScreenFactory:
         numpy Generator, in the same order and the same double precision, for
         every backend. The device route uploads the cast 3 by 3 grid only.
         """
+        if not self.subharmonics:
+            return self._xp.zeros((self.n, self.n), dtype=self._rdtype)
+
+        def levels():
+            """Draw the noise grid of each level, in the order of old."""
+            for _ in range(self.n_sub_levels):
+                yield self._complex_noise(rng, 3)
+        return self._subharmonic_from(r0_m, levels())
+
+    def _subharmonic_from(self, r0_m, noise_iter):
+        """The body of `_subharmonic`, on noise the caller already drew.
+
+        The iterator gives the complex 3 by 3 noise grid of each level, in the
+        level order, cast to the complex type of the factory. So the values
+        are the values of `_subharmonic` for the same generator.
+        """
         xpm = self._xp
         if not self.subharmonics:
             return xpm.zeros((self.n, self.n), dtype=self._rdtype)
         scale = float(r0_m) ** self._EXPONENT
         lo = xpm.zeros((self.n, self.n), dtype=self._cdtype)
         for E, sub_filt in zip(self._E, self._sub_filt):
-            g = (rng.standard_normal((3, 3)) + 1j * rng.standard_normal((3, 3)))
-            g = g.astype(self._cdtype)
+            g = next(noise_iter)
             if self._device:
                 g = xpm.asarray(g)
             c = (g * sub_filt * scale)
@@ -419,15 +434,85 @@ class ScreenFactory:
         cast grid. So the device screen holds the same random numbers as the
         host screen of the same seed.
         """
-        n = self.n
+        return self._base_pair_from(self._complex_noise(rng, self.n))
+
+    def _complex_noise(self, rng, m):
+        """Draw one m by m complex noise grid, cast to the factory type.
+
+        The real grid comes FIRST and the imaginary grid comes second. That
+        order is the order of the random stream, so it must not change. The
+        cast lives here, because the CUDA route draws in threads and the cast
+        is the expensive half of the draw at a large grid.
+        """
+        g = (rng.standard_normal((m, m)) + 1j * rng.standard_normal((m, m)))
+        return g.astype(self._cdtype)
+
+    def _base_pair_from(self, g):
+        """The body of `_base_pair`, on noise the caller already drew."""
         xpm = self._xp
-        g = (rng.standard_normal((n, n)) + 1j * rng.standard_normal((n, n)))
-        g = g.astype(self._cdtype)
         if self._device:
             g = xpm.asarray(g)
         cn = g * self._filt
         full = self._ift_series(cn)
         return xpm.real(full), xpm.imag(full)
+
+    def draw(self, rng):
+        """Draw the HOST white noise of one screen, and give it back.
+
+        The call makes the random numbers of `make`, in the SAME order and the
+        same double precision, and it does no other work. So
+        `make_from_noise(r0_m, draw(rng))` equals `make(r0_m, rng)`, bit for
+        bit.
+
+        WHY IT IS SEPARATE. The draw is 2 n^2 normals for the base grid, which
+        is 3 to 5 times the device work it feeds (see
+        validation/gpu_fft/README.md). The CUDA route therefore draws the
+        noise of the NEXT trial in threads, on the host, while the device runs
+        this trial. numpy releases the GIL on a big draw, so the threads give
+        a real overlap, and the random stream does not move.
+
+        THE CAST IS PART OF THE DRAW. The two normal grids are float64, and
+        the factory works in its own complex type. That assembly moves as
+        many bytes as the draw itself at 2048 px, so it belongs in the
+        threads too. The numbers do not change: `make` does the same two
+        lines, in the same order.
+
+        Args:
+            rng: a numpy.random.Generator, one for each screen.
+
+        Returns:
+            A tuple of host arrays: the complex n by n base grid, then the
+            complex 3 by 3 grid of each subharmonic level.
+
+        Raises:
+            NotImplementedError: the factory is lean (see `lean`).
+        """
+        if self.lean:
+            raise NotImplementedError(
+                "ScreenFactory(lean=True) has no split draw. The lean body "
+                "writes the normals straight into the coefficient grid. Use "
+                "lean=False.")
+        out = [self._complex_noise(rng, self.n)]
+        if self.subharmonics:
+            for _ in range(self.n_sub_levels):
+                out.append(self._complex_noise(rng, 3))
+        return tuple(out)
+
+    def make_from_noise(self, r0_m, noise):
+        """Make one phase screen from noise that `draw` gave.
+
+        Args:
+            r0_m:  the Fried parameter of the slab, in m.
+            noise: the tuple that `draw` gave.
+
+        Returns:
+            An n x n array of the phase, in radians. It is a DEVICE array
+            with the "cupy" FFT backend, and a numpy array otherwise.
+        """
+        it = iter(noise)
+        base, _ = self._base_pair_from(next(it))
+        hi = (float(r0_m) ** self._EXPONENT) * base
+        return (hi + self._subharmonic_from(r0_m, it)).astype(self._rdtype)
 
     def make(self, r0_m, rng):
         """Make one phase screen, in radians.
@@ -633,6 +718,19 @@ if __name__ == '__main__':
     assert np.array_equal(sa, sb), 'the same rng must give the same screen'
     assert not np.allclose(sa, sc), 'a different rng must give a new screen'
     assert sa.shape == (128, 128), sa.shape
+
+    # Fa2. the split draw gives the SAME screen, bit for bit. The CUDA route
+    # draws the noise of the next trial in threads, so the split must not
+    # move one bit of the random stream.
+    noise = fac.draw(np.random.default_rng(7))
+    assert len(noise) == 1 + fac.n_sub_levels, len(noise)
+    sd = fac.make_from_noise(0.1, noise)
+    assert np.array_equal(sa, sd), 'the split draw must be bit-identical'
+    try:
+        ScreenFactory(64, 0.01, lean=True).draw(np.random.default_rng(0))
+        raise AssertionError('a lean factory must refuse the split draw')
+    except NotImplementedError as exc:
+        assert 'lean' in str(exc), str(exc)
 
     # Fb. the structure function (case 2 for the factory).
     # D_phi(r) = 6.88 (r/r0)^(5/3). Fried, DOI 10.1364/JOSA.56.001372.

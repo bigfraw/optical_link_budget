@@ -41,9 +41,9 @@ import numpy as np
 
 from ...beam import virtual_waist
 from ...terminal import Aperture, Camera, SMF, MMF
-from ..field import Begin, Power, field_dtype
+from ..field import Begin, Field, Power, field_dtype, to_host
 from ..mmf import mmf_coupling_efficiency
-from ..propagators import GForvard, set_fft_backend
+from ..propagators import GForvard, set_fft_backend, xp
 from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
 from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
@@ -279,6 +279,9 @@ class TurbWaveResult:
                       the trial order. It is None when the caller asks for no
                       patch.
         patch:        the FieldPatch of those columns, or None.
+        fft_backend:  the name of the FFT backend that made the trials:
+                      "numpy", "scipy" or "cupy". It is None for a record
+                      that a reader assembled from a store.
     """
 
     trials: list
@@ -289,6 +292,7 @@ class TurbWaveResult:
     seed_entropy: int
     fields: np.ndarray = None
     patch: FieldPatch = None
+    fft_backend: str = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -353,6 +357,10 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
 
     Returns:
         A callable build(seed_int, r0_m) that gives one n x n phase screen.
+        Its attribute `factory` holds the ScreenFactory of the "olb"
+        generators, and None for "aotools". The CUDA route reads that
+        attribute, because it draws the noise and it filters the noise in two
+        steps (see ScreenFactory.draw).
 
     Raises:
         ValueError: the generator name is unknown.
@@ -363,6 +371,7 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
             scr = phase_screen(r0_m, grid.n, grid.pixel_m, L0_m=L0_m,
                                seed=seed_int, subharmonics=subharmonics)
             return scr.astype(np.float32) if single else scr
+        build.factory = None
         return build
     if screen_generator in ("olb", "olb-lean"):
         factory = ScreenFactory(grid.n, grid.pixel_m, L0_m=L0_m,
@@ -372,6 +381,7 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
 
         def build(seed_int, r0_m):
             return factory.make(r0_m, np.random.default_rng(seed_int))
+        build.factory = factory
         return build
     raise ValueError(
         f"propagate_turbulent_scenario: screen_generator must be 'aotools', "
@@ -524,15 +534,22 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       and the uplink overlap reads that wander.
         threader:     an optional olb.waveoptics.Threader. None runs the trials
                       one by one. A Threader runs them across threads, and it
-                      keeps the trial order.
-        fft_backend:  "numpy" (the default, the backend of record) or
-                      "scipy" (an OPT-IN, 2026-09-06). "scipy" runs the
-                      Forvard transforms in place through scipy.fft, 2.7
-                      times faster on the tested machine, and it agrees with
-                      "numpy" at the rounding level of the field precision.
-                      It is NOT bit-identical. The setting is process wide
-                      for the length of the call; a Campaign passes it to
-                      every pool worker.
+                      keeps the trial order. It is REFUSED with the "cupy"
+                      backend: one device runs one stream.
+        fft_backend:  "numpy" (the default, the backend of record), "scipy"
+                      (an OPT-IN, 2026-09-06) or "cupy" (an OPT-IN,
+                      2026-09-07). "scipy" runs the Forvard transforms in
+                      place through scipy.fft, 2.7 times faster on the tested
+                      machine, and it agrees with "numpy" at the rounding
+                      level of the field precision. "cupy" runs the whole
+                      split step, the screens and the boundary mask on a CUDA
+                      device, and it downloads the receive field ONE time for
+                      each trial; the screen noise stays a host numpy PCG64
+                      draw, so the same seed gives the same atmosphere, and
+                      the draw of the next trial runs in threads while the
+                      device works. Neither opt-in is bit-identical to
+                      "numpy". The setting is process wide for the length of
+                      the call; a Campaign passes it to every pool worker.
         screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
                       2026-09-06: the same physics through the lean body of
                       `ScreenFactory`, one third fewer full-grid passes, the
@@ -586,8 +603,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     Raises:
         ValueError:         the geometry gives more than one range, only one
                             of grid and plan is given, the patch radius does
-                            not fit on the grid, or the precision name is
-                            unknown.
+                            not fit on the grid, the precision name is
+                            unknown, or a threader comes with the "cupy"
+                            backend.
         NotImplementedError: the scenario direction is "retro".
     """
     cdtype = field_dtype(precision)
@@ -657,73 +675,147 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
     seed_entropy = _resolve_seed(seed)
     n_screens = int(plan.z_m.size)
-    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
-                                   dtype=cdtype)
 
-    # The optional field capture. One mask serves every trial, and each trial
-    # writes ONE row. So the threads touch no shared row, and no lock is
-    # necessary.
-    patch = fields = None
-    if patch_radius_m is not None:
-        patch = _field_patch(grid, float(patch_radius_m))
-        fields = np.empty((int(n_trials), patch.indices.size),
-                          dtype=np.complex64)
-
-    def run_one(k):
-        """Run trial k. It touches only its own state and read-only setup."""
-        t0 = time.perf_counter()
-        # A GENERATOR, not a list: split_step takes the screens one at a time,
-        # so a strong path never holds the full stack. At 2048 px a float32
-        # screen is 16 MB. ScreenFactory makes two screens for each FFT and it
-        # caches the spare, so the peak is two screens, not one. The seed of
-        # screen j does not depend on the order, so the values do not change.
-        stack = (build_screen(_screen_seed(seed_entropy, k, j), plan.r0_m[j])
-                 for j in range(n_screens))
-        F_start = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
-                   else F_in)
-        F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m,
-                          boundary=mask)
-
-        if patch is not None:
-            # The UNCLIPPED field, on the patch only. The clip below is
-            # unchanged, so every scalar keeps its value.
-            fields[k - start_index] = (
-                F_rx.field.ravel()[patch.indices].astype(np.complex64))
-
-        collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
-        collected_power = float(Power(collected) / p_reference)
-        # The receive-terminal detector, the single-detector faces. The MMF and
-        # the SMF physics live in _detector_eta, so the multi-detector path
-        # below reads the SAME code on the SAME field.
-        smf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
-                   if isinstance(rx.detector, SMF) else None)
-        mmf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
-                   if isinstance(rx.detector, MMF) else None)
-        # The extra beamsplitter arms. The field is already in memory, so each
-        # arm is one more cheap focal-plane calculation on the SAME array.
-        detector_etas = (
-            None if detectors is None else
-            tuple(_detector_eta(d, collected, rx.aperture_m, lam)
-                  for d in detectors))
-        eta_turb = None
-        if is_space and scenario.direction == "uplink":
-            # The reciprocity overlap. See Shapiro,
-            # DOI 10.1364/JOSA.61.000492. Point-ahead anisoplanatism is NOT
-            # modelled: the uplink and the downlink read the same screens.
-            o = float(np.abs((F_rx.field * np.conj(psi_tx)).sum()) ** 2)
-            eta_turb = o / o_vac
-        return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
-                         eta_turb=eta_turb, seed_key=(seed_entropy, k),
-                         wall_time_s=time.perf_counter() - t0,
-                         mmf_eta=mmf_eta, detector_etas=detector_etas)
-
-    bar = _progress_bar(progress, n_trials, "turbulent trials")
-    # The backend changes the process state, so it is set immediately before
-    # the try. Then the finally below always restores it, whatever happens.
+    # THE BACKEND COMES BEFORE THE SCREEN FACTORY. ScreenFactory reads the
+    # array module of the backend ONE time, in __init__, so a factory that a
+    # host backend built keeps its arrays on the host. The `finally` below
+    # always restores the backend, whatever happens.
+    #
+    # The setup ABOVE this line (the vacuum baseline, the transmit mode, the
+    # start field) stays on the HOST, under the backend the caller had. That
+    # is exactly what it did before, so a numpy run and a scipy run do not
+    # move one bit, and the CUDA route compares its trials against the same
+    # host reference as the numpy route.
+    bar = None
     previous_backend = set_fft_backend(fft_backend)
     try:
-        ks = range(int(start_index), int(start_index) + int(n_trials))
-        if threader is None:
+        device = xp() is not np
+        if device and threader is not None:
+            raise ValueError(
+                "propagate_turbulent_scenario: the 'cupy' FFT backend and a "
+                "threader do not go together. One device runs one stream, so "
+                "threads give no speed-up and they hide a mistake. Pass "
+                "threader=None with fft_backend='cupy'.")
+        build_screen = _screen_builder(screen_generator, grid, L0_m,
+                                       subharmonics, dtype=cdtype)
+
+        # THE START FIELD GOES UP ONE TIME. Every trial starts from the same
+        # array, and split_step copies its input, so one upload serves the
+        # whole run. A host backend keeps the host field, unchanged.
+        F_device = None
+        if device:
+            source = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
+                      else F_in)
+            F_device = Field.shallowcopy(source)
+            F_device.field = xp().asarray(source.field)
+
+        # The optional field capture. One mask serves every trial, and each
+        # trial writes ONE row. So the threads touch no shared row, and no lock
+        # is necessary.
+        patch = fields = None
+        if patch_radius_m is not None:
+            patch = _field_patch(grid, float(patch_radius_m))
+            fields = np.empty((int(n_trials), patch.indices.size),
+                              dtype=np.complex64)
+
+        def run_one(k, stack=None):
+            """Run trial k. It touches only its own state and read-only setup.
+
+            `stack` is the screen stack of the trial. None (the default) builds
+            it here, one screen at a time. The CUDA route gives a stack that
+            the draw threads already fed.
+            """
+            t0 = time.perf_counter()
+            # A GENERATOR, not a list: split_step takes the screens one at a
+            # time, so a strong path never holds the full stack. At 2048 px a
+            # float32 screen is 16 MB. ScreenFactory makes two screens for each
+            # FFT and it caches the spare, so the peak is two screens, not one.
+            # The seed of screen j does not depend on the order, so the values
+            # do not change.
+            if stack is None:
+                stack = (build_screen(_screen_seed(seed_entropy, k, j),
+                                      plan.r0_m[j])
+                         for j in range(n_screens))
+            F_start = (F_device if F_device is not None else
+                       (Begin(grid.size_m, lam, grid.n, dtype=cdtype)
+                        if is_space else F_in))
+            # THE ONE DOWNLOAD. The device holds the field through the split
+            # step, and it comes back to the host here. Everything below (the
+            # patch store, the clip, the power, the coupling, the reciprocity
+            # overlap) is host code, unchanged. to_host gives the field back
+            # untouched when it is on the host already.
+            F_rx = to_host(split_step(F_start, plan.z_m, stack, plan.z_total_m,
+                                      boundary=mask))
+
+            if patch is not None:
+                # The UNCLIPPED field, on the patch only. The clip below is
+                # unchanged, so every scalar keeps its value.
+                fields[k - start_index] = (
+                    F_rx.field.ravel()[patch.indices].astype(np.complex64))
+
+            collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
+            collected_power = float(Power(collected) / p_reference)
+            # The receive-terminal detector, the single-detector faces. The MMF
+            # and the SMF physics live in _detector_eta, so the multi-detector
+            # path below reads the SAME code on the SAME field.
+            smf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
+                       if isinstance(rx.detector, SMF) else None)
+            mmf_eta = (_detector_eta(rx.detector, collected, rx.aperture_m, lam)
+                       if isinstance(rx.detector, MMF) else None)
+            # The extra beamsplitter arms. The field is already in memory, so
+            # each arm is one more cheap focal-plane calculation on the SAME
+            # array.
+            detector_etas = (
+                None if detectors is None else
+                tuple(_detector_eta(d, collected, rx.aperture_m, lam)
+                      for d in detectors))
+            eta_turb = None
+            if is_space and scenario.direction == "uplink":
+                # The reciprocity overlap. See Shapiro,
+                # DOI 10.1364/JOSA.61.000492. Point-ahead anisoplanatism is NOT
+                # modelled: the uplink and the downlink read the same screens.
+                o = float(np.abs((F_rx.field * np.conj(psi_tx)).sum()) ** 2)
+                eta_turb = o / o_vac
+            return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
+                             eta_turb=eta_turb, seed_key=(seed_entropy, k),
+                             wall_time_s=time.perf_counter() - t0,
+                             mmf_eta=mmf_eta, detector_etas=detector_etas)
+
+        bar = _progress_bar(progress, n_trials, "turbulent trials")
+        ks = list(range(int(start_index), int(start_index) + int(n_trials)))
+        factory = getattr(build_screen, "factory", None)
+        if device and factory is not None:
+            # THE PIPELINED HOST DRAW (the plan of record, 2026-09-06). The
+            # white noise stays a numpy PCG64 draw on the host, seeded by
+            # _screen_seed exactly as the host route seeds it, so the device
+            # sees the SAME atmosphere. That draw is 2 n^2 normals for each
+            # screen, which is longer than the device work it feeds, so the
+            # noise of trial k+1 is drawn in threads WHILE the device runs
+            # trial k. numpy releases the GIL on a big draw. See
+            # validation/gpu_fft/README.md.
+            from concurrent.futures import ThreadPoolExecutor
+
+            def submit(pool, k):
+                """Start the draw of every screen of trial k."""
+                return [pool.submit(
+                    factory.draw,
+                    np.random.default_rng(_screen_seed(seed_entropy, k, j)))
+                    for j in range(n_screens)]
+
+            trials = []
+            with ThreadPoolExecutor(max_workers=max(1, n_screens)) as pool:
+                pending = submit(pool, ks[0]) if ks else []
+                for i, k in enumerate(ks):
+                    drawn, pending = pending, (submit(pool, ks[i + 1])
+                                               if i + 1 < len(ks) else [])
+                    stack = (factory.make_from_noise(plan.r0_m[j],
+                                                     drawn[j].result())
+                             for j in range(n_screens))
+                    trials.append(run_one(k, stack=stack))
+                    del drawn
+                    if bar is not None:
+                        bar.update(1)
+        elif threader is None:
             trials = []
             for k in ks:
                 trials.append(run_one(k))
@@ -739,7 +831,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
     return TurbWaveResult(trials=trials, grid=grid, plan=plan, report=report,
                           preset=p.name, seed_entropy=seed_entropy,
-                          fields=fields, patch=patch)
+                          fields=fields, patch=patch,
+                          fft_backend=fft_backend)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -747,7 +840,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               cn2=None, hs=None, cn2_profile=None,
                               h_top_m=None, L0_m=np.inf,
                               subharmonics=True, screen_generator="olb",
-                              precision="single"):
+                              precision="single", fft_backend="numpy"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -791,6 +884,9 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                       not bit-identical to the double-precision snapshot of the
                       same seed. Validate before a budget reads it. See
                       validation/precision.
+        fft_backend:  "numpy" (the default), "scipy" or "cupy". See
+                      propagate_turbulent_scenario. The field comes back on
+                      the HOST for every backend.
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field.
@@ -825,15 +921,24 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
     entropy = _resolve_seed(seed)
-    build_screen = _screen_builder(screen_generator, grid, L0_m, subharmonics,
-                                   dtype=cdtype)
-    # A GENERATOR, not a list. See run_one in propagate_turbulent_scenario:
-    # split_step takes the screens one at a time, so the memory holds two
-    # screens (ScreenFactory caches the spare of each FFT), not the stack.
-    stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
-             for j in range(int(plan.z_m.size)))
-    F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
-    F_rx = split_step(F_start, plan.z_m, stack, plan.z_total_m, boundary=mask)
+    # THE BACKEND COMES BEFORE THE SCREEN FACTORY, because the factory reads
+    # the array module of the backend in __init__. The finally restores it.
+    previous_backend = set_fft_backend(fft_backend)
+    try:
+        build_screen = _screen_builder(screen_generator, grid, L0_m,
+                                       subharmonics, dtype=cdtype)
+        # A GENERATOR, not a list. See run_one in
+        # propagate_turbulent_scenario: split_step takes the screens one at a
+        # time, so the memory holds two screens (ScreenFactory caches the
+        # spare of each FFT), not the stack.
+        stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
+                 for j in range(int(plan.z_m.size)))
+        F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
+        # The field comes back on the host, so a picture reads it as before.
+        F_rx = to_host(split_step(F_start, plan.z_m, stack, plan.z_total_m,
+                                  boundary=mask))
+    finally:
+        set_fft_backend(previous_backend)
     return F_rx, grid, plan
 
 
@@ -1341,6 +1446,50 @@ if __name__ == '__main__':
         except ValueError as exc:
             assert "single" in str(exc), str(exc)
 
+    # ---- 9. the FFT backend ----
+    # The record names the backend of the run. The "scipy" opt-in agrees with
+    # "numpy" at the rounding level of the field precision.
+    assert whole.fft_backend == "numpy", whole.fft_backend
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        sci = propagate_turbulent_scenario(
+            down_scn, orbit30, n_trials=3, seed=99, preset="rapid",
+            fft_backend="scipy")
+    assert sci.fft_backend == "scipy", sci.fft_backend
+    d_sci = np.array([abs(a.collected_power / b.collected_power - 1.0)
+                      for a, b in zip(sci.trials, whole.trials)])
+    assert d_sci.max() < 1e-4, d_sci
+    # The backend of the process comes back after the call.
+    from ..propagators import get_fft_backend
+    assert get_fft_backend() == "numpy", get_fft_backend()
+
+    # The CUDA route needs cupy and a device. It is an OPT-IN, so a machine
+    # with no device skips these checks and says so.
+    try:
+        set_fft_backend("cupy")
+        set_fft_backend("numpy")
+        has_cupy = True
+    except ImportError:
+        has_cupy = False
+    if has_cupy:
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            gpu = propagate_turbulent_scenario(
+                down_scn, orbit30, n_trials=3, seed=99, preset="rapid",
+                fft_backend="cupy")
+        assert gpu.fft_backend == "cupy", gpu.fft_backend
+        d_gpu = np.array([abs(a.collected_power / b.collected_power - 1.0)
+                          for a, b in zip(gpu.trials, whole.trials)])
+        assert d_gpu.max() < 1e-3, d_gpu
+        try:
+            propagate_turbulent_scenario(
+                down_scn, orbit30, n_trials=1, preset="rapid",
+                fft_backend="cupy", threader=Threader(max_workers=2))
+            raise AssertionError("cupy with a threader must raise ValueError")
+        except ValueError as exc:
+            assert "threader" in str(exc), str(exc)
+        assert get_fft_backend() == "numpy", get_fft_backend()
+
     # ---- the printed tables ----
     print("terrestrial vacuum limit, 1 km, Cn2 = 1e-20, standard preset:")
     print(f"  grid                    {vac.grid.n:11d} px, "
@@ -1387,6 +1536,13 @@ if __name__ == '__main__':
     print("")
     print("single against double precision, 6 downlink trials:")
     print(f"  max relative difference {d_power.max():11.2e}")
+    print("")
+    print("the FFT backend, 3 downlink trials against numpy:")
+    print(f"  scipy, max rel diff     {d_sci.max():11.2e}")
+    if has_cupy:
+        print(f"  cupy, max rel diff      {d_gpu.max():11.2e}")
+    else:
+        print("  cupy                    not installed here, not checked")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     print("self-check passed")

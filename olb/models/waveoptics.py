@@ -97,7 +97,7 @@ class Fidelity2Bundle:
 def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
                    seed=None, threader=None, grid=None, plan=None, cn2=None,
                    hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
-                   subharmonics=True, precision="single"):
+                   subharmonics=True, precision="single", fft_backend="numpy"):
     '''
     Run the turbulent split-step propagation ONE time.
 
@@ -146,6 +146,12 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
             record; it is not bit-identical to a double-precision run of the
             same seed. Validate it against a double-precision run before a
             budget reads it. See validation/precision.
+        fft_backend : str
+            "numpy" (the default, the backend of record), "scipy" or "cupy".
+            "cupy" runs the split step on a CUDA device (an OPT-IN, see
+            olb.waveoptics.turbulence.run.propagate_turbulent_scenario). The
+            screen noise stays a host draw, so the same seed gives the same
+            atmosphere. Neither opt-in is bit-identical to "numpy".
 
     Returns:
         TurbWaveResult
@@ -161,7 +167,7 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader, precision=precision)
+        threader=threader, precision=precision, fft_backend=fft_backend)
 
 
 def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
@@ -784,7 +790,7 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
                   h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
                   vacuum=None, turbulence=True, detectors=None,
-                  precision="single"):
+                  precision="single", fft_backend="numpy"):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -879,6 +885,13 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             double-precision run before a budget reads it. See
             validation/precision.
 
+        fft_backend : str
+            "numpy" (the default, the backend of record), "scipy" or "cupy".
+            It reaches the TURBULENT Monte Carlo only; the vacuum run keeps
+            the host route. "cupy" runs the split step on a CUDA device (an
+            OPT-IN, see run_waveoptics). Neither opt-in is bit-identical to
+            "numpy".
+
     Returns:
         Fidelity2Bundle, or list of Fidelity2Bundle
             With detectors=None (the default), ONE bundle: the turbulent
@@ -927,7 +940,7 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
         threader=threader, progress=progress, detectors=detectors,
-        precision=precision)
+        precision=precision, fft_backend=fft_backend)
     if detectors is None:
         return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
                                turbulent=turbulent)
