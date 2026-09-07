@@ -1085,6 +1085,56 @@ The path forward for each is a second reference or a derivation.
   1024 px (a 4x to 16x cost cut on the long paths), independent of the
   receiver-cone clip (route (b), tested in `validation/receiver_cone_clip/`)
   and of the full co-moving chain (2-P3). Not built; not tested.
+- **2-P7. A beam-wave (Gaussian) per-screen Rytov weight for the terrestrial
+  planner (owner-flagged 2026-09-07).** The two planners weight each slab by the
+  PLANE-wave Rytov density `(L - z)^(5/6)` (`_screen_rytov`,
+  `olb/waveoptics/turbulence/sampling.py`; Andrews and Phillips,
+  DOI 10.1117/3.626196, Ch. 8, Eq. (20)). That is DELIBERATELY conservative: the
+  book caps the SPHERICAL share `alpha^(5/6) (1-alpha)^(5/6)`
+  (`olb/waveoptics/schmidt/turbulence.py` `screen_rytov_share`, Listing 9.5), and
+  plane is the LARGER of the two, so the plane weight OVER-provisions screens for
+  any real beam. See the "rmax versus sigma2_r_screen_max factor" note in
+  `docs/schmidt-crosscheck.md`.
+  THE PHYSICS. A launched Gaussian beam is plane-like inside its Rayleigh range
+  `z_R = pi w0^2 / lambda` and spherical-like beyond it. The on-axis
+  scintillation index is bounded between the plane and the spherical forms
+  (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 8). For a uniform path the
+  spherical Rytov weight is about 0.4x the plane weight. So the CORRECT screen
+  spacing follows the on-axis beam-wave integrand, and that integrand carries
+  less weight than the plane one. NOTE the geometry: the beam-wave integrand is
+  NON-LOCAL. For a long path it looks spherical and peaks at MID-PATH; the
+  Rayleigh range is the switch point, not a place to cluster screens.
+  WHY TERRESTRIAL. The win only appears when the per-screen Rytov cap BINDS,
+  that is `N = ceil(sigma2_R_total / cap) > min_screens`. The space downlink plan
+  is FLOOR-limited (2-N5) and its arriving field IS a plane wave, so the plane
+  weight is already exact there and no count drops. The uplink runs through the
+  DOWNLINK reciprocity route (`olb/waveoptics/turbulence/run.py`), so the beam
+  regime never enters its screen placement. The terrestrial cells are the
+  cap-limited, forward-propagated, finite-beam case, and they are the slow runs.
+  THE BACKBONE PROVES THE POINT (2-TC): a 5 mm collimated launch at 1550 nm has
+  `z_R` of about 51 m, so over the 2 / 5 / 10 km cells the beam is spherical for
+  about 99 percent of the path. The plane weight overstates the per-screen Rytov
+  by up to 4x almost everywhere, so a cap-limited strong cell (up to
+  `sigma_R^2` = 13.6) could take of the order of 2.5x FEWER screens. Per-trial
+  cost is linear in the screen count, so this stacks with the pixel-count cut of
+  2-P6 (a different axis).
+  THE WORK. (1) Add the on-axis Gaussian beam-wave weight as the spacing density
+  of `_plan_terrestrial`, behind a preset or a flag, next to the plane default.
+  (2) Match the phase side: `_composite_r0` uses the PLANE composite (Schmidt,
+  DOI 10.1117/3.866274, Ch. 9, Eq. (9.71)); a beam-aware planner wants the
+  spherical composite, Eq. (9.72), same page. (3) Keep `min_screens` and the
+  moment floor of 4 (Eq. (9.65)) as hard floors under any Rytov-budget saving.
+  THE CAVEAT. The on-axis-only weight is a PLACEMENT heuristic, not a physics
+  deliverable: it captures the longitudinal generation profile but under-states
+  the off-axis variance, so hold a margin for a receiver that samples the beam
+  edge.
+  THE TEST. Prototype the beam-weighted planner, run it against the plane-weight
+  planner on a strong terrestrial cell, and confirm two things: the screen count
+  falls, and the fade statistics do NOT move (the bucket power distribution and
+  the SMF p5). `validation/terrestrial_screen_count/` already gives the
+  by-receiver-kind ground truth for "how many screens is enough", so it is the
+  reference. Pairs with 2-I3 (the preset revision) and 2-N5 (the floor-limited
+  sizer). Not built; not tested.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
   (the uplink and downlink read the same screens). UPDATED 2026-09-07: the
   fidelity-2 PRE-COMPENSATION route now EXISTS (2-AO), so this item is the
