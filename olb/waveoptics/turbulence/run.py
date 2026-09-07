@@ -41,6 +41,8 @@ import numpy as np
 
 from ...beam import virtual_waist
 from ...terminal import Aperture, Camera, SMF, MMF
+from ..compensation import (ApertureModes, circle, max_abs_step,
+                            modes_from_stack, wrapped_gradient)
 from ..field import Begin, Field, Power, field_dtype, to_host
 from ..mmf import defocus_phase as mmf_defocus_phase
 from ..mmf import mmf_coupling_efficiency
@@ -50,6 +52,19 @@ from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
 from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
+
+# THE SLOPE FIT MUST HOLD ENOUGH MODES. The slope metric and the direct phase
+# metric alias an unfitted mode differently, so a short slope fit reads the
+# tilt low: a 6-mode fit is 6 percent low, and a 21-mode fit agrees to 0.1
+# percent. See olb.waveoptics.compensation.slopes. So the slope route always
+# fits at least this many modes, and it zeros the extra coefficients before it
+# corrects.
+SLOPE_MIN_MODES = 21
+
+# The wrapped phase difference between two pixels aliases above pi. Warn below
+# that value, so a coarse grid is reported before it is wrong. See
+# olb.waveoptics.compensation.slopes.max_abs_step.
+SLOPE_STEP_WARN_RAD = 2.8
 
 
 def _progress_bar(progress, total, desc):
@@ -298,6 +313,87 @@ class _DeviceTail:
         return field.ravel()[indices].astype(np.complex64).get()
 
 
+def _host_array(a):
+    """Give a numpy array of a device array, or the array itself.
+
+    Args:
+        a: a numpy array, or a cupy array.
+
+    Returns:
+        A numpy array.
+    """
+    return a.get() if hasattr(a, "get") else a
+
+
+def _summing(screens, box):
+    """Yield each screen, and keep the running sum of the screens in box[0].
+
+    The SUMMED SCREEN PHASE is the sensing source of a SPACE link: a downlink
+    slab starts from a plane wave, so the sum of the screens is the wavefront
+    that arrives at the ground, without the diffraction between the screens.
+    The generator adds each screen BEFORE it yields it, so the sum is complete
+    when the split step has applied the last screen.
+
+    The sum stays on the device under the CUDA backend, because a screen does.
+
+    Args:
+        screens: an iterable of phase screens.
+        box:     a one-element list. The generator writes the sum into box[0].
+
+    Yields:
+        Each screen, unchanged.
+    """
+    for scr in screens:
+        if box[0] is None:
+            box[0] = scr.astype(scr.dtype, copy=True)
+        else:
+            box[0] += scr
+        yield scr
+
+
+def _resolve_compensation(scenario, compensation):
+    """Give the compensation stack and the mode count of a run.
+
+    The rule of `compensation`:
+      - None:         no correction. The run does not change.
+      - "terminal":   the stack of the CLIP terminal (see clip_terminal). That
+                      is the GROUND terminal of a space link in every
+                      direction, and the receive terminal of a terrestrial
+                      link.
+      - a sequence:   an explicit stack of TipTilt and AO stages.
+
+    An empty stack means no correction. The mode count follows
+    `olb.waveoptics.compensation.modes_from_stack`: a TipTilt stage removes the
+    first 3 Noll modes, and an AO(n) stage removes the first n Noll modes.
+    Source: Noll 1976, DOI 10.1364/JOSA.66.000207, Table I.
+
+    Args:
+        scenario:     a SpaceScenario or a TerrestrialScenario.
+        compensation: None, "terminal", or a sequence of stages.
+
+    Returns:
+        The pair (stack, n_modes). The stack is a tuple, or None when the run
+        makes no correction. Then n_modes is 0.
+
+    Raises:
+        ValueError: the string is not "terminal", or a stage is unknown.
+    """
+    if compensation is None:
+        return None, 0
+    if isinstance(compensation, str):
+        if compensation != "terminal":
+            raise ValueError(
+                "propagate_turbulent_scenario: compensation must be None, the "
+                f"string 'terminal', or a list of stages, not {compensation!r}.")
+        stack = tuple(clip_terminal(scenario).compensation or ())
+    else:
+        stack = tuple(compensation)
+    n_modes = modes_from_stack(stack)
+    if n_modes < 1:
+        return None, 0
+    return stack, n_modes
+
+
 @dataclass(frozen=True)
 class TurbTrial:
     """One atmosphere snapshot.
@@ -419,6 +515,14 @@ class TurbWaveResult:
         fft_backend:  the name of the FFT backend that made the trials:
                       "numpy", "scipy" or "cupy". It is None for a record
                       that a reader assembled from a store.
+        compensation: the perfect-AO stack that each trial removed, as a
+                      tuple, or None for an UNCORRECTED record. See
+                      olb.waveoptics.compensation.
+        n_modes_corrected: the number of removed Noll modes. It is 0 for an
+                      uncorrected record.
+        screen_phase: the summed screen phase at the patch pixels, a float32
+                      array of the shape (n_trials, n_patch), or None. The
+                      runner fills it with store_screen_phase=True.
     """
 
     trials: list
@@ -430,6 +534,9 @@ class TurbWaveResult:
     fields: np.ndarray = None
     patch: FieldPatch = None
     fft_backend: str = None
+    compensation: tuple = None
+    n_modes_corrected: int = 0
+    screen_phase: np.ndarray = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -614,7 +721,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None, start_index=0,
                                  patch_radius_m=None, precision="single",
-                                 fft_backend="numpy"):
+                                 fft_backend="numpy", compensation=None,
+                                 store_screen_phase=False):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -645,6 +753,26 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     not change. The memory is small: a 1 m patch at a 5 mm pixel pitch is about
     200 x 200 complex64, which is about 320 kB for each trial. Use `recouple`
     and `recollect` to read a stored field with a NEW detector.
+
+    THE PERFECT-AO CORRECTION (an OPT-IN, default OFF). `compensation` removes
+    the first N Noll modes of the wavefront over the receive aperture, in each
+    trial, BEFORE the clip, the coupling and the reciprocity overlap. The fit
+    is IDEAL: no wavefront-sensor noise, no servo lag, no aliasing. So it is
+    the UPPER BOUND of the benefit of a corrector. See
+    olb.waveoptics.compensation, and Noll 1976, DOI 10.1364/JOSA.66.000207.
+
+    THE SENSING SOURCE FOLLOWS THE FAMILY. A SPACE link senses the SUMMED
+    SCREEN PHASE, because a downlink slab starts from a plane wave. A
+    TERRESTRIAL link senses the WRAPPED-GRADIENT SLOPES of the receive field,
+    because its screens are not the receive wavefront.
+
+    THE CORRECTION KEEPS THE AMPLITUDE. It multiplies the field by a phase
+    factor, so collected_power does not change. A real corrector cannot fix
+    the scintillation.
+
+    THE STORED PATCH HOLDS THE UNCORRECTED FIELD. Each trial writes its patch
+    row BEFORE the correction. So a post-hoc call corrects the stored field
+    with ANY stack (see recouple_compensated).
 
     Args:
         scenario:     a SpaceScenario or a TerrestrialScenario.
@@ -738,6 +866,23 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       Validate a single-precision run against a
                       double-precision run of the same seed before a budget
                       reads it. See validation/precision.
+        compensation: None (the default, NO correction), the string
+                      "terminal", or a list of TipTilt and AO stages. The
+                      string reads the compensation stack of the CLIP terminal
+                      (clip_terminal: the ground terminal of a space link in
+                      EVERY direction, the receive terminal of a terrestrial
+                      link). Each trial then removes the first N Noll modes of
+                      the wavefront over the receive aperture. An empty stack
+                      acts as None. The default keeps an uncorrected run
+                      bit-identical.
+        store_screen_phase: True stores the summed screen phase of each trial
+                      at the patch pixels, as float32, in
+                      TurbWaveResult.screen_phase. It needs patch_radius_m. It
+                      is the sensing source of the SPACE post-hoc correction
+                      (recouple_compensated with source="screens"). A
+                      terrestrial run may store it too, but its post-hoc
+                      correction reads the field slopes. The default False
+                      stores nothing.
 
     Returns:
         A TurbWaveResult.
@@ -746,8 +891,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         ValueError:         the geometry gives more than one range, only one
                             of grid and plan is given, the patch radius does
                             not fit on the grid, the precision name is
-                            unknown, or a threader comes with the "cupy"
-                            backend.
+                            unknown, a threader comes with the "cupy"
+                            backend, the compensation request is unknown, or
+                            store_screen_phase comes with no patch radius.
         NotImplementedError: the scenario direction is "retro".
     """
     cdtype = field_dtype(precision)
@@ -788,6 +934,39 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             f"({rx.aperture_m / 2:.4g} m) reaches the absorbing band of the "
             f"boundary mask (it starts at {r_flat:.4g} m). The collected "
             f"power is too low. Use a wider grid.")
+
+    # ---- the perfect-AO correction (an OPT-IN, default OFF) ----
+    # The projector builds ONE time for the run. Its pseudo-inverse costs a
+    # fraction of a second at 15000 aperture pixels, so a per-trial build would
+    # be the cost of the run. The mask is the CLIP aperture on the grid:
+    # `circle` keeps exactly the pixels that `_clip` keeps (the self-check
+    # asserts it), so the fit and the clip read the same pixels.
+    comp_stack, n_modes = _resolve_compensation(scenario, compensation)
+    comp_source = "screens" if is_space else "slopes"
+    comp_modes = None
+    if n_modes > 0:
+        # The SLOPE route needs a longer fit than it corrects, and it zeros the
+        # extra coefficients. See SLOPE_MIN_MODES.
+        n_fit = (n_modes if comp_source == "screens"
+                 else max(n_modes, SLOPE_MIN_MODES))
+        comp_modes = ApertureModes(
+            n_fit, grid.n, circle(grid.n, rx.aperture_m / grid.pixel_m,
+                                  rx.obscuration_ratio))
+        if comp_source == "slopes":
+            # Build the slope reconstructor HERE, not in the first trial. A
+            # threaded run must not build it in two threads at the same time.
+            comp_modes.estimate_from_slopes(np.zeros((grid.n, grid.n - 1)),
+                                            np.zeros((grid.n - 1, grid.n)))
+    if store_screen_phase and patch_radius_m is None:
+        raise ValueError(
+            "propagate_turbulent_scenario: store_screen_phase=True needs "
+            "patch_radius_m. The screen phase is stored at the patch pixels, "
+            "so the run must store a patch.")
+    # The SUMMED SCREEN PHASE. The space correction senses it, and
+    # store_screen_phase keeps it. Compute it ONE time when both ask for it.
+    need_sum = bool(store_screen_phase) or (comp_modes is not None
+                                            and comp_source == "screens")
+    slope_step_warned = [False]
 
     # THE SETUP RUNS ON THE DEVICE TOO, under the "cupy" backend (2026-09-07).
     # The vacuum baseline of a space slab is a WHOLE split step, and it is the
@@ -882,11 +1061,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # The optional field capture. One mask serves every trial, and each
         # trial writes ONE row. So the threads touch no shared row, and no lock
         # is necessary.
-        patch = fields = None
+        patch = fields = screen_phase = None
         if patch_radius_m is not None:
             patch = _field_patch(grid, float(patch_radius_m))
             fields = np.empty((int(n_trials), patch.indices.size),
                               dtype=np.complex64)
+        if store_screen_phase:
+            screen_phase = np.empty((int(n_trials), patch.indices.size),
+                                    dtype=np.float32)
 
         # THE DEVICE TAIL (2026-09-07). The clip, the power and the fibre
         # coupling do not depend on the atmosphere, so the CUDA route runs
@@ -894,8 +1076,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # trial downloads the patch pixels only, or nothing at all. See
         # _DeviceTail. An MMF receiver keeps the host tail, so the route falls
         # back to the ONE download of before.
+        #
+        # THE CORRECTION AND THE SCREEN STORE KEEP THE HOST TAIL (phase 1,
+        # 2026-09-07). Both read the summed screen phase or the receive field
+        # on the host, so a trial that asks for one takes the ONE download of
+        # before, and the correction is host numpy. A device-side projection
+        # is a later step. The download is about 8 MB at 1024 px.
         tail = patch_idx = psi_conj = None
-        if device:
+        if device and not need_sum and comp_modes is None:
             wanted = [rx.detector] + list(detectors or ())
             if all(_DeviceTail.handles(d) for d in wanted):
                 tail = _DeviceTail(grid, rx.aperture_m, rx.obscuration_ratio,
@@ -923,6 +1111,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 stack = (build_screen(_screen_seed(seed_entropy, k, j),
                                       plan.r0_m[j])
                          for j in range(n_screens))
+            sum_box = [None]
+            if need_sum:
+                stack = _summing(stack, sum_box)
             F_start = (F_device if F_device is not None else
                        (Begin(grid.size_m, lam, grid.n, dtype=cdtype)
                         if is_space else F_in))
@@ -961,10 +1152,42 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             F_rx = to_host(F_out)
 
             if patch is not None:
-                # The UNCLIPPED field, on the patch only. The clip below is
-                # unchanged, so every scalar keeps its value.
+                # The UNCLIPPED and UNCORRECTED field, on the patch only. The
+                # correction below does not touch this row, so a post-hoc call
+                # corrects the stored field with any other stack. The clip
+                # below is unchanged, so every scalar keeps its value.
                 fields[k - start_index] = (
                     F_rx.field.ravel()[patch.indices].astype(np.complex64))
+
+            acc = _host_array(sum_box[0]) if need_sum else None
+            if screen_phase is not None:
+                screen_phase[k - start_index] = acc.ravel()[patch.indices]
+            if comp_modes is not None:
+                # THE PERFECT-AO CORRECTION. It removes the fitted modes from
+                # the receive field, so the clip, the coupling and the
+                # reciprocity overlap below all read the CORRECTED wavefront.
+                # The phase map is zero outside the aperture mask, so the
+                # stored patch pixels outside the aperture do not move.
+                if comp_source == "screens":
+                    coeffs = comp_modes.estimate(acc.ravel()[comp_modes.indices])
+                else:
+                    sx, sy = wrapped_gradient(F_rx.field)
+                    if not slope_step_warned[0]:
+                        step = max_abs_step(sx, sy)
+                        if step > SLOPE_STEP_WARN_RAD:
+                            slope_step_warned[0] = True
+                            warnings.warn(
+                                "propagate_turbulent_scenario: the largest "
+                                f"phase step of the receive field is {step:.2f} "
+                                "rad per pixel. A wrapped-gradient slope "
+                                "aliases above pi, so the modal fit of the "
+                                "compensation is not trustworthy here. Use a "
+                                "finer grid.")
+                    coeffs = comp_modes.estimate_from_slopes(sx, sy)
+                    # The fit holds more modes than the corrector removes, so
+                    # the extra coefficients go to zero. See SLOPE_MIN_MODES.
+                    coeffs[n_modes:] = 0.0
+                F_rx.field = comp_modes.apply(F_rx.field, coeffs, sign=-1)
 
             collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
             collected_power = float(Power(collected) / p_reference)
@@ -1048,7 +1271,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     return TurbWaveResult(trials=trials, grid=grid, plan=plan, report=report,
                           preset=p.name, seed_entropy=seed_entropy,
                           fields=fields, patch=patch,
-                          fft_backend=fft_backend)
+                          fft_backend=fft_backend, compensation=comp_stack,
+                          n_modes_corrected=n_modes,
+                          screen_phase=screen_phase)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -1237,6 +1462,81 @@ def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
     out = []
     for _, array in _rebuilt_fields(result, aperture_m, trials):
         F = _patch_field(result.patch, array, lam)
+        collected = _clip(F, aperture_m, obscuration_ratio)
+        eta = _detector_eta(detector, collected, aperture_m, lam)
+        out.append(np.nan if eta is None else float(eta))
+    return np.array(out, dtype=float)
+
+
+def recouple_compensated(result, compensation, detector, aperture_m,
+                         obscuration_ratio, lam, *, source, trials=None):
+    """Correct a STORED receive field, then couple it into a detector.
+
+    This is the post-hoc twin of the runner correction, and the sibling of
+    `recouple`. It removes the first N Noll modes of each stored trial over the
+    receive aperture, then it clips the field and it couples it. So a stored
+    campaign gives the fade of ANY compensation stack, with no new
+    propagation.
+
+    THE SENSING SOURCE. source="screens" reads the stored summed screen phase
+    (`store_screen_phase=True`), which is the SPACE source. source="slopes"
+    reads the wrapped-gradient slopes of the stored field, which is the
+    TERRESTRIAL source. The slope route fits at least SLOPE_MIN_MODES modes and
+    it zeros the extra coefficients, exactly as the runner does.
+
+    Args:
+        result:            a TurbWaveResult with a stored patch.
+        compensation:      a sequence of TipTilt and AO stages.
+        detector:          an SMF, an MMF, an Aperture, a Camera, or None.
+        aperture_m:        the receive aperture diameter, in m.
+        obscuration_ratio: the central obscuration of that aperture.
+        lam:               the wavelength, in m.
+        source:            "screens" or "slopes".
+        trials:            an optional sequence of trial row indices. None
+                           takes every stored trial.
+
+    Returns:
+        A float array of the coupling efficiency of each selected trial. A
+        detector with no coupling model (a Camera, or None) gives NaN.
+
+    Raises:
+        ValueError: the result holds no field, the aperture is larger than the
+                    stored patch, the stack is empty, the source name is
+                    unknown, or source="screens" and the result holds no
+                    stored screen phase.
+    """
+    if source not in ("screens", "slopes"):
+        raise ValueError(
+            f"recouple_compensated: source must be 'screens' or 'slopes', not "
+            f"{source!r}.")
+    n_modes = modes_from_stack(compensation)
+    if n_modes < 1:
+        raise ValueError(
+            "recouple_compensated: the compensation stack removes no mode. "
+            "Pass a TipTilt or an AO(n) stage.")
+    if source == "screens" and result.screen_phase is None:
+        raise ValueError(
+            "recouple_compensated: source='screens' needs the stored summed "
+            "screen phase, and this record holds none. Run the campaign with "
+            "store_screen_phase=True, or use source='slopes'.")
+    patch = result.patch
+    n_fit = n_modes if source == "screens" else max(n_modes, SLOPE_MIN_MODES)
+    modes = None
+    out = []
+    for row, array in _rebuilt_fields(result, aperture_m, trials):
+        if modes is None:
+            modes = ApertureModes(
+                n_fit, patch.n, circle(patch.n, aperture_m / patch.pixel_m,
+                                       obscuration_ratio))
+        if source == "screens":
+            phase = np.zeros(patch.n * patch.n, dtype=np.float64)
+            phase[patch.indices] = result.screen_phase[row]
+            coeffs = modes.estimate(phase[modes.indices])
+        else:
+            sx, sy = wrapped_gradient(array)
+            coeffs = modes.estimate_from_slopes(sx, sy)
+            coeffs[n_modes:] = 0.0
+        F = _patch_field(patch, modes.apply(array, coeffs, sign=-1), lam)
         collected = _clip(F, aperture_m, obscuration_ratio)
         eta = _detector_eta(detector, collected, aperture_m, lam)
         out.append(np.nan if eta is None else float(eta))
@@ -1628,6 +1928,153 @@ if __name__ == '__main__':
     except ValueError as exc:
         assert "grid side" in str(exc), str(exc)
 
+    # ---- 7e. the perfect-AO correction ----
+    from ...terminal import AO, TipTilt
+    from ..compensation import ApertureModes, circle
+
+    # The mask of the projector IS the mask of the clip. The correction and
+    # the clip must read the same pixels.
+    _probe = Begin(mc.grid.size_m, lam, mc.grid.n)
+    _clip_mask = _clip(_probe, ground.aperture_m,
+                       ground.obscuration_ratio).field != 0.0
+    assert np.array_equal(
+        _clip_mask, circle(mc.grid.n, ground.aperture_m / mc.grid.pixel_m,
+                           ground.obscuration_ratio)), \
+        "circle() must keep the pixels that _clip keeps"
+
+    # A downlink with an SMF at the ground. The correction must raise the mean
+    # fibre coupling, and it must NOT change the collected power: it multiplies
+    # the field by a phase factor.
+    ground_smf = Terminal(aperture_m=0.40, wavelength_m=lam, detector=SMF(),
+                          transmitter=Transmitter(waist_m=0.06),
+                          compensation=[TipTilt()])
+    down_ao = SpaceScenario(ground=ground_smf,
+                            space=Terminal(aperture_m=0.30, wavelength_m=lam),
+                            direction="downlink", channel=Channel())
+    ao_kw = dict(n_trials=12, seed=31, preset="rapid")
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        ao_off = propagate_turbulent_scenario(down_ao, orbit30, **ao_kw)
+        ao_tt = propagate_turbulent_scenario(down_ao, orbit30,
+                                             compensation=[TipTilt()], **ao_kw)
+        ao_term = propagate_turbulent_scenario(down_ao, orbit30,
+                                               compensation="terminal", **ao_kw)
+        ao_10 = propagate_turbulent_scenario(down_ao, orbit30,
+                                             compensation=[AO(n_modes=10)],
+                                             **ao_kw)
+    eta_off = np.array([t.smf_eta for t in ao_off.trials])
+    eta_tt = np.array([t.smf_eta for t in ao_tt.trials])
+    eta_10 = np.array([t.smf_eta for t in ao_10.trials])
+    assert ao_off.compensation is None and ao_off.n_modes_corrected == 0
+    assert ao_tt.n_modes_corrected == 3 and ao_10.n_modes_corrected == 10
+    assert eta_tt.mean() > eta_off.mean(), (eta_tt.mean(), eta_off.mean())
+    assert eta_10.mean() > eta_tt.mean(), (eta_10.mean(), eta_tt.mean())
+    # THE CORRECTION KEEPS THE AMPLITUDE. A phase factor does not change
+    # |E|^2, so the collected power moves at the float32 rounding level only.
+    for a, b in zip(ao_tt.trials, ao_off.trials):
+        assert abs(a.collected_power / b.collected_power - 1.0) < 1e-6, (a, b)
+    # compensation="terminal" reads the stack of the ground terminal, so it
+    # equals the explicit list, trial for trial.
+    for a, b in zip(ao_term.trials, ao_tt.trials):
+        assert a.smf_eta == b.smf_eta, (a.smf_eta, b.smf_eta)
+
+    # An UPLINK reads the same field by reciprocity, so the ground AO stack is
+    # a PRE-COMPENSATION. The overlap must not fall.
+    up_ao = SpaceScenario(ground=ground_smf,
+                          space=Terminal(aperture_m=0.30, wavelength_m=lam),
+                          direction="uplink", channel=Channel())
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        up_off = propagate_turbulent_scenario(up_ao, orbit30, **ao_kw)
+        up_on = propagate_turbulent_scenario(up_ao, orbit30,
+                                             compensation=[AO(n_modes=10)],
+                                             **ao_kw)
+    turb_off = np.array([t.eta_turb for t in up_off.trials])
+    turb_on = np.array([t.eta_turb for t in up_on.trials])
+    assert turb_on.mean() >= turb_off.mean(), (turb_on.mean(), turb_off.mean())
+
+    # The stored screen phase, and the post-hoc correction. The store keeps the
+    # UNCORRECTED field, so recouple_compensated must reproduce the in-run
+    # coupling of the corrected run of the same seed.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        ao_store = propagate_turbulent_scenario(
+            down_ao, orbit30, patch_radius_m=0.6 * ground_smf.aperture_m,
+            store_screen_phase=True, **ao_kw)
+    assert ao_store.screen_phase.shape == (12, ao_store.patch.indices.size)
+    assert ao_store.screen_phase.dtype == np.float32
+    for a, b in zip(ao_store.trials, ao_off.trials):
+        assert a.smf_eta == b.smf_eta, (a.smf_eta, b.smf_eta)
+    post_screens = recouple_compensated(
+        ao_store, [TipTilt()], ground_smf.detector, ground_smf.aperture_m,
+        ground_smf.obscuration_ratio, lam, source="screens")
+    post_slopes = recouple_compensated(
+        ao_store, [TipTilt()], ground_smf.detector, ground_smf.aperture_m,
+        ground_smf.obscuration_ratio, lam, source="slopes")
+    d_screens = float(np.abs(post_screens / eta_tt - 1.0).max())
+    d_slopes = float(np.abs(post_slopes / eta_tt - 1.0).max())
+    assert d_screens < 1e-4, (post_screens[:3], eta_tt[:3])
+    assert d_slopes < 0.05, (post_slopes[:3], eta_tt[:3])
+
+    # V3 IN MINIATURE. The two sensing sources must give the same tip-tilt on a
+    # SPACE link, where both are valid: the slab starts from a plane wave, so
+    # the summed screen phase IS the sensed wavefront.
+    _modes21 = ApertureModes(
+        21, ao_store.patch.n,
+        circle(ao_store.patch.n, ground_smf.aperture_m / ao_store.patch.pixel_m,
+               ground_smf.obscuration_ratio))
+    tilt_scr, tilt_slp = [], []
+    for _row, _arr in _rebuilt_fields(ao_store, ground_smf.aperture_m, None):
+        _ph = np.zeros(ao_store.patch.n ** 2)
+        _ph[ao_store.patch.indices] = ao_store.screen_phase[_row]
+        tilt_scr.append(_modes21.estimate(_ph[_modes21.indices])[1:3])
+        tilt_slp.append(_modes21.estimate_from_slopes(
+            *wrapped_gradient(_arr))[1:3])
+    tilt_scr = np.asarray(tilt_scr).ravel()
+    tilt_slp = np.asarray(tilt_slp).ravel()
+    v3_gain = float((tilt_slp @ tilt_scr) / (tilt_scr @ tilt_scr))
+    assert abs(v3_gain - 1.0) < 0.15, v3_gain
+
+    # The failure modes.
+    try:
+        propagate_turbulent_scenario(down_ao, orbit30, n_trials=1,
+                                     preset="rapid", store_screen_phase=True)
+        raise AssertionError("store_screen_phase with no patch must raise")
+    except ValueError as exc:
+        assert "patch_radius_m" in str(exc), str(exc)
+    try:
+        propagate_turbulent_scenario(down_ao, orbit30, n_trials=1,
+                                     preset="rapid", compensation="ground")
+        raise AssertionError("an unknown compensation must raise")
+    except ValueError as exc:
+        assert "terminal" in str(exc), str(exc)
+    try:
+        recouple_compensated(kept, [TipTilt()], rx_terr.detector,
+                             rx_terr.aperture_m, rx_terr.obscuration_ratio,
+                             lam, source="screens")
+        raise AssertionError("a record with no screen phase must raise")
+    except ValueError as exc:
+        assert "store_screen_phase" in str(exc), str(exc)
+
+    # A TERRESTRIAL run takes the SLOPE route, and it raises the coupling. The
+    # 1 km path above holds no turbulence (Cn2 = 1e-20), so this case takes a
+    # real Cn2.
+    turb_terr = TerrestrialScenario(
+        near=terr_scn.near, far=terr_scn.far,
+        channel=TerrestrialChannel(path_length_m=1000.0, cn2=5e-15))
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        terr_off = propagate_turbulent_scenario(
+            turb_terr, path, n_trials=6, seed=5, preset="rapid")
+        terr_ao = propagate_turbulent_scenario(
+            turb_terr, path, n_trials=6, seed=5, preset="rapid",
+            compensation=[TipTilt()])
+    terr_eta_on = np.array([t.smf_eta for t in terr_ao.trials])
+    terr_eta_off = np.array([t.smf_eta for t in terr_off.trials])
+    assert terr_ao.n_modes_corrected == 3
+    assert terr_eta_on.mean() > terr_eta_off.mean(), \
+        (terr_eta_on, terr_eta_off)
+
     # ---- 8. the precision switch ----
     # The default is "single" (owner decision 2026-09-05), so every result
     # above ran in single precision. A "double" run of the same seed gives the
@@ -1749,6 +2196,19 @@ if __name__ == '__main__':
     print(f"  SMF eta, recoupled      {eta_back[0]:11.6f}")
     print(f"  MMF eta, in run         {mmf_run[0]:11.6f}")
     print(f"  MMF eta, recoupled      {mmf_back[0]:11.6f}")
+    print("")
+    print("the perfect-AO correction, downlink 30 deg, 12 trials, "
+          f"D = {ground_smf.aperture_m} m:")
+    print(f"  SMF eta, uncorrected    {eta_off.mean():11.6f}")
+    print(f"  SMF eta, TipTilt (3)    {eta_tt.mean():11.6f}")
+    print(f"  SMF eta, AO(10)         {eta_10.mean():11.6f}")
+    print(f"  uplink eta_turb, off    {turb_off.mean():11.6f}")
+    print(f"  uplink eta_turb, AO(10) {turb_on.mean():11.6f}")
+    print(f"  post-hoc screens, err   {d_screens:11.2e}")
+    print(f"  post-hoc slopes, err    {d_slopes:11.2e}")
+    print(f"  V3 slope/screen gain    {v3_gain:11.5f}")
+    print(f"  terrestrial SMF eta     {terr_eta_off.mean():11.6f} -> "
+          f"{terr_eta_on.mean():.6f}")
     print("")
     print("single against double precision, 6 downlink trials:")
     print(f"  max relative difference {d_power.max():11.2e}")

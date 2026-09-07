@@ -85,7 +85,8 @@ def _cn2_fingerprint(cn2, h_top_m):
 def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               L0_m, subharmonics, hs, cn2_profile, block_size,
               cn2=None, h_top_m=None, grid=None, plan=None,
-              precision="double", fft_backend="numpy"):
+              precision="double", fft_backend="numpy", compensation=None,
+              store_screen_phase=False):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -112,6 +113,15 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         fft_backend:      "numpy" (the default), "scipy" or "cupy". It enters
                           the key when it is not "numpy", so a GPU campaign
                           never mixes with a CPU campaign.
+        compensation:     the RESOLVED perfect-AO stack (a tuple of stages), or
+                          None. It enters the key when it is not None, so a
+                          corrected campaign never mixes with an uncorrected
+                          one. Resolve the string "terminal" against the clip
+                          terminal BEFORE the call, so the key names the
+                          stages.
+        store_screen_phase: the screen-phase store switch. It enters the key
+                          when it is True, because a stored block then holds
+                          one more array.
 
     Returns:
         A 64-character hex string.
@@ -123,6 +133,12 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
     tail = [] if precision == "double" else [f"precision={precision}"]
     if fft_backend != "numpy":
         tail.append(f"fft_backend={fft_backend}")
+    # THE APPEND-ONLY RULE. A default adds NO line, so every key that a stored
+    # campaign holds stays valid.
+    if compensation is not None:
+        tail.append(f"compensation={tuple(compensation)!r}")
+    if store_screen_phase:
+        tail.append("store_screen_phase=True")
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([
@@ -189,6 +205,19 @@ if __name__ == '__main__':
     assert k0 == cache_key(scn, geom, seed=7, precision="double", **common), \
         "the default precision must not change an existing key"
     assert k0 != cache_key(scn, geom, seed=7, precision="single", **common)
+
+    # ---- the compensation enters the key only when there is one ----
+    from ...terminal import AO, TipTilt
+    assert k0 == cache_key(scn, geom, seed=7, compensation=None,
+                           store_screen_phase=False, **common), \
+        "the defaults must not change an existing key"
+    ktt = cache_key(scn, geom, seed=7, compensation=(TipTilt(),), **common)
+    assert ktt != k0, "a compensation stack must change the key"
+    assert ktt == cache_key(scn, geom, seed=7, compensation=(TipTilt(),),
+                            **common)
+    assert ktt != cache_key(scn, geom, seed=7, compensation=(AO(n_modes=10),),
+                            **common)
+    assert k0 != cache_key(scn, geom, seed=7, store_screen_phase=True, **common)
 
     print(f"key {k0[:16]}... is stable; the seed, the hardware, the preset, "
           "the generator, the block size, the geometry and the Cn2 each "

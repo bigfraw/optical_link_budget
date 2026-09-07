@@ -75,9 +75,9 @@ from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
-                  clip_terminal,
+                  _resolve_compensation, clip_terminal,
                   _resolve_seed, propagate_turbulent_scenario, recollect,
-                  recouple)
+                  recouple, recouple_compensated)
 from .sampling import ScreenPlan, turbulent_grid
 
 # The manifest name and the block name. A block file holds one block only, so a
@@ -116,15 +116,22 @@ def _columns_of(result):
     not: it is a list of frozen dataclasses, and it costs much more to send
     between processes.
 
+    The OPTIONAL "screen_phase" array joins the dict only when the run stored
+    one. So the block file of a default campaign holds exactly the arrays it
+    always held.
+
     Args:
         result: the TurbWaveResult of one block.
 
     Returns:
-        A dict of numpy arrays, one for each column, plus "fields".
+        A dict of numpy arrays, one for each column, plus "fields", and
+        "screen_phase" when the run stored it.
     """
     out = {c: np.array([_none_to_nan(getattr(t, c)) for t in result.trials],
                        dtype=np.float64) for c in _COLUMNS}
     out["fields"] = np.asarray(result.fields, dtype=np.complex64)
+    if result.screen_phase is not None:
+        out["screen_phase"] = np.asarray(result.screen_phase, dtype=np.float32)
     return out
 
 
@@ -195,7 +202,9 @@ def _run_block(b):
         subharmonics=_W["kwargs"]["subharmonics"],
         screen_generator=_W["kwargs"]["screen_generator"],
         precision=_W["kwargs"]["precision"],
-        fft_backend=_W["kwargs"]["fft_backend"])
+        fft_backend=_W["kwargs"]["fft_backend"],
+        compensation=_W["kwargs"]["compensation"],
+        store_screen_phase=_W["kwargs"]["store_screen_phase"])
     return int(b), _columns_of(res)
 
 
@@ -214,6 +223,9 @@ class Campaign:
         plan:           the ScreenPlan of every trial.
         patch:          the FieldPatch of the stored columns.
         precision:      "double" or "single", the arithmetic of every trial.
+        compensation:   the RESOLVED perfect-AO stack of every trial, or None.
+        n_modes_corrected: the number of removed Noll modes, or 0.
+        store_screen_phase: True keeps the summed screen phase of each trial.
     """
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
@@ -221,7 +233,8 @@ class Campaign:
                  sizing_aperture_m=None, grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
                  subharmonics=True, screen_generator="olb",
-                 precision="single", fft_backend="numpy"):
+                 precision="single", fft_backend="numpy", compensation=None,
+                 store_screen_phase=False):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -286,6 +299,21 @@ class Campaign:
                            Validate it against a double-precision run of the
                            same seed before a budget reads it. See
                            validation/precision.
+            compensation:  None (the default, NO correction), the string
+                           "terminal" (the compensation stack of the clip
+                           terminal), or a list of TipTilt and AO stages. Each
+                           trial then removes the first N Noll modes of the
+                           wavefront over the receive aperture (perfect AO; see
+                           olb.waveoptics.compensation). The RESOLVED stack
+                           enters the fingerprint and the manifest, so a
+                           corrected campaign never mixes with an uncorrected
+                           one. The default keeps every stored key valid.
+            store_screen_phase: True stores the summed screen phase of each
+                           trial at the patch pixels, as float32. It is the
+                           sensing source of the post-hoc SPACE correction
+                           (`recouple_compensated`). It adds one array to each
+                           block file, and it enters the fingerprint. The
+                           default False stores nothing.
 
         Raises:
             ValueError: the seed is not an integer, the precision name is
@@ -317,6 +345,12 @@ class Campaign:
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
                                   else float(sizing_aperture_m))
+        # RESOLVE THE STACK BEFORE THE FINGERPRINT. The key then names the
+        # stages, not the string "terminal", so a campaign that asks for the
+        # terminal stack and a campaign that gives the same stages share a key.
+        self.compensation, self.n_modes_corrected = _resolve_compensation(
+            scenario, compensation)
+        self.store_screen_phase = bool(store_screen_phase)
 
         if patch_radius_m is None:
             base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
@@ -330,7 +364,9 @@ class Campaign:
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
             block_size=self.block_size, grid=grid, plan=plan,
-            precision=self.precision, fft_backend=self.fft_backend)
+            precision=self.precision, fft_backend=self.fft_backend,
+            compensation=self.compensation,
+            store_screen_phase=self.store_screen_phase)
 
         os.makedirs(self.root_dir, exist_ok=True)
         manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
@@ -385,11 +421,16 @@ class Campaign:
                 "sizing_aperture_m": self.sizing_aperture_m,
                 "precision": self.precision,
                 "fft_backend": self.fft_backend,
+                "compensation": repr(self.compensation),
+                "store_screen_phase": self.store_screen_phase,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
-        # The same for the FFT backend: an older manifest is a numpy store.
-        defaults = {"precision": "double", "fft_backend": "numpy"}
+        # The same for the FFT backend: an older manifest is a numpy store. A
+        # manifest from before the compensation switch is an UNCORRECTED store
+        # with no stored screen phase.
+        defaults = {"precision": "double", "fft_backend": "numpy",
+                    "compensation": repr(None), "store_screen_phase": False}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -415,6 +456,9 @@ class Campaign:
             "screen_generator": self.screen_generator,
             "precision": self.precision,
             "fft_backend": self.fft_backend,
+            "compensation": repr(self.compensation),
+            "n_modes_corrected": int(self.n_modes_corrected),
+            "store_screen_phase": self.store_screen_phase,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -455,10 +499,17 @@ class Campaign:
         os.replace(tmp, path)
 
     def _read_block(self, b, fields=True):
-        """Read one block file into a dict of arrays."""
+        """Read one block file into a dict of arrays.
+
+        A block that a run wrote with no screen-phase store holds no
+        "screen_phase" array, so the value is then None.
+        """
         with np.load(self._block_path(b)) as z:
             cols = {c: z[c] for c in _COLUMNS}
             cols["fields"] = z["fields"] if fields else None
+            cols["screen_phase"] = (z["screen_phase"]
+                                    if fields and "screen_phase" in z.files
+                                    else None)
         return cols
 
     @property
@@ -477,7 +528,9 @@ class Campaign:
                 "subharmonics": self.subharmonics,
                 "screen_generator": self.screen_generator,
                 "precision": self.precision,
-                "fft_backend": self.fft_backend}
+                "fft_backend": self.fft_backend,
+                "compensation": self.compensation,
+                "store_screen_phase": self.store_screen_phase}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
@@ -590,7 +643,9 @@ class Campaign:
                     subharmonics=self.subharmonics,
                     screen_generator=self.screen_generator,
                     precision=self.precision, threader=threader,
-                    fft_backend=self.fft_backend)
+                    fft_backend=self.fft_backend,
+                    compensation=self.compensation,
+                    store_screen_phase=self.store_screen_phase)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "
@@ -642,12 +697,15 @@ class Campaign:
         blocks, n = self._blocks_for(n_trials)
         cols = {c: [] for c in _COLUMNS}
         stack = []
+        phase = []
         for b in blocks:
             got = self._read_block(b, fields=fields)
             for c in _COLUMNS:
                 cols[c].append(got[c])
             if fields:
                 stack.append(got["fields"])
+                if got["screen_phase"] is not None:
+                    phase.append(got["screen_phase"])
         packed = {c: np.concatenate(cols[c])[:n] for c in _COLUMNS}
         entropy = _resolve_seed(self.seed)
         trials = [
@@ -663,7 +721,10 @@ class Campaign:
             trials=trials, grid=self.grid, plan=self.plan, report=None,
             preset=self.preset, seed_entropy=entropy,
             fields=(np.concatenate(stack)[:n] if fields else None),
-            patch=self.patch if fields else None)
+            patch=self.patch if fields else None,
+            compensation=self.compensation,
+            n_modes_corrected=self.n_modes_corrected,
+            screen_phase=(np.concatenate(phase)[:n] if phase else None))
 
     def _stream(self, fn, n_trials=None):
         """Run fn on one block at a time, and join the results.
@@ -685,7 +746,8 @@ class Campaign:
             part = TurbWaveResult(trials=[], grid=self.grid, plan=self.plan,
                                   report=None, preset=self.preset,
                                   seed_entropy=self.seed,
-                                  fields=got["fields"], patch=self.patch)
+                                  fields=got["fields"], patch=self.patch,
+                                  screen_phase=got["screen_phase"])
             out.append(fn(part))
         return np.concatenate(out)[:n]
 
@@ -712,6 +774,52 @@ class Campaign:
         lam = self.scenario.tx_terminal.wavelength_m
         return self._stream(
             lambda part: recouple(part, detector, a, o, lam), n_trials)
+
+    def recouple_compensated(self, compensation, detector, aperture_m=None,
+                             obscuration_ratio=None, n_trials=None,
+                             source=None):
+        """Correct the STORED fields, then couple them into a detector.
+
+        This is the post-hoc perfect-AO twin of `recouple`. It removes the
+        first N Noll modes of each stored trial over the receive aperture, then
+        it couples the corrected field. So a stored campaign gives the fade of
+        ANY compensation stack, with no new propagation. See
+        olb.waveoptics.turbulence.run.recouple_compensated.
+
+        Args:
+            compensation:      a sequence of TipTilt and AO stages.
+            detector:          an SMF, an MMF, an Aperture, a Camera, or None.
+            aperture_m:        the receive aperture diameter, in m. None takes
+                               the aperture of the scenario receive terminal.
+            obscuration_ratio: the central obscuration. None takes the value of
+                               the scenario receive terminal.
+            n_trials:          the number of trials. None takes every stored
+                               trial.
+            source:            "screens", "slopes", or None. None follows the
+                               channel family: "screens" for a space link (the
+                               slab starts from a plane wave, so the summed
+                               screen phase IS the sensed wavefront) and
+                               "slopes" for a terrestrial link.
+
+        Returns:
+            A float array of the coupling efficiency of each trial.
+
+        Raises:
+            ValueError: source="screens" and the campaign stored no screen
+                        phase, or the stack removes no mode.
+        """
+        rx = self.scenario.rx_terminal
+        a = rx.aperture_m if aperture_m is None else float(aperture_m)
+        o = (rx.obscuration_ratio if obscuration_ratio is None
+             else float(obscuration_ratio))
+        lam = self.scenario.tx_terminal.wavelength_m
+        if source is None:
+            source = ("screens" if hasattr(self.scenario, "ground")
+                      else "slopes")
+        return self._stream(
+            lambda part: recouple_compensated(part, compensation, detector, a,
+                                              o, lam, source=source),
+            n_trials)
 
     def recollect(self, aperture_m=None, obscuration_ratio=None,
                   n_trials=None):
@@ -764,6 +872,8 @@ if __name__ == '__main__':
     root3 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck3_")
     root4 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck4_")
     root5 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck5_")
+    root6 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck6_")
+    root7 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck7_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -894,6 +1004,43 @@ if __name__ == '__main__':
             except ValueError as exc:
                 assert "single" in str(exc), str(exc)
 
+            # ---- 9. the perfect-AO correction and the screen store ----
+            # A corrected campaign is a SEPARATE store: it gets its own key,
+            # and its manifest names the stages. A default campaign does not
+            # move (assertion 1 above compares the block bytes of a grow).
+            from ...terminal import TipTilt
+            camp6 = Campaign(scn, orbit, root6, compensation=[TipTilt()],
+                             store_screen_phase=True, **common)
+            assert camp6.fingerprint != camp.fingerprint, "the stack must key"
+            assert camp6.n_modes_corrected == 3, camp6.n_modes_corrected
+            assert camp6.run(8) == 8
+            with open(os.path.join(root6, MANIFEST_NAME), encoding="utf-8") as fh:
+                man6 = _json.load(fh)
+            assert "TipTilt" in man6["compensation"], man6["compensation"]
+            assert man6["store_screen_phase"] is True
+            got6 = camp6.load(8)
+            assert got6.n_modes_corrected == 3
+            assert got6.screen_phase.shape == (8, camp6.patch.indices.size)
+            # A reopen with no compensation raises, and it names the field.
+            try:
+                Campaign(scn, orbit, root6, store_screen_phase=True, **common)
+                raise AssertionError("a dropped stack must raise ValueError")
+            except ValueError as exc:
+                assert "compensation" in str(exc), str(exc)
+            # THE POST-HOC ROUTE. An UNCORRECTED campaign that stored its
+            # screen phase gives the corrected coupling of the corrected
+            # campaign, with no new propagation.
+            camp7 = Campaign(scn, orbit, root7, store_screen_phase=True,
+                             **common)
+            assert camp7.run(8) == 8
+            eta_post = camp7.recouple_compensated([TipTilt()], ground.detector)
+            eta_ao = np.array([t.smf_eta for t in got6.trials])
+            d_post = float(np.abs(eta_post / eta_ao - 1.0).max())
+            assert d_post < 1e-4, (eta_post[:3], eta_ao[:3])
+            eta_plain = camp7.recouple(ground.detector)
+            assert eta_ao.mean() > eta_plain.mean(), (eta_ao.mean(),
+                                                      eta_plain.mean())
+
         print("campaign self-check, downlink 30 deg, rapid preset, "
               f"block_size {common['block_size']}:")
         print(f"  grid                    {camp.grid.n:11d} px, "
@@ -909,9 +1056,13 @@ if __name__ == '__main__':
         print(f"  turbulence Term         {term.mean_db:11.3f} dB")
         print(f"  sizing grid differs     {str(big):>11s} "
               f"({camp3.grid.n} px, {camp3.grid.size_m:.3f} m)")
+        print(f"  SMF eta, uncorrected    {eta_plain.mean():11.6f}")
+        print(f"  SMF eta, TipTilt in run {eta_ao.mean():11.6f}")
+        print(f"  SMF eta, TipTilt posthoc {eta_post.mean():10.6f} "
+              f"(worst relative error {d_post:.1e})")
         print("")
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
-        for d in (root, root2, root3, root4, root5):
+        for d in (root, root2, root3, root4, root5, root6, root7):
             shutil.rmtree(d, ignore_errors=True)
