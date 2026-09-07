@@ -1410,7 +1410,14 @@ The path forward for each is a second reference or a derivation.
   fibre and the point inside their noise, every index inside 0.95 to 1.03,
   everything inside 1 dB; the sign is pessimistic, the opposite of the
   saturation cell. So the cap value 0.4 per screen sits about where a bucket
-  effect starts on a moderate path. The only other
+  effect starts on a moderate path. OWNER READING (2026-09-07): "this is the
+  confirmation that approaching that 0.4 Rytov variance is when results begin
+  to break down, but really not by a huge amount". OPTIONAL FOLLOW-UPS, not
+  run: the edge between 0.4 and 0.9 per screen on a moderate cell is
+  unmeasured (a 3-screen run on 5 km / 1e-14 gives 1.27 per screen; a
+  2-screen run on 5 km / 3e-15 gives 0.57 but sits under the 4-screen moment
+  floor of Schmidt Eq. (9.65)); each is a 15-minute run with the sweep
+  script. The only other
   resolution flags are the centre-pixel p5 (about -0.4 dB at 5 AND at 20
   screens alike, the shared reference sample two bars high) and a few p1
   entries at one to two bars. The speed changes are ruled out as a cause of
