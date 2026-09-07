@@ -42,6 +42,7 @@ import numpy as np
 from ...beam import virtual_waist
 from ...terminal import Aperture, Camera, SMF, MMF
 from ..field import Begin, Field, Power, field_dtype, to_host
+from ..mmf import defocus_phase as mmf_defocus_phase
 from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard, set_fft_backend, xp
 from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
@@ -159,6 +160,142 @@ def _detector_eta(detector, collected, aperture_m, lam):
     raise ValueError(
         f"_detector_eta: unknown detector type {type(detector).__name__}. Use "
         "an Aperture, an SMF, an MMF, or a Camera.")
+
+
+class _DeviceTail:
+    """The receive-plane tail of one trial, on the CUDA device.
+
+    WHY IT EXISTS. The device runs the split step in a few milliseconds, and
+    the trial then paid a HOST tail on the downloaded grid: the aperture clip
+    rebuilt two float64 coordinate meshes, and the fibre coupling rebuilt the
+    Gaussian fibre mode in complex128, at EVERY trial. Measured at 1024 px on
+    an RTX 4070 (validation/gpu_fft/cupy_trial_profile.json, the tag
+    "before"): the clip took 59 ms and the coupling took 100 ms of a 230 ms
+    trial. Neither depends on the atmosphere, so both are cached here ONE time
+    for the run and applied on the device.
+
+    THE PHYSICS IS THE PHYSICS OF THE HOST TAIL.
+
+    - The clip. olb.waveoptics.run._clip writes zero outside the aperture and
+      inside the obscuration. A multiply by a mask of exactly 1.0 and 0.0 does
+      the same thing, value for value.
+    - The power. olb.waveoptics.field.Power is sum(|E|^2) * dx^2.
+    - The single-mode coupling. olb.waveoptics.smf.coupling_efficiency is
+      |sum(E conj(M))|^2 / sum(|E|^2), with the SAME mode M that smf_mode
+      builds, in the SAME complex128, and the SAME defocus phase of
+      olb.waveoptics.mmf.defocus_phase. The two cached arrays come from those
+      host functions, so no formula is written a second time.
+
+    A SUM ON THE DEVICE ADDS IN A DIFFERENT ORDER from a numpy sum, so a
+    scalar moves at the rounding level of the field precision. That is the
+    level at which a cupy run and a numpy run already agree (see
+    validation/gpu_fft/README.md).
+
+    THE HOST PATH DOES NOT READ THIS CLASS. A numpy or a scipy run downloads
+    nothing and calls the same host functions it always called.
+    """
+
+    def __init__(self, grid, aperture_m, obscuration_ratio, lam, cdtype, xpm):
+        """Build the cached device arrays of one run.
+
+        Args:
+            grid:              the GridSpec.
+            aperture_m:        the receive aperture diameter, in m.
+            obscuration_ratio: the central obscuration of that aperture.
+            lam:               the wavelength, in m.
+            cdtype:            the complex type of the field.
+            xpm:               the cupy module.
+        """
+        self.xp = xpm
+        self.aperture_m = float(aperture_m)
+        self.lam = float(lam)
+        self.grid = grid
+        self.cdtype = np.dtype(cdtype)
+        rdtype = (np.float32 if self.cdtype == np.dtype(np.complex64)
+                  else np.float64)
+        # The clip mask, from the SAME pixel-centre coordinates that
+        # olb.waveoptics.sources.CircAperture uses.
+        ref = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
+        Y, X = ref.mgrid_cartesian
+        dist_sq = X ** 2 + Y ** 2
+        keep = dist_sq <= (aperture_m / 2.0) ** 2
+        if obscuration_ratio > 0:
+            keep &= dist_sq > (obscuration_ratio * aperture_m / 2.0) ** 2
+        self._mask = xpm.asarray(keep.astype(rdtype))
+        self._dx2 = float(ref.dx) ** 2
+        self._ref = ref                  # the grid of the cached host builds.
+        self._mode = None
+        self._defocus = {}
+
+    @staticmethod
+    def handles(detector):
+        """Tell if this class covers one detector.
+
+        It covers an Aperture (a bucket, efficiency 1.0), a Camera and None
+        (no coupling model), and an SMF. An MMF keeps the HOST tail, because
+        its light-bucket coupling focuses the field and integrates the core,
+        which is more code than a cached inner product.
+        """
+        return (detector is None or isinstance(detector, (Aperture, Camera))
+                or isinstance(detector, SMF))
+
+    def clip(self, field):
+        """Give the clipped receive field as a device array."""
+        return field * self._mask
+
+    def power(self, clipped):
+        """Give the power of a clipped device field, as a float."""
+        return float((self.xp.abs(clipped) ** 2).sum()) * self._dx2
+
+    def _smf_mode(self):
+        """Give the cached fibre mode on the device, in complex128."""
+        if self._mode is None:
+            from ..smf import smf_mode
+            host = smf_mode(self._ref.siz, self.lam, self._ref.N,
+                            self.aperture_m).field
+            self._mode = self.xp.asarray(np.conj(host))
+        return self._mode
+
+    def _defocus_factor(self, detector):
+        """Give the cached defocus phase of one SMF, or None."""
+        from ..run import _smf_focal_length
+        f_smf = _smf_focal_length(detector, self.aperture_m, self.lam)
+        if detector.defocus_m == 0.0:
+            return None
+        if f_smf is None:
+            raise ValueError(
+                "SMF.defocus_m needs a focal length to make the defocus "
+                "phase. Set SMF.focal_length_m, or set "
+                "SMF.optimal_focus=True.")
+        key = (float(detector.defocus_m), float(f_smf))
+        if key not in self._defocus:
+            self._defocus[key] = self.xp.asarray(
+                mmf_defocus_phase(self._ref, key[0], key[1]))
+        return self._defocus[key]
+
+    def eta(self, detector, clipped):
+        """Give the coupling efficiency of one detector, as a float or None."""
+        if detector is None or isinstance(detector, Camera):
+            return None
+        if isinstance(detector, Aperture):
+            return 1.0
+        E = clipped
+        phase = self._defocus_factor(detector)
+        if phase is not None:
+            E = E * phase
+        denominator = float((self.xp.abs(E) ** 2).sum())
+        if denominator == 0.0:
+            raise ValueError('coupling_efficiency: the field carries no power')
+        numerator = float(abs((E * self._smf_mode()).sum())) ** 2
+        return numerator / denominator
+
+    def overlap(self, field, psi_conj):
+        """Give |sum(E conj(psi))|^2 of a device field, as a float."""
+        return float(abs((field * psi_conj).sum())) ** 2
+
+    def patch_row(self, field, indices):
+        """Download the patch pixels of a device field, and nothing else."""
+        return field.ravel()[indices].astype(np.complex64).get()
 
 
 @dataclass(frozen=True)
@@ -542,12 +679,17 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       place through scipy.fft, 2.7 times faster on the tested
                       machine, and it agrees with "numpy" at the rounding
                       level of the field precision. "cupy" runs the whole
-                      split step, the screens and the boundary mask on a CUDA
-                      device, and it downloads the receive field ONE time for
-                      each trial; the screen noise stays a host numpy PCG64
-                      draw, so the same seed gives the same atmosphere, and
-                      the draw of the next trial runs in threads while the
-                      device works. Neither opt-in is bit-identical to
+                      split step, the screens, the boundary mask AND the
+                      receive-plane tail (the aperture clip, the power, the
+                      single-mode coupling and the reciprocity overlap) on a
+                      CUDA device, so a trial downloads the stored patch
+                      pixels only, and nothing at all when the caller stores
+                      no patch (see _DeviceTail). An MMF receiver keeps the
+                      host tail and the one full download. The screen noise
+                      stays a host numpy PCG64 draw, so the same seed gives
+                      the same atmosphere, and the draw of the next trial
+                      runs in threads while the device works. Neither opt-in
+                      is bit-identical to
                       "numpy". The setting is process wide for the length of
                       the call; a Campaign passes it to every pool worker.
         screen_generator: "olb" (the default), "olb-lean" (an OPT-IN,
@@ -647,48 +789,76 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             f"boundary mask (it starts at {r_flat:.4g} m). The collected "
             f"power is too low. Use a wider grid.")
 
-    # ---- the fixed parts, computed one time ----
-    if is_space:
-        # THE VACUUM BASELINE. The space case starts from a unit plane wave
-        # that fills the grid, so the absorbing mask acts as a soft aperture.
-        # Over a 40 km slab that soft edge makes strong Fresnel rings on the
-        # axis. Those rings are a property of the GRID, not of the atmosphere.
-        # So the reference is the SAME plane wave along the SAME hops through
-        # the SAME mask, with FLAT screens. Then the vacuum limit of each
-        # output below is exactly 1.0, and every number is a pure turbulence
-        # penalty. The flat screens share one array, because Screen() does not
-        # change its input.
-        F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
-        flat = np.zeros((grid.n, grid.n))
-        F_vac = split_step(F_plane, plan.z_m, [flat] * int(plan.z_m.size),
-                           plan.z_total_m, boundary=mask)
-        p_reference = Power(_clip(F_vac, rx.aperture_m, rx.obscuration_ratio))
-        psi_tx = o_vac = None
-        if scenario.direction == "uplink":
-            psi_tx = _ground_transmit_mode(scenario.ground, grid, dtype=cdtype)
-            # The free-space baseline. It puts eta_turb on the same reference
-            # as the (w_free/w_st)^2 rescale of olb.turbulence.uplink_flux.
-            o_vac = float(np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2)
-    else:
-        F_in = _start_field(scenario, grid, lam, is_space=False, dtype=cdtype)
-        p_reference = Power(F_in)
-
-    seed_entropy = _resolve_seed(seed)
-    n_screens = int(plan.z_m.size)
-
-    # THE BACKEND COMES BEFORE THE SCREEN FACTORY. ScreenFactory reads the
-    # array module of the backend ONE time, in __init__, so a factory that a
-    # host backend built keeps its arrays on the host. The `finally` below
-    # always restores the backend, whatever happens.
-    #
-    # The setup ABOVE this line (the vacuum baseline, the transmit mode, the
-    # start field) stays on the HOST, under the backend the caller had. That
-    # is exactly what it did before, so a numpy run and a scipy run do not
-    # move one bit, and the CUDA route compares its trials against the same
-    # host reference as the numpy route.
+    # THE SETUP RUNS ON THE DEVICE TOO, under the "cupy" backend (2026-09-07).
+    # The vacuum baseline of a space slab is a WHOLE split step, and it is the
+    # one fixed cost of a run. Measured at 2048 px on an RTX 4070, that host
+    # baseline took 13.2 s while a device trial took 0.3 s, so a Campaign
+    # block of a few trials was almost all baseline. Under the "cupy" backend
+    # the baseline therefore runs where the trials run, and its receive field
+    # comes back to the host for the clip and the power. The HOST backends do
+    # NOT move: they build the setup under the backend the caller had, exactly
+    # as before, so a numpy run and a scipy run stay bit-identical. A cupy
+    # p_reference now carries the float32 rounding of the device, like every
+    # other cupy number.
+    device_route = fft_backend == "cupy"
     bar = None
-    previous_backend = set_fft_backend(fft_backend)
+    F_in = None
+    previous_backend = set_fft_backend(fft_backend) if device_route else None
     try:
+        # ---- the fixed parts, computed one time ----
+        if is_space:
+            # THE VACUUM BASELINE. The space case starts from a unit plane
+            # wave that fills the grid, so the absorbing mask acts as a soft
+            # aperture. Over a 40 km slab that soft edge makes strong Fresnel
+            # rings on the axis. Those rings are a property of the GRID, not
+            # of the atmosphere. So the reference is the SAME plane wave along
+            # the SAME hops through the SAME mask, with FLAT screens. Then the
+            # vacuum limit of each output below is exactly 1.0, and every
+            # number is a pure turbulence penalty. The flat screens share one
+            # array, because Screen() does not change its input.
+            F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
+            # The flat screen goes up ONE time on the device route. A host
+            # route keeps the numpy array it always made.
+            flat = (xp().zeros((grid.n, grid.n)) if device_route
+                    else np.zeros((grid.n, grid.n)))
+            # The receive field comes back to the host, so the clip, the power
+            # and the overlap below are the host code of old, under every
+            # backend.
+            F_vac = to_host(split_step(F_plane, plan.z_m,
+                                       [flat] * int(plan.z_m.size),
+                                       plan.z_total_m, boundary=mask))
+            p_reference = Power(_clip(F_vac, rx.aperture_m,
+                                      rx.obscuration_ratio))
+            psi_tx = o_vac = None
+            if scenario.direction == "uplink":
+                psi_tx = _ground_transmit_mode(scenario.ground, grid,
+                                               dtype=cdtype)
+                # The free-space baseline. It puts eta_turb on the same
+                # reference as the (w_free/w_st)^2 rescale of
+                # olb.turbulence.uplink_flux.
+                o_vac = float(
+                    np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2)
+        else:
+            F_in = _start_field(scenario, grid, lam, is_space=False,
+                                dtype=cdtype)
+            p_reference = Power(F_in)
+            # A terrestrial path has no reciprocity overlap, so it has no
+            # ground transmit mode and no free-space baseline.
+            psi_tx = o_vac = None
+
+        seed_entropy = _resolve_seed(seed)
+        n_screens = int(plan.z_m.size)
+
+        # THE BACKEND COMES BEFORE THE SCREEN FACTORY. ScreenFactory reads the
+        # array module of the backend ONE time, in __init__, so a factory that
+        # a host backend built keeps its arrays on the host. The `finally`
+        # below always restores the backend, whatever happens.
+        #
+        # A HOST backend sets the backend HERE, so the setup above ran under
+        # the backend the caller had, exactly as it did before this line
+        # existed. A numpy run and a scipy run therefore do not move one bit.
+        if not device_route:
+            previous_backend = set_fft_backend(fft_backend)
         device = xp() is not np
         if device and threader is not None:
             raise ValueError(
@@ -718,6 +888,23 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             fields = np.empty((int(n_trials), patch.indices.size),
                               dtype=np.complex64)
 
+        # THE DEVICE TAIL (2026-09-07). The clip, the power and the fibre
+        # coupling do not depend on the atmosphere, so the CUDA route runs
+        # them on the device against arrays that are cached one time. Then a
+        # trial downloads the patch pixels only, or nothing at all. See
+        # _DeviceTail. An MMF receiver keeps the host tail, so the route falls
+        # back to the ONE download of before.
+        tail = patch_idx = psi_conj = None
+        if device:
+            wanted = [rx.detector] + list(detectors or ())
+            if all(_DeviceTail.handles(d) for d in wanted):
+                tail = _DeviceTail(grid, rx.aperture_m, rx.obscuration_ratio,
+                                   lam, cdtype, xp())
+                if patch is not None:
+                    patch_idx = xp().asarray(patch.indices)
+                if psi_tx is not None:
+                    psi_conj = xp().asarray(np.conj(psi_tx))
+
         def run_one(k, stack=None):
             """Run trial k. It touches only its own state and read-only setup.
 
@@ -739,13 +926,39 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             F_start = (F_device if F_device is not None else
                        (Begin(grid.size_m, lam, grid.n, dtype=cdtype)
                         if is_space else F_in))
+            F_out = split_step(F_start, plan.z_m, stack, plan.z_total_m,
+                               boundary=mask)
+
+            if tail is not None:
+                # THE DEVICE TAIL. The field STAYS on the device: the clip,
+                # the power, the coupling and the reciprocity overlap all run
+                # there, against arrays that are cached one time for the run.
+                # Only the patch pixels come back, and nothing comes back when
+                # the caller stores no patch. See _DeviceTail.
+                E = F_out.field
+                if patch is not None:
+                    fields[k - start_index] = tail.patch_row(E, patch_idx)
+                clipped = tail.clip(E)
+                collected_power = float(tail.power(clipped) / p_reference)
+                smf_eta = (tail.eta(rx.detector, clipped)
+                           if isinstance(rx.detector, SMF) else None)
+                detector_etas = (None if detectors is None else
+                                 tuple(tail.eta(d, clipped) for d in detectors))
+                eta_turb = None
+                if psi_conj is not None and scenario.direction == "uplink":
+                    eta_turb = tail.overlap(E, psi_conj) / o_vac
+                return TurbTrial(collected_power=collected_power,
+                                 smf_eta=smf_eta, eta_turb=eta_turb,
+                                 seed_key=(seed_entropy, k),
+                                 wall_time_s=time.perf_counter() - t0,
+                                 mmf_eta=None, detector_etas=detector_etas)
+
             # THE ONE DOWNLOAD. The device holds the field through the split
             # step, and it comes back to the host here. Everything below (the
             # patch store, the clip, the power, the coupling, the reciprocity
             # overlap) is host code, unchanged. to_host gives the field back
             # untouched when it is on the host already.
-            F_rx = to_host(split_step(F_start, plan.z_m, stack, plan.z_total_m,
-                                      boundary=mask))
+            F_rx = to_host(F_out)
 
             if patch is not None:
                 # The UNCLIPPED field, on the patch only. The clip below is
@@ -825,7 +1038,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             cb = (lambda done, total: bar.update(1)) if bar is not None else None
             trials = threader.map(run_one, ks, progress=cb)
     finally:
-        set_fft_backend(previous_backend)
+        # previous_backend is None only when the setup raised before a host
+        # backend was set. Then no backend was changed, so none is restored.
+        if previous_backend is not None:
+            set_fft_backend(previous_backend)
         if bar is not None:
             bar.close()
 

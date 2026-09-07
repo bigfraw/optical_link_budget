@@ -251,20 +251,30 @@ README fidelity ladder.
   sets BEFORE it builds the screen factory and always restores; the
   `folded_terrestrial` stub.
   THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8) runs the split step,
-  the boundary mask and the phase screens on the device and it downloads the
-  receive field ONE time for each trial; the clip, the coupling and the patch
-  store stay host code. It needs the `gpu` extra (`cupy-cuda12x` plus the
+  the boundary mask, the phase screens, the one-time vacuum SETUP and the
+  receive-plane TAIL (the clip, the power, the single-mode coupling and the
+  reciprocity overlap, against a mask, a fibre mode and a defocus phase that
+  are cached on the device one time) on the device, so a trial downloads the
+  stored patch pixels ONLY, and nothing at all when the caller stores no
+  patch. An MMF receiver keeps the host tail and the ONE full download. It
+  needs the `gpu` extra (`cupy-cuda12x` plus the
   nvidia CUDA wheels). The host PCG64 draw does not change, so the SAME seed
   gives the SAME atmosphere and a device trial agrees with a host trial at the
   float32 rounding level (5.7e-06 on the collected power); the runner draws the
   noise of the next trial in threads while the device works. It runs ONE
   process for ONE device: a `threader` raises, and a `Campaign` runs its blocks
   serially in the calling process whatever `workers` says. The backend enters
-  the campaign fingerprint, so a GPU campaign never mixes with a CPU one. One
-  SERIAL 1024 px trial is 5.2x faster (1727 to 333 ms), but one GPU stream
-  TIES the 12-worker CPU pool at 1024 px and it LOSES by 2x at 2048 px, because
-  a real trial pays a host tail the device does not touch. See
-  `validation/gpu_fft/README.md`. The runner gives the screens to `split_step` as a
+  the campaign fingerprint, so a GPU campaign never mixes with a CPU one.
+  MILESTONE 3 (2026-09-07) profiled the real trial and removed the host cost:
+  the Forvard factors build on the DEVICE (with their own bound
+  `FORVARD_CACHE_BYTES_DEVICE = 1 GiB`, so the 256 MiB host bound can stay
+  small for the 12 pool workers), the tail runs on the device, and the setup
+  runs under the backend. One SERIAL 1024 px trial is now 18.7x faster (1751
+  to 93 ms), and one GPU stream BEATS the 12-worker CPU pool by 4.1x at
+  1024 px and 4.0x at 2048 px, where it tied and lost by 2x before. The
+  remaining cost is the HOST white-noise draw, and the cuRAND device draw
+  that would remove it is an owner decision, because it draws a different
+  atmosphere for the same seed. See `validation/gpu_fft/README.md`. The runner gives the screens to `split_step` as a
   GENERATOR (2026-09-06): `split_step` takes any iterable and it keeps no stack,
   so a strong path holds only the screen it uses (at 2048 px a float32 screen is
   16 MB, and a 35-screen plan is 560 MB). The change is BIT-IDENTICAL.

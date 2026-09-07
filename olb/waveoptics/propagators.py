@@ -191,9 +191,18 @@ def _ifft2(a):
 # same numbers, but they are not the same objects, so a host entry and a
 # device entry must never collide. The last field of each key is "host" for
 # the numpy and the scipy backends (the two share one array) and "cupy" for
-# the device. The byte count adds the device arrays too, so the bound holds
-# the device memory of the factors as well.
+# the device.
+#
+# EACH PLACE HAS ITS OWN BOUND (2026-09-07). The host bound holds the memory
+# of EACH of the 12 pool workers of a CPU campaign, so it must stay small.
+# The device bound holds ONE process against the memory of the card, so it is
+# larger. A 2048 px single-precision plan of the hero downlink wants about
+# 640 MiB of transfer functions, which the 256 MiB host bound cannot hold: the
+# cache then dropped an entry at every hop and it rebuilt it. The device build
+# is now on the device (see _forvard_factors), so a miss is cheap, and the
+# 1 GiB device bound holds the whole plan of the grids in use.
 FORVARD_CACHE_BYTES = 256 * 2 ** 20
+FORVARD_CACHE_BYTES_DEVICE = 1024 * 2 ** 20
 _forvard_cache = {}
 
 
@@ -202,15 +211,31 @@ def _cache_place():
     return "cupy" if _fft_backend == "cupy" else "host"
 
 
+def _cache_bound(place):
+    """Give the byte bound of one storage place."""
+    return (FORVARD_CACHE_BYTES_DEVICE if place == "cupy"
+            else FORVARD_CACHE_BYTES)
+
+
 def clear_forvard_cache():
     """Drop every cached Forvard factor. A test or a memory-tight caller
     may call it."""
     _forvard_cache.clear()
 
 
-def forvard_cache_bytes():
-    """Give the bytes the Forvard cache holds now."""
-    return sum(v[1].nbytes for k, v in _forvard_cache.items() if len(k) == 6)
+def forvard_cache_bytes(place=None):
+    """Give the bytes the Forvard cache holds now.
+
+    Args:
+        place: "host" or "cupy" to count ONE place only. None (the default)
+               counts every entry, host and device together.
+
+    Returns:
+        The byte count of the transfer functions. The sign patterns are one
+        array for each pixel count, so they are not counted.
+    """
+    return sum(v[1].nbytes for k, v in _forvard_cache.items()
+               if len(k) == 6 and (place is None or k[5] == place))
 
 
 def _forvard_factors(N, size, lam, z, cdtype):
@@ -220,10 +245,17 @@ def _forvard_factors(N, size, lam, z, cdtype):
     The values are bit-identical: the phase wrap runs in double precision
     exactly as before, and the cache stores the finished factor only.
 
-    THE BUILD IS ALWAYS ON THE HOST. The phase wrap needs double precision,
-    and the two arrays are built one time for each hop, so the host cost does
-    not matter. The "cupy" backend uploads the finished arrays. So the device
-    factors hold exactly the numbers of the host factors.
+    THE HOST BUILD DOES NOT MOVE. Under the numpy and the scipy backends the
+    body below is the body of old, line for line, so every host number stays
+    bit-identical.
+
+    THE "cupy" BACKEND BUILDS ON THE DEVICE (2026-09-07). It runs the SAME
+    lines through cupy, in the same double precision, so the factor holds the
+    same numbers. WHY: the host build makes five double-precision N x N arrays
+    and it then uploads one of them, which is about 200 ms at 2048 px. A plan
+    that does not fit in the cache paid that at EVERY hop of EVERY trial (10
+    misses of 15 hops, 2.1 s of a 3.5 s trial). On the device the same build
+    is a few milliseconds, so a miss is cheap.
 
     Args:
         N:      the pixel count of one side.
@@ -245,17 +277,20 @@ def _forvard_factors(N, size, lam, z, cdtype):
     if hit is not None:
         return hit
 
+    # THE ARRAY MODULE OF THE PLACE. numpy builds the host factors and cupy
+    # builds the device factors. The lines below are the same lines for both,
+    # so the two places hold the same numbers.
+    xpm = _load_cupy() if device else np
+
     sign_key = (int(N), rdtype, place)
     iiij = _forvard_cache.get(sign_key)
     if iiij is None:
         # The alternating sign pattern does the same as a double fftshift,
         # but it is faster. See the LightPipes manual.
-        iiN = np.ones((N,), dtype=rdtype)
+        iiN = xpm.ones((N,), dtype=rdtype)
         iiN[1::2] = -1
-        iiij = np.outer(iiN, iiN)
-        if device:
-            iiij = _load_cupy().asarray(iiij)
-        else:
+        iiij = xpm.outer(iiN, iiN)
+        if not device:
             iiij.flags.writeable = False
         _forvard_cache[sign_key] = iiij
 
@@ -265,7 +300,7 @@ def _forvard_factors(N, size, lam, z, cdtype):
     _2pi = 2. * 3.141592654
     z1 = z * lam / 2
     No2 = int(N / 2)
-    SW = np.arange(-No2, N - No2) / size
+    SW = xpm.arange(-No2, N - No2, dtype=np.float64) / size
     SW *= SW
     SSW = SW.reshape((-1, 1)) + SW
     Bus = z1 * SSW
@@ -273,24 +308,25 @@ def _forvard_factors(N, size, lam, z, cdtype):
     # the next line takes the fractional part. In single precision that
     # subtraction loses 4 digits of the phase. So the wrap runs in double
     # precision, and only the finished factor CC takes the field precision.
-    Ir = Bus.astype(int)            # truncate, do not round
+    Ir = Bus.astype(np.int64)       # truncate, do not round
     Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
-    CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
-    if device:
+    CC = (xpm.cos(Abus) + 1j * xpm.sin(Abus)).astype(cdtype)
+    if not device:
         # A cupy array cannot be marked read-only. The Forvard body reads the
-        # two factors only, so the entry is safe.
-        CC = _load_cupy().asarray(CC)
-    else:
+        # two factors only, so a device entry is safe without the flag.
         CC.flags.writeable = False
 
+    bound = _cache_bound(place)
     while (_forvard_cache
-           and forvard_cache_bytes() + CC.nbytes > FORVARD_CACHE_BYTES):
-        # Drop the oldest transfer function. The sign patterns stay.
-        oldest = next((k for k in _forvard_cache if len(k) == 6), None)
+           and forvard_cache_bytes(place) + CC.nbytes > bound):
+        # Drop the oldest transfer function OF THIS PLACE. The sign patterns
+        # stay, and the entries of the other place are not touched.
+        oldest = next((k for k in _forvard_cache
+                       if len(k) == 6 and k[5] == place), None)
         if oldest is None:
             break
         del _forvard_cache[oldest]
-    if CC.nbytes <= FORVARD_CACHE_BYTES:
+    if CC.nbytes <= bound:
         _forvard_cache[key] = (iiij, CC)
     return iiij, CC
 

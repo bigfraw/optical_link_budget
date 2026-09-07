@@ -1167,21 +1167,44 @@ The path forward for each is a second reference or a derivation.
   fingerprint, so a GPU campaign never mixes with a CPU one; `cupy-cuda12x`
   and the nvidia CUDA wheels are the optional `gpu` extra.
 
+  MILESTONE 3 (2026-09-07) PROFILED THE REAL TRIAL AND REMOVED THE HOST
+  COST. Milestone 2 read 333 ms for a 1024 px device trial where the
+  microbench predicted 66 ms, and 3.8 s at 2048 px where it predicted
+  349 ms. `validation/gpu_fft/cupy_trial_profile.py` timed every stage of
+  the shipped trial loop and found four things: the fibre coupling (about
+  100 ms) and the aperture clip (about 60 ms) rebuilt the fibre mode in
+  complex128 and two float64 coordinate meshes at EVERY trial; the Forvard
+  factor cache thrashed at 2048 px (10 of 15 hops missed, each miss a
+  double-precision HOST build, 2.1 s of a 3.5 s trial); the one-time SETUP
+  (the vacuum baseline, a whole split step) ran on the host and took 12.4 s
+  at 2048 px, which a `Campaign` pays at EVERY block; and the threaded host
+  draw DOES overlap (`draw_wait` is about zero). The four fixes: the Forvard
+  factors build ON THE DEVICE under the cupy backend, and the device cache
+  gets its own bound `FORVARD_CACHE_BYTES_DEVICE` (1 GiB) so the host bound
+  can stay at 256 MiB for the 12 pool workers; the receive-plane TAIL (the
+  clip, the power, the single-mode coupling and the reciprocity overlap)
+  runs on the device against a cached mask, fibre mode and defocus phase,
+  and a trial downloads the stored patch pixels only, or nothing (an MMF
+  receiver keeps the host tail); and the SETUP runs under the FFT backend on
+  the device route only. THE NUMPY AND THE SCIPY PATHS STAY BIT-IDENTICAL
+  (the `git stash` check at 256 px, both host backends).
+
   THE MEASURED SPEED (bigfraw, RTX 4070 Laptop, 32 cores, the 30 deg hero
   downlink, single precision, `standard`, L0 = 25 m): one SERIAL 1024 px
-  trial 1727 ms with numpy and 333 ms with cupy, a 5.2x speed-up. But ONE
-  GPU stream against the 12-worker CPU pool of record is 3.06 against 3.16
-  trials/s at 1024 px (a TIE) and 0.26 against 0.48 trials/s at 2048 px
-  (the pool WINS by 2x). The microbench estimated 3x to 4x for the GPU; the
-  difference is the host tail of a real trial (the aperture clip, the
-  power, the fibre coupling, the patch store) plus the host screen draw,
-  none of which the synthetic trial had. OPEN, and an owner decision:
-  whether to move that tail to the device, and whether
-  `propagators.FORVARD_CACHE_BYTES` (256 MiB) must follow the route — at
-  2048 px the plan wants 640 MiB of factors, so the cache thrashes and one
-  device trial goes 6116 to 4772 ms when the bound is raised (1.28x). The
-  bound also holds the memory of each of the 12 pool workers on the CPU
-  route, so it cannot simply grow. See `validation/gpu_fft/README.md`.
+  trial 1751 ms with numpy and 93 ms with cupy, an 18.7x speed-up (it was
+  333 ms and 5.2x). ONE GPU stream against the 12-worker CPU pool of record
+  is now 12.78 against 3.15 trials/s at 1024 px (4.1x, it was a TIE) and
+  1.89 against 0.47 trials/s at 2048 px (4.0x, the pool WON by 2x before).
+  The trials still agree with the numpy trials at the float32 rounding level
+  (5.3e-06 on the collected power and 1.55e-05 on the SMF eta at 2048 px).
+  WHAT IS LEFT: the host white-noise draw is now the largest single cost (40
+  ms in 9 threads at 1024 px, 164 ms at 2048 px) and the nine drawing
+  threads contend with the device pipeline for the host memory channels; the
+  cuRAND device draw removes it but it draws a DIFFERENT atmosphere for the
+  same seed, so it is an OWNER decision. Not fixed, and recorded: a pinned
+  noise upload (16 percent of the upload, and it needs an 18-buffer pool),
+  the dead `Field.copy` deepcopy of each mask and screen apply, and the
+  rank-3 subharmonic products. See `validation/gpu_fft/README.md`.
 
   THE ORIGINAL PLAN, for the record:
   The FFTs are the whole workload of a trial (80 numpy transforms of Forvard

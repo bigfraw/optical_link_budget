@@ -214,3 +214,163 @@ the route, or expose it in the campaign.
 A "cupy" campaign is a SEPARATE store: the backend enters the fingerprint,
 so a GPU campaign never mixes with a CPU one. A threader with "cupy"
 raises ValueError: one device runs one stream.
+
+## Profile and fixes (2026-09-07)
+
+Milestone 2 measured 333 ms for a 1024 px device trial where the microbench
+predicted 66 ms, and about 3.8 s at 2048 px where it predicted 349 ms. This
+section finds that time and it removes most of it. The tool is
+`cupy_trial_profile.py`, and the record is `cupy_trial_profile.json` (the
+tags `before`, `before_cprofile` and `after`). It wraps the stages of the
+REAL trial loop with timers, so the measured code IS the shipped code; the
+timers are in the script and never in the package.
+
+### What the profile found
+
+1. **The host tail was the whole gap at 1024 px.** The fibre coupling took
+   about 100 ms and the aperture clip about 60 ms of a 230 ms trial. Neither
+   one depends on the atmosphere: `olb.waveoptics.smf.smf_mode` rebuilt the
+   Gaussian fibre mode in complex128 at EVERY trial, and
+   `olb.waveoptics.run._clip` rebuilt two float64 coordinate meshes at EVERY
+   trial. The cProfile record agrees: `smf_mode` 93 ms and `_clip` 64 ms for
+   each trial.
+2. **The Forvard factor cache was the whole gap at 2048 px.** The plan wants
+   about 640 MiB of transfer functions and the bound was 256 MiB, so 10 of
+   the 15 hops MISSED at every trial, and each miss built five
+   double-precision 2048 x 2048 arrays ON THE HOST and uploaded one. That is
+   2.1 s of a 3.5 s trial.
+3. **The one-time SETUP was larger than the trials.** The runner builds the
+   vacuum baseline of a space slab, which is a WHOLE split step, and it built
+   it on the HOST under the backend the caller had. That took 12.4 s at
+   2048 px, against 3.5 s for a trial. A `Campaign` pays the setup at EVERY
+   block, so a block of a few trials was almost all baseline: that is why the
+   milestone-2 campaign read 0.26 trials/s where one trial was 3.8 s.
+4. **The pipeline DOES overlap.** The main thread waits about 0 ms for the
+   threaded host draw at both grids (`draw_wait`), so the plan of record
+   holds.
+5. **The noise upload is already float32.** `ScreenFactory.draw` casts on the
+   host before the upload, so the device takes 8 MiB for each 1024 px screen
+   and 32 MiB at 2048 px, not the float64 double of that.
+6. **No hidden host round trip in the hop loop.** `np.shape` on a device
+   array reads an attribute, and `Power` was the only `float()` of the loop.
+
+### The fixes
+
+- **The Forvard factors build ON THE DEVICE under the cupy backend**
+  (`propagators._forvard_factors`). The same lines run through cupy, in the
+  same double precision, so the factor holds the same numbers, and a miss now
+  costs milliseconds. The HOST build does not move one line, so every numpy
+  and every scipy number stays bit-identical.
+- **Each storage place has its own cache bound.** `FORVARD_CACHE_BYTES`
+  (256 MiB) holds the HOST factors, because it also holds the memory of each
+  of the 12 pool workers of a CPU campaign; the new
+  `FORVARD_CACHE_BYTES_DEVICE` (1 GiB) holds the DEVICE factors of the ONE
+  process of a GPU run. The eviction counts one place only, and
+  `forvard_cache_bytes(place=None)` takes the place.
+- **The receive-plane TAIL runs on the device** (`turbulence/run.py`,
+  `_DeviceTail`). The clip mask, the fibre mode (in the same complex128) and
+  the defocus phase are built ONE time for the run, from the SAME host
+  functions, and they stay on the device. The clip, the power, the
+  single-mode coupling and the reciprocity overlap are then a mask multiply,
+  a sum and two inner products there. A trial downloads the stored patch
+  pixels ONLY, and nothing at all when the caller stores no patch. An MMF
+  receiver keeps the host tail and the one full download, because its
+  light-bucket coupling focuses the field and integrates the core.
+- **The SETUP runs under the FFT backend too, on the device route only**
+  (`turbulence/run.py`). The vacuum baseline of a space slab now runs where
+  the trials run, and its receive field comes back to the host for the clip
+  and the power. A HOST backend does NOT move: it builds the setup under the
+  backend the caller had, exactly as before, so a numpy run and a scipy run
+  stay bit-identical. A cupy `p_reference` now carries the float32 rounding
+  of the device, like every other cupy number.
+
+A device sum adds in a different order from a numpy sum, so a cupy scalar
+moves at the rounding level of the field precision. That is the level at
+which the two routes agreed already.
+
+### The breakdown, before and after
+
+The 30 deg hero downlink, single precision, `standard`, L0 = 25 m, 9 screens,
+a 0.35 m stored patch, on bigfraw (RTX 4070 Laptop, cupy 14.2). The numbers
+are ms for ONE trial, and each one is the difference of a run of n trials and
+a run of one trial, so no setup is counted.
+
+| stage | 1024 before | 1024 after | 2048 before | 2048 after |
+|---|---|---|---|---|
+| `forvard` (10 / 15 hops)  |   5.8 |   7.4 | 2162.4 |  79.0 |
+| `detector_eta` (SMF)      | 143.4 |     - |  556.9 |     - |
+| `clip`                    |  75.4 |     - |  365.5 |     - |
+| `power`                   |   4.2 |     - |   17.4 |     - |
+| `to_host`                 |   1.5 |     - |    7.5 |     - |
+| `noise_upload` (9)        |  27.2 |  21.1 |   94.2 |  80.6 |
+| `screen_sub` (9)          |  20.4 |  23.5 |  134.7 |  49.3 |
+| `screen_filter` (9)       |   3.2 |  11.6 |   56.2 |  19.8 |
+| `screen_apply` (9)        |  -3.2 |   3.1 |   28.0 |  21.6 |
+| `mask` (19 / 24)          |   0.0 |   3.3 |   22.4 |  39.1 |
+| `draw_wait` (9)           |  -0.8 |   0.2 |    3.6 |  -1.9 |
+| unattributed              |   9.8 |  17.1 |   29.0 |  43.0 |
+| **wall, one trial**       | **286.8** | **92.2** | **3477.8** | **332.3** |
+| **setup, one for each run** |   n/a | **373** | **12421** | **1862** |
+| factor misses per trial   | 0 of 10 | 0 of 10 | 10 of 15 | 0 of 15 |
+| the cache holds           | 160 MiB |  80 MiB | 256 MiB | 400 MiB |
+
+A dash is a stage that the device tail removed: it makes no host call any
+more, and its device work falls into "unattributed". READ THE WALL ROW and
+the SETUP ROW. A stage can read HIGHER after the fix because the profile
+synchronises after each stage: with the long host tail gone, the device queue
+is the critical path, so each stage carries its own launch latency instead of
+draining while the host worked.
+
+The wall row holds a 0.35 m stored patch. With no stored patch it is 295.9 ms
+before and 69.1 ms after at 1024 px, so the patch store costs about 20 ms
+either way.
+
+### The new speed
+
+The same case, `cupy_campaign_check.py` with its default block sizes, run
+with the pool idle. `cupy_campaign_check.json` is the record.
+
+| what | milestone 2 | after the fixes |
+|---|---|---|
+| one serial 1024 px trial, numpy   | 1727 ms | 1751 ms |
+| one serial 1024 px trial, cupy    |  333 ms |   93 ms |
+| the speed-up of one trial         |   5.2x  |  18.7x  |
+
+| n px | trials | cupy trials/s | numpy pool trials/s | GPU / pool |
+|---|---|---|---|---|
+| 1024 | 120 | 12.78 (was 3.06) | 3.15 | **4.1x** (was 1.0x) |
+| 2048 |  48 |  1.89 (was 0.26) | 0.47 | **4.0x** (was 0.5x) |
+
+So one GPU stream now beats the 12-worker pool of record by 4x at BOTH grids,
+where it tied at 1024 px and lost by 2x at 2048 px. The trials still agree
+with the numpy trials at the float32 rounding level, unchanged: 5.0e-06 on
+the collected power and 1.1e-05 on the SMF eta at 1024 px, and 5.3e-06 and
+1.5e-05 at 2048 px.
+
+CAUTION, the block size. The setup is still 1.86 s at 2048 px and a
+`Campaign` pays it at every block, so the 2048 px number above (blocks of 4
+trials) is about half setup. A larger block gives a larger number.
+
+### What is left, and NOT fixed
+
+- **The host white-noise draw is now the largest single cost.** It is 40 ms
+  in 9 threads at 1024 px and 164 ms at 2048 px, and although the main thread
+  does not WAIT for it (`draw_wait` is about zero), the nine drawing threads
+  saturate the host memory channels while the device pipeline wants them: a
+  stage that takes 0.8 ms on an idle host takes 2 to 4 ms inside the trial.
+  The cuRAND device draw is the documented fallback and it removes this cost,
+  but it draws a DIFFERENT atmosphere for the same seed, so it gives up the
+  trial-for-trial cross-check. That is an OWNER decision, not a fix.
+- **The noise upload is pageable, not pinned.** Measured in isolation on an
+  idle host, one 32 MiB upload is 3.32 ms pageable and 2.79 ms pinned, a
+  16 percent gain. A pinned pool must hold 18 buffers (two trials in flight,
+  nine screens each), and a buffer cannot be recycled until its asynchronous
+  copy has landed. The gain does not pay for that machinery.
+- **`Field.copy` deepcopies the array and the caller then overwrites it.**
+  `splitstep._apply_mask` and `screens.Screen` each make a full copy of the
+  field that the next line replaces. At 1024 px that is about 150 MB of dead
+  device traffic for each trial, under a millisecond, and a fix would touch
+  the host path. Not worth the risk.
+- **The subharmonic sum is three rank-3 products.** One product of rank 9
+  would do the same work in one pass, but the summation order would move, so
+  it would change the host numbers too.
