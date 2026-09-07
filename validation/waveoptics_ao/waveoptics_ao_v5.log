@@ -1,0 +1,120 @@
+V5: the summed-screen source against the field slopes on the TERRESTRIAL link (backlog 2-AO)
+date          : 2026-09-07
+cells         : 2km:3e-15, 5km:3e-15, 10km:3e-15, 2km:1e-14 at the rapid preset
+scenario      : the 2-TC cell. A collimated 5 mm launch, a 10 cm SMF receiver, L0 = 25 m, single precision, seed 20260906.
+difference    : this campaign STORES the summed screen phase, so it gets its own root. A 2-TC store holds no screen phase.
+precision     : single      fft backend: cupy
+physics       : the field slopes are the arriving wavefront while the phase step for each pixel stays under the stencil limit.
+                The summed screens are exact only in the geometric-optics limit, and a horizontal path is near field.
+caveat        : PERFECT AO. It is an ideal modal fit of one snapshot: no sensor noise, no lag, no anisoplanatism.
+
+CELL 2km:3e-15
+  root D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\terr_L2km_cn23e-15_rapid
+  grid 1024 px, 0.92 mm pixel, 5 screens, r0_total 10.66 cm, sigma2_R 0.2137
+  500 trials on disk, 90.3 s wall for 500 new trials (0.181 s/trial)
+  500 trials read, 53 MB on disk
+
+CELL 5km:3e-15
+  sizer warning: turbulent_grid: the grid gives 2.05 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  sizer warning: turbulent_grid: the pixel count wants 2048, but n_max is 1024. The grid keeps its side and takes a pixel 2.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 2.05 < 4 (feature 5.0 mm).
+  root D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\terr_L5km_cn23e-15_rapid
+  grid 1024 px, 2.44 mm pixel, 5 screens, r0_total 6.15 cm, sigma2_R 1.1463
+  500 trials on disk, 91.8 s wall for 500 new trials (0.184 s/trial)
+  500 trials read, 8 MB on disk
+
+CELL 10km:3e-15
+  sizer warning: turbulent_grid: the grid gives 0.96 pixels across the smallest feature (5.0 mm), under the 4 the edge rule asks for. The launch field is under-resolved: the truncation and the vacuum spread carry a pixelised edge before any turbulence. The pixels-per-feature count is an olb rule (grid.PIXELS_PER_FEATURE), not a book equation. It follows the sampling discussion of Schmidt, DOI 10.1117/3.866274, Ch. 7, in general terms only.
+  sizer warning: turbulent_grid: the pixel count wants 8192, but n_max is 1024. The grid keeps its side and takes a pixel 8.0x coarser than the rules ask for. Broken rules: pixels per smallest feature 0.96 < 4 (feature 5.0 mm).
+  root D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\terr_L10km_cn23e-15_rapid
+  grid 1024 px, 5.21 mm pixel, 11 screens, r0_total 4.06 cm, sigma2_R 4.0715
+  500 trials on disk, 113.2 s wall for 500 new trials (0.226 s/trial)
+  500 trials read, 2 MB on disk
+
+CELL 2km:1e-14
+  root D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\terr_L2km_cn21e-14_rapid
+  grid 1024 px, 1.00 mm pixel, 5 screens, r0_total 5.18 cm, sigma2_R 0.7122
+  500 trials on disk, 89.8 s wall for 500 new trials (0.180 s/trial)
+  500 trials read, 45 MB on disk
+
+THE V5 COUPLING TABLE (the V3 measurement on a horizontal path)
+cell            stack     n  eta screens  eta slopes   rel RMS   rel max   dB RMS   dB max
+------------------------------------------------------------------------------------------
+2km:3e-15     tiptilt   500      0.42395     0.47815    0.2142    0.9675    0.773    2.939
+2km:3e-15        ao21   500      0.41492     0.80985    1.1342    3.4847    3.122    6.517
+5km:3e-15     tiptilt   500      0.48117     0.65843    1.2635   10.5169    2.414   10.613
+5km:3e-15        ao21   500      0.43574     0.74883    2.3793   33.4651    3.279   15.374
+10km:3e-15    tiptilt   500      0.28849     0.50992   82.3394 1787.7384    5.723   32.525
+10km:3e-15       ao21   500      0.22562     0.57327   31.2672  609.3261    6.758   27.856
+2km:1e-14     tiptilt   500      0.31218     0.43977    1.2129   10.7087    2.441   10.685
+2km:1e-14        ao21   500      0.29145     0.77346    6.7009  107.2735    5.383   20.345
+  rel = (slopes - screens) / screens on the coupling efficiency of each trial.
+  dB = -10 log10(slopes / screens), the per-trial coupling difference.
+
+THE V5 COEFFICIENT TABLE (the V0 measurement, the values are in rad)
+cell          sigma2_R   D/r0  tilt gain  tilt dRMS  tilt RMS  21 gain  21 dRMS   21 RMS   resid  res/scr
+---------------------------------------------------------------------------------------------------------
+2km:3e-15       0.2137   0.94     0.5365      0.305     0.551   0.5138    0.196    0.189   0.880    1.281
+5km:3e-15       1.1463   1.63     0.5301      0.489     0.878   0.4940    0.192    0.300   0.847    0.737
+10km:3e-15      4.0715   2.46     0.4181      0.853     1.234   0.3716    0.319    0.422   1.379    0.814
+2km:1e-14       0.7122   1.93     0.5361      0.559     1.009   0.5117    0.259    0.345   1.152    0.892
+  tilt gain = the slope tilt regressed on the screen tilt (1.0 = they agree).
+  resid = the RMS of the summed screen phase after the removal of the FIELD's 21-mode fit.
+  res/scr = that residual divided by the RMS screen phase over the aperture.
+
+THE SAMPLING LIMIT OF THE SLOPE METHOD
+cell          mean step  worst step  over warn   grid   px mm
+-------------------------------------------------------------
+2km:3e-15         0.128       0.171       0.0%   1024    0.92
+5km:3e-15         0.378       1.423       0.0%   1024    2.44
+10km:3e-15        2.238       3.141      42.8%   1024    5.21
+2km:1e-14         0.196       0.392       0.0%   1024    1.00
+  step = the worst wrapped phase difference of one trial, in rad for each pixel. The warn level is 2.8, and the method aliases above pi.
+
+THE SMF FADE: the coupling loss -10 log10(smf_eta) [dB]
+cell          kind                  mean     p50     p10      p5      p1   d_p5
+-------------------------------------------------------------------------------
+2km:3e-15     untracked             4.05    3.85    5.42    6.10    7.15   2.25
+2km:3e-15     tiptilt_screens       3.80    3.74    4.82    5.37    5.94   1.63
+2km:3e-15     tiptilt_slopes        3.25    3.23    4.06    4.27    4.94   1.04
+2km:3e-15     ao21_screens          3.91    3.84    5.16    5.40    6.65   1.56
+2km:3e-15     ao21_slopes           0.92    0.91    1.06    1.11    1.20   0.21
+5km:3e-15     untracked             4.00    3.21    7.02    8.91   14.16   5.69
+5km:3e-15     tiptilt_screens       3.50    3.03    5.89    7.49    9.67   4.46
+5km:3e-15     tiptilt_slopes        1.85    1.79    2.57    2.87    3.38   1.09
+5km:3e-15     ao21_screens          3.94    3.41    6.24    7.64   11.29   4.23
+5km:3e-15     ao21_slopes           1.27    1.22    1.67    1.88    2.29   0.66
+10km:3e-15    untracked             6.90    5.97   11.96   15.29   21.31   9.32
+10km:3e-15    tiptilt_screens       7.00    5.54   13.38   16.26   21.61  10.72
+10km:3e-15    tiptilt_slopes        3.42    2.64    6.08    8.45   14.97   5.81
+10km:3e-15    ao21_screens          7.96    6.83   13.86   17.82   21.73  10.99
+10km:3e-15    ao21_slopes           2.85    2.03    5.56    8.04   13.05   6.01
+2km:1e-14     untracked             6.29    5.72   10.02   11.86   15.72   6.14
+2km:1e-14     tiptilt_screens       5.45    5.08    8.26    9.17   11.21   4.10
+2km:1e-14     tiptilt_slopes        3.72    3.61    5.17    5.80    7.14   2.19
+2km:1e-14     ao21_screens          5.90    5.43    8.80   10.59   15.29   5.16
+2km:1e-14     ao21_slopes           1.12    1.10    1.43    1.50    1.74   0.40
+  pX is the loss EXCEEDED X percent of the time. d_p5 is the fade depth p5 - p50.
+
+THE VERDICT OF EACH CELL
+  2km:3e-15:
+    TRUST THE SLOPES. The worst phase step is 0.17 rad for each pixel, and only 0.0 percent of the trials go over the 2.8 rad warn level. The slope source measures the wavefront that ARRIVES.
+    The summed screens are NOT the arriving phase here: the path is near field, sigma2_R is 0.214, and the screens hold no diffraction between the planes.
+    The 21-mode gain of the slopes against the screens is 0.514, and the RMS difference is 0.196 rad against an RMS screen coefficient of 0.189 rad (104 percent).
+
+  5km:3e-15:
+    TRUST THE SLOPES. The worst phase step is 1.42 rad for each pixel, and only 0.0 percent of the trials go over the 2.8 rad warn level. The slope source measures the wavefront that ARRIVES.
+    The summed screens are NOT the arriving phase here: the path is near field, sigma2_R is 1.146, and the screens hold no diffraction between the planes.
+    The 21-mode gain of the slopes against the screens is 0.494, and the RMS difference is 0.192 rad against an RMS screen coefficient of 0.300 rad (64 percent).
+
+  10km:3e-15:
+    THE SLOPE SOURCE IS AT ITS LIMIT. 42.8 percent of the trials carry a step above the 2.8 rad warn level, and the worst step is 3.14 rad. The wrapped gradient aliases above pi, so read this cell with care.
+    The summed screens are NOT the arriving phase here: the path is near field, sigma2_R is 4.071, and the screens hold no diffraction between the planes.
+    The 21-mode gain of the slopes against the screens is 0.372, and the RMS difference is 0.319 rad against an RMS screen coefficient of 0.422 rad (75 percent).
+
+  2km:1e-14:
+    TRUST THE SLOPES. The worst phase step is 0.39 rad for each pixel, and only 0.0 percent of the trials go over the 2.8 rad warn level. The slope source measures the wavefront that ARRIVES.
+    The summed screens are NOT the arriving phase here: the path is near field, sigma2_R is 0.712, and the screens hold no diffraction between the planes.
+    The 21-mode gain of the slopes against the screens is 0.512, and the RMS difference is 0.259 rad against an RMS screen coefficient of 0.345 rad (75 percent).
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v5_results.json
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v5.log

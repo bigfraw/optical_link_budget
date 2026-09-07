@@ -2315,6 +2315,20 @@ run log, a memory note or a backlog aside is not documented.
     with no trial over the step warning. The 10 km cell reads 15.29 / 8.45 /
     8.04, but 42.8 percent of its trials exceed the step warning (the worst
     step is pi), so its AO(21) line measures aliasing and is NOT a result.
+  - V5, the two sensing sources on the TERRESTRIAL link (four new campaigns of
+    500 trials that store the screen phase: 2, 5 and 10 km at
+    `Cn2 = 3e-15` and 2 km at `1e-14`, `sigma2_R` 0.21 to 4.07). The two
+    sources DISAGREE, as the near field demands: the tilt regression gain of
+    the slopes against the screens reads 0.5365, 0.5301 and 0.5361 on the three
+    well-sampled cells, against 0.999 on the space link. So the summed screen
+    phase holds about TWICE the tilt that arrives, which is the mean of the
+    `(1 - z/L)` path lever over a uniform-Cn2 path. The fade follows: an AO(21)
+    corrector that senses the screens buys 0.7 dB of p5 at 2 km and LOSES
+    2.5 dB at 10 km (17.82 against 15.29 dB untracked), while the same
+    corrector on the field slopes buys 5.0 dB at 2 km and 7.3 dB at 10 km. The
+    slope stencil is clean at 2 and 5 km (worst step 0.17 and 1.42 rad for each
+    pixel) and at its limit at 10 km (42.8 percent of the trials over the
+    2.8 rad warning).
 
 - **VERDICT.** The correction is faithful: the modal chain matches the Noll
   residual law inside 2 percent from J = 3 up, the summed-screen source is
@@ -2324,7 +2338,11 @@ run log, a memory note or a backlog aside is not documented.
   fidelity-1 FAST Term to -0.5 to +0.1 dB on the mean, so the like-for-like
   AO comparison that 2-AO blocked is now measured (2-W1). The slope source is
   valid on a terrestrial path while the phase step per pixel stays under the
-  warning level; a 10 km / `3e-15` path at the 2-TC grid is past it. The
+  warning level; a 10 km / `3e-15` path at the 2-TC grid is past it. On a
+  TERRESTRIAL link the slope source is also the only correct one: V5 measures a
+  tilt gain of 0.53 for the summed screens, so that source over-states the
+  arriving tilt by about two and its correction can read worse than no
+  correction, and the runner is right to sense the slopes there. The
   standing caveats do NOT depend on the measurement: the fit is PERFECT (no
   sensor noise, no servo, no aliasing, no branch points), it is a SNAPSHOT,
   and the pre-compensated uplink route carries NO point-ahead decorrelation

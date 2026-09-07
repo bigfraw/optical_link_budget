@@ -15,7 +15,8 @@ measures that chain, and it answers four questions:
    direction, and by how much? How far is the corrected field from the tracked
    fidelity-1 FAST Term? (V1)
 4. Does the wrapped-gradient slope source agree with the summed-screen source?
-   (V3) Does it survive a terrestrial link? (V4)
+   (V3) Does it survive a terrestrial link? (V4) Which source is right on a
+   terrestrial link, and by how much do the two disagree? (V5)
 
 THE CASE (the hero downlink, copied from `validation/tail_convergence/`): a
 1550 nm space-to-ground link to a 700 mm ground telescope with an SMF receiver,
@@ -36,8 +37,12 @@ From the repository root on `bigfraw`. The GPU python is
         --block-size 50 --control-seeds 200
     python -m validation.waveoptics_ao.waveoptics_ao \
         --study v4 --n-trials 500 --paths-km 2 10 --cn2 3e-15 --preset rapid
+    python -m validation.waveoptics_ao.waveoptics_ao \
+        --study v5 --n-trials 500 --block-size 50
 
-V1 makes the campaigns; V0, V2 and V3 read them and add one 60 deg campaign of
+V5 makes four terrestrial campaigns of its own, so it takes the GPU python and
+the cupy backend. Its `--v5-cells` argument takes `<path>km:<cn2>` tokens.
+V1 makes the space campaigns; V0, V2 and V3 read them and add one 60 deg campaign of
 200 trials. V4 reopens two stored 2-TC terrestrial campaigns and computes NO
 trial, so it runs on the host python. Add `--analyse-only` to read what is
 stored. Add `--fft-backend numpy` on a host with no CUDA device.
@@ -304,6 +309,166 @@ WORSE at the fade depth, is a measurement of the aliasing, not of the physics.
 A trustworthy 10 km number needs a finer grid, or the summed-screen source with
 a near-field justification. Do not quote the 10 km AO numbers.
 
+## V5: the two sensing sources on the TERRESTRIAL link
+
+V3 compared the two sensing sources on a space link, where both are valid. V5
+is the SAME comparison on a horizontal path. The physics expectation is a
+DISAGREEMENT: the summed screen phase is the arriving wavefront only in the
+geometric-optics limit. On a near-field horizontal path the screens sit at
+different ranges, the beam footprint changes along the path, and the field
+diffracts between the screens. The field slopes are the arriving wavefront
+wherever the phase step for each pixel stays under the stencil limit.
+
+THE CELLS. The 2-TC cell of `validation/terrestrial_campaigns/` (a collimated
+5 mm launch into a 10 cm SMF receiver, `L0 = 25 m`, single precision, the
+`rapid` preset, seed 20260906, a 5 cm patch), plus `store_screen_phase=True`
+and the cupy backend. Those two settings enter the campaign fingerprint, so
+each cell gets its own root under `campaigns/terr_*`. A 2-TC campaign holds no
+screen phase, so it cannot serve this study. Four cells, 500 trials each:
+
+| cell | sigma2_R | grid | pixel | screens | r0_total | trials | GPU wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 km, Cn2 3e-15 | 0.2137 | 1024 px | 0.92 mm | 5 | 10.66 cm | 500 | 90.3 s |
+| 5 km, Cn2 3e-15 | 1.1463 | 1024 px | 2.44 mm | 5 | 6.15 cm | 500 | 91.8 s |
+| 10 km, Cn2 3e-15 | 4.0715 | 1024 px | 5.21 mm | 11 | 4.06 cm | 500 | 113.2 s |
+| 2 km, Cn2 1e-14 | 0.7122 | 1024 px | 1.00 mm | 5 | 5.18 cm | 500 | 89.8 s |
+
+`sigma2_R` is the plan sum. The 5 km and the 10 km cells carry the 2-TC sizer
+warning: the grid clamps at 1024 px, so the pixel is 2.0x and 8.0x coarser than
+the edge rule asks for. A corrected trial keeps the HOST tail, and the
+post-hoc analysis rebuilds every stored field five times, so the whole run took
+about 42 minutes, of which 6.4 minutes were trials.
+
+### (i) The coupling table (the V3 measurement)
+
+| cell | stack | mean eta (screens) | mean eta (slopes) | rel RMS | rel max | dB RMS | dB max |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 km, 3e-15 | tiptilt | 0.42395 | 0.47815 | 0.2142 | 0.9675 | 0.773 | 2.939 |
+| 2 km, 3e-15 | ao21 | 0.41492 | 0.80985 | 1.1342 | 3.4847 | 3.122 | 6.517 |
+| 5 km, 3e-15 | tiptilt | 0.48117 | 0.65843 | 1.2635 | 10.5169 | 2.414 | 10.613 |
+| 5 km, 3e-15 | ao21 | 0.43574 | 0.74883 | 2.3793 | 33.4651 | 3.279 | 15.374 |
+| 10 km, 3e-15 | tiptilt | 0.28849 | 0.50992 | 82.3394 | 1787.7384 | 5.723 | 32.525 |
+| 10 km, 3e-15 | ao21 | 0.22562 | 0.57327 | 31.2672 | 609.3261 | 6.758 | 27.856 |
+| 2 km, 1e-14 | tiptilt | 0.31218 | 0.43977 | 1.2129 | 10.7087 | 2.441 | 10.685 |
+| 2 km, 1e-14 | ao21 | 0.29145 | 0.77346 | 6.7009 | 107.2735 | 5.383 | 20.345 |
+
+`rel` is `(slopes - screens) / screens` on the coupling efficiency of one
+trial. `dB` is `-10 log10(slopes / screens)`. Compare this with V3, where the
+same numbers read 0.0056 to 0.11 rel RMS and 0.03 to 0.48 dB RMS. The
+terrestrial disagreement is one to three ORDERS of magnitude larger.
+
+### (ii) The coefficient table (the V0 measurement), in rad
+
+| cell | sigma2_R | D/r0 | tilt gain | tilt dRMS | tilt RMS | 21 gain | 21 dRMS | 21 RMS | resid | res/scr |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 km, 3e-15 | 0.2137 | 0.94 | 0.5365 | 0.305 | 0.551 | 0.5138 | 0.196 | 0.189 | 0.880 | 1.281 |
+| 5 km, 3e-15 | 1.1463 | 1.63 | 0.5301 | 0.489 | 0.878 | 0.4940 | 0.192 | 0.300 | 0.847 | 0.737 |
+| 10 km, 3e-15 | 4.0715 | 2.46 | 0.4181 | 0.853 | 1.234 | 0.3716 | 0.319 | 0.422 | 1.379 | 0.814 |
+| 2 km, 1e-14 | 0.7122 | 1.93 | 0.5361 | 0.559 | 1.009 | 0.5117 | 0.259 | 0.345 | 1.152 | 0.892 |
+
+The tilt gain is the slope tilt regressed on the screen tilt: 1.0 means the two
+sources agree. On the space link (V3, V0) it reads 0.9987 to 0.9999. Here it
+reads 0.52 to 0.54 on the three well-sampled cells. So the SUMMED SCREEN PHASE
+holds about TWICE the tilt that arrives at the aperture.
+
+That factor has a simple reading. A summed screen phase gives every screen the
+SAME weight. The tilt that arrives from a screen at the distance z along a
+path of length L carries the geometric lever of the beam or spherical wave,
+which falls as `(1 - z/L)`. The mean of that lever over a uniform-Cn2 path is
+0.5, and the measurement reads 0.51 to 0.54. Source of the `(1 - z/L)` path
+weight: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 6 and
+Ch. 8 (the spherical-wave path filter). This is an INTERPRETATION of the
+measured gain, not a derivation.
+
+`resid` is the RMS of the summed screen phase after the removal of the FIELD's
+own 21-mode fit, and `res/scr` divides it by the RMS screen phase over the
+aperture. It reads 0.74 to 1.28: the field fit removes almost NOTHING from the
+screen sum. The two quantities are close to unrelated over the pupil.
+
+### (iii) The sampling limit of the slope method
+
+| cell | mean worst step | worst step | trials over the 2.8 rad warn | grid | pixel |
+| --- | --- | --- | --- | --- | --- |
+| 2 km, 3e-15 | 0.128 | 0.171 | 0.0 % | 1024 px | 0.92 mm |
+| 5 km, 3e-15 | 0.378 | 1.423 | 0.0 % | 1024 px | 2.44 mm |
+| 10 km, 3e-15 | 2.238 | 3.141 | 42.8 % | 1024 px | 5.21 mm |
+| 2 km, 1e-14 | 0.196 | 0.392 | 0.0 % | 1024 px | 1.00 mm |
+
+The step is the largest wrapped phase difference between two adjacent aperture
+pixels of one trial. The wrapped gradient ALIASES above pi. Three cells are
+clean. The 10 km cell is AT the limit, exactly as V4 reported.
+
+### (iv) The SMF fade, both sources, `-10 log10(smf_eta)` [dB]
+
+| cell | kind | mean | p50 | p10 | p5 | p1 | d_p5 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 km, 3e-15 | untracked | 4.05 | 3.85 | 5.42 | 6.10 | 7.15 | 2.25 |
+| 2 km, 3e-15 | tiptilt, screens | 3.80 | 3.74 | 4.82 | 5.37 | 5.94 | 1.63 |
+| 2 km, 3e-15 | tiptilt, slopes | 3.25 | 3.23 | 4.06 | 4.27 | 4.94 | 1.04 |
+| 2 km, 3e-15 | ao21, screens | 3.91 | 3.84 | 5.16 | 5.40 | 6.65 | 1.56 |
+| 2 km, 3e-15 | ao21, slopes | 0.92 | 0.91 | 1.06 | 1.11 | 1.20 | 0.21 |
+| 5 km, 3e-15 | untracked | 4.00 | 3.21 | 7.02 | 8.91 | 14.16 | 5.69 |
+| 5 km, 3e-15 | tiptilt, screens | 3.50 | 3.03 | 5.89 | 7.49 | 9.67 | 4.46 |
+| 5 km, 3e-15 | tiptilt, slopes | 1.85 | 1.79 | 2.57 | 2.87 | 3.38 | 1.09 |
+| 5 km, 3e-15 | ao21, screens | 3.94 | 3.41 | 6.24 | 7.64 | 11.29 | 4.23 |
+| 5 km, 3e-15 | ao21, slopes | 1.27 | 1.22 | 1.67 | 1.88 | 2.29 | 0.66 |
+| 10 km, 3e-15 | untracked | 6.90 | 5.97 | 11.96 | 15.29 | 21.31 | 9.32 |
+| 10 km, 3e-15 | tiptilt, screens | 7.00 | 5.54 | 13.38 | 16.26 | 21.61 | 10.72 |
+| 10 km, 3e-15 | tiptilt, slopes | 3.42 | 2.64 | 6.08 | 8.45 | 14.97 | 5.81 |
+| 10 km, 3e-15 | ao21, screens | 7.96 | 6.83 | 13.86 | 17.82 | 21.73 | 10.99 |
+| 10 km, 3e-15 | ao21, slopes | 2.85 | 2.03 | 5.56 | 8.04 | 13.05 | 6.01 |
+| 2 km, 1e-14 | untracked | 6.29 | 5.72 | 10.02 | 11.86 | 15.72 | 6.14 |
+| 2 km, 1e-14 | tiptilt, screens | 5.45 | 5.08 | 8.26 | 9.17 | 11.21 | 4.10 |
+| 2 km, 1e-14 | tiptilt, slopes | 3.72 | 3.61 | 5.17 | 5.80 | 7.14 | 2.19 |
+| 2 km, 1e-14 | ao21, screens | 5.90 | 5.43 | 8.80 | 10.59 | 15.29 | 5.16 |
+| 2 km, 1e-14 | ao21, slopes | 1.12 | 1.10 | 1.43 | 1.50 | 1.74 | 0.40 |
+
+THE HEADLINE. A 21-mode corrector that senses the summed screens buys 0.7 dB of
+p5 at 2 km, and it LOSES 2.5 dB at 10 km (17.82 against 15.29 untracked). The
+SAME corrector that senses the field slopes buys 5.0 dB at 2 km and 7.3 dB at
+10 km. A screen-sensed correction is therefore not a weak correction: at the
+longer paths it makes the fibre coupling WORSE than no correction at all,
+because it removes a wavefront that is not there.
+
+A CROSS-CHECK OF THE SLOPE ROUTE. The 2 km and the 10 km slope lines reproduce
+the V4 table to the printed digit (2 km p5 6.10 / 4.27 / 1.11; 10 km 15.29 /
+8.45 / 8.04), although V4 read the 2-TC store and V5 made its own campaign. The
+seed, the plan and the grid are the same, so this is the expected result, and it
+shows that `store_screen_phase=True` does not touch the field.
+
+### The verdict of each cell
+
+- **2 km, `Cn2 = 3e-15`, `sigma2_R = 0.214`. TRUST THE SLOPES.** The worst step
+  is 0.17 rad for each pixel, and no trial goes over the warn level, so the
+  slope measurement is exact here. The screen source over-states the tilt by
+  1.9x (gain 0.5365), and its 21-mode correction gives an `ao21` p5 of 5.40 dB
+  against the 1.11 dB of the slope route. USE THE SLOPES.
+- **5 km, `Cn2 = 3e-15`, `sigma2_R = 1.146`. TRUST THE SLOPES.** The worst step
+  is 1.42 rad, still under the warn level, and no trial goes over it. The
+  screen gain is 0.5301. USE THE SLOPES. The grid is 2.0x coarser than the edge
+  rule asks for, which is a launch-edge caveat, not a slope caveat.
+- **10 km, `Cn2 = 3e-15`, `sigma2_R = 4.072`. NEITHER SOURCE IS EXACT.** The
+  slope stencil is at its limit (42.8 percent of the trials over the warn
+  level, worst step pi), and the screen source is wrong for the near-field
+  reason above, and it reads WORSE than no correction. The slope line is still
+  the better of the two, because it improves the fade in the right direction,
+  but a trustworthy 10 km number needs a finer grid. Do not quote the 10 km
+  AO(21) figure.
+- **2 km, `Cn2 = 1e-14`, `sigma2_R = 0.712`. TRUST THE SLOPES.** The worst step
+  is 0.39 rad, no trial goes over the warn level, and the screen gain is 0.5361.
+  The stronger turbulence does NOT change the source verdict: the gain sits with
+  the other 2 km cell, so the disagreement follows the GEOMETRY, not the
+  strength.
+
+VERDICT OF V5: on a terrestrial link, sense the FIELD SLOPES. The runner already
+does that (`comp_source = "slopes"` for a terrestrial scenario in
+`propagate_turbulent_scenario`), and `recouple_compensated(source="screens")`
+must NOT be used on a horizontal path. The tilt gain of 0.52 to 0.54 is the
+size of the error, and it holds across the path length and the turbulence
+strength. The slope source is exact while the phase step for each pixel stays
+under the warn level, which the 2 and 5 km cells do and the 10 km cell does
+not.
+
 ## The caveats
 
 - **PERFECT AO.** The fit is an ideal modal fit with no wavefront-sensor noise,
@@ -332,11 +497,12 @@ a near-field justification. Do not quote the 10 km AO numbers.
 
 ## The files
 
-- `waveoptics_ao.py` -- the study. One argparse driver, `--study v0 v1 v2 v3 v4`.
+- `waveoptics_ao.py` -- the study. One argparse driver,
+  `--study v0 v1 v2 v3 v4 v5`.
 - `waveoptics_ao_v0.log` and `waveoptics_ao_v0_results.json` (and the same pair
-  for v1, v2, v3 and v4) -- the tables above, as printed and as data.
-- `run_v1.log`, `run_v023.log`, `run_v4.log` -- the raw stdout of the three
-  detached runs on `bigfraw`.
+  for v1, v2, v3, v4 and v5) -- the tables above, as printed and as data.
+- `run_v1.log`, `run_v023.log`, `run_v4.log`, `run_v5.log` -- the raw stdout of
+  the four detached runs on `bigfraw`.
 - `figures/` -- `v0_source_agreement.png`, `v2_noll_residual.png` and
   `v1_smf_survival.png`. A PNG is gitignored across the repository, so the run
   makes these three files again from the stored campaigns. Use `--analyse-only`

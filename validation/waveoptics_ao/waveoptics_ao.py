@@ -21,6 +21,9 @@ THE FIVE STUDIES.
       the coupling efficiency trial for trial.
   V4  the terrestrial sanity check. It applies the slope correction post hoc to
       two stored 2-TC terrestrial campaigns.
+  V5  method (a) against method (c) on the TERRESTRIAL link. It is V3 and V0 on
+      a horizontal path. It makes its OWN terrestrial campaigns, because a
+      2-TC campaign holds no screen phase.
 
 THE HERO DOWNLINK. A 1550 nm space-to-ground link to a 700 mm ground telescope
 with an SMF receiver, from a 100 mm space terminal at 500 km. It is the case of
@@ -56,6 +59,7 @@ Run it from the repository root. The campaigns take the CUDA backend:
     python -m validation.waveoptics_ao.waveoptics_ao --study v1 --n-trials 1000
     python -m validation.waveoptics_ao.waveoptics_ao --study v3 --n-trials 200
     python -m validation.waveoptics_ao.waveoptics_ao --study v4 --n-trials 500
+    python -m validation.waveoptics_ao.waveoptics_ao --study v5 --n-trials 500
 
 Add `--analyse-only` to read what is stored and to compute no trial. Add
 `--fft-backend numpy` to run on a host without a CUDA device. V4 always runs on
@@ -835,6 +839,186 @@ def v4_row(path_m, cn2, preset, n_trials, stacks, say):
 
 
 # ---------------------------------------------------------------------------
+# V5: method (a) against method (c) on the terrestrial link
+# ---------------------------------------------------------------------------
+
+# The V5 cells, as "<path>km:<cn2>" tokens. Three path lengths at one Cn2, and
+# one stronger cell at the shortest path.
+V5_CELLS = ("2km:3e-15", "5km:3e-15", "10km:3e-15", "2km:1e-14")
+
+# The stacks of the V5 comparison.
+V5_STACKS = ("tiptilt", "ao21")
+
+
+def parse_v5_cell(token):
+    """Turn a V5 cell token into the pair (path_m, cn2).
+
+    Args:
+        token: a token such as "5km:3e-15".
+
+    Returns:
+        The pair (the path length in m, the Cn2 in m^-2/3).
+
+    Raises:
+        ValueError: the token has no ":" separator, or a bad number.
+    """
+    if ":" not in token:
+        raise ValueError(f"a V5 cell token needs a colon, got {token!r}. "
+                         f"Use a token such as 5km:3e-15.")
+    path_text, cn2_text = token.split(":", 1)
+    return float(path_text.rstrip("kmKM")) * 1e3, float(cn2_text)
+
+
+def v5_campaign(path_m, cn2, preset, args):
+    """Build (or reopen) the terrestrial campaign of one V5 cell.
+
+    THE CELL IS THE 2-TC CELL. The scenario, the seed, the outer scale, the
+    patch radius and the precision come from
+    `validation/terrestrial_campaigns/run_campaigns.py`, so this campaign is
+    the 2-TC cell plus two settings: it stores the summed screen phase, and it
+    runs on the CUDA backend. Each setting enters the campaign fingerprint, so
+    the store gets its own root under `validation/waveoptics_ao/campaigns/`.
+
+    Args:
+        path_m: the horizontal path length, in m.
+        cn2:    the Cn2 of the path, in m^-2/3.
+        preset: the sampling preset name.
+        args:   the parsed command line.
+
+    Returns:
+        The pair (Campaign, the sizer warning texts).
+    """
+    from validation.terrestrial_campaigns.run_campaigns import (
+        L0_M as TC_L0_M, PATCH_RADIUS_M as TC_PATCH_M, PRECISION as TC_PREC,
+        SEED as TC_SEED, build_scenario, cell_tag)
+
+    scn, geom = build_scenario(path_m, cn2, "collimated")
+    root = os.path.join(campaigns_root(),
+                        "terr_" + cell_tag(path_m, cn2, preset, "collimated",
+                                           False))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        camp = Campaign(scn, geom, root, seed=TC_SEED, preset=preset,
+                        block_size=int(args.block_size),
+                        patch_radius_m=TC_PATCH_M, L0_m=TC_L0_M,
+                        precision=TC_PREC, fft_backend=args.fft_backend,
+                        store_screen_phase=True)
+    return camp, sorted({str(w.message) for w in caught})
+
+
+def v5_row(camp, n_trials):
+    """Compare the two sensing sources on ONE terrestrial campaign.
+
+    THE QUESTION. On a horizontal near-field link the summed screen phase is
+    not guaranteed to be the arriving wavefront: the screens sit at different
+    ranges, the beam footprint changes along the path, and the field
+    diffracts between the screens. The field slopes are the arriving
+    wavefront, while the phase step for each pixel stays under the stencil
+    limit. So this row measures how far the two sources move apart.
+
+    THE FOUR PARTS.
+      (i)   the V3 comparison of the coupling efficiency, for each stack.
+      (ii)  the V0 comparison of the modal coefficients, at 21 modes.
+      (iii) the step statistic of the slope stencil, so the reader sees where
+            the slope reference itself is past its limit.
+      (iv)  the SMF fade quantiles of the untracked field and of both sources.
+
+    Args:
+        camp:     the Campaign. It must hold the fields and the screen phase.
+        n_trials: the number of trials to read.
+
+    Returns:
+        A result dict.
+    """
+    n = int(min(n_trials, camp.n_stored))
+    result = camp.load(n, fields=True)
+    if result.screen_phase is None:
+        raise ValueError(f"{camp.root_dir} holds no stored screen phase.")
+    patch = camp.patch
+    rx = camp.scenario.rx_terminal
+    detector = rx.detector
+    modes = aperture_modes(camp, V0_MODES)
+
+    # (ii) and (iii): one pass over the stored fields.
+    screen_c, slope_c, steps, residual, screen_rms = [], [], [], [], []
+    for row, array in _rebuilt_fields(result, rx.aperture_m, None):
+        phase = _screen_map(result, row, patch)
+        screen_c.append(modes.estimate(phase))
+        sx, sy = wrapped_gradient(array)
+        slope_c.append(modes.estimate_from_slopes(sx, sy))
+        mx, my = wrapped_gradient(array, mask=modes.mask)
+        steps.append(max_abs_step(mx, my))
+        residual.append(np.sqrt(modes.residual_variance(phase, slope_c[-1])))
+        screen_rms.append(float(np.std(phase.ravel()[modes.indices])))
+    screen_c = np.asarray(screen_c)
+    slope_c = np.asarray(slope_c)
+    steps = np.asarray(steps)
+    residual = np.asarray(residual)
+    screen_rms = np.asarray(screen_rms)
+    tilt_gain, tilt_diff, tilt_rms = _gain_and_rms(screen_c[:, 1:3],
+                                                   slope_c[:, 1:3])
+    all_gain, all_diff, all_rms = _gain_and_rms(screen_c[:, 1:],
+                                                slope_c[:, 1:])
+
+    # (i) and (iv): the coupling efficiency of each stack and each source.
+    eta = {"untracked": np.array([t.smf_eta for t in result.trials],
+                                 dtype=float)}
+    compare, fades = [], {"untracked": _fade_row(
+        -10.0 * np.log10(eta["untracked"]))}
+    for name in V5_STACKS:
+        for source in ("screens", "slopes"):
+            eta[f"{name}_{source}"] = camp.recouple_compensated(
+                list(STACKS[name]), detector, n_trials=n, source=source)
+            fades[f"{name}_{source}"] = _fade_row(
+                -10.0 * np.log10(eta[f"{name}_{source}"]))
+        a = eta[f"{name}_screens"]
+        b = eta[f"{name}_slopes"]
+        rel = (b - a) / a
+        d_db = -10.0 * np.log10(b / a)
+        compare.append({
+            "stack": name, "n": n,
+            "mean_eta_screens": float(a.mean()),
+            "mean_eta_slopes": float(b.mean()),
+            "rel_rms": float(np.sqrt((rel ** 2).mean())),
+            "rel_max": float(np.abs(rel).max()),
+            "mean_db_screens": float((-10.0 * np.log10(a)).mean()),
+            "mean_db_slopes": float((-10.0 * np.log10(b)).mean()),
+            "db_rms_diff": float(np.sqrt((d_db ** 2).mean())),
+            "db_max_diff": float(np.abs(d_db).max()),
+        })
+
+    return {
+        "n_trials": n,
+        "n_modes": int(V0_MODES),
+        "grid_n": int(camp.grid.n),
+        "pixel_mm": float(camp.grid.pixel_m * 1e3),
+        "n_screens": int(camp.plan.z_m.size),
+        "sigma2_R": float(np.sum(camp.plan.sigma2_r)),
+        "r0_total_m": float(camp.plan.r0_total_m),
+        "d_over_r0": float(rx.aperture_m / camp.plan.r0_total_m),
+        "aperture_px": float(rx.aperture_m / camp.grid.pixel_m),
+        "tilt_gain": tilt_gain,
+        "tilt_rms_diff_rad": tilt_diff,
+        "tilt_rms_rad": tilt_rms,
+        "tilt_rel_diff": tilt_diff / tilt_rms,
+        "modes_gain": all_gain,
+        "modes_rms_diff_rad": all_diff,
+        "modes_rms_rad": all_rms,
+        "modes_rel_diff": all_diff / all_rms,
+        "screen_rms_rad": float(screen_rms.mean()),
+        "residual_rms_rad": float(residual.mean()),
+        "residual_over_screen": float((residual / screen_rms).mean()),
+        "step_warn_rad": float(SLOPE_STEP_WARN_RAD),
+        "step_mean_rad": float(steps.mean()),
+        "step_max_rad": float(steps.max()),
+        "frac_over_warn": float((steps > SLOPE_STEP_WARN_RAD).mean()),
+        "compare": compare,
+        "fades": fades,
+        "disk_bytes": _dir_bytes(camp.root_dir),
+    }
+
+
+# ---------------------------------------------------------------------------
 # The figures
 # ---------------------------------------------------------------------------
 
@@ -1294,14 +1478,183 @@ def run_v4(args):
     say(f"wrote {log_path}")
 
 
+def v5_verdict(row):
+    """Give the plain-language verdict of one V5 cell.
+
+    THE RULE. The field slopes are the arriving wavefront while the phase step
+    for each pixel stays under the stencil limit. The summed screens are exact
+    only in the geometric-optics limit, which a near-field horizontal path does
+    not hold. So the verdict reads the step statistic first.
+
+    Args:
+        row: a `v5_row` result dict.
+
+    Returns:
+        A list of text lines.
+    """
+    over = row["frac_over_warn"] * 100.0
+    lines = []
+    if over <= 1.0:
+        lines.append(
+            f"    TRUST THE SLOPES. The worst phase step is "
+            f"{row['step_max_rad']:.2f} rad for each pixel, and only "
+            f"{over:.1f} percent of the trials go over the "
+            f"{row['step_warn_rad']:g} rad warn level. The slope source "
+            f"measures the wavefront that ARRIVES.")
+    else:
+        lines.append(
+            f"    THE SLOPE SOURCE IS AT ITS LIMIT. {over:.1f} percent of the "
+            f"trials carry a step above the {row['step_warn_rad']:g} rad warn "
+            f"level, and the worst step is {row['step_max_rad']:.2f} rad. The "
+            f"wrapped gradient aliases above pi, so read this cell with care.")
+    lines.append(
+        f"    The summed screens are NOT the arriving phase here: the path is "
+        f"near field, sigma2_R is {row['sigma2_R']:.3f}, and the screens hold "
+        f"no diffraction between the planes.")
+    lines.append(
+        f"    The 21-mode gain of the slopes against the screens is "
+        f"{row['modes_gain']:.3f}, and the RMS difference is "
+        f"{row['modes_rms_diff_rad']:.3f} rad against an RMS screen "
+        f"coefficient of {row['modes_rms_rad']:.3f} rad "
+        f"({row['modes_rel_diff'] * 100:.0f} percent).")
+    return lines
+
+
+def run_v5(args):
+    """Run V5, the two sensing sources on the terrestrial link."""
+    say, log_path = _log_maker("v5")
+    say("V5: the summed-screen source against the field slopes on the "
+        "TERRESTRIAL link (backlog 2-AO)")
+    say("date          : 2026-09-07")
+    say(f"cells         : {', '.join(args.v5_cells)} at the "
+        f"{args.preset} preset")
+    say("scenario      : the 2-TC cell. A collimated 5 mm launch, a 10 cm SMF "
+        "receiver, L0 = 25 m, single precision, seed 20260906.")
+    say("difference    : this campaign STORES the summed screen phase, so it "
+        "gets its own root. A 2-TC store holds no screen phase.")
+    say(f"precision     : single      fft backend: {args.fft_backend}")
+    say("physics       : the field slopes are the arriving wavefront while "
+        "the phase step for each pixel stays under the stencil limit.")
+    say("                The summed screens are exact only in the "
+        "geometric-optics limit, and a horizontal path is near field.")
+    say("caveat        : PERFECT AO. It is an ideal modal fit of one "
+        "snapshot: no sensor noise, no lag, no anisoplanatism.")
+    say()
+
+    rows, timing = [], {}
+    for token in args.v5_cells:
+        path_m, cn2 = parse_v5_cell(token)
+        say(f"CELL {token}")
+        camp, warns = v5_campaign(path_m, cn2, args.preset, args)
+        for w in warns:
+            say(f"  sizer warning: {w}")
+        say(f"  root {camp.root_dir}")
+        say(f"  grid {camp.grid.n} px, "
+            f"{camp.grid.pixel_m * 1e3:.2f} mm pixel, "
+            f"{camp.plan.z_m.size} screens, r0_total "
+            f"{camp.plan.r0_total_m * 100:.2f} cm, "
+            f"sigma2_R {np.sum(camp.plan.sigma2_r):.4f}")
+        timing[token] = ensure_trials(camp, args.n_trials, args, say)
+        row = v5_row(camp, args.n_trials)
+        row.update({"cell": token, "path_m": float(path_m),
+                    "cn2": float(cn2), "preset": args.preset})
+        rows.append(row)
+        say(f"  {row['n_trials']} trials read, "
+            f"{row['disk_bytes'] / 2 ** 20:.0f} MB on disk")
+        say()
+
+    hdr = (f"{'cell':<12s}{'stack':>9s}{'n':>6s}{'eta screens':>13s}"
+           f"{'eta slopes':>12s}{'rel RMS':>10s}{'rel max':>10s}"
+           f"{'dB RMS':>9s}{'dB max':>9s}")
+    say("THE V5 COUPLING TABLE (the V3 measurement on a horizontal path)")
+    say(hdr)
+    say("-" * len(hdr))
+    for r in rows:
+        for c in r["compare"]:
+            say(f"{r['cell']:<12s}{c['stack']:>9s}{c['n']:6d}"
+                f"{c['mean_eta_screens']:13.5f}{c['mean_eta_slopes']:12.5f}"
+                f"{c['rel_rms']:10.4f}{c['rel_max']:10.4f}"
+                f"{c['db_rms_diff']:9.3f}{c['db_max_diff']:9.3f}")
+    say("  rel = (slopes - screens) / screens on the coupling efficiency of "
+        "each trial.")
+    say("  dB = -10 log10(slopes / screens), the per-trial coupling "
+        "difference.")
+    say()
+
+    hdr = (f"{'cell':<12s}{'sigma2_R':>10s}{'D/r0':>7s}{'tilt gain':>11s}"
+           f"{'tilt dRMS':>11s}{'tilt RMS':>10s}{'21 gain':>9s}"
+           f"{'21 dRMS':>9s}{'21 RMS':>9s}{'resid':>8s}{'res/scr':>9s}")
+    say("THE V5 COEFFICIENT TABLE (the V0 measurement, the values are in rad)")
+    say(hdr)
+    say("-" * len(hdr))
+    for r in rows:
+        say(f"{r['cell']:<12s}{r['sigma2_R']:10.4f}{r['d_over_r0']:7.2f}"
+            f"{r['tilt_gain']:11.4f}{r['tilt_rms_diff_rad']:11.3f}"
+            f"{r['tilt_rms_rad']:10.3f}{r['modes_gain']:9.4f}"
+            f"{r['modes_rms_diff_rad']:9.3f}{r['modes_rms_rad']:9.3f}"
+            f"{r['residual_rms_rad']:8.3f}{r['residual_over_screen']:9.3f}")
+    say("  tilt gain = the slope tilt regressed on the screen tilt "
+        "(1.0 = they agree).")
+    say("  resid = the RMS of the summed screen phase after the removal of "
+        "the FIELD's 21-mode fit.")
+    say("  res/scr = that residual divided by the RMS screen phase over the "
+        "aperture.")
+    say()
+
+    hdr = (f"{'cell':<12s}{'mean step':>11s}{'worst step':>12s}"
+           f"{'over warn':>11s}{'grid':>7s}{'px mm':>8s}")
+    say("THE SAMPLING LIMIT OF THE SLOPE METHOD")
+    say(hdr)
+    say("-" * len(hdr))
+    for r in rows:
+        say(f"{r['cell']:<12s}{r['step_mean_rad']:11.3f}"
+            f"{r['step_max_rad']:12.3f}{r['frac_over_warn'] * 100:10.1f}%"
+            f"{r['grid_n']:7d}{r['pixel_mm']:8.2f}")
+    say(f"  step = the worst wrapped phase difference of one trial, in rad "
+        f"for each pixel. The warn level is {SLOPE_STEP_WARN_RAD:g}, and the "
+        f"method aliases above pi.")
+    say()
+
+    kinds = ["untracked"] + [f"{s}_{src}" for s in V5_STACKS
+                             for src in ("screens", "slopes")]
+    hdr = (f"{'cell':<12s}  {'kind':<18s}{'mean':>8s}{'p50':>8s}{'p10':>8s}"
+           f"{'p5':>8s}{'p1':>8s}{'d_p5':>7s}")
+    say("THE SMF FADE: the coupling loss -10 log10(smf_eta) [dB]")
+    say(hdr)
+    say("-" * len(hdr))
+    for r in rows:
+        for kind in kinds:
+            fade = r["fades"][kind]
+            q = fade["quantiles_db"]
+            say(f"{r['cell']:<12s}  {kind:<18s}{fade['mean_db']:8.2f}"
+                f"{q['p50']:8.2f}{q['p10']:8.2f}{q['p5']:8.2f}{q['p1']:8.2f}"
+                f"{q['p5'] - q['p50']:7.2f}")
+    say("  pX is the loss EXCEEDED X percent of the time. d_p5 is the fade "
+        "depth p5 - p50.")
+    say()
+
+    say("THE VERDICT OF EACH CELL")
+    for r in rows:
+        say(f"  {r['cell']}:")
+        for line in v5_verdict(r):
+            say(line)
+        say()
+
+    path = _write_results("v5", {"study": "V5", "date": "2026-09-07",
+                                 "preset": args.preset, "rows": rows,
+                                 "timing": timing})
+    say(f"wrote {path}")
+    say(f"wrote {log_path}")
+
+
 STUDIES = {"v0": run_v0, "v1": run_v1, "v2": run_v2, "v3": run_v3,
-           "v4": run_v4}
+           "v4": run_v4, "v5": run_v5}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--study", nargs="+", default=["v0"],
-                    help="the studies to run, from v0 v1 v2 v3 v4")
+                    help="the studies to run, from v0 v1 v2 v3 v4 v5")
     ap.add_argument("--elevations", nargs="+", type=float, default=[30.0, 20.0],
                     help="the elevations of the space studies [deg]")
     ap.add_argument("--n-trials", type=int, default=200,
@@ -1331,7 +1684,10 @@ def main():
     ap.add_argument("--cn2", type=float, default=3e-15,
                     help="the V4 terrestrial Cn2 [m^-2/3]")
     ap.add_argument("--preset", default="rapid",
-                    help="the preset of the V4 stored campaigns")
+                    help="the preset of the V4 and V5 terrestrial campaigns")
+    ap.add_argument("--v5-cells", nargs="+", default=list(V5_CELLS),
+                    help="the V5 terrestrial cells, as <path>km:<cn2> tokens, "
+                         "for example 5km:3e-15")
     args = ap.parse_args()
     if args.workers not in (None, "auto"):
         args.workers = int(args.workers)
