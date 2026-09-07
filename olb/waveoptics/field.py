@@ -19,6 +19,62 @@ import copy as _copy
 import numpy as np
 
 
+def is_device_array(a):
+    """Tell if an array lives on the CUDA device.
+
+    The wave-optics layer holds the field on the device when the FFT backend
+    is "cupy" (see olb.waveoptics.propagators.set_fft_backend). This module
+    must not import cupy, because cupy is an optional package and the host
+    machine can have no CUDA device. So the test reads the module name of the
+    type. It gives False for a numpy array and for a list.
+
+    Args:
+        a: any object.
+
+    Returns:
+        True if the object is a cupy array.
+    """
+    return type(a).__module__.split('.')[0] == 'cupy'
+
+
+def asnumpy(a):
+    """Give a numpy array for a host array or for a device array.
+
+    A device array comes back through cupy.ndarray.get(). A host array goes
+    through numpy.asarray, so the function makes no copy of it.
+
+    Args:
+        a: a numpy array, a cupy array, or anything numpy.asarray accepts.
+
+    Returns:
+        A numpy array.
+    """
+    return a.get() if is_device_array(a) else np.asarray(a)
+
+
+def to_host(Fin):
+    """Give a field whose array is on the host.
+
+    The function is the ONE download point of the wave-optics layer. A caller
+    that runs the "cupy" FFT backend calls it one time, after the propagation,
+    and then every host tool (the clip, the coupling, the patch store) reads
+    the field as before. A field that is already on the host comes back
+    unchanged, so the call is safe in every path.
+
+    Args:
+        Fin: the input field.
+
+    Returns:
+        A Field with the same metadata and a numpy array. It is Fin itself
+        when the array is already on the host.
+    """
+    if not is_device_array(Fin.field):
+        return Fin
+    Fout = Field.shallowcopy(Fin)
+    Fout.field = Fin.field.get()
+    return Fout
+
+
 class Field:
     """A scalar complex field on a square, zero-centred grid.
 
@@ -130,7 +186,14 @@ class Field:
 
     @field.setter
     def field(self, value):
-        self._field = np.asarray(value, dtype=self._dtype)
+        # A DEVICE ARRAY STAYS ON THE DEVICE. numpy.asarray refuses a cupy
+        # array, because an implicit download is a silent, slow copy. So the
+        # setter casts a device array with its own astype and it keeps it
+        # there. See olb.waveoptics.field.to_host for the download.
+        if is_device_array(value):
+            self._field = value.astype(self._dtype, copy=False)
+        else:
+            self._field = np.asarray(value, dtype=self._dtype)
 
     @property
     def xvalues(self):
@@ -220,7 +283,11 @@ def Power(Fin):
     ISBN 978-0974707723 (the irradiance of a scalar field).
     """
     I = np.abs(Fin.field)**2
-    return I.sum() * Fin.dx**2
+    total = I.sum() * Fin.dx**2
+    # A device array gives a 0-d device scalar. Bring that one number to the
+    # host, so a caller always reads a plain number. The host path is
+    # unchanged: it keeps the numpy value it gave before.
+    return float(total) if is_device_array(I) else total
 
 
 def Normal(Fin):
@@ -356,6 +423,14 @@ if __name__ == '__main__':
         raise AssertionError('Begin must refuse a real dtype')
     except ValueError as exc:
         assert 'complex64' in str(exc), str(exc)
+
+    # ---- the device helpers on a host field ----
+    # The three helpers must be no-ops on the host, so every host path keeps
+    # its arrays. cupy is not needed for this check.
+    assert is_device_array(F.field) is False
+    assert is_device_array([1, 2]) is False
+    assert asnumpy(F.field) is F.field
+    assert to_host(F) is F
 
     print(f"grid side          {size * 1e3:8.3f} mm")
     print(f"pixels per side    {N:8d}")

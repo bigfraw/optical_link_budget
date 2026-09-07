@@ -37,7 +37,7 @@ from numpy.fft import ifft2 as _np_ifft2
 from scipy import fft as _scipy_fft
 from scipy.special import fresnel as _fresnel
 
-from .field import Field
+from .field import Field, is_device_array
 
 
 def _reject_spherical(Fin, name):
@@ -68,26 +68,86 @@ def _reject_spherical(Fin, name):
 # campaign carries the backend in its fingerprint. The setting is process
 # wide: a pool worker sets it for itself (Campaign does that through the
 # initializer).
-FFT_BACKENDS = ("numpy", "scipy")
+#
+# "cupy" is the third backend (an OPT-IN, 2026-09-07, backlog 2-N8). It runs
+# the transforms of Forvard, the split step and the screen generator on the
+# CUDA device through cupy. The device holds the field, the Forvard factors,
+# the boundary mask and the screens. THE RANDOM STREAM DOES NOT CHANGE: the
+# white noise of a screen stays a numpy PCG64 draw on the host, in the same
+# order and the same double precision, and only the filter multiply and the
+# transforms move to the device. So a cupy run and a numpy run of the same
+# seed see the SAME atmosphere, and the two agree at the rounding level of
+# the field precision. A cupy run is NOT bit-identical to a numpy run. Only
+# Forvard runs on the device: Fresnel refuses the device (see Fresnel).
+FFT_BACKENDS = ("numpy", "scipy", "cupy")
 _fft_backend = "numpy"
+_cupy = None                    # the lazy cupy module, or None.
+
+
+def _load_cupy():
+    """Import cupy lazily, with a clear error when it is absent.
+
+    cupy is an OPTIONAL package, and it needs a CUDA device. The module must
+    not import it at load time, because most machines have no device.
+
+    Returns:
+        The cupy module.
+
+    Raises:
+        ImportError: cupy is not installed.
+    """
+    global _cupy
+    if _cupy is None:
+        try:
+            import cupy
+        except ImportError as e:
+            raise ImportError(
+                "the FFT backend 'cupy' needs the `cupy` package and a CUDA "
+                "device. Run `pip install olb[gpu]`, or install "
+                "`cupy-cuda12x` with the nvidia CUDA wheels."
+            ) from e
+        _cupy = cupy
+    return _cupy
+
+
+def xp():
+    """Give the array module of the FFT backend of this process.
+
+    It is numpy for the "numpy" and the "scipy" backends, and cupy for the
+    "cupy" backend. A caller uses it in place of numpy where an array must
+    follow the backend. See ScreenFactory and split_step.
+
+    Returns:
+        The numpy module or the cupy module.
+    """
+    if _fft_backend == "cupy":
+        return _load_cupy()
+    return np
 
 
 def set_fft_backend(name):
     """Select the FFT backend of Forvard and Fresnel for this process.
 
+    The "cupy" backend imports cupy here, so a machine without a device
+    fails at this call and not in the middle of a run.
+
     Args:
-        name: "numpy" (the default, the backend of record) or "scipy".
+        name: "numpy" (the default, the backend of record), "scipy" or
+            "cupy".
 
     Returns:
         The previous backend name, so a caller can restore it.
 
     Raises:
-        ValueError: the name is unknown.
+        ValueError:  the name is unknown.
+        ImportError: the name is "cupy" and cupy is absent.
     """
     global _fft_backend
     if name not in FFT_BACKENDS:
         raise ValueError(f"set_fft_backend: name must be one of "
                          f"{FFT_BACKENDS}, not {name!r}.")
+    if name == "cupy":
+        _load_cupy()
     previous = _fft_backend
     _fft_backend = name
     return previous
@@ -101,12 +161,16 @@ def get_fft_backend():
 def _fft2(a):
     if _fft_backend == "scipy":
         return _scipy_fft.fft2(a, overwrite_x=True, workers=1)
+    if _fft_backend == "cupy":
+        return _load_cupy().fft.fft2(a)
     return _np_fft2(a)
 
 
 def _ifft2(a):
     if _fft_backend == "scipy":
         return _scipy_fft.ifft2(a, overwrite_x=True, workers=1)
+    if _fft_backend == "cupy":
+        return _load_cupy().fft.ifft2(a)
     return _np_ifft2(a)
 
 
@@ -121,8 +185,21 @@ def _ifft2(a):
 # 8 MB in single and 16 MB in double precision, so the default holds 32 or
 # 16 distinct hops. A sweep past the bound drops the oldest entry. Set
 # FORVARD_CACHE_BYTES before a run to change the budget.
+#
+# THE KEY HOLDS THE BACKEND. The "cupy" backend keeps the two factors on the
+# device, and the host backends keep them on the host. The values are the
+# same numbers, but they are not the same objects, so a host entry and a
+# device entry must never collide. The last field of each key is "host" for
+# the numpy and the scipy backends (the two share one array) and "cupy" for
+# the device. The byte count adds the device arrays too, so the bound holds
+# the device memory of the factors as well.
 FORVARD_CACHE_BYTES = 256 * 2 ** 20
 _forvard_cache = {}
+
+
+def _cache_place():
+    """Give the storage tag of the FFT backend: "host" or "cupy"."""
+    return "cupy" if _fft_backend == "cupy" else "host"
 
 
 def clear_forvard_cache():
@@ -133,7 +210,7 @@ def clear_forvard_cache():
 
 def forvard_cache_bytes():
     """Give the bytes the Forvard cache holds now."""
-    return sum(v[1].nbytes for k, v in _forvard_cache.items() if len(k) == 5)
+    return sum(v[1].nbytes for k, v in _forvard_cache.items() if len(k) == 6)
 
 
 def _forvard_factors(N, size, lam, z, cdtype):
@@ -142,6 +219,11 @@ def _forvard_factors(N, size, lam, z, cdtype):
     The arrays are the ones the body of Forvard built before the cache.
     The values are bit-identical: the phase wrap runs in double precision
     exactly as before, and the cache stores the finished factor only.
+
+    THE BUILD IS ALWAYS ON THE HOST. The phase wrap needs double precision,
+    and the two arrays are built one time for each hop, so the host cost does
+    not matter. The "cupy" backend uploads the finished arrays. So the device
+    factors hold exactly the numbers of the host factors.
 
     Args:
         N:      the pixel count of one side.
@@ -156,12 +238,14 @@ def _forvard_factors(N, size, lam, z, cdtype):
     """
     cdtype = np.dtype(cdtype)
     rdtype = np.float32 if cdtype == np.complex64 else np.float64
-    key = (int(N), float(size), float(lam), float(z), cdtype.str)
+    place = _cache_place()
+    device = place == "cupy"
+    key = (int(N), float(size), float(lam), float(z), cdtype.str, place)
     hit = _forvard_cache.get(key)
     if hit is not None:
         return hit
 
-    sign_key = (int(N), rdtype)
+    sign_key = (int(N), rdtype, place)
     iiij = _forvard_cache.get(sign_key)
     if iiij is None:
         # The alternating sign pattern does the same as a double fftshift,
@@ -169,7 +253,10 @@ def _forvard_factors(N, size, lam, z, cdtype):
         iiN = np.ones((N,), dtype=rdtype)
         iiN[1::2] = -1
         iiij = np.outer(iiN, iiN)
-        iiij.flags.writeable = False
+        if device:
+            iiij = _load_cupy().asarray(iiij)
+        else:
+            iiij.flags.writeable = False
         _forvard_cache[sign_key] = iiij
 
     # Bus = lam*z/2 * (fx^2 + fy^2). The phase of the transfer function is
@@ -189,12 +276,17 @@ def _forvard_factors(N, size, lam, z, cdtype):
     Ir = Bus.astype(int)            # truncate, do not round
     Abus = _2pi * (Ir - Bus)        # the phase, wrapped into [-2pi, 0]
     CC = (np.cos(Abus) + 1j * np.sin(Abus)).astype(cdtype)
-    CC.flags.writeable = False
+    if device:
+        # A cupy array cannot be marked read-only. The Forvard body reads the
+        # two factors only, so the entry is safe.
+        CC = _load_cupy().asarray(CC)
+    else:
+        CC.flags.writeable = False
 
     while (_forvard_cache
            and forvard_cache_bytes() + CC.nbytes > FORVARD_CACHE_BYTES):
         # Drop the oldest transfer function. The sign patterns stay.
-        oldest = next((k for k in _forvard_cache if len(k) == 5), None)
+        oldest = next((k for k in _forvard_cache if len(k) == 6), None)
         if oldest is None:
             break
         del _forvard_cache[oldest]
@@ -253,7 +345,11 @@ def Forvard(Fin, z):
     # transfer function. That halves the bytes each FFT moves.
     cdtype = Fin.field.dtype
 
-    in_out = np.array(Fin.field, dtype=cdtype)     # one copy, no zero fill.
+    # THE WORK ARRAY FOLLOWS THE BACKEND. numpy.array would DOWNLOAD a device
+    # field without a word, so the copy goes through the array module of the
+    # backend: cupy.array uploads a host field one time, and it copies a
+    # device field on the device.
+    in_out = xp().array(Fin.field, dtype=cdtype)   # one copy, no zero fill.
 
     # The legacy value of 2*pi keeps the port equal to the C++ LightPipes.
     _2pi = 2. * 3.141592654
@@ -316,6 +412,12 @@ def Fresnel(Fin, z):
     This function states the rule in words only and it does not check it.
     olb.waveoptics.schmidt.sampling.fresnel_min_distance gives the bound.
 
+    THE METHOD RUNS ON THE HOST ONLY. The doubled grid, the pixel-integrated
+    kernel and the four shifted slices are host code. The "cupy" backend is
+    for the split step, which uses Forvard. So Fresnel refuses a device field
+    and it refuses the "cupy" backend. Set the numpy or the scipy backend for
+    a Fresnel run.
+
     Args:
         Fin: the input field.
         z:   the propagation distance, in m. It must not be negative.
@@ -324,9 +426,14 @@ def Fresnel(Fin, z):
         A new Field.
 
     Raises:
-        ValueError: z is negative, or the field is in spherical coordinates.
+        ValueError: z is negative, the field is in spherical coordinates, or
+            the field or the backend is on the CUDA device.
     """
     _reject_spherical(Fin, 'Fresnel')
+    if is_device_array(Fin.field) or _fft_backend == "cupy":
+        raise ValueError('Fresnel: the convolution method runs on the host '
+                         'only. Use Forvard on the device, or set the numpy '
+                         'or the scipy FFT backend.')
     if z < 0:
         raise ValueError('Fresnel does not support negative z')
     if z == 0:
@@ -427,6 +534,10 @@ def GForvard(Fin, z):
     The route is analytic, so it has no grid artefact. It accepts a field
     from GaussBeam() only. Each mask or each FFT propagator clears the
     Gaussian flag.
+
+    THE ROUTE STAYS ON THE HOST. It does not read the input array; it builds
+    the output array from the complex beam parameter q. So it gives a HOST
+    field under every FFT backend, the "cupy" backend included.
 
     The ABCD law gives the new complex beam parameter:
 
@@ -605,6 +716,44 @@ if __name__ == '__main__':
             raise AssertionError(f"{name} must refuse a spherical field")
         except ValueError as exc:
             assert 'Convert' in str(exc), name
+
+    # ---- the cupy backend, when the machine has a CUDA device ----
+    # The block runs ONLY when cupy imports. A host machine prints a note and
+    # skips it. The device Forvard must agree with the host Forvard at the
+    # rounding level, and it must keep the field on the device.
+    e_cupy = None
+    try:
+        _load_cupy()
+    except ImportError as exc:
+        print("cupy is absent, so the device backend is not checked.")
+        print(f"  {exc}")
+    else:
+        from .field import to_host
+        prev = set_fft_backend("cupy")
+        try:
+            F_dev = Forvard(F0_32, z)
+            assert is_device_array(F_dev.field), 'the field must stay on GPU'
+            assert F_dev.field.dtype == np.complex64
+            # The power reads back as a plain number.
+            p_dev = Power(F_dev)
+            F_host = to_host(F_dev)
+            assert not is_device_array(F_host.field)
+            e_cupy = rel_rms(F_host.field, FF32.field)
+            # Fresnel refuses the device backend.
+            try:
+                Fresnel(F0_32, z)
+                raise AssertionError('Fresnel must refuse the cupy backend')
+            except ValueError as exc:
+                assert 'host' in str(exc), str(exc)
+        finally:
+            set_fft_backend(prev)
+        assert get_fft_backend() == "numpy"
+        assert e_cupy < 1e-5, e_cupy
+        assert abs(p_dev / Power(FF32) - 1.0) < 1e-5, (p_dev, Power(FF32))
+        # The host cache and the device cache do not collide.
+        FF32_again = Forvard(F0_32, z)
+        assert np.array_equal(FF32_again.field, FF32.field)
+        print(f"cupy vs numpy Forvard rel rms {e_cupy:.1e}")
 
     print(f"wavelength              {lam * 1e9:9.1f} nm")
     print(f"waist radius w0         {w0 * 1e3:9.3f} mm")

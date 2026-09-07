@@ -38,7 +38,8 @@ Sources:
 
 import numpy as np
 
-from ..field import Field
+from ..field import Field, is_device_array
+from ..propagators import xp
 
 
 def _load_aotools():
@@ -226,6 +227,18 @@ class ScreenFactory:
     the same random field. The wave-optics runner keeps aotools as the default,
     so an old run stays bit-identical.
 
+    THE CUDA DEVICE (an OPT-IN, 2026-09-07). The factory reads the FFT backend
+    of the process ONE time, in __init__ (see
+    olb.waveoptics.propagators.set_fft_backend). Set the backend BEFORE you
+    build the factory. With the "cupy" backend the cached filter, the
+    subharmonic basis, the transform and the sums live on the device, and
+    `make` gives a DEVICE array. THE RANDOM STREAM DOES NOT CHANGE: the white
+    noise stays a numpy PCG64 draw on the host, in the same order and the same
+    double precision as the host body draws it, and the factory uploads it
+    after the cast. So the device screen and the host screen of the same seed
+    are the same atmosphere, and they agree to the rounding level of the output
+    type. The LEAN body has no device route; it raises.
+
     THE SPECTRUM. It is the modified von Karman phase PSD of Schmidt,
     DOI 10.1117/3.866274, Ch. 9, Eq. (9.51), printed p. 161, in the ordinary
     frequency of Eq. (9.52). The Fourier-series screen is Eqs. (9.78) to (9.80),
@@ -282,6 +295,16 @@ class ScreenFactory:
         self._cdtype = (np.complex64 if dtype == np.float32
                         else np.complex128)
         self.lean = bool(lean)
+        # The array module of the FFT backend, read ONE time. numpy for the
+        # host backends, cupy for the "cupy" backend.
+        self._xp = xp()
+        self._device = self._xp is not np
+        if self.lean and self._device:
+            raise NotImplementedError(
+                "ScreenFactory(lean=True) has no CUDA route. The lean body "
+                "writes the grid in place through scipy.fft, and scipy.fft "
+                "does not take a device array. Use lean=False with the "
+                "'cupy' FFT backend.")
 
         n = self.n
         dx = self.pixel_m
@@ -296,6 +319,9 @@ class ScreenFactory:
         psd = _phase_psd_unit(np.hypot(FX, FY), self.L0_m, self.l0_m)
         psd[n // 2, n // 2] = 0.0             # Listing 9.2, line 16, p. 167.
         self._filt = (np.sqrt(psd) * df).astype(self._rdtype)
+        if self._device:
+            # The filter multiplies each draw, so it stays on the device.
+            self._filt = self._xp.asarray(self._filt)
         if self.lean:
             # The lean body folds the centring shifts into the filter and
             # into one output factor. For an even n, fftshift(ifft2(
@@ -328,10 +354,14 @@ class ScreenFactory:
                 FX3, FY3 = np.meshgrid(f3, f3)
                 psd3 = _phase_psd_unit(np.hypot(FX3, FY3), self.L0_m, self.l0_m)
                 psd3[1, 1] = 0.0            # Listing 9.3, line 26, p. 170.
-                self._sub_filt.append((np.sqrt(psd3) * df_p).astype(
-                    self._rdtype))
+                sub_filt = (np.sqrt(psd3) * df_p).astype(self._rdtype)
                 E = np.exp(1j * 2.0 * np.pi * np.outer(x, f3))   # n by 3.
-                self._E.append(E.astype(self._cdtype))
+                E = E.astype(self._cdtype)
+                if self._device:
+                    sub_filt = self._xp.asarray(sub_filt)
+                    E = self._xp.asarray(E)
+                self._sub_filt.append(sub_filt)
+                self._E.append(E)
 
     def _ift_series(self, cn):
         """Give the bare Fourier-series sum of the coefficient grid cn.
@@ -339,9 +369,13 @@ class ScreenFactory:
         It is `ift2(cn, 1.0)` of Schmidt, DOI 10.1117/3.866274, Ch. 2,
         Eq. (2.9), printed p. 17, with df = 1: the centred inverse transform
         times n^2. The result is Eq. (9.78), printed p. 167.
+
+        The transform runs on the array module of the backend, so it stays
+        where the coefficient grid is.
         """
         n = self.n
-        shifted = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(cn)))
+        xpm = self._xp
+        shifted = xpm.fft.fftshift(xpm.fft.ifft2(xpm.fft.ifftshift(cn)))
         return (shifted * (n * n)).astype(self._cdtype)
 
     def _subharmonic(self, r0_m, rng):
@@ -351,16 +385,24 @@ class ScreenFactory:
         with the mean removed as Listing 9.3, line 38, printed p. 170, does.
         The 9-mode sum of each level is the matrix product E @ C @ E.T of the
         separable basis.
+
+        THE DRAW STAYS ON THE HOST. The two 3 by 3 normal grids come from the
+        numpy Generator, in the same order and the same double precision, for
+        every backend. The device route uploads the cast 3 by 3 grid only.
         """
+        xpm = self._xp
         if not self.subharmonics:
-            return np.zeros((self.n, self.n), dtype=self._rdtype)
+            return xpm.zeros((self.n, self.n), dtype=self._rdtype)
         scale = float(r0_m) ** self._EXPONENT
-        lo = np.zeros((self.n, self.n), dtype=self._cdtype)
+        lo = xpm.zeros((self.n, self.n), dtype=self._cdtype)
         for E, sub_filt in zip(self._E, self._sub_filt):
             g = (rng.standard_normal((3, 3)) + 1j * rng.standard_normal((3, 3)))
-            c = (g.astype(self._cdtype) * sub_filt * scale)
+            g = g.astype(self._cdtype)
+            if self._device:
+                g = xpm.asarray(g)
+            c = (g * sub_filt * scale)
             lo += E @ c @ E.T
-        out = np.real(lo)
+        out = xpm.real(lo)
         return (out - out.mean()).astype(self._rdtype)
 
     def _base_pair(self, rng):
@@ -370,12 +412,22 @@ class ScreenFactory:
         The real part and the imaginary part of the inverse transform are two
         independent, correctly scaled screens (Ch. 9, text below Listing 9.2,
         printed p. 167). Scale each by r0^(-5/6) for the wanted r0.
+
+        THE DRAW STAYS ON THE HOST. The two n by n normal grids come from the
+        numpy Generator, in the same order and the same double precision, for
+        every backend. The device route casts on the host, then it uploads the
+        cast grid. So the device screen holds the same random numbers as the
+        host screen of the same seed.
         """
         n = self.n
+        xpm = self._xp
         g = (rng.standard_normal((n, n)) + 1j * rng.standard_normal((n, n)))
-        cn = g.astype(self._cdtype) * self._filt
+        g = g.astype(self._cdtype)
+        if self._device:
+            g = xpm.asarray(g)
+        cn = g * self._filt
         full = self._ift_series(cn)
-        return np.real(full), np.imag(full)
+        return xpm.real(full), xpm.imag(full)
 
     def make(self, r0_m, rng):
         """Make one phase screen, in radians.
@@ -390,7 +442,8 @@ class ScreenFactory:
                   numpy.random.default_rng(_screen_seed(entropy, k, j)).
 
         Returns:
-            An n x n array of the phase, in radians.
+            An n x n array of the phase, in radians. It is a DEVICE array
+            with the "cupy" FFT backend, and a numpy array otherwise.
         """
         if self.lean:
             return self._make_lean(r0_m, rng)
@@ -479,7 +532,8 @@ def Screen(Fin, phase_rad):
 
     Args:
         Fin:       the input field. It must be on a flat grid.
-        phase_rad: an N x N array of the phase, in radians.
+        phase_rad: an N x N array of the phase, in radians. It is a host
+                   array or a device array.
 
     Returns:
         A new Field.
@@ -492,7 +546,8 @@ def Screen(Fin, phase_rad):
         raise ValueError('Screen: the field is in spherical coordinates. '
                          'Use Convert() first. A co-moving screen is not '
                          'implemented.')
-    phase_rad = np.asarray(phase_rad)
+    if not is_device_array(phase_rad):
+        phase_rad = np.asarray(phase_rad)
     if phase_rad.shape != (Fin.N, Fin.N):
         raise ValueError(f'Screen: the phase array is {phase_rad.shape}, '
                          f'but the field is ({Fin.N}, {Fin.N})')
@@ -502,6 +557,13 @@ def Screen(Fin, phase_rad):
     # holds it well.
     rdtype = np.float32 if Fin.field.dtype == np.complex64 else np.float64
     phase_rad = phase_rad.astype(rdtype, copy=False)
+    # THE SCREEN GOES WHERE THE BACKEND IS. A host screen goes UP to the
+    # device one time here, after the cast, so the upload moves half the
+    # bytes in single precision. A screen that is on the device already
+    # stays there, because asarray makes no copy of it.
+    xpm = xp()
+    if xpm is not np and not is_device_array(phase_rad):
+        phase_rad = xpm.asarray(phase_rad)
     Fout = Field.copy(Fin)
     Fout.field = Fout.field * np.exp(1j * phase_rad)
     Fout._IsGauss = False

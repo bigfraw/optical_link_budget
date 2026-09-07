@@ -28,7 +28,7 @@ Sources:
 import numpy as np
 
 from ..field import Field
-from ..propagators import Forvard
+from ..propagators import Forvard, xp
 from .screens import Screen
 
 
@@ -148,6 +148,13 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
     Eq. (8.18), printed p. 139. Give a boundary from
     super_gaussian_boundary() for any path that spreads the beam.
 
+    THE CUDA DEVICE. The function follows the FFT backend of the process
+    (see olb.waveoptics.propagators.set_fft_backend). With the "cupy" backend
+    the field, the boundary mask and each screen are on the device, and the
+    output field is on the device too. The caller downloads it one time with
+    olb.waveoptics.field.to_host. A host mask goes up one time, before the
+    loop. A host screen goes up when it is applied.
+
     THE SCREEN PLACEMENT DIFFERS FROM THE BOOK. Ch. 9, Eq. (9.3), printed
     p. 150, puts one screen AT each partial-propagation plane. The olb planner
     puts each screen at the Cn2-weighted centre of a merged slab, so the two
@@ -203,6 +210,13 @@ def split_step(Fin, z_screens_m, screens, z_total_m, *, boundary=None,
         if boundary.shape != shape:
             raise ValueError(f'split_step: the boundary is {boundary.shape}, '
                              f'but the field is {shape}')
+        # THE MASK GOES UP ONE TIME. The mask multiplies the field after each
+        # sub-step and after each screen, so a per-hop upload would move the
+        # mask tens of times. With the "cupy" FFT backend it goes to the
+        # device here, before the loop.
+        xpm = xp()
+        if xpm is not np:
+            boundary = xpm.asarray(boundary)
     if max_step_m is None:
         max_step_m = Fin.N * Fin.dx ** 2 / Fin.lam
     if max_step_m <= 0.0:
