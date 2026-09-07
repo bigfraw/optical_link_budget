@@ -299,7 +299,8 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
     then needs a wave vacuum run, because the default analytic geometric Term
     carries no coupling number (see the raise below).
     '''
-    from ..models.waveoptics import (waveoptics_vacuum_term,
+    from ..models.waveoptics import (flag_uncorrected_compensation,
+                                     waveoptics_vacuum_term,
                                      waveoptics_turbulence_term,
                                      waveoptics_mmf_coupling_term,
                                      waveoptics_vacuum_mmf_term)
@@ -382,7 +383,7 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
             sigma2_I=sigma2_I,
             note="downlink turbulence penalty (wave optics): aperture-power and "
                  "fibre-coupling loss relative to the vacuum baseline.")
-        return geo + [pen]
+        return geo + [flag_uncorrected_compensation(pen, scenario)]
     if is_mmf:
         # The light bucket: the aperture-power penalty (the bucket scintillation)
         # plus ONE MMF coupling evaluation on the turbulent field. mmf_eta is the
@@ -398,6 +399,8 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
             wave.turbulent, beam_type=BEAM_PLANE_WAVE, sigma2_I=sigma2_I,
             note="downlink MMF coupling (wave optics): core-capture of the "
                  "turbulent focused spot, absolute (holds the static floor).")
+        flag_uncorrected_compensation(pen, scenario)
+        flag_uncorrected_compensation(cpl, scenario)
         return geo + [pen, cpl]
     # An Aperture / no-detector receiver: the aperture-power penalty alone.
     pen = waveoptics_turbulence_term(
@@ -405,7 +408,7 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
         sigma2_I=sigma2_I,
         note="downlink scintillation (wave optics): aperture-power penalty, "
              "vacuum-normalised.")
-    return geo + [pen]
+    return geo + [flag_uncorrected_compensation(pen, scenario)]
 
 
 def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
@@ -780,6 +783,41 @@ if __name__ == '__main__':
         assert not vacw.stochastic
         print(f"  opt-in wave vacuum: {vacw.mean_db:.2f} dB "
               f"(vs analytic {geo.mean_db:.2f} dB)")
+
+        # THE PERFECT-AO CORRECTION (2026-09-07). A ground terminal that
+        # declares a stack gets an UNCORRECTED flag when the record carries no
+        # correction, and a PERFECT AO flag when it does.
+        from dataclasses import replace as _replace
+        from ..terminal import AO as _AO
+        assert turb.meta["n_modes_corrected"] == 0
+        assert not any("UNCORRECTED" in v for v in turb.assumptions.violations)
+        scn_ao = _replace(scenario,
+                          ground=_replace(scenario.ground,
+                                          compensation=[_AO(n_modes=20)]))
+        with _w2.catch_warnings():
+            _w2.simplefilter("ignore")
+            f2_off = downlink_budget(scn_ao, CircularOrbit(600e3, 30.0),
+                                     fidelity=2, wave=f2_bundle)
+            ao_bundle = run_fidelity2(scn_ao, CircularOrbit(600e3, 30.0),
+                                      preset="rapid", n_trials=16, seed=5,
+                                      hs=hs, cn2_profile=cn2, progress=False,
+                                      compensation="terminal")
+            f2_on = downlink_budget(scn_ao, CircularOrbit(600e3, 30.0),
+                                    fidelity=2, wave=ao_bundle)
+        t_off = next(t for t in f2_off.terms
+                     if t.meta.get("model") == "waveoptics")
+        t_on = next(t for t in f2_on.terms
+                    if t.meta.get("model") == "waveoptics")
+        assert any("UNCORRECTED" in v for v in t_off.assumptions.violations)
+        assert t_on.meta["n_modes_corrected"] == 20
+        assert any("PERFECT AO" in v for v in t_on.assumptions.violations)
+        # THIS RECEIVER IS A BUCKET, so its Term is the collected power. A
+        # phase correction keeps the amplitude, so the loss must NOT move. A
+        # fibre receiver is the case where the correction pays.
+        assert abs(t_on.mean_db - t_off.mean_db) < 1e-5, (t_on.mean_db,
+                                                          t_off.mean_db)
+        print(f"  perfect AO(20): bucket turbulence {t_off.mean_db:.4f} dB -> "
+              f"{t_on.mean_db:.4f} dB (a phase fix keeps the power)")
 
     # A fidelity-2 MMF (light-bucket) downlink gives THREE loss Terms beside the
     # extinction and pointing Terms: the DEFAULT analytic geometric spreading,

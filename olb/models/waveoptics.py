@@ -97,7 +97,8 @@ class Fidelity2Bundle:
 def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
                    seed=None, threader=None, grid=None, plan=None, cn2=None,
                    hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
-                   subharmonics=True, precision="single", fft_backend="numpy"):
+                   subharmonics=True, precision="single", fft_backend="numpy",
+                   compensation=None, store_screen_phase=False):
     '''
     Run the turbulent split-step propagation ONE time.
 
@@ -152,6 +153,16 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
             olb.waveoptics.turbulence.run.propagate_turbulent_scenario). The
             screen noise stays a host draw, so the same seed gives the same
             atmosphere. Neither opt-in is bit-identical to "numpy".
+        compensation : None, "terminal", or a list of stages
+            The perfect-AO correction (an OPT-IN, default OFF). Each trial then
+            removes the first N Noll modes of the wavefront over the receive
+            aperture. "terminal" reads the stack of the clip terminal. See
+            olb.waveoptics.turbulence.run.propagate_turbulent_scenario and
+            olb.waveoptics.compensation.
+        store_screen_phase : bool
+            True stores the summed screen phase of each trial (it needs a
+            stored patch, which this entry point does not make). The default
+            False stores nothing.
 
     Returns:
         TurbWaveResult
@@ -167,7 +178,8 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
         scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader, precision=precision, fft_backend=fft_backend)
+        threader=threader, precision=precision, fft_backend=fft_backend,
+        compensation=compensation, store_screen_phase=store_screen_phase)
 
 
 def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
@@ -318,10 +330,27 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
             "deep-tail quantile needs a large n_trials to converge."
         )
 
+    # THE PERFECT-AO CORRECTION. The record says whether the trials removed the
+    # first N Noll modes over the receive aperture. The Term reports it and it
+    # flags the ideal fit, because the fit is the UPPER BOUND of the benefit.
+    n_corrected = int(getattr(result, "n_modes_corrected", 0) or 0)
+    comp_stack = getattr(result, "compensation", None)
+    if n_corrected > 0:
+        assumptions.flag(
+            f"PERFECT AO: an ideal modal fit of the first {n_corrected} Noll "
+            "modes over the receive aperture. No wavefront-sensor noise, no "
+            "servo lag, no aliasing, no branch points. It is the UPPER BOUND "
+            "of the AO benefit (Noll 1976, DOI 10.1364/JOSA.66.000207)."
+        )
+
     if note is None:
         note = (f"wave-optics {quantity_label}, {n_trials} snapshots, "
                 f"preset={result.preset}")
+    if n_corrected > 0:
+        note += f" perfect AO, first {n_corrected} Noll modes removed."
     meta = {
+        "compensation": None if comp_stack is None else repr(tuple(comp_stack)),
+        "n_modes_corrected": n_corrected,
         "model": "waveoptics",
         "quantity": quantity_label,
         "preset": result.preset,
@@ -345,6 +374,45 @@ def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
         meta=meta,
         assumptions=assumptions,
     )
+
+
+def flag_uncorrected_compensation(term, scenario):
+    '''
+    Flag a Term whose terminal declares a compensation stack it did not use.
+
+    A fidelity-2 record is UNCORRECTED unless the caller asked for the
+    correction. So a terminal that carries a TipTilt or an AO stage gets a
+    budget that ignores that hardware, and the fade it reports is too deep.
+    This function says so on the Term.
+
+    It does nothing when the record IS corrected, or when the terminal declares
+    no stack. The Term factory has no scenario, so the budget calls this.
+
+    Parameters:
+        term : Term
+            The fidelity-2 turbulence or coupling Term.
+        scenario : SpaceScenario or TerrestrialScenario
+            The link case. The stack comes from the CLIP terminal
+            (olb.waveoptics.turbulence.run.clip_terminal), which is the
+            terminal whose aperture the wave-optics run clipped.
+
+    Returns:
+        Term
+            The same Term.
+    '''
+    from ..waveoptics.turbulence.run import clip_terminal
+    if int(term.meta.get("n_modes_corrected", 0) or 0) > 0:
+        return term
+    stack = clip_terminal(scenario).compensation
+    if not stack:
+        return term
+    names = ", ".join(type(s).__name__ for s in stack)
+    term.assumptions.flag(
+        f"UNCORRECTED: the terminal declares a compensation stack ({names}) "
+        "but this wave record carries no correction (backlog 2-AO). Run with "
+        "compensation='terminal' for the corrected fade."
+    )
+    return term
 
 
 def waveoptics_smf_coupling_term(result, **kwargs):
@@ -790,7 +858,8 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                   seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
                   h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
                   vacuum=None, turbulence=True, detectors=None,
-                  precision="single", fft_backend="numpy"):
+                  precision="single", fft_backend="numpy", compensation=None,
+                  store_screen_phase=False):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -892,6 +961,25 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             OPT-IN, see run_waveoptics). Neither opt-in is bit-identical to
             "numpy".
 
+        compensation : None, "terminal", or a list of stages
+            The perfect-AO correction of the TURBULENT Monte Carlo (an OPT-IN,
+            default OFF). Each trial removes the first N Noll modes of the
+            wavefront over the receive aperture, BEFORE the coupling and the
+            reciprocity overlap. "terminal" reads the stack of the clip
+            terminal (the GROUND terminal of a space link in every direction).
+            An UPLINK therefore reads a PRE-COMPENSATED beam, because the
+            uplink overlap sees the corrected ground field (Shapiro,
+            DOI 10.1364/JOSA.61.000492). The fit is IDEAL: no wavefront-sensor
+            noise, no servo lag, no aliasing, and no point-ahead
+            decorrelation. So the record is the UPPER BOUND of the benefit
+            (Noll 1976, DOI 10.1364/JOSA.66.000207), and the Terms flag it.
+            The default keeps an uncorrected run bit-identical.
+
+        store_screen_phase : bool
+            True stores the summed screen phase of each trial. It needs a
+            stored patch, which this entry point does not make; use a
+            Campaign for the post-hoc route. The default False stores nothing.
+
     Returns:
         Fidelity2Bundle, or list of Fidelity2Bundle
             With detectors=None (the default), ONE bundle: the turbulent
@@ -940,7 +1028,8 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
         h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
         threader=threader, progress=progress, detectors=detectors,
-        precision=precision, fft_backend=fft_backend)
+        precision=precision, fft_backend=fft_backend,
+        compensation=compensation, store_screen_phase=store_screen_phase)
     if detectors is None:
         return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
                                turbulent=turbulent)
@@ -1128,6 +1217,21 @@ if __name__ == '__main__':
     assert strong.assumptions.turbulence_regime == REGIME_STRONG
     assert any("split-step field solver stays valid" in v
                for v in strong.assumptions.violations)
+
+    # The perfect-AO record: the Term names the mode count, and it flags the
+    # ideal fit. An UNCORRECTED record says so, and it flags a terminal that
+    # declares a stack the record did not use.
+    from dataclasses import replace as _replace
+    from ..terminal import TipTilt as _TipTilt
+    assert term.meta["n_modes_corrected"] == 0
+    assert term.meta["compensation"] is None
+    rec_ao = _replace(rec, compensation=(_TipTilt(),), n_modes_corrected=3)
+    term_ao = waveoptics_turbulence_term(rec_ao, quantity="smf_eta")
+    assert term_ao.meta["n_modes_corrected"] == 3
+    assert "TipTilt" in term_ao.meta["compensation"]
+    assert "3 Noll modes removed" in term_ao.note, term_ao.note
+    assert any("PERFECT AO" in v for v in term_ao.assumptions.violations)
+    assert not any("PERFECT AO" in v for v in term.assumptions.violations)
 
     # WP3a: the wave-optics factory opens NO collection context (its physics is
     # the field solve, not @assumes functions), so its Terms SELF-DECLARE an

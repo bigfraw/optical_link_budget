@@ -309,7 +309,8 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave, turbulence=True):
     Term set is DETERMINISTIC: the vacuum-optics Term alone, plus the vacuum MMF
     core-capture Term for an MMF receiver. No stochastic Term is built.
     '''
-    from ..models.waveoptics import (waveoptics_vacuum_term,
+    from ..models.waveoptics import (flag_uncorrected_compensation,
+                                     waveoptics_vacuum_term,
                                      waveoptics_turbulence_term,
                                      waveoptics_mmf_coupling_term,
                                      waveoptics_vacuum_mmf_term)
@@ -366,6 +367,7 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave, turbulence=True):
     pen = waveoptics_turbulence_term(
         wave.turbulent, loss_db=loss_db, beam_type=BEAM_GAUSSIAN,
         sigma2_I=sigma2_I, note=note)
+    flag_uncorrected_compensation(pen, scenario)
     terms = [vac, pen]
     if is_mmf:
         # The light-bucket core coupling (absolute, with fade). It is the fraction
@@ -378,7 +380,7 @@ def _terrestrial_fidelity2_terms(scenario, geometry, wave, turbulence=True):
             note="terrestrial MMF light-bucket coupling (wave optics): absolute "
                  "core capture relative to the collected power, with the detector "
                  "defocus.")
-        terms.append(mmf_term)
+        terms.append(flag_uncorrected_compensation(mmf_term, scenario))
     return terms
 
 
@@ -823,6 +825,39 @@ if __name__ == '__main__':
         print(f"terrestrial fidelity 2 (3 km, rapid, 16 trials): vacuum "
               f"{vac.mean_db:.2f} dB + turbulence {turb.mean_db:.2f} dB, "
               f"total {f2.total_loss_db():.2f} dB")
+
+        # THE PERFECT-AO CORRECTION (2026-09-07). A terrestrial run senses the
+        # WRAPPED-GRADIENT SLOPES of the receive field, because its screens are
+        # not the receive wavefront. A receive terminal that declares a stack
+        # gets an UNCORRECTED flag when the record carries no correction.
+        from dataclasses import replace as _replace
+        from ..terminal import TipTilt as _TipTilt
+        assert turb.meta["n_modes_corrected"] == 0
+        assert not any("UNCORRECTED" in v for v in turb.assumptions.violations)
+        ao_scn = _replace(wo_scn,
+                          far=_replace(wo_scn.far,
+                                       compensation=[_TipTilt()]))
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            f2_off = terrestrial_budget(ao_scn, HorizontalPath(3e3),
+                                        fidelity=2, wave=bundle)
+            ao_bundle = run_fidelity2(ao_scn, HorizontalPath(3e3),
+                                      preset="rapid", n_trials=16, seed=3,
+                                      progress=False,
+                                      compensation="terminal")
+            f2_on = terrestrial_budget(ao_scn, HorizontalPath(3e3),
+                                       fidelity=2, wave=ao_bundle)
+        t_off = next(t for t in f2_off.terms
+                     if t.meta.get("model") == "waveoptics")
+        t_on = next(t for t in f2_on.terms
+                    if t.meta.get("model") == "waveoptics")
+        assert any("UNCORRECTED" in v for v in t_off.assumptions.violations)
+        assert t_on.meta["n_modes_corrected"] == 3
+        assert any("PERFECT AO" in v for v in t_on.assumptions.violations)
+        # This receiver is an SMF, so the tilt removal pays.
+        assert t_on.mean_db < t_off.mean_db, (t_on.mean_db, t_off.mean_db)
+        print(f"  perfect AO, TipTilt (3 Noll modes): turbulence "
+              f"{t_off.mean_db:.2f} dB -> {t_on.mean_db:.2f} dB")
 
     # --- fidelity-2 master turbulence switch ---------------------------------
     # turbulence=False at fidelity 2 gives a VACUUM-ONLY Term set: the
