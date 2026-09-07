@@ -2260,20 +2260,76 @@ run log, a memory note or a backlog aside is not documented.
   `olb.multidetector` self-check output is byte-identical, and every seeded
   fidelity-2 self-check number is unchanged.
 
-  **TODO(validation 2026-09-07): numbers from
-  `validation/waveoptics_ao/README.md`.** The campaign-scale tables of V0 to V4
-  (the Noll residual sweep, the two sensing sources against each other, the
-  post-hoc against the in-run route, the AO benefit against the fidelity-0 and
-  fidelity-1 Terms, and the tail statistics) go here, and they supersede the
-  small-grid self-check numbers above where the two disagree.
+  **Measured at campaign scale (2026-09-07, `validation/waveoptics_ao/`, the
+  hero downlink, a 0.7 m SMF ground terminal, `L0 = 25 m`, `standard`, the
+  cupy backend; 9 campaigns, 8200 trials, 11 min of GPU wall).** These numbers
+  supersede the small-grid self-check numbers above.
+  - V0, the trust gate of the summed-screen source (200 trials at 60, 30 and
+    20 deg, `sigma2_R` 0.08 to 0.44): the tilt that the summed screen phase
+    gives against the tilt that the field slopes give has a regression gain of
+    0.9999, 0.9998 and 0.9987, and the first 21 modes a gain of 0.988 at every
+    elevation. The residual of the field against its own 21-mode fit is a
+    constant 0.255 of the screen RMS, so it is the fitting error of the higher
+    modes and not a source disagreement. The summed-screen source is TRUSTED
+    down to 20 deg.
+  - V2, the Noll residual law (200 trials, `r0 = plan.r0_total_m`, which agrees
+    with `plane_wave_fried_parameter_profile` to 2.3 percent): the ratio of the
+    measured residual variance to `Delta_J (D/r0)^(5/3)` is 0.997 to 1.017 at
+    J = 3, 10, 21 and 35 over the three elevations. J = 1 (piston only) reads
+    0.54 to 0.58, and a single-screen control shows that the outer scale moves
+    J = 1 only (0.61 at `L0 = 25 m`, 0.80 at `L0 = inf`, the 2-P5 subharmonic
+    reach) and J >= 3 by less than 0.6 percent. The modal chain matches Noll.
+  - V1, the fade (1000 trials for each stack; the SMF loss in dB):
 
-- **VERDICT.** TODO(validation 2026-09-07): the verdict follows the numbers
-  above. The standing caveats do NOT depend on the measurement: the fit is
-  PERFECT (no sensor noise, no servo, no aliasing, no branch points), it is a
-  SNAPSHOT, and the pre-compensated uplink route carries NO point-ahead
-  decorrelation (backlog 2-P4). So a corrected fidelity-2 Term is an UPPER
-  BOUND, and the model of record for a real pre-compensated uplink stays
-  fidelity 1.
+    | elev | stack | mean | p50 | p5 | p1 | p5 gain |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 30 | none | 16.83 | 16.08 | 27.51 | 35.30 | 0.00 |
+    | 30 | TipTilt | 9.86 | 8.86 | 18.09 | 24.53 | 9.42 |
+    | 30 | AO(10) | 3.95 | 3.85 | 5.41 | 6.29 | 22.10 |
+    | 30 | AO(21) | 2.59 | 2.56 | 3.17 | 3.36 | 24.34 |
+    | 20 | none | 19.06 | 18.14 | 31.12 | 38.58 | 0.00 |
+    | 20 | TipTilt | 13.11 | 12.00 | 22.53 | 28.59 | 8.60 |
+    | 20 | AO(10) | 5.49 | 5.30 | 7.79 | 8.82 | 23.33 |
+    | 20 | AO(21) | 3.56 | 3.51 | 4.48 | 4.89 | 26.64 |
+
+    The bucket (collected-power) loss does not move by one printed digit
+    across the four stacks, because the correction is a phase factor. The
+    post-hoc route reproduces the in-run coupling to 1.4e-07 (worst relative
+    difference over 200 trials).
+  - V1, the fidelity-1 FAST comparison (the same `L0`, the same stack, the
+    composite `-10 log10(power * eta)`, 1000 FAST draws with the NPXLS guard):
+    the mean gap field minus FAST is -0.02 / -0.40 / +0.09 / +0.01 dB at
+    30 deg and +0.07 / -0.50 / +0.12 / -0.07 dB at 20 deg for none / TipTilt /
+    AO(10) / AO(21). That is as close as the uncorrected rung of Section 9k
+    (-0.34 to +0.12 dB). The largest gap sits on the tip-tilt rung, where the
+    tilt statistic (the outer scale) matters most.
+  - V3, the slope source against the screen source on the SPACE link (200
+    trials): the mean coupling agrees to 0.3 percent for TipTilt and reads 4
+    to 6 percent LOW on the slope route for AO(21) (conservative). The
+    per-trial spread grows toward 20 deg (a worst single trial of 4.5 dB at
+    TipTilt), where the worst phase step per pixel (2.65 rad) nears the 2.8 rad
+    warning level of the slope stencil. Keep the screen source on a space link.
+  - V4, the terrestrial sanity (500 trials of the 2-TC `rapid` cells, post
+    hoc through the slope route, the SMF loss in dB): the 2 km / `Cn2 = 3e-15`
+    cell reads a p5 of 6.10 untracked, 4.27 with TipTilt and 1.11 with AO(21),
+    with no trial over the step warning. The 10 km cell reads 15.29 / 8.45 /
+    8.04, but 42.8 percent of its trials exceed the step warning (the worst
+    step is pi), so its AO(21) line measures aliasing and is NOT a result.
+
+- **VERDICT.** The correction is faithful: the modal chain matches the Noll
+  residual law inside 2 percent from J = 3 up, the summed-screen source is
+  trusted down to 20 deg, and the post-hoc route equals the in-run route. It
+  buys 9 dB at p5 with tip-tilt and 22 to 27 dB with AO(10) to AO(21) on the
+  hero SMF downlink, and the corrected field agrees with the tracked
+  fidelity-1 FAST Term to -0.5 to +0.1 dB on the mean, so the like-for-like
+  AO comparison that 2-AO blocked is now measured (2-W1). The slope source is
+  valid on a terrestrial path while the phase step per pixel stays under the
+  warning level; a 10 km / `3e-15` path at the 2-TC grid is past it. The
+  standing caveats do NOT depend on the measurement: the fit is PERFECT (no
+  sensor noise, no servo, no aliasing, no branch points), it is a SNAPSHOT,
+  and the pre-compensated uplink route carries NO point-ahead decorrelation
+  (backlog 2-P4). So a corrected fidelity-2 Term is an UPPER BOUND, and the
+  model of record for a real pre-compensated uplink stays fidelity 1.
 - **Script.** `validation/waveoptics_ao/`; the write-up is
   [validation/waveoptics_ao/README.md](../validation/waveoptics_ao/README.md).
   See backlog 2-AO, 2-P4 and 2-W1.

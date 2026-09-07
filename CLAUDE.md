@@ -579,9 +579,25 @@ Open items:
   0.805 AO(10); the post-hoc route reproduces the in-run coupling to 9e-08
   (screens) and 2e-02 (slopes); the slope and the screen tilt gain agree to
   0.993; the package Noll ratio at D/r0 = 6 is 0.971 / 0.987 / 0.969 for J =
-  3 / 10 / 21, and 0.72 at J = 1 (the finite outer scale, 2-P5). The CAMPAIGN
-  numbers are PENDING under `validation/waveoptics_ao/`, and `docs/physics.md`
-  Section 9l holds the placeholder. NOT BUILT (phase 2): the point-ahead shift
+  3 / 10 / 21, and 0.72 at J = 1 (the finite outer scale, 2-P5). THE CAMPAIGN
+  VALIDATION IS DONE (2026-09-07, `validation/waveoptics_ao/`, V0 to V4 on the
+  cupy backend, 9 campaigns of the hero 0.7 m SMF downlink, 8200 trials,
+  `L0 = 25 m`; `docs/physics.md` Section 9l): the modal chain matches the Noll
+  residual law inside 2 percent from J = 3 up (J = 1 reads 0.55, the outer
+  scale, and a single-screen control proves it moves J = 1 only); the
+  summed-screen source is TRUSTED down to 20 deg (tilt gain 0.999 against the
+  field slopes); the post-hoc route equals the in-run route to 1.4e-07; the
+  SMF p5 fade improves by 9.4 / 22.1 / 24.3 dB at 30 deg and 8.6 / 23.3 / 26.6
+  dB at 20 deg for TipTilt / AO(10) / AO(21), and the bucket power does not
+  move by one digit; the corrected field and the tracked fidelity-1 FAST Term
+  agree on the mean to -0.5 to +0.1 dB, as close as the uncorrected rung, so
+  the 2-AO like-for-like blocker of 2-W1 is CLEARED. On a space link keep the
+  screen source: the slope route reads AO(21) 4 to 6 percent low. On a
+  terrestrial path the slope route holds while the phase step per pixel stays
+  under the 2.8 rad warning (the 2 km 2-TC cell is clean; the 10 km /
+  `3e-15` cell has 42.8 percent of its trials past it, so its AO line is
+  aliasing, not a result). `Campaign.load(fields=False)` also drops
+  `screen_phase`. NOT BUILT (phase 2): the point-ahead shift
   of the sensing source (2-P4; the hinge is the source/target split of
   `ApertureModes.estimate` against `.apply`), the LaserGuideStar, a WFS-limited
   AO knob, the device-side projection (a compensated cupy trial falls back to

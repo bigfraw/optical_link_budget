@@ -737,8 +737,11 @@ The path forward for each is a second reference or a derivation.
   measurement is the UNCORRECTED rung only. THE AO-CORRECTED COMPARISON IS NOW
   POSSIBLE (2026-09-07, 2-AO): `run_fidelity2(compensation="terminal")` gives a
   field record with the SAME Noll mode count that `smf_fast_term` corrects, so
-  the like-for-like AO rung can be measured at last. It is NOT yet measured; the
-  numbers are pending in `validation/waveoptics_ao/` (physics.md Section 9l).
+  the like-for-like AO rung is MEASURED (2026-09-07,
+  `validation/waveoptics_ao/`, physics.md Section 9l): on the hero SMF
+  downlink at `L0 = 25 m` the corrected field and `smf_fast_term` agree on the
+  mean to -0.40 / +0.09 / +0.01 dB (30 deg) and -0.50 / +0.12 / -0.07 dB
+  (20 deg) for TipTilt / AO(10) / AO(21), as close as the uncorrected rung.
   Read the result with the perfect-fit caveat: the field AO has no
   wavefront-sensor noise and no servo lag, so it is the upper bound and FAST is
   not. The analytic fidelity-0 term stays about 1 to 2.5 dB
