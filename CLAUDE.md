@@ -308,10 +308,24 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   indices). That is the owner-decided (2026-09-04) rich record: the scalars
   stay, and a budget never reads the fields. `recouple(result, detector,
   aperture_m, obscuration_ratio, lam)` and `recollect(result, aperture_m,
-  obscuration_ratio)` rebuild the FULL grid from the patch (a crop would move
-  the focal-plane pixel scale) and give the post-hoc coupling efficiency and
-  the unnormalised collected power of ANY receive aperture, obscuration,
-  detector, or defocus inside the patch.
+  obscuration_ratio)` give the post-hoc coupling efficiency and the
+  unnormalised collected power of ANY receive aperture, obscuration, detector,
+  or defocus inside the patch.
+  THE POST-HOC READ WORKS ON THE CROP (2026-09-07): a stored trial comes back
+  on the square CROP that just holds the patch disc, and THE RULE is
+  PUPIL-plane quantities on the crop, FOCAL-plane quantities on the padded grid
+  (an MMF or a Camera focuses, and the focal-plane pixel scale reads the grid
+  EXTENT, so those pad the crop back). Every read-back function takes
+  `compact=True` (the default) with `compact=False` as the full-grid comparison
+  route, and it builds the clip mask, the fibre mode, the modal basis and the
+  slope reconstructor ONE time for a call. `trial_field(result, row, lam)` and
+  `Campaign.field(row)` are the PUBLIC readers of a stored trial as a Field,
+  and `Campaign.map_trials(fn, workers=...)` is the ONE post-hoc primitive that
+  the three campaign helpers wrap. Measured
+  (`validation/posthoc_speed/`, 1024 px): the pupil routes agree to 3e-15 (the
+  padded MMF route is bit-identical) and one trial is 2.4x to 12.5x faster; a
+  process pool LOSES on a light read (the Windows spawn) and wins 1.28x on a
+  compensated read.
   THE PERFECT-AO CORRECTION is two more runner options (2026-09-07, backlog
   2-AO, an OPT-IN, DEFAULT OFF, so an uncorrected run is BIT-IDENTICAL):
   `compensation=None|"terminal"|[stages]` removes the first N Noll modes over
@@ -596,8 +610,8 @@ Open items:
   terrestrial path the slope route holds while the phase step per pixel stays
   under the 2.8 rad warning (the 2 km 2-TC cell is clean; the 10 km /
   `3e-15` cell has 42.8 percent of its trials past it, so its AO line is
-  aliasing, not a result). `Campaign.load(fields=False)` also drops
-  `screen_phase`. NOT BUILT (phase 2): the point-ahead shift
+  aliasing, not a result). `Campaign.load(fields=False)` KEEPS
+  `screen_phase` from 2026-09-07 (it dropped it before). NOT BUILT (phase 2): the point-ahead shift
   of the sensing source (2-P4; the hinge is the source/target split of
   `ApertureModes.estimate` against `.apply`), the LaserGuideStar, a WFS-limited
   AO knob, the device-side projection (a compensated cupy trial falls back to
@@ -872,12 +886,11 @@ Open items:
   campaigns of 1000 trials, 0.17 s/trial at 512 px on a warm 16-worker pool,
   262 MB for 1000 trials at 1024 px, and a real resume after an out-of-memory
   kill. `Campaign` takes `plan=` next to `grid=` (both fingerprinted). ONE
-  campaign gap is OPEN (2026-09-05, found in the examples migration): no
-  PUBLIC helper gives a stored trial back as a `Field` — `recouple` gives an
-  efficiency and `recollect` gives a power, so
-  `examples/waveoptics/camera_tracking.py` imports the two private helpers
-  `_rebuilt_fields` and `_patch_field` of `olb.waveoptics.turbulence.run`; a
-  `Campaign.field(row)` wrapper is missing. A second gap is FIXED (owner
+  campaign gap of 2026-09-05 is CLOSED (2026-09-07): `Campaign.field(row)` and
+  `trial_field(result, row, lam)` are the public readers of a stored trial as a
+  `Field`, and `examples/waveoptics/camera_tracking.py` uses
+  `Campaign.field(row, compact=False)` and no private helper. A second gap is
+  FIXED (owner
   decision, 2026-09-05): the CLIP terminal of a space link is the GROUND
   terminal in EVERY direction, because the field is always the downlink slab at
   the ground and an uplink reads it through reciprocity. `run.clip_terminal` is

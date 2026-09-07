@@ -1154,20 +1154,50 @@ patch is a disc at the centre of the grid, in the pixel-centre convention of
 | `pixel_m` | float | The distance between two pixels, in m. |
 | `indices` | `np.ndarray` | The flat indices of the disc pixels, an `int32` array. The order is the C order of the `n` x `n` grid. |
 
-#### `recouple(result, detector, aperture_m, obscuration_ratio, lam, *, trials=None)`
+`FieldPatch.crop()` gives the `PatchCrop` of the patch, and it keeps it. A
+`PatchCrop` is the smallest SQUARE that holds every patch pixel and that keeps
+the centre pixel `int(n/2)` of the full grid at its own centre. It carries
+`offset` (the index of the first crop pixel on the grid), `side` (an ODD pixel
+count) and `indices` (the patch pixels, as flat crop indices).
+
+**THE CROP RULE (2026-09-07): PUPIL-plane quantities on the crop, FOCAL-plane
+quantities on the padded grid.** A stored trial holds the pixels of the patch
+disc only. The old read-back scattered them into the FULL grid, and every later
+step then swept the zero padding, which is most of the grid. The read now works
+on the crop, and it builds the clip mask, the fibre mode, the modal basis and
+the slope reconstructor ONE time for a call. The crop keeps the pixel pitch and
+the centre pixel of the grid, so the clip, the collected power, the single-mode
+overlap and the modal fit read the SAME pixels and give the same value. An
+`MMF` or a `Camera` FOCUSES the field, and the focal-plane pixel scale reads the
+grid EXTENT, so those pad the crop back to the full grid. Every read-back
+function takes `compact=True` (the default), and `compact=False` is the
+full-grid comparison route. Measured (`validation/posthoc_speed/`, 1024 px):
+the pupil routes agree to 3e-15 relative, the padded MMF route is bit-identical,
+and one trial is 2.4x to 12.5x faster.
+
+#### `trial_field(result, row, lam, *, compact=True)`
+
+It gives one STORED trial back as a `Field`. This is the PUBLIC reader of a
+stored receive field: it rebuilds the pixels of the patch and it wraps them as a
+`Field`, so a diagnostic (a camera image, a phase map, a plot) reads a stored
+trial with NO new propagation. `compact=True` gives the crop; `compact=False`
+gives the full grid, which a focal-plane quantity needs.
+`Campaign.field(row)` is the campaign-level wrapper.
+
+#### `recouple(result, detector, aperture_m, obscuration_ratio, lam, *, trials=None, compact=True)`
 
 It couples a STORED receive field into a detector, after the run. The function
 rebuilds the receive-plane field of each stored trial, it clips that field at
 the receive aperture, and it gives the coupling efficiency of the detector. So a
 campaign tries a NEW detector, a new focal length or a new defocus with NO new
-propagation. The physics is the physics of the run: the function calls the same
-internal helper on the same clipped field.
+propagation. The physics is the physics of the run: the clip mask, the fibre
+mode and the defocus phase are the arrays of the runner, and the function builds
+each one ONE time for the whole call.
 
-The reconstruction keeps the FULL grid. It scatters the stored patch values into
-a zero array of the whole grid, because a crop would change the zero padding,
-and the focal-plane pixel scale of a fibre coupling reads that padding. So the
-value equals the in-run value. The rebuild gives ONE grid at a time, so the
-memory holds one field only.
+The read obeys the CROP RULE above: it works on the square crop, and it pads the
+crop back to the full grid for an `MMF`. `compact=False` reads every trial on
+the full grid, which is the pre-2026-09-07 path. The rebuild gives ONE array at
+a time, so the memory holds one field only.
 
 - `detector` is an `SMF`, an `MMF`, an `Aperture`, a `Camera`, or `None`. A
   detector with no coupling model (a `Camera`, or `None`) gives `NaN`.
@@ -1177,7 +1207,7 @@ memory holds one field only.
 - A result that holds no field raises `ValueError`. A receive aperture larger
   than the stored patch also raises `ValueError`.
 
-#### `recouple_compensated(result, compensation, detector, aperture_m, obscuration_ratio, lam, *, source, trials=None)`
+#### `recouple_compensated(result, compensation, detector, aperture_m, obscuration_ratio, lam, *, source, trials=None, compact=True)`
 
 It corrects a STORED receive field, then it couples that field into a detector.
 This is the post-hoc twin of the runner correction, and the sibling of
@@ -1194,8 +1224,10 @@ campaign gives the fade of ANY compensation stack, with NO new propagation.
   field, and it is the TERRESTRIAL source. The slope route fits at least
   `SLOPE_MIN_MODES` modes and it zeros the extra coefficients, exactly as the
   runner does.
-- `detector`, `aperture_m`, `obscuration_ratio`, `lam` and `trials` act as they
-  act in `recouple()`.
+- `detector`, `aperture_m`, `obscuration_ratio`, `lam`, `trials` and `compact`
+  act as they act in `recouple()`. The correction and the coupling both run on
+  the crop, and the modal basis and the slope reconstructor are built ONE time
+  for the whole call.
 - It returns a float array, one value for each selected trial. A detector with
   no coupling model (a `Camera`, or `None`) gives `NaN`.
 
@@ -1205,14 +1237,14 @@ the in-run coupling to 9e-08, and the `"slopes"` route to 2e-02. The screen rout
 is exact, because it reads the same sensed phase; the slope route senses the
 stored field, so it carries the sampling limit of Section 9h.
 
-#### `recollect(result, aperture_m, obscuration_ratio, *, trials=None)`
+#### `recollect(result, aperture_m, obscuration_ratio, *, trials=None, compact=True)`
 
 It gives the collected power of each STORED trial, in grid units. The value is
 the power of the clipped rebuilt field, and it is NOT normalised: the runner
 divides its `collected_power` by a vacuum reference, and this function does not
 know that reference. So divide by your OWN reference, or take the RATIO of two
-trials, which needs no reference. The rebuild is the full-grid rebuild of
-`recouple()` above.
+trials, which needs no reference. The power is a masked sum, so the crop of
+`recouple()` above gives it exactly.
 
 - `trials` is an optional sequence of trial row indices. `None` takes every
   stored trial.
@@ -1371,21 +1403,66 @@ TRUE trial index, so
 `olb.models.waveoptics.waveoptics_turbulence_term` reads it unchanged.
 `n_trials=None` takes every stored trial. `fields=False` leaves
 `TurbWaveResult.fields` and `TurbWaveResult.patch` `None`, so a budget-only load
-stays small.
+stays small. `fields=False` KEEPS the stored screen phase: the two arrays are
+separate, and a caller that reads the phase does not always want the field.
 
-#### `Campaign.recouple(detector, aperture_m=None, obscuration_ratio=None, n_trials=None)`
+#### `Campaign.field(row, *, compact=True)`
+
+It gives one STORED trial back as a `Field`. This is the PUBLIC reader of a
+stored receive field, and the campaign-level wrapper of `trial_field()` of
+Section 9d. It reads the block that holds the trial only, so it needs no
+whole-campaign load. `compact=True` (the default) gives the square CROP of the
+patch; `compact=False` gives the FULL grid, which a focal-plane quantity needs
+(an `MMF`, a `Camera`). `examples/waveoptics/camera_tracking.py` uses it.
+
+#### `Campaign.map_trials(fn, *, n_trials=None, workers=None, fields=True, screen_phase=None, compact=True, boost=True)`
+
+**This is the ONE post-hoc primitive.** It maps a picklable per-trial callable
+over the stored blocks, and it returns the concatenation in trial order.
+`recouple`, `recollect` and `recouple_compensated` are thin wrappers over it,
+and a study writes its own `fn` for anything else.
+
+- `fn(record)` takes ONE `TrialRecord` and it gives a scalar, a tuple or a small
+  array. Every trial must give the same shape.
+- A `TrialRecord` carries `row` (the trial index), `array` (the rebuilt field,
+  on the crop), `patch`, `lam`, `scalars` (the stored columns, as a dict),
+  `screen_phase` (or `None`) and `context`. `record.field(compact=)` wraps the
+  array as a `Field`.
+- `context` is a plain dict that lives for ONE BLOCK. A callable that needs a
+  cached object (an aperture mask, a fibre mode, a modal basis) builds it on the
+  first trial of the block and it keeps it there. So the build happens one time
+  for each block, and it never crosses a process boundary.
+- The method reads ONE block at a time, so ten thousand trials never sit in
+  memory together.
+- `workers=None` (the default) runs the blocks in this process. An int `W` or
+  `"auto"` opens the SAME kind of warm `ProcessPoolExecutor` that `run()` uses,
+  with one task for each block; `fn` and the block results must pickle.
+  `boost=True` raises each worker to the Above Normal priority.
+- `fields=False` leaves `TrialRecord.array` `None`, which is cheaper for a
+  scalar-only pass. `screen_phase=False` never reads the phase; `True` raises
+  when the campaign holds none.
+
+**A process pool does not pay for a light read.** The Windows spawn costs 2.5 to
+4.4 s, and each worker imports olb again. Measured on the laptop at 1024 px with
+4 workers (`validation/posthoc_speed/`): a 256-trial `recouple` reads 0.59x (it
+LOSES), and the heavier compensated slope read 1.28x. Use `workers=` for a heavy
+read of a large campaign, and leave the default otherwise.
+
+#### `Campaign.recouple(detector, aperture_m=None, obscuration_ratio=None, n_trials=None, workers=None, compact=True)`
 
 It couples the STORED fields into a detector, with no new propagation, and it
 returns a float array of the coupling efficiency of each trial. `aperture_m` and
 `obscuration_ratio` of `None` take the values of the scenario receive terminal.
-The call STREAMS: it reads one block at a time, so ten thousand trials never sit
-in RAM at the same time. The physics is `recouple()` of Section 9d.
+The call is a `map_trials` wrapper, so it reads one block at a time and it takes
+`workers=` and `compact=`. The physics is `recouple()` of Section 9d, and it
+obeys the crop rule there.
 
-#### `Campaign.recouple_compensated(compensation, detector, aperture_m=None, obscuration_ratio=None, n_trials=None, source=None)`
+#### `Campaign.recouple_compensated(compensation, detector, aperture_m=None, obscuration_ratio=None, n_trials=None, source=None, workers=None, compact=True)`
 
 It corrects the STORED fields with a perfect-AO stack, then it couples them into
 a detector, and it returns a float array of the coupling efficiency of each
-trial. It streams one block at a time, exactly as `Campaign.recouple` does. The
+trial. It is a `map_trials` wrapper, exactly as `Campaign.recouple` is, and the
+modal basis and the slope reconstructor are built ONE time for each block. The
 physics is `recouple_compensated()` of Section 9d.
 
 - `source=None` (the default) follows the channel family: `"screens"` for a
@@ -1399,11 +1476,12 @@ question after the fact. The campaign self-check measures that: a post-hoc
 `TipTilt` correction of an uncorrected campaign agrees with an in-run `TipTilt`
 campaign of the same seed to better than 1e-04.
 
-#### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None)`
+#### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None, workers=None, compact=True)`
 
 It gives the collected power of each STORED trial, in grid units, as a float
 array. The value is NOT normalised: it holds no vacuum reference, so take the
-RATIO of two trials, or divide by your own reference. It streams the same way.
+RATIO of two trials, or divide by your own reference. It is a `map_trials`
+wrapper too, and the power is a masked sum, so the crop gives it exactly.
 
 #### `Campaign.n_stored`
 
