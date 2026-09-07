@@ -596,7 +596,17 @@ Open items:
   terrestrial path the slope route holds while the phase step per pixel stays
   under the 2.8 rad warning (the 2 km 2-TC cell is clean; the 10 km /
   `3e-15` cell has 42.8 percent of its trials past it, so its AO line is
-  aliasing, not a result). `Campaign.load(fields=False)` also drops
+  aliasing, not a result). THE TERRESTRIAL SOURCE RULE IS MEASURED (V5,
+  2026-09-07, four new terrestrial campaigns with the screen phase stored):
+  on a near-field horizontal path the summed screens are NOT the arriving
+  wavefront, because a summed screen weights every plane equally while the
+  arriving tilt carries the `(1 - z/L)` path lever, so the screen-sensed tilt
+  reads about 1.9x the field tilt (tilt gain 0.53 to 0.54 at 2 and 5 km,
+  0.42 at 10 km, at every Cn2), and a screen-sensed AO(21) buys 0.7 dB of p5
+  at 2 km and LOSES 2.5 dB at 10 km where the slope-sensed one buys 5.0 and
+  7.3 dB. A wrong sensing source is worse than none. So the runner's family
+  rule stands: screens on a space link, slopes on a terrestrial link.
+  `Campaign.load(fields=False)` also drops
   `screen_phase`. NOT BUILT (phase 2): the point-ahead shift
   of the sensing source (2-P4; the hinge is the source/target split of
   `ApertureModes.estimate` against `.apply`), the LaserGuideStar, a WFS-limited
