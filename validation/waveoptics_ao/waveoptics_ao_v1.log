@@ -1,0 +1,93 @@
+V1: the SMF fade of the corrected hero downlink (backlog 2-AO)
+date          : 2026-09-07      seed: 20260907      preset: standard
+outer scale   : L0 = 25 m (the owner rule, backlog 2-P5)
+precision     : single      fft backend: cupy      workers: None
+scenario      : downlink, 1550 nm, 500 km, 700 mm ground SMF, 100 mm space terminal
+caveat        : PERFECT AO. It is an ideal modal fit of one snapshot: no sensor noise, no lag, no anisoplanatism.
+
+The stacks: base (no correction), tiptilt (3 Noll modes), ao10 (10), ao21 (21).
+pX is the loss EXCEEDED X percent of the time. A LARGE loss is a deep fade.
+
+ELEVATION 30 deg
+  RUN base (0 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el30\base
+  RUN tiptilt (3 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el30\tiptilt
+  RUN ao10 (10 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el30\ao10
+  RUN ao21 (21 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el30\ao21
+
+  THE SMF COUPLING LOSS -10 log10(smf_eta) [dB], 1000 trials
+  stack     modes    mean     p50     p10      p5      p1   d_p5   d_p1  gain@p5
+  ------------------------------------------------------------------------------
+  base          0   16.83   16.08   25.18   27.51   35.30  11.43  19.22     0.00
+  tiptilt       3    9.86    8.86   15.26   18.09   24.53   9.23  15.67     9.42
+  ao10         10    3.95    3.85    5.04    5.41    6.29   1.55   2.43    22.10
+  ao21         21    2.59    2.56    3.01    3.17    3.36   0.60   0.80    24.34
+  d_p5 and d_p1 are the FADE DEPTH pX - p50. gain@p5 is the p5 improvement against the base.
+
+  THE BUCKET LOSS -10 log10(collected_power) [dB]. It MUST NOT move: the correction is a phase factor.
+  stack        mean     p50      p5      p1
+  base        0.017   0.010   0.497   0.720
+  tiptilt     0.017   0.010   0.497   0.720
+  ao10        0.017   0.010   0.497   0.720
+  ao21        0.017   0.010   0.497   0.720
+
+  POST-HOC AGAINST IN-RUN (tiptilt, 200 trials): worst relative difference 1.06e-07, RMS 4.24e-08
+
+  THE FIDELITY-1 FAST COMPARISON (the same L0, the same stack)
+    FAST grid guard: 128:17.269, 256:17.099, 512:17.371  -> NPXLS 128
+    FAST grid guard: 128:9.571, 256:9.497, 512:9.515  -> NPXLS 128
+    FAST grid guard: 128:4.033, 256:4.027, 512:4.077  -> NPXLS 128
+    FAST grid guard: 128:2.624, 256:2.638, 512:2.637  -> NPXLS 128
+  stack      ao_mode  zmax  FAST mean  field mean     gap  FAST p5  field p5
+  base          NOAO  None      16.83       16.84   -0.02    29.28     27.64
+  tiptilt         TT  None       9.48        9.88   -0.40    16.76     18.07
+  ao10            AO    10       4.06        3.96    0.09     5.70      5.52
+  ao21            AO    21       2.62        2.61    0.01     3.43      3.33
+  gap = FAST minus field, on the composite -10 log10(power * eta). A positive gap means the field reads LESS loss.
+
+ELEVATION 20 deg
+  RUN base (0 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el20\base
+  RUN tiptilt (3 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el20\tiptilt
+  RUN ao10 (10 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el20\ao10
+  RUN ao21 (21 Noll modes)
+  ANALYSE ONLY: 1000 trials on disk in D:\repos\optical_link_budget\validation\waveoptics_ao\campaigns\el20\ao21
+
+  THE SMF COUPLING LOSS -10 log10(smf_eta) [dB], 1000 trials
+  stack     modes    mean     p50     p10      p5      p1   d_p5   d_p1  gain@p5
+  ------------------------------------------------------------------------------
+  base          0   19.06   18.14   28.13   31.12   38.58  12.98  20.44     0.00
+  tiptilt       3   13.11   12.00   19.84   22.53   28.59  10.53  16.59     8.60
+  ao10         10    5.49    5.30    7.10    7.79    8.82   2.49   3.52    23.33
+  ao21         21    3.56    3.51    4.21    4.48    4.89   0.97   1.38    26.64
+  d_p5 and d_p1 are the FADE DEPTH pX - p50. gain@p5 is the p5 improvement against the base.
+
+  THE BUCKET LOSS -10 log10(collected_power) [dB]. It MUST NOT move: the correction is a phase factor.
+  stack        mean     p50      p5      p1
+  base        0.059   0.055   0.928   1.258
+  tiptilt     0.059   0.055   0.928   1.258
+  ao10        0.059   0.055   0.928   1.258
+  ao21        0.059   0.055   0.928   1.258
+
+  POST-HOC AGAINST IN-RUN (tiptilt, 200 trials): worst relative difference 1.40e-07, RMS 4.73e-08
+
+  THE FIDELITY-1 FAST COMPARISON (the same L0, the same stack)
+    FAST grid guard: 128:18.734, 256:19.230, 512:19.448  -> NPXLS 512
+    FAST grid guard: 128:12.666, 256:12.912, 512:12.937  -> NPXLS 256
+    FAST grid guard: 128:5.668, 256:5.611, 512:5.600  -> NPXLS 128
+    FAST grid guard: 128:3.506, 256:3.537, 512:3.523  -> NPXLS 128
+  stack      ao_mode  zmax  FAST mean  field mean     gap  FAST p5  field p5
+  base          NOAO  None      19.19       19.12    0.07    30.34     31.36
+  tiptilt         TT  None      12.67       13.17   -0.50    22.67     22.58
+  ao10            AO    10       5.68        5.55    0.12     8.01      7.86
+  ao21            AO    21       3.55        3.62   -0.07     4.88      4.81
+  gap = FAST minus field, on the composite -10 log10(power * eta). A positive gap means the field reads LESS loss.
+
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v1_results.json
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\waveoptics_ao_v1.log
+wrote D:\repos\optical_link_budget\validation\waveoptics_ao\figures\v1_smf_survival.png

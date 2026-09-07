@@ -1,0 +1,91 @@
+{
+ "study": "V0",
+ "date": "2026-09-07",
+ "rows": [
+  {
+   "elevation_deg": 30.0,
+   "n_trials": 200,
+   "n_modes": 21,
+   "sigma2_R": 0.22145926273756616,
+   "r0_total_m": 0.12725888786537234,
+   "d_over_r0": 5.500598125142604,
+   "grid_n": 512,
+   "pixel_mm": 6.8624814015232225,
+   "aperture_px": 102.00391943424798,
+   "tilt_gain": 0.9998059811865054,
+   "tilt_rms_diff_rad": 0.029116738481271564,
+   "tilt_rms_rad": 1.9377837486768232,
+   "tilt_rel_diff": 0.015025793513416213,
+   "modes_gain": 0.988440282434024,
+   "modes_rms_diff_rad": 0.05743313250359847,
+   "modes_rms_rad": 0.6868131956942657,
+   "modes_rel_diff": 0.0836226398439275,
+   "screen_rms_rad": 2.9345903391047083,
+   "residual_rms_rad": 0.6533398287853888,
+   "residual_over_screen": 0.25610555504848603,
+   "max_step_rad_mean": 0.7425027985172126,
+   "max_step_rad_worst": 1.0012851615486102
+  },
+  {
+   "elevation_deg": 20.0,
+   "n_trials": 200,
+   "n_modes": 21,
+   "sigma2_R": 0.4442670484260548,
+   "r0_total_m": 0.10132978746491468,
+   "d_over_r0": 6.9081364671999745,
+   "grid_n": 512,
+   "pixel_mm": 8.680734909384677,
+   "aperture_px": 80.63833388613621,
+   "tilt_gain": 0.9986669869927428,
+   "tilt_rms_diff_rad": 0.059015324110602396,
+   "tilt_rms_rad": 2.390091783711961,
+   "tilt_rel_diff": 0.024691655991113417,
+   "modes_gain": 0.986678623592227,
+   "modes_rms_diff_rad": 0.07554537670306008,
+   "modes_rms_rad": 0.8445451752508822,
+   "modes_rel_diff": 0.08945096001598543,
+   "screen_rms_rad": 3.6063928293570937,
+   "residual_rms_rad": 0.7960888782023509,
+   "residual_over_screen": 0.2535701621854711,
+   "max_step_rad_mean": 1.1994246542579416,
+   "max_step_rad_worst": 2.6459473744779984
+  },
+  {
+   "elevation_deg": 60.0,
+   "n_trials": 200,
+   "n_modes": 21,
+   "sigma2_R": 0.08089705274434791,
+   "r0_total_m": 0.17693937951446032,
+   "d_over_r0": 3.9561571987020145,
+   "grid_n": 512,
+   "pixel_mm": 5.590647208321934,
+   "aperture_px": 125.20911692621527,
+   "tilt_gain": 0.9998783261016516,
+   "tilt_rms_diff_rad": 0.01018643733531684,
+   "tilt_rms_rad": 1.4427894466599605,
+   "tilt_rel_diff": 0.007060238317447023,
+   "modes_gain": 0.9883747129262218,
+   "modes_rms_diff_rad": 0.041446431663690185,
+   "modes_rms_rad": 0.5139383522946455,
+   "modes_rel_diff": 0.08064475336125251,
+   "screen_rms_rad": 2.1974213949017707,
+   "residual_rms_rad": 0.48971569959725897,
+   "residual_over_screen": 0.25523487155428165,
+   "max_step_rad_mean": 0.47623310590094176,
+   "max_step_rad_worst": 0.6138877557715418
+  }
+ ],
+ "timing": {
+  "30.0": null,
+  "20.0": null,
+  "60.0": {
+   "wall_s": 11.673127299989574,
+   "n_new": 200,
+   "n_stored": 200,
+   "s_per_trial": 0.058365636499947866
+  }
+ },
+ "figures": [
+  "D:\\repos\\optical_link_budget\\validation\\waveoptics_ao\\figures\\v0_source_agreement.png"
+ ]
+}
