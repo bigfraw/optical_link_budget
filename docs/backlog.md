@@ -1403,7 +1403,14 @@ The path forward for each is a second reference or a derivation.
   the 10 cm bucket p5 / p1 deltas sit inside +-0.12 dB (bars +-0.10 /
   +-0.18), the fibre p5 inside +-0.43 dB (bar +-0.39), the index ratios
   inside 0.96 to 1.04, with NO trend in the count in either direction, so the
-  9-screen floor is converged and 5 screens is acceptable there. The only
+  9-screen floor is converged and 5 screens is acceptable there. THE 3-SCREEN
+  CHECK (owner-requested, 2026-09-07): at 0.39 of Rytov variance per screen,
+  just under the cap, the first resolvable effect appears, +0.27 dB MORE fade
+  at the 10 cm bucket p5 (2.8 bars) and +0.30 dB at the 5 cm bucket, the
+  fibre and the point inside their noise, every index inside 0.95 to 1.03,
+  everything inside 1 dB; the sign is pessimistic, the opposite of the
+  saturation cell. So the cap value 0.4 per screen sits about where a bucket
+  effect starts on a moderate path. The only other
   resolution flags are the centre-pixel p5 (about -0.4 dB at 5 AND at 20
   screens alike, the shared reference sample two bars high) and a few p1
   entries at one to two bars. The speed changes are ruled out as a cause of

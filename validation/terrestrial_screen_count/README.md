@@ -361,6 +361,7 @@ and `sweep_launch_L5km_cn23e-15.log`.
 
 | count | 10 cm bucket p5 / p1 [dB] | SMF p5 / p1 [dB] | 5 cm bucket p5 / p1 [dB] | index ratio bucket / SMF / 5 cm / point |
 |---|---|---|---|---|
+| 3 (added 2026-09-07, 0.39 per screen, just under the cap) | +0.27 / +0.19 | -0.26 / -0.60 | +0.30 / +0.07 | 0.98 / 0.95 / 1.03 / 1.00 |
 | 5 | +0.06 / +0.09 | +0.06 / +0.68 | -0.03 / -0.01 | 0.98 / 1.04 / 0.97 / 0.92 |
 | 10 | +0.05 / -0.05 | +0.43 / +0.06 | +0.12 / -0.29 | 1.00 / 1.01 / 1.01 / 0.96 |
 | 15 | +0.04 / +0.00 | +0.32 / +0.09 | +0.05 / +0.20 | 0.99 / 1.03 / 0.98 / 0.93 |
@@ -370,6 +371,18 @@ Delta bars (68 percent, sqrt(2) x the reference bootstrap half-width):
 10 cm bucket p5 +-0.10, p1 +-0.18 dB; SMF p5 +-0.39, p1 +-1.40 dB; 5 cm
 bucket p5 +-0.22, p1 +-0.12 dB; centre pixel p5 +-0.19, p1 +-0.51 dB.
 
+THE 3-SCREEN CHECK (owner-requested, 2026-09-07; 2000 trials, 0.37 s/trial,
+12 min). At 3 screens each screen carries 0.391 of Rytov variance, just under
+the Schmidt cap of 0.4, and the first resolvable effect appears: the 10 cm
+bucket reads +0.27 dB MORE fade at p5 (2.8 delta bars) and +0.19 dB at p1,
+the 5 cm bucket +0.30 dB at p5; the fibre coupling stays inside its noise
+(-0.26 / -0.60 dB against +-0.39 / +-1.40) and the centre pixel too; every
+index ratio is inside 0.95 to 1.03, and every quantity is inside the 1 dB
+tolerance. The sign is PESSIMISTIC here (the opposite of the deep-saturation
+cell), so the too-thick screen over-reads the bucket fade slightly. Rytov
+variance per screen on this cell: 0.391 (3), 0.234 (5), 0.130 (9), 0.117
+(10), 0.078 (15), 0.059 (20).
+
 VERDICT. On this moderate cell (`sigma_R^2` = 1.14) the screen count does
 not matter between 5 and 20: every count passes the 1 dB tolerance, every
 delta of the 10 cm bucket and the fibre coupling sits inside about one delta
@@ -378,7 +391,9 @@ bar, and there is NO trend with the count in either direction, so the
 The resolution rule flags the centre-pixel p5 at every count (about -0.4 dB,
 two bars) and a few p1 entries at one to two bars; the centre-pixel deltas
 carry the same sign and size at 5 AND at 20 screens, so they are the shared
-reference sample sitting two bars high, not a count effect. Against the
+reference sample sitting two bars high, not a count effect. At 3 screens, at the cap, a
+first small bucket effect (about 0.3 dB at p5) becomes visible, so the cap
+value of 0.4 per screen sits about where it should. Against the
 10 km / 1e-14 cell (deep saturation, a consistent optimistic bias below 35
 screens on the bucket and point statistics), the count starts to matter only
 in saturation, and even there not for the fibre.

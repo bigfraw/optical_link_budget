@@ -78,5 +78,25 @@
         "s_per_trial_new": 2.26648038465
       }
     }
+  },
+  {
+    "time": "2026-09-07 07:48:13",
+    "counts": [
+      3
+    ],
+    "n_trials": 2000,
+    "workers": 12,
+    "block_size": 50,
+    "fft_backend": "scipy",
+    "screen_generator": "olb-lean",
+    "timing": {
+      "3": {
+        "wall_s": 732.7488043999765,
+        "n_stored": 2000,
+        "n_new": 2000,
+        "workers": 12,
+        "s_per_trial_new": 0.36637440219998824
+      }
+    }
   }
 ]
