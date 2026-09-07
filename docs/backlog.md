@@ -1370,6 +1370,16 @@ The path forward for each is a second reference or a derivation.
   dB at the bucket p5, 1.4 to 1.8 sigma each). So for a FIBRE-coupled
   terrestrial link 10 screens is defensible on this cell, and the rule should
   key on the receiver kind and a dB tolerance (2-I3), not on the cap alone.
+  EFFICIENCY NOTE FOR THE DEFERRED ANALYSIS (2026-09-07): `Campaign.recollect`
+  rebuilds the FULL grid from the patch for every trial (`_rebuilt_fields`
+  scatters the patch into a 2048 x 2048 zero array so the focal-plane pixel
+  scale of `recouple` stays exact), and the sweep analysis pays that for the
+  5 cm bucket AND the centre pixel of every trial: about 30 to 40 minutes of
+  one core for six campaigns of 2000 trials. A BUCKET needs no rebuild: the
+  power inside a radius is a masked sum over the patch pixels, and the centre
+  pixel is one patch value. Give `recollect` (and a centre-pixel reader) a
+  patch-only path before the backbone analysis runs over twelve cells; keep
+  the rebuild for `recouple` only. Pairs with 2-I1.
   THE SECOND SWEEP, OWNER-DIRECTED (2026-09-06). After the 10 km reading the
   owner's words were: "looking at these values I would not say they are that
   crazy at all, +-1 dB at p5 is really not that far off", and then "I think
