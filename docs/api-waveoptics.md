@@ -81,6 +81,10 @@ tiers (see Section 9).
 - [11. The fidelity-2 runner and the Terms (`olb/models/waveoptics.py`)](#11-the-fidelity-2-runner-and-the-terms-olbmodelswaveopticspy)
   - [11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`](#11a-run_fidelity2scenario-geometry--n_trials200-presetstandard-seednone-threadernone-cn2none-hsnone-cn2_profilenone-h_top_mnone-l0_mnpinf-subharmonicstrue-progresstrue-vacuumnone-turbulencetrue-detectorsnone-precisionsingle)
   - [11b. `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *, beam_type=BEAM_GAUSSIAN, name=None, note=None, meta_extra=None)`](#11b-waveoptics_vacuum_mmf_termvacuum_result-detector-aperture_m--beam_typebeam_gaussian-namenone-notenone-meta_extranone)
+- [12. Hardware acceleration: the compute backends](#12-hardware-acceleration-the-compute-backends)
+  - [12a. What the CUDA path runs, and what stays on the host](#12a-what-the-cuda-path-runs-and-what-stays-on-the-host)
+  - [12b. Reproducibility and the campaign fingerprint](#12b-reproducibility-and-the-campaign-fingerprint)
+  - [12c. How to turn it on](#12c-how-to-turn-it-on)
 
 ## 1. The field (`olb/waveoptics/field.py`)
 
@@ -171,52 +175,14 @@ the tilt.
   `"cupy"` to count one place). Measured on a 1024 px grid, one
   serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
   and 7.21 to 5.48 s double (15 screens), with the same numbers.
-- THE FFT BACKEND (an OPT-IN, 2026-09-06).
-  `set_fft_backend("numpy"|"scipy"|"cupy")` selects the transforms of `Forvard` and `Fresnel` for this process and it
-  returns the previous name; `get_fft_backend()` reads it; `FFT_BACKENDS`
-  lists the names. `"numpy"` (the default) is the backend of record: every
-  stored campaign was made with it. `"scipy"` runs the same transforms through
-  `scipy.fft` with `overwrite_x=True`, so the result lands in the work array.
-  On the tested machine the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy
-  and 15.6 ms in scipy, and a whole single-precision trial went 2.74 to
-  2.19 s (1.25x). The two agree at the rounding level of the field precision
-  (6e-7 relative on the collected power and the SMF eta of a single-precision
-  trial, 5e-16 in double), but a scipy run is NOT bit-identical to a numpy
-  run of the same seed. So the runner takes `fft_backend=` and restores the
-  previous backend when it returns, and a `Campaign` carries the name in its
-  fingerprint and manifest (only when `"scipy"`, so every stored key stays
-  valid) and sets it in every pool worker. See
-  `validation/memory_cut/README.md`.
-- THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8). `"cupy"` is the
-  third backend. It runs the transforms of `Forvard`, the split step, the
-  boundary mask, the phase screens AND (2026-09-07) the receive-plane TAIL of
-  a trial on a CUDA device. The tail is the aperture clip, the collected
-  power, the single-mode fibre coupling and the reciprocity overlap: none of
-  the four depends on the atmosphere, so the runner caches the clip mask, the
-  fibre mode and the defocus phase on the device ONE time for the run and
-  applies them there. A trial then downloads the stored patch pixels only,
-  and nothing at all when the caller stores no patch. An MMF receiver keeps
-  the HOST tail and the one full download through
-  `olb.waveoptics.field.to_host`. It needs the optional `cupy-cuda12x` package
-  with the nvidia CUDA wheels (the `gpu` extra); `set_fft_backend("cupy")`
-  imports cupy, so a machine with no device fails at that call and not in the
-  middle of a run. THE RANDOM STREAM DOES NOT MOVE: the white noise of a
-  screen stays a numpy PCG64 host draw, in the same order and the same double
-  precision, so the same seed gives the same atmosphere, and a device trial
-  agrees with a host trial at the float32 rounding level (5.7e-06 on the
-  collected power and 1.6e-05 on the SMF eta, 48 trials at 2048 px). The
-  runner hides that draw: it draws the noise of the next trial in threads
-  while the device runs this trial (`ScreenFactory.draw` and
-  `make_from_noise`). `ScreenFactory(lean=True)` has no device route and it
-  raises. THE ONE-TIME SETUP RUNS ON THE DEVICE TOO (2026-09-07): the vacuum
-  baseline of a space slab is a whole split step, and a `Campaign` pays it at
-  every block, so under `"cupy"` it runs where the trials run and its receive
-  field comes back to the host for the clip and the power. A HOST backend
-  builds the setup under the backend the caller had, exactly as before.
-  Measured on bigfraw (RTX 4070 Laptop): one SERIAL 1024 px trial 1751 ms
-  with numpy and 93 ms with cupy (18.7x), and ONE GPU stream against the
-  12-worker CPU pool of record is 4.1x at 1024 px and 4.0x at 2048 px. See
-  `validation/gpu_fft/README.md`.
+- THE FFT BACKEND. `set_fft_backend("numpy"|"scipy"|"cupy")` selects the
+  transforms of `Forvard` and `Fresnel` for this process and returns the
+  previous name; `get_fft_backend()` reads it; `FFT_BACKENDS` lists the names;
+  `xp()` gives the array module of the backend (numpy, or cupy for `"cupy"`).
+  `"numpy"` is the default and the backend of record. `"scipy"` and `"cupy"`
+  are opt-ins, and the `"cupy"` path accelerates more than the transforms.
+  Section 12 documents the three backends, what the GPU path runs on the
+  device, and what stays on the host.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -1720,3 +1686,113 @@ received beam couples best at a POSITIVE `defocus_m`. The focal length comes
 from `SMF.focal_length_m`, or from `SMF.optimal_focus`
 (`f = pi*(D/2)*w_m/(lambda*1.12)`); a defocus with neither raises `ValueError`.
 `defocus_m=0.0` (the default) keeps the old focal-plane overlap exactly.
+
+---
+
+## 12. Hardware acceleration: the compute backends
+
+The fidelity-2 layer runs one work load, the fast Fourier transform. A trial is
+a stack of transforms: about 40 `Forvard` transforms at 1024 px (60 at 2048 px),
+plus one screen transform for each screen of the plan. So the transform library
+sets the speed of a trial and of a `Campaign`.
+
+`olb/waveoptics/propagators.py` holds one process-wide switch for that library:
+
+- `set_fft_backend(name)` — select the backend of `Forvard` and `Fresnel` for
+  this process. `name` is `"numpy"`, `"scipy"` or `"cupy"`. It returns the
+  previous name, so a caller can restore it. `"cupy"` imports cupy here, so a
+  machine with no CUDA device fails at this call and not in the middle of a run.
+- `get_fft_backend()` — read the current name.
+- `FFT_BACKENDS` — the tuple `("numpy", "scipy", "cupy")`.
+- `xp()` — the array module of the backend. It is numpy for `"numpy"` and
+  `"scipy"`, and cupy for `"cupy"`. A caller uses it in place of numpy where an
+  array must follow the backend. The screen factory and the split step read it.
+
+The three backends:
+
+| Backend | Device | Default | Bit-identical to numpy | Notes |
+|---|---|---|---|---|
+| `"numpy"` | CPU | yes | — | The backend of record. Every stored campaign was made with it. |
+| `"scipy"` | CPU | no (opt-in, 2026-09-06) | no | `scipy.fft` in place (`overwrite_x=True`). Transforms only. |
+| `"cupy"` | CUDA GPU | no (opt-in, 2026-09-07) | no | Accelerates the whole trial, not just the transforms. See 12a. |
+
+Neither opt-in is bit-identical to numpy, but both agree at the rounding level
+of the field precision (6e-7 relative on the collected power of a
+single-precision trial, 5e-16 in double for scipy). Measured on the test box,
+the raw 1024 px complex64 `fft2` ran 69.5 ms in numpy and 15.6 ms in scipy, and
+a whole single-precision trial went 2.74 to 2.19 s with scipy (1.25x). See
+[`validation/memory_cut/README.md`](../validation/memory_cut/README.md) for the
+scipy measurements and [`validation/gpu_fft/README.md`](../validation/gpu_fft/README.md)
+for the cupy measurements.
+
+### 12a. What the CUDA path runs, and what stays on the host
+
+`"cupy"` is not an FFT-only backend. It runs the WHOLE trial on the device,
+except one deliberate part (see below). On the device:
+
+- The propagation transforms of `Forvard` and `Fresnel`.
+- The split step and the super-Gaussian boundary mask.
+- The phase screens. `ScreenFactory` reads `xp()` one time in `__init__`, so
+  the sqrt-PSD filter multiply, the subharmonic matrix products and the inverse
+  transform all run on the device.
+- The one-time SETUP (2026-09-07). The vacuum baseline of a space slab is a
+  whole split step, and a `Campaign` pays it at every block, so under `"cupy"`
+  it runs where the trials run.
+- The receive-plane TAIL (2026-09-07). The tail is the aperture clip, the
+  collected power, the single-mode fibre coupling and the reciprocity overlap.
+  None of the four depends on the atmosphere, so the runner caches the clip
+  mask, the fibre mode and the defocus phase on the device one time for the run
+  and applies them there. A trial then downloads the stored patch pixels only,
+  and nothing at all when the caller stores no patch. An MMF receiver keeps the
+  HOST tail and the one full download through `olb.waveoptics.field.to_host`.
+
+The ONE part that stays on the host, by design, is the white-noise random draw.
+The screen noise stays a numpy PCG64 host draw, in the same order and the same
+double precision, for every backend. The device route uploads the small cast
+noise grids only. The reason is reproducibility (see 12b). The runner hides the
+cost of the host draw: it draws the noise of the NEXT trial in threads while the
+device runs this trial (`ScreenFactory.draw` and `make_from_noise`). numpy
+releases the GIL on a big draw, so the threads give a real overlap.
+`ScreenFactory(lean=True)` has no device route and it raises.
+
+Measured on bigfraw (RTX 4070 Laptop): one SERIAL 1024 px trial ran 1751 ms with
+numpy and 93 ms with cupy (18.7x), and ONE GPU stream against the 12-worker CPU
+pool of record is 4.1x at 1024 px and 4.0x at 2048 px.
+
+### 12b. Reproducibility and the campaign fingerprint
+
+The random stream DOES NOT MOVE between backends. The same seed gives the same
+atmosphere on the CPU and on the GPU, because the PCG64 draw stays on the host.
+A device trial agrees with a host trial at the float32 rounding level (5.7e-06
+on the collected power and 1.6e-05 on the SMF eta, 48 trials at 2048 px). So a
+GPU run is a rounding-level match of a CPU run of the same seed, not a bit-for-
+bit match.
+
+A `Campaign` carries the backend name in its manifest, and in its fingerprint
+when the name is not `"numpy"`. So every stored `"numpy"` key stays valid, and a
+GPU campaign never mixes its blocks with a CPU one. To reproduce an old numpy
+run bit for bit, use `"numpy"`.
+
+The runner takes `fft_backend=` and always restores the previous backend when it
+returns. A `Campaign` sets the backend in the parent and in every pool worker.
+
+### 12c. How to turn it on
+
+The GPU backend needs the optional `cupy-cuda12x` package with the nvidia CUDA
+wheels. Install the `gpu` extra:
+
+```
+pip install -e .[gpu]
+```
+
+Then pass `fft_backend="cupy"` to the runner, to `run_fidelity2`, or to a
+`Campaign`. A `"cupy"` campaign runs its blocks one after the other in the
+CALLING process, whatever `run(workers=)` says: one device runs one stream. A
+`threader` with `"cupy"` raises `ValueError` for the same reason. A direct
+`propagate_turbulent_scenario` run over ssh must call
+`olb.waveoptics.priority.boost_process_priority()` itself; a
+`Campaign.run(boost=True)` does it for the parent and the workers.
+
+See [`validation/gpu_fft/README.md`](../validation/gpu_fft/README.md) for the
+microbenchmark, the measured speedups, and the host-versus-device random-draw
+design question.
