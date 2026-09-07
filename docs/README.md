@@ -36,3 +36,7 @@ All documentation uses ASD-STE100 Simplified Technical English. See
    the constants ledger.
 10. [Backlog](backlog.md) — the unimplemented and unwired work, in the
     recommended order.
+11. [Past-reference audit](past-reference-audit.md) — the 2026-09-06 scan of the
+    docstrings and the reference docs for notes that describe a past state
+    of the code, with a location, a category and a suggested action for
+    each one. A cleanup work list, not a reference.

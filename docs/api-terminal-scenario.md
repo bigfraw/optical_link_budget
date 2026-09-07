@@ -17,6 +17,26 @@ Modules: `olb.terminal`, `olb.scenario`, `olb.geometry`.
 
 ---
 
+## Contents <!-- omit from toc -->
+
+- [1. Terminal hardware (`olb.terminal`)](#1-terminal-hardware-olbterminal)
+  - [`Terminal`](#terminal)
+  - [`Transmitter`](#transmitter)
+  - [Detectors](#detectors)
+  - [Compensation stack](#compensation-stack)
+  - [Snippet: monostatic and bistatic terminals](#snippet-monostatic-and-bistatic-terminals)
+- [2. Scenario families (`olb.scenario`)](#2-scenario-families-olbscenario)
+  - [`SpaceScenario`](#spacescenario)
+  - [`TerrestrialScenario`](#terrestrialscenario)
+- [3. Channels (`olb.scenario`)](#3-channels-olbscenario)
+  - [`Site`](#site)
+  - [`Channel`](#channel)
+  - [`TerrestrialChannel`](#terrestrialchannel)
+- [4. Geometry (`olb.geometry`)](#4-geometry-olbgeometry)
+  - [`CircularOrbit`](#circularorbit)
+  - [`HorizontalPath`](#horizontalpath)
+  - [`TLEPass`](#tlepass)
+
 ## 1. Terminal hardware (`olb.terminal`)
 
 A `Terminal` groups a telescope aperture, an optional transmitter, an optional

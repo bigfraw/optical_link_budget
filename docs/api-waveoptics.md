@@ -40,6 +40,48 @@ tiers (see Section 9).
 
 ---
 
+## Contents <!-- omit from toc -->
+
+- [1. The field (`olb/waveoptics/field.py`)](#1-the-field-olbwaveopticsfieldpy)
+  - [`Field`](#field)
+  - [The field functions](#the-field-functions)
+- [2. The sources and the apertures (`olb/waveoptics/sources.py`)](#2-the-sources-and-the-apertures-olbwaveopticssourcespy)
+- [3. The propagators (`olb/waveoptics/propagators.py`)](#3-the-propagators-olbwaveopticspropagatorspy)
+  - [3a. The lens propagators (`olb/waveoptics/lenses.py`)](#3a-the-lens-propagators-olbwaveopticslensespy)
+  - [The co-moving recipe](#the-co-moving-recipe)
+- [4. The fibre coupling (`olb/waveoptics/smf.py`)](#4-the-fibre-coupling-olbwaveopticssmfpy)
+  - [4a. The multimode-fibre coupling (`olb/waveoptics/mmf.py`)](#4a-the-multimode-fibre-coupling-olbwaveopticsmmfpy)
+  - [4b. The focal-plane camera (`olb/waveoptics/camera.py`)](#4b-the-focal-plane-camera-olbwaveopticscamerapy)
+- [5. The grid (`olb/waveoptics/grid.py`)](#5-the-grid-olbwaveopticsgridpy)
+  - [`GridSpec(size_m, n, scaled=False)`](#gridspecsize_m-n-scaledfalse)
+  - [`GridSpec.for_scenario(scenario, geometry, guard=4.0, pixels_per_feature=16, n_max=4096)`](#gridspecfor_scenarioscenario-geometry-guard40-pixels_per_feature16-n_max4096)
+  - [`beam_magnification(scenario, z)`](#beam_magnificationscenario-z)
+  - [`forvard_max_z(grid, wavelength_m)`](#forvard_max_zgrid-wavelength_m)
+- [6. One end-to-end propagation (`olb/waveoptics/run.py`)](#6-one-end-to-end-propagation-olbwaveopticsrunpy)
+  - [`propagate_scenario(scenario, geometry, grid=None, precision="single")`](#propagate_scenarioscenario-geometry-gridnone-precisionsingle)
+  - [`WaveResult`](#waveresult)
+  - [Compare the TOTAL, not the two parts](#compare-the-total-not-the-two-parts)
+- [7. The propagator regimes and their limits](#7-the-propagator-regimes-and-their-limits)
+  - [The dispatch rule of `propagate_scenario`](#the-dispatch-rule-of-propagate_scenario)
+- [8. The LightPipes propagators that the port does not hold](#8-the-lightpipes-propagators-that-the-port-does-not-hold)
+- [9. The turbulent split-step layer (`olb/waveoptics/turbulence/`)](#9-the-turbulent-split-step-layer-olbwaveopticsturbulence)
+  - [9a. The phase screens (`olb/waveoptics/turbulence/screens.py`)](#9a-the-phase-screens-olbwaveopticsturbulencescreenspy)
+  - [9b. The split-step engine (`olb/waveoptics/turbulence/splitstep.py`)](#9b-the-split-step-engine-olbwaveopticsturbulencesplitsteppy)
+  - [9c. The turbulent grid sizer (`olb/waveoptics/turbulence/sampling.py`)](#9c-the-turbulent-grid-sizer-olbwaveopticsturbulencesamplingpy)
+  - [9d. The trial runner (`olb/waveoptics/turbulence/run.py`)](#9d-the-trial-runner-olbwaveopticsturbulencerunpy)
+  - [9e. The stubs](#9e-the-stubs)
+  - [9f. The example scripts](#9f-the-example-scripts)
+  - [9g. The campaign store (`olb/waveoptics/turbulence/campaign.py`)](#9g-the-campaign-store-olbwaveopticsturbulencecampaignpy)
+- [10. The Schmidt foundation layer (`olb/waveoptics/schmidt/`)](#10-the-schmidt-foundation-layer-olbwaveopticsschmidt)
+  - [10a. The transforms (`fourier.py`)](#10a-the-transforms-fourierpy)
+  - [10b. The propagation kernels (`fresnel.py`)](#10b-the-propagation-kernels-fresnelpy)
+  - [10c. The sampling constraints (`sampling.py`)](#10c-the-sampling-constraints-samplingpy)
+  - [10d. The turbulence and the screens (`turbulence.py`)](#10d-the-turbulence-and-the-screens-turbulencepy)
+  - [10e. The example scripts](#10e-the-example-scripts)
+- [11. The fidelity-2 runner and the Terms (`olb/models/waveoptics.py`)](#11-the-fidelity-2-runner-and-the-terms-olbmodelswaveopticspy)
+  - [11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`](#11a-run_fidelity2scenario-geometry--n_trials200-presetstandard-seednone-threadernone-cn2none-hsnone-cn2_profilenone-h_top_mnone-l0_mnpinf-subharmonicstrue-progresstrue-vacuumnone-turbulencetrue-detectorsnone-precisionsingle)
+  - [11b. `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *, beam_type=BEAM_GAUSSIAN, name=None, note=None, meta_extra=None)`](#11b-waveoptics_vacuum_mmf_termvacuum_result-detector-aperture_m--beam_typebeam_gaussian-namenone-notenone-meta_extranone)
+
 ## 1. The field (`olb/waveoptics/field.py`)
 
 ### `Field`
@@ -118,12 +160,19 @@ the tilt.
   the phase wrap still runs in float64, and the cache stores the finished
   factor only. The cache is bounded in BYTES by `FORVARD_CACHE_BYTES` (256 MiB
   by default; a 1024 px factor is 8 MiB single, 16 MiB double), and past the
-  bound it drops the oldest factor. `clear_forvard_cache()` empties it, and
-  `forvard_cache_bytes()` reads its size. Measured on a 1024 px grid, one
+  bound it drops the oldest factor. EACH STORAGE PLACE HAS ITS OWN BOUND
+  (2026-09-07): `FORVARD_CACHE_BYTES` holds the HOST factors, and it must stay
+  small because it holds the memory of each of the 12 pool workers of a CPU
+  campaign; `FORVARD_CACHE_BYTES_DEVICE` (1 GiB) holds the DEVICE factors of
+  the one process of a GPU run. The eviction counts one place only, so a host
+  entry and a device entry never push each other out.
+  `clear_forvard_cache()` empties it, and
+  `forvard_cache_bytes(place=None)` reads its size (`place` is `"host"` or
+  `"cupy"` to count one place). Measured on a 1024 px grid, one
   serial trial: with the lazy screens below, 3.69 to 2.88 s single (9 screens)
   and 7.21 to 5.48 s double (15 screens), with the same numbers.
-- THE FFT BACKEND (an OPT-IN, 2026-09-06). `set_fft_backend("numpy"|"scipy")`
-  selects the transforms of `Forvard` and `Fresnel` for this process and it
+- THE FFT BACKEND (an OPT-IN, 2026-09-06).
+  `set_fft_backend("numpy"|"scipy"|"cupy")` selects the transforms of `Forvard` and `Fresnel` for this process and it
   returns the previous name; `get_fft_backend()` reads it; `FFT_BACKENDS`
   lists the names. `"numpy"` (the default) is the backend of record: every
   stored campaign was made with it. `"scipy"` runs the same transforms through
@@ -138,6 +187,36 @@ the tilt.
   fingerprint and manifest (only when `"scipy"`, so every stored key stays
   valid) and sets it in every pool worker. See
   `validation/memory_cut/README.md`.
+- THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8). `"cupy"` is the
+  third backend. It runs the transforms of `Forvard`, the split step, the
+  boundary mask, the phase screens AND (2026-09-07) the receive-plane TAIL of
+  a trial on a CUDA device. The tail is the aperture clip, the collected
+  power, the single-mode fibre coupling and the reciprocity overlap: none of
+  the four depends on the atmosphere, so the runner caches the clip mask, the
+  fibre mode and the defocus phase on the device ONE time for the run and
+  applies them there. A trial then downloads the stored patch pixels only,
+  and nothing at all when the caller stores no patch. An MMF receiver keeps
+  the HOST tail and the one full download through
+  `olb.waveoptics.field.to_host`. It needs the optional `cupy-cuda12x` package
+  with the nvidia CUDA wheels (the `gpu` extra); `set_fft_backend("cupy")`
+  imports cupy, so a machine with no device fails at that call and not in the
+  middle of a run. THE RANDOM STREAM DOES NOT MOVE: the white noise of a
+  screen stays a numpy PCG64 host draw, in the same order and the same double
+  precision, so the same seed gives the same atmosphere, and a device trial
+  agrees with a host trial at the float32 rounding level (5.7e-06 on the
+  collected power and 1.6e-05 on the SMF eta, 48 trials at 2048 px). The
+  runner hides that draw: it draws the noise of the next trial in threads
+  while the device runs this trial (`ScreenFactory.draw` and
+  `make_from_noise`). `ScreenFactory(lean=True)` has no device route and it
+  raises. THE ONE-TIME SETUP RUNS ON THE DEVICE TOO (2026-09-07): the vacuum
+  baseline of a space slab is a whole split step, and a `Campaign` pays it at
+  every block, so under `"cupy"` it runs where the trials run and its receive
+  field comes back to the host for the clip and the power. A HOST backend
+  builds the setup under the backend the caller had, exactly as before.
+  Measured on bigfraw (RTX 4070 Laptop): one SERIAL 1024 px trial 1751 ms
+  with numpy and 93 ms with cupy (18.7x), and ONE GPU stream against the
+  12-worker CPU pool of record is 4.1x at 1024 px and 4.0x at 2048 px. See
+  `validation/gpu_fft/README.md`.
 - `Fresnel(Fin, z)` — the convolution method on a doubled grid. A negative `z`
   raises `ValueError`.
 - `GForvard(Fin, z)` — the analytic ABCD route for a pure Gaussian beam. A field
@@ -888,16 +967,21 @@ it. The trials are independent snapshots.
   complex64 in both modes. `recouple()` and `recollect()` rebuild the grid in
   complex128 whatever the mode. `propagate_turbulent_field()` takes the same
   argument, with the same default.
-- `fft_backend` is `"numpy"` (the default, the backend of record) or `"scipy"`
-  (an OPT-IN, 2026-09-06, see Section 3). The runner sets it for the process
-  immediately before the trial loop, and a `finally` always restores the
-  previous backend (corrected 2026-09-06: the call moved inside the guarded
-  block, because it sat before the `try` and an error in the setup left the
-  backend changed). A scipy
-  run agrees with a numpy run at the rounding level of the field precision and
-  it is NOT bit-identical.
+- `fft_backend` is `"numpy"` (the default, the backend of record), `"scipy"`
+  (an OPT-IN, 2026-09-06) or `"cupy"` (an OPT-IN, 2026-09-07, the CUDA
+  device); see Section 3. The runner sets it for the process BEFORE it builds
+  the screen factory (corrected 2026-09-07: `ScreenFactory` reads the array
+  module of the backend one time, in `__init__`, so the call must come first),
+  and a `finally` always restores the previous backend. The setup that runs
+  before that call (the vacuum baseline, the transmit mode, the start field)
+  stays on the host under the backend the caller had, so a numpy run and a
+  scipy run do not move one bit. Neither opt-in is bit-identical to numpy;
+  both agree at the rounding level of the field precision. `TurbWaveResult
+  .fft_backend` names the backend of the run. A `threader` with `"cupy"`
+  raises `ValueError`: one device runs one stream.
 - `threader` is an optional `olb.waveoptics.Threader`. `None` runs the trials one
-  by one. A `Threader` runs them across threads and it keeps the trial order; the
+  by one. It is REFUSED with the `"cupy"` backend. A `Threader` runs them across
+  threads and it keeps the trial order; the
   FFT releases the GIL, so it gives a real speed-up. `Threader()` with no
   argument takes `min(16, cores)` workers: the scaling study
   (`validation/waveoptics_speed/scaling_study.py`) finds the thread rate
@@ -1174,6 +1258,12 @@ one scenario, one geometry, one grid, one screen plan, one seed.
 - `cn2`, `hs`, `cn2_profile`, `h_top_m`, `L0_m`, `subharmonics` and
   `screen_generator` pass to the sizer and the runner of Section 9d, with the
   same meanings and the same defaults.
+- `fft_backend` passes to the runner (Section 9d): `"numpy"` (the default),
+  `"scipy"` or `"cupy"`. It enters the manifest, and the fingerprint when it
+  is not `"numpy"`, so every stored key stays valid AND a GPU campaign never
+  mixes with a CPU one. A `"cupy"` campaign runs its blocks one after the
+  other in the CALLING process, whatever `run(workers=)` says (one device,
+  one stream); the call prints one line to say so.
 - `precision` passes to the runner (Section 9d). It enters the manifest and
   the fingerprint ONLY when it is `"single"`, so every key and every manifest
   of a campaign stored before 2026-09-05 (all double) stays valid; a manifest
@@ -1199,7 +1289,9 @@ existing manifest still matches.
 It computes and stores the MISSING blocks up to `n_trials` trials, and it
 returns the number of trials on disk. The call rounds `n_trials` up to a whole
 number of blocks. A block that already sits on disk is NOT recomputed.
-`progress=True` prints one line for each finished block. `boost=True` (the
+`progress=True` prints one line for each finished block. With the `"cupy"`
+FFT backend EVERY `workers` value acts as `None`, because one device runs one
+stream; the call prints one line to say so. `boost=True` (the
 default) applies the process priority boost of `olb.waveoptics.priority` to
 this process AND to every pool worker; see the `boost` paragraph below.
 
@@ -1534,7 +1626,7 @@ passes them in. See [api-budget.md](api-budget.md) for the budget side.
 | `waveoptics_vacuum_term(result, ...)` | The deterministic vacuum-optics Term (launch to detector, no fade). |
 | `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
 
-### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single")`
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`
 
 It runs the wave-optics propagations that a fidelity-2 budget needs, one time
 each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence
