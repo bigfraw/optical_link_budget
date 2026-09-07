@@ -65,7 +65,7 @@ Sources:
 import json
 import os
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -74,10 +74,10 @@ from ..priority import boost_process_priority
 from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
-from .run import (FieldPatch, TurbTrial, TurbWaveResult, _field_patch,
-                  _resolve_compensation, clip_terminal,
-                  _resolve_seed, propagate_turbulent_scenario, recollect,
-                  recouple, recouple_compensated)
+from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
+                  _crop_array, _field_patch, _patch_field, _PostCorrector,
+                  _PostTail, _resolve_compensation, clip_terminal,
+                  _resolve_seed, propagate_turbulent_scenario)
 from .sampling import ScreenPlan, turbulent_grid
 
 # The manifest name and the block name. A block file holds one block only, so a
@@ -206,6 +206,212 @@ def _run_block(b):
         compensation=_W["kwargs"]["compensation"],
         store_screen_phase=_W["kwargs"]["store_screen_phase"])
     return int(b), _columns_of(res)
+
+
+def _read_block_file(path, fields=True):
+    """Read one block file into a dict of arrays.
+
+    The "screen_phase" array loads whenever the file holds one, and the
+    `fields` flag governs the field only. The two are separate: a budget load
+    asks for no field, and a compensated read still needs the phase.
+
+    Args:
+        path:   the path of the block file.
+        fields: True loads the stored field. False leaves it None.
+
+    Returns:
+        A dict of arrays: one for each column of _COLUMNS, plus "fields" and
+        "screen_phase". Either of the two is None when the file holds none, or
+        when the caller asks for no field.
+    """
+    with np.load(path) as z:
+        cols = {c: z[c] for c in _COLUMNS}
+        cols["fields"] = z["fields"] if fields else None
+        cols["screen_phase"] = (z["screen_phase"]
+                                if "screen_phase" in z.files else None)
+    return cols
+
+
+@dataclass(frozen=True)
+class TrialRecord:
+    """One stored trial, as `Campaign.map_trials` hands it to a callable.
+
+    THE PER-BLOCK CONTEXT. `context` is a plain dict that lives for ONE block.
+    A callable that needs a cached object (an aperture mask, a fibre mode, a
+    modal basis) builds it on the first trial of the block and it keeps it
+    there. So the build happens one time for each block, not one time for each
+    trial, and it never crosses a process boundary. See `_CoupleTrials` for
+    the pattern.
+
+    Attributes:
+        row:          the trial index inside the campaign.
+        array:        the rebuilt field of the trial, on the square CROP of
+                      the patch. It is None when the call asks for no field.
+        patch:        the FieldPatch of the campaign.
+        lam:          the wavelength, in m.
+        scalars:      the stored scalars of the trial, as a dict. The keys are
+                      the names of _COLUMNS. A NaN marks a value the runner
+                      left None.
+        screen_phase: the stored summed screen phase of the trial, at the
+                      patch pixels, or None.
+        context:      the per-block dict (see above).
+    """
+
+    row: int
+    array: np.ndarray
+    patch: FieldPatch
+    lam: float
+    scalars: dict
+    screen_phase: np.ndarray
+    context: dict
+
+    def field(self, compact=True):
+        """Give the trial as a Field.
+
+        Args:
+            compact: True wraps the crop (the default). False pads the crop
+                     back to the full grid, which a focal-plane quantity needs.
+
+        Returns:
+            A Field.
+        """
+        array = self.array
+        if not compact:
+            n = int(self.patch.n)
+            crop = self.patch.crop()
+            full = np.zeros((n, n), dtype=array.dtype)
+            o, s = crop.offset, crop.side
+            full[o:o + s, o:o + s] = array
+            array = full
+        return _patch_field(self.patch, array, self.lam)
+
+
+def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True):
+    """Run one callable over the trials of one block.
+
+    The block shares ONE context dict, so a per-block build happens one time.
+
+    Args:
+        fn:       the per-trial callable fn(TrialRecord) -> a value.
+        cols:     the column dict of the block.
+        patch:    the FieldPatch of the campaign.
+        lam:      the wavelength, in m.
+        base_row: the campaign row index of the first trial of the block.
+        fields:   True rebuilds the field of each trial.
+        compact:  True rebuilds on the crop (the default). False rebuilds on
+                  the full grid.
+
+    Returns:
+        An array of the values, in trial order.
+    """
+    context = {}
+    phase = cols.get("screen_phase")
+    stack = cols.get("fields")
+    out = []
+    for k in range(int(cols[_COLUMNS[0]].size)):
+        array = (_crop_array(patch, stack[k], compact=compact)
+                 if fields and stack is not None else None)
+        out.append(fn(TrialRecord(
+            row=int(base_row) + k, array=array, patch=patch, lam=float(lam),
+            scalars={c: cols[c][k] for c in _COLUMNS},
+            screen_phase=None if phase is None else phase[k],
+            context=context)))
+    return np.asarray(out)
+
+
+def _map_block(b):
+    """Run the callable of the worker state over one block.
+
+    Args:
+        b: the block index.
+
+    Returns:
+        The pair (b, the value array of the block).
+    """
+    m = _W["map"]
+    cols = _read_block_file(os.path.join(m["root_dir"], _block_name(b)),
+                            fields=m["fields"])
+    if m["screen_phase"] is False:
+        cols["screen_phase"] = None
+    return int(b), _apply_block(m["fn"], cols, m["patch"], m["lam"],
+                                int(b) * int(m["block_size"]),
+                                fields=m["fields"], compact=m["compact"])
+
+
+class _CoupleTrials:
+    """The per-trial callable of `Campaign.recouple`.
+
+    It builds the `_PostTail` of the block one time, in the record context.
+    """
+
+    def __init__(self, detector, aperture_m, obscuration_ratio, lam,
+                 compact=True):
+        self.detector = detector
+        self.aperture_m = float(aperture_m)
+        self.obscuration_ratio = float(obscuration_ratio)
+        self.lam = float(lam)
+        self.compact = bool(compact)
+
+    def _tail(self, rec):
+        """Give the cached tail of the block."""
+        tail = rec.context.get("tail")
+        if tail is None:
+            tail = _PostTail(rec.patch, self.aperture_m,
+                             self.obscuration_ratio, self.lam,
+                             detector=self.detector, compact=self.compact)
+            rec.context["tail"] = tail
+        return tail
+
+    def __call__(self, rec):
+        eta = self._tail(rec).eta(rec.array)
+        return np.nan if eta is None else float(eta)
+
+
+class _CollectTrials(_CoupleTrials):
+    """The per-trial callable of `Campaign.recollect`.
+
+    The wavelength does not enter a power, so any value serves.
+    """
+
+    def __init__(self, aperture_m, obscuration_ratio, compact=True):
+        super().__init__(None, aperture_m, obscuration_ratio, 1.0,
+                         compact=compact)
+
+    def __call__(self, rec):
+        return self._tail(rec).power(rec.array)
+
+
+class _CompensateTrials(_CoupleTrials):
+    """The per-trial callable of `Campaign.recouple_compensated`.
+
+    It builds the modal basis of the block one time too. That build is the
+    large cost of a compensated read.
+    """
+
+    def __init__(self, compensation, detector, aperture_m, obscuration_ratio,
+                 lam, source, compact=True):
+        super().__init__(detector, aperture_m, obscuration_ratio, lam,
+                         compact=compact)
+        self.compensation = tuple(compensation)
+        self.source = source
+
+    def __call__(self, rec):
+        corrector = rec.context.get("corrector")
+        if corrector is None:
+            corrector = _PostCorrector(rec.patch, self.compensation,
+                                       self.aperture_m,
+                                       self.obscuration_ratio, self.source,
+                                       compact=self.compact)
+            rec.context["corrector"] = corrector
+        if self.source == "screens" and rec.screen_phase is None:
+            raise ValueError(
+                "recouple_compensated: source='screens' needs the stored "
+                "summed screen phase, and this campaign holds none. Run the "
+                "campaign with store_screen_phase=True, or use "
+                "source='slopes'.")
+        eta = self._tail(rec).eta(
+            corrector.correct(rec.array, rec.screen_phase))
+        return np.nan if eta is None else float(eta)
 
 
 class Campaign:
@@ -504,13 +710,7 @@ class Campaign:
         A block that a run wrote with no screen-phase store holds no
         "screen_phase" array, so the value is then None.
         """
-        with np.load(self._block_path(b)) as z:
-            cols = {c: z[c] for c in _COLUMNS}
-            cols["fields"] = z["fields"] if fields else None
-            cols["screen_phase"] = (z["screen_phase"]
-                                    if fields and "screen_phase" in z.files
-                                    else None)
-        return cols
+        return _read_block_file(self._block_path(b), fields=fields)
 
     @property
     def n_stored(self):
@@ -684,6 +884,10 @@ class Campaign:
         order, and `seed_key` holds the TRUE trial index. So
         `olb.models.waveoptics.waveoptics_turbulence_term` reads it unchanged.
 
+        THE STORED SCREEN PHASE IS A SEPARATE ARRAY. `fields=False` drops the
+        field and it KEEPS the phase, because a caller that reads the phase
+        does not always want the field.
+
         Args:
             n_trials: the number of trials to load. None takes every stored
                       trial.
@@ -704,8 +908,8 @@ class Campaign:
                 cols[c].append(got[c])
             if fields:
                 stack.append(got["fields"])
-                if got["screen_phase"] is not None:
-                    phase.append(got["screen_phase"])
+            if got["screen_phase"] is not None:
+                phase.append(got["screen_phase"])
         packed = {c: np.concatenate(cols[c])[:n] for c in _COLUMNS}
         entropy = _resolve_seed(self.seed)
         trials = [
@@ -721,39 +925,144 @@ class Campaign:
             trials=trials, grid=self.grid, plan=self.plan, report=None,
             preset=self.preset, seed_entropy=entropy,
             fields=(np.concatenate(stack)[:n] if fields else None),
-            patch=self.patch if fields else None,
+            patch=(self.patch if fields or phase else None),
             compensation=self.compensation,
             n_modes_corrected=self.n_modes_corrected,
             screen_phase=(np.concatenate(phase)[:n] if phase else None))
 
-    def _stream(self, fn, n_trials=None):
-        """Run fn on one block at a time, and join the results.
+    def field(self, row, *, compact=True):
+        """Give one STORED trial back as a Field.
 
-        The generator holds ONE block of fields in memory, so ten thousand
-        trials never sit in RAM at the same time.
+        This is the public reader of a stored receive field. It reads the block
+        that holds the trial, it rebuilds the pixels of the patch, and it wraps
+        them as a Field. So a diagnostic (a camera image, a phase map, a plot)
+        reads one trial with no new propagation and with no whole-campaign
+        load.
 
         Args:
-            fn:       a callable fn(TurbWaveResult) -> a 1-D array.
-            n_trials: the number of trials, or None for every stored trial.
+            row:     the trial index inside the campaign.
+            compact: True gives the square CROP that holds the stored patch
+                     (the default). False gives the FULL grid, which a
+                     focal-plane quantity needs (an MMF, a Camera).
 
         Returns:
-            The concatenated array, cut to the request.
+            A Field.
+
+        Raises:
+            ValueError: the campaign stores no field, or the row is not on
+                        disk.
         """
+        if self.patch is None:
+            raise ValueError(
+                "this campaign stores no field. Make it with a "
+                "patch_radius_m, and run it again.")
+        row = int(row)
+        if not 0 <= row < self.n_stored:
+            raise ValueError(
+                f"Campaign.field: the row {row} is not on disk. The campaign "
+                f"holds {self.n_stored} trials.")
+        b, k = divmod(row, self.block_size)
+        cols = self._read_block(b, fields=True)
+        array = _crop_array(self.patch, cols["fields"][k], compact=compact)
+        lam = self.scenario.tx_terminal.wavelength_m
+        return _patch_field(self.patch, array, lam)
+
+    def map_trials(self, fn, *, n_trials=None, workers=None, fields=True,
+                   screen_phase=None, compact=True, boost=True):
+        """Run a callable over the stored trials, block by block.
+
+        THIS IS THE ONE post-hoc primitive. `recouple`, `recollect` and
+        `recouple_compensated` are thin wrappers over it, and a study writes
+        its own `fn` for anything else.
+
+        The method reads ONE block at a time, so ten thousand trials never sit
+        in memory together. Each block shares one `context` dict, so a callable
+        builds its cached objects (a mask, a fibre mode, a modal basis) ONE
+        time for each block. See TrialRecord.
+
+        `workers=W` opens the SAME kind of warm process pool that `run()` uses:
+        one task for each block, and the trials of a block run serially inside
+        the worker. `fn` and the block results must pickle.
+
+        Args:
+            fn:           a callable fn(TrialRecord) -> a scalar, a tuple or a
+                          small array. Every trial must give the same shape.
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs the blocks in this process (the default).
+                          An int W opens a pool of W processes. The string
+                          "auto" sizes the pool with `auto_workers()`.
+            fields:       True rebuilds the field of each trial (the default).
+                          False leaves TrialRecord.array None, which is
+                          cheaper for a scalar-only pass.
+            screen_phase: None gives the stored screen phase when the campaign
+                          holds one (the default). True raises when it holds
+                          none. False never reads it.
+            compact:      True hands `fn` the square CROP of the patch (the
+                          default). False hands it the FULL grid, which costs
+                          much more.
+            boost:        True (the default) raises each pool worker to the
+                          Above Normal priority, as `run()` does. It has no
+                          effect when the call runs in this process.
+
+        Returns:
+            An array of the values, in trial order. The first axis is the
+            trial.
+
+        Raises:
+            ValueError: the campaign stores no field and the call asks for
+                        one, screen_phase=True and the campaign holds none, or
+                        the workers value is not None, an int or "auto".
+        """
+        if fields and self.patch is None:
+            raise ValueError(
+                "this campaign stores no field. Make it with a "
+                "patch_radius_m, and run it again, or pass fields=False.")
+        if screen_phase is True and not self.store_screen_phase:
+            raise ValueError(
+                "Campaign.map_trials: this campaign stores no screen phase. "
+                "Make it with store_screen_phase=True, and run it again.")
         blocks, n = self._blocks_for(n_trials)
-        out = []
-        for b in blocks:
-            got = self._read_block(b, fields=True)
-            part = TurbWaveResult(trials=[], grid=self.grid, plan=self.plan,
-                                  report=None, preset=self.preset,
-                                  seed_entropy=self.seed,
-                                  fields=got["fields"], patch=self.patch,
-                                  screen_phase=got["screen_phase"])
-            out.append(fn(part))
-        return np.concatenate(out)[:n]
+        blocks = list(blocks)
+        if isinstance(workers, str):
+            if workers != "auto":
+                raise ValueError(
+                    "Campaign.map_trials: workers must be None, an int or "
+                    f"'auto', not {workers!r}.")
+            workers, _why = self.auto_workers()
+            workers = max(1, min(workers, len(blocks)))
+        lam = self.scenario.tx_terminal.wavelength_m
+        if workers is None or int(workers) <= 1 or len(blocks) < 2:
+            out = []
+            for b in blocks:
+                cols = self._read_block(b, fields=fields)
+                if screen_phase is False:
+                    cols["screen_phase"] = None
+                out.append(_apply_block(fn, cols, self.patch, lam,
+                                        b * self.block_size, fields=fields,
+                                        compact=compact))
+            return np.concatenate(out)[:n]
+        from concurrent.futures import ProcessPoolExecutor
+        payload = {"map": {"root_dir": self.root_dir, "fn": fn,
+                           "patch": self.patch, "lam": lam,
+                           "block_size": self.block_size, "fields": fields,
+                           "compact": compact,
+                           "screen_phase": screen_phase},
+                   "boost": bool(boost)}
+        got = {}
+        with ProcessPoolExecutor(max_workers=int(workers),
+                                 initializer=_init_worker,
+                                 initargs=(payload,)) as pool:
+            for b, part in pool.map(_map_block, blocks):
+                got[b] = part
+        return np.concatenate([got[b] for b in blocks])[:n]
 
     def recouple(self, detector, aperture_m=None, obscuration_ratio=None,
-                 n_trials=None):
+                 n_trials=None, workers=None, compact=True):
         """Couple the STORED fields into a detector, with no new propagation.
+
+        The call runs on the square CROP of the stored patch, and it builds the
+        clip mask and the fibre mode ONE time for each block. See
+        `olb.waveoptics.turbulence.run.recouple` and `_PostTail`.
 
         Args:
             detector:          an SMF, an MMF, an Aperture, a Camera, or None.
@@ -763,21 +1072,24 @@ class Campaign:
                                the scenario receive terminal.
             n_trials:          the number of trials. None takes every stored
                                trial.
+            workers:           None runs in this process. An int or "auto"
+                               opens a process pool (see `map_trials`).
+            compact:           True reads on the crop (the default). False
+                               reads every trial on the full grid.
 
         Returns:
             A float array of the coupling efficiency of each trial.
         """
-        rx = self.scenario.rx_terminal
-        a = rx.aperture_m if aperture_m is None else float(aperture_m)
-        o = (rx.obscuration_ratio if obscuration_ratio is None
-             else float(obscuration_ratio))
+        a, o = self._receive_optics(aperture_m, obscuration_ratio)
         lam = self.scenario.tx_terminal.wavelength_m
-        return self._stream(
-            lambda part: recouple(part, detector, a, o, lam), n_trials)
+        return self.map_trials(_CoupleTrials(detector, a, o, lam,
+                                             compact=compact),
+                               n_trials=n_trials, workers=workers,
+                               screen_phase=False, compact=compact)
 
     def recouple_compensated(self, compensation, detector, aperture_m=None,
                              obscuration_ratio=None, n_trials=None,
-                             source=None):
+                             source=None, workers=None, compact=True):
         """Correct the STORED fields, then couple them into a detector.
 
         This is the post-hoc perfect-AO twin of `recouple`. It removes the
@@ -785,6 +1097,9 @@ class Campaign:
         it couples the corrected field. So a stored campaign gives the fade of
         ANY compensation stack, with no new propagation. See
         olb.waveoptics.turbulence.run.recouple_compensated.
+
+        The modal basis and the slope reconstructor are built ONE time for each
+        block, on the crop. That is the large cost of this read.
 
         Args:
             compensation:      a sequence of TipTilt and AO stages.
@@ -800,6 +1115,10 @@ class Campaign:
                                slab starts from a plane wave, so the summed
                                screen phase IS the sensed wavefront) and
                                "slopes" for a terrestrial link.
+            workers:           None runs in this process. An int or "auto"
+                               opens a process pool (see `map_trials`).
+            compact:           True reads on the crop (the default). False
+                               reads every trial on the full grid.
 
         Returns:
             A float array of the coupling efficiency of each trial.
@@ -808,21 +1127,19 @@ class Campaign:
             ValueError: source="screens" and the campaign stored no screen
                         phase, or the stack removes no mode.
         """
-        rx = self.scenario.rx_terminal
-        a = rx.aperture_m if aperture_m is None else float(aperture_m)
-        o = (rx.obscuration_ratio if obscuration_ratio is None
-             else float(obscuration_ratio))
+        a, o = self._receive_optics(aperture_m, obscuration_ratio)
         lam = self.scenario.tx_terminal.wavelength_m
         if source is None:
             source = ("screens" if hasattr(self.scenario, "ground")
                       else "slopes")
-        return self._stream(
-            lambda part: recouple_compensated(part, compensation, detector, a,
-                                              o, lam, source=source),
-            n_trials)
+        fn = _CompensateTrials(compensation, detector, a, o, lam, source,
+                               compact=compact)
+        return self.map_trials(fn, n_trials=n_trials, workers=workers,
+                               screen_phase=(source == "screens"),
+                               compact=compact)
 
     def recollect(self, aperture_m=None, obscuration_ratio=None,
-                  n_trials=None):
+                  n_trials=None, workers=None, compact=True):
         """Give the collected power of each STORED trial, in grid units.
 
         The value is NOT normalised: it holds no vacuum reference. Take the
@@ -836,16 +1153,42 @@ class Campaign:
                                the scenario receive terminal.
             n_trials:          the number of trials. None takes every stored
                                trial.
+            workers:           None runs in this process. An int or "auto"
+                               opens a process pool (see `map_trials`).
+            compact:           True reads on the crop (the default). False
+                               reads every trial on the full grid.
 
         Returns:
             A float array, one value for each trial.
+        """
+        a, o = self._receive_optics(aperture_m, obscuration_ratio)
+        return self.map_trials(_CollectTrials(a, o, compact=compact),
+                               n_trials=n_trials, workers=workers,
+                               screen_phase=False, compact=compact)
+
+    def _receive_optics(self, aperture_m, obscuration_ratio):
+        """Give the receive aperture and obscuration of a post-hoc read.
+
+        None takes the value of the scenario receive terminal. The call also
+        tests that the aperture sits inside the stored patch.
+
+        Args:
+            aperture_m:        the aperture diameter in m, or None.
+            obscuration_ratio: the obscuration ratio, or None.
+
+        Returns:
+            The pair (aperture_m, obscuration_ratio), as floats.
+
+        Raises:
+            ValueError: the aperture is larger than the stored patch.
         """
         rx = self.scenario.rx_terminal
         a = rx.aperture_m if aperture_m is None else float(aperture_m)
         o = (rx.obscuration_ratio if obscuration_ratio is None
              else float(obscuration_ratio))
-        return self._stream(
-            lambda part: recollect(part, a, o), n_trials)
+        if self.patch is not None:
+            _check_aperture(self.patch, a)
+        return float(a), float(o)
 
 
 if __name__ == '__main__':
@@ -1040,6 +1383,47 @@ if __name__ == '__main__':
             eta_plain = camp7.recouple(ground.detector)
             assert eta_ao.mean() > eta_plain.mean(), (eta_ao.mean(),
                                                       eta_plain.mean())
+
+            # ---- 10. map_trials, the field reader, and the crop rule ----
+            # The crop route and the full-grid route agree to the float
+            # rounding level, and a process pool gives the same numbers.
+            eta_full = camp7.recouple(ground.detector, compact=False)
+            assert np.all(np.abs(eta_plain / eta_full - 1.0) < 1e-6), \
+                (eta_plain, eta_full)
+            eta_pool = camp7.recouple(ground.detector, workers=2)
+            assert np.array_equal(eta_plain, eta_pool), (eta_plain, eta_pool)
+            post_full = camp7.recouple_compensated([TipTilt()],
+                                                   ground.detector,
+                                                   compact=False)
+            assert np.all(np.abs(eta_post / post_full - 1.0) < 1e-6), \
+                (eta_post, post_full)
+            pw_crop = camp7.recollect()
+            pw_full = camp7.recollect(compact=False)
+            assert np.all(np.abs(pw_crop / pw_full - 1.0) < 1e-6), (pw_crop,
+                                                                    pw_full)
+            # A scalar-only pass reads no field, and it sees the stored
+            # scalars and the row index.
+            def _row_of(rec):
+                """Give the row index, and read the stored scalars."""
+                assert rec.array is None
+                assert np.isfinite(rec.scalars["collected_power"])
+                return rec.row
+
+            rows = camp7.map_trials(_row_of, fields=False)
+            assert np.array_equal(rows, np.arange(8)), rows
+            # The public field reader gives the crop and the full grid.
+            f_crop = camp7.field(3)
+            f_full = camp7.field(3, compact=False)
+            _crop = camp7.patch.crop()
+            _o, _s = _crop.offset, _crop.side
+            assert f_crop.N == _s and f_full.N == camp7.patch.n
+            assert np.array_equal(f_crop.field,
+                                  f_full.field[_o:_o + _s, _o:_o + _s])
+            # fields=False KEEPS the stored screen phase.
+            light = camp7.load(8, fields=False)
+            assert light.fields is None
+            assert light.screen_phase is not None
+            assert light.screen_phase.shape == (8, camp7.patch.indices.size)
 
         print("campaign self-check, downlink 30 deg, rapid preset, "
               f"block_size {common['block_size']}:")

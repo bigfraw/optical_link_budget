@@ -47,7 +47,8 @@ from ..field import Begin, Field, Power, field_dtype, to_host
 from ..mmf import defocus_phase as mmf_defocus_phase
 from ..mmf import mmf_coupling_efficiency
 from ..propagators import GForvard, set_fft_backend, xp
-from ..run import _clip, _launch_aperture, _normalised_gauss, _smf_eta
+from ..run import (_clip, _launch_aperture, _normalised_gauss, _smf_eta,
+                   _smf_focal_length)
 from ..sources import GaussBeam
 from .sampling import PRESETS, turbulent_grid
 from .screens import ScreenFactory, phase_screen
@@ -453,6 +454,88 @@ class FieldPatch:
     n: int
     pixel_m: float
     indices: np.ndarray
+
+    def crop(self):
+        """Give the PatchCrop of this patch, and keep it.
+
+        The call builds the crop geometry ONE time, then it gives the same
+        object back. So a study that reads thousands of trials pays the build
+        once.
+
+        Returns:
+            A PatchCrop.
+        """
+        got = getattr(self, "_crop", None)
+        if got is None:
+            got = _patch_crop(self)
+            object.__setattr__(self, "_crop", got)
+        return got
+
+
+@dataclass(frozen=True)
+class PatchCrop:
+    """The square crop that just holds the stored patch disc.
+
+    WHY IT EXISTS. A stored trial holds the pixels of the patch disc only, and
+    the rest of the grid is zero. A post-hoc read that scatters those pixels
+    back into the FULL grid then sweeps the zero padding at every step, and the
+    padding is most of the grid. The crop removes that cost.
+
+    THE RULE: PUPIL-plane quantities on the crop, FOCAL-plane quantities on the
+    padded grid. The crop keeps the pixel pitch and the CENTRE PIXEL of the
+    full grid, so the aperture clip, the collected power, the single-mode
+    overlap and the modal fit read the same pixels and give the same value. A
+    focal-plane quantity (an MMF light bucket, a Camera) reads the grid EXTENT
+    through the focal-plane pixel scale, so it needs the padded full grid. See
+    `_rebuilt_fields` and `_PostTail`.
+
+    Attributes:
+        offset:  the index of the first crop pixel on the full grid. The value
+                 is the same along x and along y.
+        side:    the number of crop pixels along one side. The value is ODD, so
+                 the centre pixel of the crop IS the centre pixel int(n/2) of
+                 the full grid.
+        indices: the flat indices of the patch pixels inside the crop, an
+                 int32 array. The order is the order of FieldPatch.indices.
+    """
+
+    offset: int
+    side: int
+    indices: np.ndarray
+
+
+def _patch_crop(patch):
+    """Make the PatchCrop of one FieldPatch.
+
+    The crop is the smallest SQUARE that holds every patch pixel and that
+    keeps the centre pixel int(n/2) of the full grid at its own centre pixel.
+    That rule holds the pixel-centre convention of
+    olb.waveoptics.sources.CircAperture, so a coordinate on the crop equals the
+    coordinate of the same pixel on the full grid.
+
+    Args:
+        patch: the FieldPatch.
+
+    Returns:
+        A PatchCrop.
+
+    Raises:
+        ValueError: the square does not fit on the grid.
+    """
+    n = int(patch.n)
+    c = int(n / 2)
+    rows, cols = np.divmod(np.asarray(patch.indices, dtype=np.int64), n)
+    half = int(max(c - rows.min(), rows.max() - c,
+                   c - cols.min(), cols.max() - c))
+    side = 2 * half + 1
+    offset = c - half
+    if offset < 0 or offset + side > n:
+        raise ValueError(
+            f"_patch_crop: the square crop (side {side} px at the offset "
+            f"{offset}) does not fit on the {n} px grid. Read this record with "
+            "compact=False.")
+    idx = ((rows - offset) * side + (cols - offset)).astype(np.int32)
+    return PatchCrop(offset=offset, side=side, indices=idx)
 
 
 def _field_patch(grid, radius_m):
@@ -1383,24 +1466,54 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     return F_rx, grid, plan
 
 
-def _rebuilt_fields(result, aperture_m, trials):
-    """Give the stored trials back as FULL-GRID fields, one at a time.
+def _crop_array(patch, values, compact=True):
+    """Scatter one stored trial row into a zero array.
 
-    The generator scatters the stored patch values into a zero array of the
-    FULL grid. A crop would change the zero padding, and the focal-plane pixel
-    scale of a fibre coupling reads that padding. So the reconstruction keeps
-    the full grid, and the coupling value equals the in-run value.
-
-    The generator makes ONE grid at a time. It never stacks them, so the memory
-    holds one field only.
+    The array is the SQUARE CROP of the patch (compact=True), or the FULL grid
+    (compact=False). The pixels of the patch hold the stored values, and every
+    other pixel is zero, exactly as the stored record says.
 
     Args:
-        result:     a TurbWaveResult with a stored patch.
-        aperture_m: the receive aperture diameter, in m.
-        trials:     a sequence of trial row indices, or None for every row.
+        patch:   the FieldPatch of the record.
+        values:  the stored values of one trial, a 1-D complex array.
+        compact: True gives the crop. False gives the full grid.
 
-    Yields:
-        The (row, N x N complex array) pair of each selected trial.
+    Returns:
+        A square complex128 array.
+    """
+    if compact:
+        crop = patch.crop()
+        side, idx = crop.side, crop.indices
+    else:
+        side, idx = int(patch.n), patch.indices
+    flat = np.zeros(side * side, dtype=np.complex128)
+    flat[idx] = values
+    return flat.reshape(side, side)
+
+
+def _check_aperture(patch, aperture_m):
+    """Test that a stored patch covers a receive aperture.
+
+    Args:
+        patch:      the FieldPatch of the record.
+        aperture_m: the receive aperture diameter, in m.
+
+    Raises:
+        ValueError: the aperture is larger than the stored patch.
+    """
+    if aperture_m / 2.0 > patch.radius_m:
+        raise ValueError(
+            f"the receive aperture radius ({aperture_m / 2.0:.4g} m) is larger "
+            f"than the stored patch radius ({patch.radius_m:.4g} m). "
+            "The aperture must sit inside the patch. Store a wider patch.")
+
+
+def _check_patch(result, aperture_m):
+    """Test that a record holds a field that covers an aperture.
+
+    Args:
+        result:     a TurbWaveResult.
+        aperture_m: the receive aperture diameter, in m.
 
     Raises:
         ValueError: the result holds no field, or the aperture is larger than
@@ -1410,37 +1523,344 @@ def _rebuilt_fields(result, aperture_m, trials):
         raise ValueError(
             "this TurbWaveResult holds no field. Run "
             "propagate_turbulent_scenario with patch_radius_m to store one.")
+    _check_aperture(result.patch, aperture_m)
+
+
+def _rebuilt_fields(result, aperture_m, trials, compact=True):
+    """Give the stored trials back as square field arrays, one at a time.
+
+    The generator scatters the stored patch values into a zero array. The
+    DEFAULT array is the square CROP that just holds the patch disc (see
+    PatchCrop): the padding outside the patch is zero, so a pupil-plane
+    quantity reads the same value on the crop and on the full grid, and the
+    crop is much smaller. compact=False gives the FULL grid, which a
+    focal-plane quantity needs, because the focal-plane pixel scale of a
+    focused spot reads the grid EXTENT.
+
+    The generator makes ONE array at a time. It never stacks them, so the
+    memory holds one field only.
+
+    Args:
+        result:     a TurbWaveResult with a stored patch.
+        aperture_m: the receive aperture diameter, in m.
+        trials:     a sequence of trial row indices, or None for every row.
+        compact:    True yields the crop. False yields the full grid.
+
+    Yields:
+        The (row, square complex array) pair of each selected trial.
+
+    Raises:
+        ValueError: the result holds no field, or the aperture is larger than
+                    the stored patch.
+    """
+    _check_patch(result, aperture_m)
     patch = result.patch
-    if aperture_m / 2.0 > patch.radius_m:
-        raise ValueError(
-            f"the receive aperture radius ({aperture_m / 2.0:.4g} m) is larger "
-            f"than the stored patch radius ({patch.radius_m:.4g} m). The "
-            "aperture must sit inside the patch. Store a wider patch.")
     rows = range(result.fields.shape[0]) if trials is None else trials
     for row in rows:
-        full = np.zeros(patch.n * patch.n, dtype=np.complex128)
-        full[patch.indices] = result.fields[row]
-        yield row, full.reshape(patch.n, patch.n)
+        yield row, _crop_array(patch, result.fields[row], compact=compact)
 
 
 def _patch_field(patch, array, lam):
-    """Wrap a full-grid array as a Field on the grid of the patch."""
-    F = Begin(patch.n * patch.pixel_m, lam, patch.n)
+    """Wrap a square array as a Field on the pixel pitch of the patch.
+
+    The array is the crop or the full grid, and the function reads its side.
+    The Field then carries the pixel pitch of the patch, so its coordinates are
+    the coordinates of the stored grid.
+
+    Args:
+        patch: the FieldPatch of the record.
+        array: a square complex array (the crop, or the full grid).
+        lam:   the wavelength, in m.
+
+    Returns:
+        A Field.
+    """
+    side = int(np.asarray(array).shape[0])
+    F = Begin(side * patch.pixel_m, lam, side)
     F.field = array
     return F
 
 
+def trial_field(result, row, lam, *, compact=True):
+    """Give one STORED trial back as a Field.
+
+    This is the public reader of a stored receive field. It rebuilds the
+    pixels of the patch and it wraps them as a Field. So a diagnostic (a
+    camera image, a phase map, a plot) reads a stored trial with no new
+    propagation. Campaign.field is the campaign-level wrapper.
+
+    Args:
+        result:  a TurbWaveResult with a stored patch.
+        row:     the trial index inside the record.
+        lam:     the wavelength, in m.
+        compact: True gives the square CROP that holds the patch (the
+                 default). False gives the FULL grid, which a focal-plane
+                 quantity needs (an MMF, a Camera).
+
+    Returns:
+        A Field.
+
+    Raises:
+        ValueError: the result holds no field.
+    """
+    _, array = next(_rebuilt_fields(result, 0.0, [int(row)], compact=compact))
+    return _patch_field(result.patch, array, lam)
+
+
+class _PostTail:
+    """The clip, the power and the coupling of one POST-HOC read.
+
+    WHY IT EXISTS. The aperture mask, the fibre mode and the defocus phase do
+    NOT change from trial to trial. The old read-back path rebuilt all three at
+    every trial: the clip rebuilt two coordinate meshes through
+    olb.waveoptics.sources.CircAperture, and the single-mode coupling rebuilt
+    the Gaussian fibre mode through olb.waveoptics.smf.smf_mode. This class
+    builds them ONE time for one call, on the crop, and it applies them.
+
+    THE PHYSICS IS THE PHYSICS OF THE RUN.
+
+    - The clip. olb.waveoptics.run._clip writes zero outside the aperture and
+      inside the obscuration. A multiply by a mask of exactly 1.0 and 0.0 does
+      the same thing, value for value.
+    - The power. olb.waveoptics.field.Power is sum(|E|^2) * dx^2.
+    - The single-mode coupling. olb.waveoptics.smf.coupling_efficiency is
+      |sum(E conj(M))|^2 / sum(|E|^2), with M the PUPIL-plane fibre mode of
+      smf_mode. The mode carries sum(|M|^2) = 1 over the FULL grid, so this
+      class builds M on the full grid one time and it keeps the crop pixels of
+      it. The overlap is a plain inner product, so the crop of E and the crop
+      of M give the same numerator: E is zero outside the aperture, and the
+      aperture sits inside the crop. Sources: Goodman, ISBN 978-0974707723 (the
+      overlap integral); Ruilier, DOI 10.1117/12.317094 (the fibre-mode match);
+      Shaklan and Roddier, DOI 10.1364/AO.27.002334 and Ruilier and Cassaing,
+      DOI 10.1364/JOSAA.18.000143 (the defocused overlap).
+    - The multimode light bucket and the camera FOCUS the field, and the
+      focal-plane pixel scale reads the grid EXTENT. So an MMF pads the crop
+      back to the full grid and it calls the same `_detector_eta`.
+
+    A sum over the crop adds in a different ORDER from a sum over the full
+    grid, so a scalar moves at the float rounding level. The padded MMF route
+    is bit-identical.
+    """
+
+    def __init__(self, patch, aperture_m, obscuration_ratio, lam,
+                 detector=None, compact=True):
+        """Build the cached arrays of one post-hoc call.
+
+        Args:
+            patch:             the FieldPatch of the record.
+            aperture_m:        the receive aperture diameter, in m.
+            obscuration_ratio: the central obscuration of that aperture.
+            lam:               the wavelength, in m.
+            detector:          an SMF, an MMF, an Aperture, a Camera, or None.
+            compact:           True works on the crop. False works on the full
+                               grid.
+        """
+        self.patch = patch
+        self.compact = bool(compact)
+        self.detector = detector
+        self.aperture_m = float(aperture_m)
+        self.obscuration_ratio = float(obscuration_ratio)
+        self.lam = float(lam)
+        crop = patch.crop()
+        self.side = crop.side if self.compact else int(patch.n)
+        self.offset = crop.offset if self.compact else 0
+        self._ref = Begin(self.side * patch.pixel_m, lam, self.side)
+        Y, X = self._ref.mgrid_cartesian
+        dist_sq = X ** 2 + Y ** 2
+        keep = dist_sq <= (self.aperture_m / 2.0) ** 2
+        if self.obscuration_ratio > 0:
+            keep &= dist_sq > (self.obscuration_ratio
+                               * self.aperture_m / 2.0) ** 2
+        self._mask = keep
+        self._dx2 = float(self._ref.dx) ** 2
+        self._mode = None
+        self._defocus = None
+
+    def clip(self, array):
+        """Give the clipped field of one trial, as an array."""
+        return array * self._mask
+
+    def power(self, array):
+        """Give the collected power of one trial, in grid units."""
+        return float((np.abs(self.clip(array)) ** 2).sum()) * self._dx2
+
+    def _conj_mode(self):
+        """Give the conjugate fibre mode at the crop pixels.
+
+        The build makes the mode on the FULL grid one time, because the mode
+        carries sum(|M|^2) = 1 over that grid, and it keeps the crop of it.
+        """
+        if self._mode is None:
+            from ..smf import smf_mode
+            full = smf_mode(self.patch.n * self.patch.pixel_m, self.lam,
+                            int(self.patch.n), self.aperture_m).field
+            o, s = self.offset, self.side
+            self._mode = np.conj(full[o:o + s, o:o + s])
+        return self._mode
+
+    def _defocus_factor(self):
+        """Give the cached defocus phase of the SMF, or None."""
+        if self._defocus is None:
+            det = self.detector
+            f_smf = _smf_focal_length(det, self.aperture_m, self.lam)
+            if det.defocus_m != 0.0 and f_smf is None:
+                raise ValueError(
+                    "SMF.defocus_m needs a focal length to make the defocus "
+                    "phase. Set SMF.focal_length_m, or set "
+                    "SMF.optimal_focus=True.")
+            self._defocus = (False if det.defocus_m == 0.0
+                             else mmf_defocus_phase(self._ref, det.defocus_m,
+                                                    f_smf))
+        return None if self._defocus is False else self._defocus
+
+    def _padded(self, array):
+        """Give the crop back on the FULL grid, with a zero padding."""
+        if not self.compact:
+            return array
+        n = int(self.patch.n)
+        full = np.zeros((n, n), dtype=array.dtype)
+        o, s = self.offset, self.side
+        full[o:o + s, o:o + s] = array
+        return full
+
+    def eta(self, array):
+        """Give the coupling efficiency of one trial, or None.
+
+        A detector with no coupling model (a Camera, or None) gives None.
+
+        Args:
+            array: the rebuilt field of one trial, on the crop or on the full
+                   grid.
+
+        Returns:
+            A float, or None.
+        """
+        det = self.detector
+        if det is None or isinstance(det, Camera):
+            return None
+        if isinstance(det, Aperture):
+            return 1.0
+        if isinstance(det, SMF):
+            E = self.clip(array)
+            phase = self._defocus_factor()
+            if phase is not None:
+                E = E * phase
+            denominator = (np.abs(E) ** 2).sum()
+            if denominator == 0.0:
+                raise ValueError(
+                    'coupling_efficiency: the field carries no power')
+            numerator = np.abs((E * self._conj_mode()).sum()) ** 2
+            return float(numerator / denominator)
+        # An MMF FOCUSES the field, so it reads the grid extent. Pad the crop
+        # back to the full grid, and call the same in-run helper.
+        F = _patch_field(self.patch, self._padded(array), self.lam)
+        collected = _clip(F, self.aperture_m, self.obscuration_ratio)
+        eta = _detector_eta(det, collected, self.aperture_m, self.lam)
+        return None if eta is None else float(eta)
+
+
+class _PostCorrector:
+    """The perfect-AO correction of one POST-HOC read.
+
+    The class holds the modal basis and its reconstructor. Both depend on the
+    aperture mask only, so the class builds them ONE time for one call. That is
+    the large cost of a compensated read: the slope reconstructor makes one
+    Zernike raster for each mode, and the raster follows the grid side.
+
+    The correction runs on the CROP. The modes are zero outside the aperture
+    mask, and the mask sits inside the crop, so the crop and the full grid give
+    the same coefficients and the same corrected pixels. Source: Noll 1976,
+    DOI 10.1364/JOSA.66.000207 (the modal basis and its order).
+    """
+
+    def __init__(self, patch, compensation, aperture_m, obscuration_ratio,
+                 source, compact=True):
+        """Build the modal basis of one post-hoc call.
+
+        Args:
+            patch:             the FieldPatch of the record.
+            compensation:      a sequence of TipTilt and AO stages.
+            aperture_m:        the receive aperture diameter, in m.
+            obscuration_ratio: the central obscuration of that aperture.
+            source:            "screens" or "slopes".
+            compact:           True works on the crop. False works on the full
+                               grid.
+
+        Raises:
+            ValueError: the source name is unknown, or the stack removes no
+                        mode.
+        """
+        if source not in ("screens", "slopes"):
+            raise ValueError(
+                "recouple_compensated: source must be 'screens' or 'slopes', "
+                f"not {source!r}.")
+        n_modes = modes_from_stack(compensation)
+        if n_modes < 1:
+            raise ValueError(
+                "recouple_compensated: the compensation stack removes no "
+                "mode. Pass a TipTilt or an AO(n) stage.")
+        self.patch = patch
+        self.source = source
+        self.n_modes = n_modes
+        self.compact = bool(compact)
+        crop = patch.crop()
+        self.side = crop.side if self.compact else int(patch.n)
+        n_fit = (n_modes if source == "screens"
+                 else max(n_modes, SLOPE_MIN_MODES))
+        self.modes = ApertureModes(
+            n_fit, self.side,
+            circle(self.side, aperture_m / patch.pixel_m, obscuration_ratio))
+
+    def correct(self, array, screen_phase=None):
+        """Remove the sensed modes from the field of one trial.
+
+        Args:
+            array:        the rebuilt field of one trial.
+            screen_phase: the stored summed screen phase of that trial, at the
+                          patch pixels. source="screens" needs it.
+
+        Returns:
+            The corrected field, an array of the same shape.
+
+        Raises:
+            ValueError: source="screens" and the caller gives no phase.
+        """
+        if self.source == "screens":
+            if screen_phase is None:
+                raise ValueError(
+                    "recouple_compensated: source='screens' needs the stored "
+                    "summed screen phase, and this record holds none. Run the "
+                    "campaign with store_screen_phase=True, or use "
+                    "source='slopes'.")
+            flat = np.zeros(self.side * self.side, dtype=np.float64)
+            idx = (self.patch.crop().indices if self.compact
+                   else self.patch.indices)
+            flat[idx] = screen_phase
+            coeffs = self.modes.estimate(flat[self.modes.indices])
+        else:
+            sx, sy = wrapped_gradient(array)
+            coeffs = self.modes.estimate_from_slopes(sx, sy)
+            coeffs[self.n_modes:] = 0.0
+        return self.modes.apply(array, coeffs, sign=-1)
+
+
 def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
-             trials=None):
+             trials=None, compact=True):
     """Couple a STORED receive field into a detector, after the run.
 
     The function rebuilds the receive-plane field of each stored trial, it
     clips that field at the receive aperture, and it gives the coupling
-    efficiency of the detector. So a campaign tries a new detector, a new
-    focal length or a new defocus with NO new propagation.
+    efficiency of the detector. So a campaign tries a new detector, a new focal
+    length or a new defocus with NO new propagation.
 
-    The physics is the physics of the run: the function calls the same
-    `_detector_eta` on the same clipped field.
+    The physics is the physics of the run: the clip mask, the fibre mode and
+    the defocus phase are the arrays of `_clip` and of olb.waveoptics.smf, and
+    the function builds each one ONE time for the whole call (see `_PostTail`).
+
+    THE CROP RULE: PUPIL-plane quantities on the crop, FOCAL-plane quantities
+    on the padded grid. The default read works on the square crop that holds
+    the stored patch, and it pads the crop back to the full grid for an MMF.
+    compact=False reads every trial on the full grid, which is the old path.
 
     Args:
         result:            a TurbWaveResult with a stored patch.
@@ -1450,6 +1870,8 @@ def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
         lam:               the wavelength, in m.
         trials:            an optional sequence of trial row indices. None
                            takes every stored trial.
+        compact:           True reads on the crop (the default). False reads on
+                           the full grid.
 
     Returns:
         A float array of the coupling efficiency of each selected trial. A
@@ -1459,30 +1881,37 @@ def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
         ValueError: the result holds no field, or the aperture is larger than
                     the stored patch.
     """
+    _check_patch(result, aperture_m)
+    tail = _PostTail(result.patch, aperture_m, obscuration_ratio, lam,
+                     detector=detector, compact=compact)
     out = []
-    for _, array in _rebuilt_fields(result, aperture_m, trials):
-        F = _patch_field(result.patch, array, lam)
-        collected = _clip(F, aperture_m, obscuration_ratio)
-        eta = _detector_eta(detector, collected, aperture_m, lam)
+    for _, array in _rebuilt_fields(result, aperture_m, trials,
+                                    compact=compact):
+        eta = tail.eta(array)
         out.append(np.nan if eta is None else float(eta))
     return np.array(out, dtype=float)
 
 
 def recouple_compensated(result, compensation, detector, aperture_m,
-                         obscuration_ratio, lam, *, source, trials=None):
+                         obscuration_ratio, lam, *, source, trials=None,
+                         compact=True):
     """Correct a STORED receive field, then couple it into a detector.
 
     This is the post-hoc twin of the runner correction, and the sibling of
     `recouple`. It removes the first N Noll modes of each stored trial over the
     receive aperture, then it clips the field and it couples it. So a stored
-    campaign gives the fade of ANY compensation stack, with no new
-    propagation.
+    campaign gives the fade of ANY compensation stack, with no new propagation.
 
     THE SENSING SOURCE. source="screens" reads the stored summed screen phase
     (`store_screen_phase=True`), which is the SPACE source. source="slopes"
     reads the wrapped-gradient slopes of the stored field, which is the
     TERRESTRIAL source. The slope route fits at least SLOPE_MIN_MODES modes and
     it zeros the extra coefficients, exactly as the runner does.
+
+    THE CROP RULE. The correction and the coupling run on the square crop of
+    the stored patch, because both are PUPIL-plane quantities. The modal basis
+    and the slope reconstructor are built ONE time for the whole call. See
+    `_PostCorrector` and `_PostTail`.
 
     Args:
         result:            a TurbWaveResult with a stored patch.
@@ -1494,6 +1923,8 @@ def recouple_compensated(result, compensation, detector, aperture_m,
         source:            "screens" or "slopes".
         trials:            an optional sequence of trial row indices. None
                            takes every stored trial.
+        compact:           True reads on the crop (the default). False reads on
+                           the full grid.
 
     Returns:
         A float array of the coupling efficiency of each selected trial. A
@@ -1502,54 +1933,39 @@ def recouple_compensated(result, compensation, detector, aperture_m,
     Raises:
         ValueError: the result holds no field, the aperture is larger than the
                     stored patch, the stack is empty, the source name is
-                    unknown, or source="screens" and the result holds no
-                    stored screen phase.
+                    unknown, or source="screens" and the result holds no stored
+                    screen phase.
     """
-    if source not in ("screens", "slopes"):
-        raise ValueError(
-            f"recouple_compensated: source must be 'screens' or 'slopes', not "
-            f"{source!r}.")
-    n_modes = modes_from_stack(compensation)
-    if n_modes < 1:
-        raise ValueError(
-            "recouple_compensated: the compensation stack removes no mode. "
-            "Pass a TipTilt or an AO(n) stage.")
+    _check_patch(result, aperture_m)
+    corrector = _PostCorrector(result.patch, compensation, aperture_m,
+                               obscuration_ratio, source, compact=compact)
     if source == "screens" and result.screen_phase is None:
         raise ValueError(
             "recouple_compensated: source='screens' needs the stored summed "
             "screen phase, and this record holds none. Run the campaign with "
             "store_screen_phase=True, or use source='slopes'.")
-    patch = result.patch
-    n_fit = n_modes if source == "screens" else max(n_modes, SLOPE_MIN_MODES)
-    modes = None
+    tail = _PostTail(result.patch, aperture_m, obscuration_ratio, lam,
+                     detector=detector, compact=compact)
     out = []
-    for row, array in _rebuilt_fields(result, aperture_m, trials):
-        if modes is None:
-            modes = ApertureModes(
-                n_fit, patch.n, circle(patch.n, aperture_m / patch.pixel_m,
-                                       obscuration_ratio))
-        if source == "screens":
-            phase = np.zeros(patch.n * patch.n, dtype=np.float64)
-            phase[patch.indices] = result.screen_phase[row]
-            coeffs = modes.estimate(phase[modes.indices])
-        else:
-            sx, sy = wrapped_gradient(array)
-            coeffs = modes.estimate_from_slopes(sx, sy)
-            coeffs[n_modes:] = 0.0
-        F = _patch_field(patch, modes.apply(array, coeffs, sign=-1), lam)
-        collected = _clip(F, aperture_m, obscuration_ratio)
-        eta = _detector_eta(detector, collected, aperture_m, lam)
+    for row, array in _rebuilt_fields(result, aperture_m, trials,
+                                      compact=compact):
+        phase = (None if result.screen_phase is None
+                 else result.screen_phase[row])
+        eta = tail.eta(corrector.correct(array, phase))
         out.append(np.nan if eta is None else float(eta))
     return np.array(out, dtype=float)
 
 
-def recollect(result, aperture_m, obscuration_ratio, *, trials=None):
+def recollect(result, aperture_m, obscuration_ratio, *, trials=None,
+              compact=True):
     """Give the collected power of each STORED trial, in grid units.
 
-    The value is Power(clipped) of the rebuilt field. It is NOT normalised:
-    the runner divides its collected_power by a vacuum reference, and this
-    function does not know that reference. So the caller divides by its OWN
-    reference, or it takes the RATIO of two trials, which needs no reference.
+    The value is Power(clipped) of the rebuilt field. It is NOT normalised: the
+    runner divides its collected_power by a vacuum reference, and this function
+    does not know that reference. So the caller divides by its OWN reference,
+    or it takes the RATIO of two trials, which needs no reference.
+
+    The power is a masked sum, so the crop gives it exactly (see `_PostTail`).
 
     Args:
         result:            a TurbWaveResult with a stored patch.
@@ -1557,6 +1973,8 @@ def recollect(result, aperture_m, obscuration_ratio, *, trials=None):
         obscuration_ratio: the central obscuration of that aperture.
         trials:            an optional sequence of trial row indices. None
                            takes every stored trial.
+        compact:           True reads on the crop (the default). False reads on
+                           the full grid.
 
     Returns:
         A float array of the power inside the aperture, one value for each
@@ -1566,11 +1984,14 @@ def recollect(result, aperture_m, obscuration_ratio, *, trials=None):
         ValueError: the result holds no field, or the aperture is larger than
                     the stored patch.
     """
+    _check_patch(result, aperture_m)
+    # The wavelength does not enter a power, so any value serves here.
+    tail = _PostTail(result.patch, aperture_m, obscuration_ratio, 1.0,
+                     detector=None, compact=compact)
     out = []
-    for _, array in _rebuilt_fields(result, aperture_m, trials):
-        # The wavelength does not enter a power, so any value serves here.
-        F = _patch_field(result.patch, array, 1.0)
-        out.append(float(Power(_clip(F, aperture_m, obscuration_ratio))))
+    for _, array in _rebuilt_fields(result, aperture_m, trials,
+                                    compact=compact):
+        out.append(tail.power(array))
     return np.array(out, dtype=float)
 
 
@@ -1906,6 +2327,42 @@ if __name__ == '__main__':
     mmf_run = np.array([tr.mmf_eta for tr in kept_mmf.trials])
     assert np.all(np.abs(mmf_back / mmf_run - 1.0) < 1e-5), (mmf_back, mmf_run)
 
+    # ---- 7c2. the CROP route agrees with the FULL-GRID route ----
+    # The crop holds every stored pixel, and it keeps the centre pixel and the
+    # pixel pitch of the grid. So a PUPIL-plane quantity (the power, the
+    # single-mode overlap) reads the same value, and a FOCAL-plane quantity
+    # (the MMF) pads back to the full grid and reads the SAME value.
+    _crop = kept.patch.crop()
+    assert _crop.side % 2 == 1, _crop.side
+    assert _crop.side <= kept.patch.n, (_crop.side, kept.patch.n)
+    assert kept.patch.crop() is _crop, "the crop must be built one time"
+    _c_full = int(kept.patch.n / 2)
+    assert _crop.offset + _crop.side // 2 == _c_full, (_crop.offset, _c_full)
+    # The crop and the full grid hold the SAME pixels.
+    _a_crop = _crop_array(kept.patch, kept.fields[0], compact=True)
+    _a_full = _crop_array(kept.patch, kept.fields[0], compact=False)
+    _o, _s = _crop.offset, _crop.side
+    assert np.array_equal(_a_crop, _a_full[_o:_o + _s, _o:_o + _s])
+    assert _a_full.sum() == _a_crop.sum()
+    eta_full = recouple(kept, rx_terr.detector, rx_terr.aperture_m,
+                        rx_terr.obscuration_ratio, lam, compact=False)
+    assert np.all(np.abs(eta_back / eta_full - 1.0) < 1e-6), (eta_back,
+                                                              eta_full)
+    pw_full = recollect(kept, rx_terr.aperture_m, rx_terr.obscuration_ratio,
+                        compact=False)
+    assert np.all(np.abs(pw / pw_full - 1.0) < 1e-6), (pw, pw_full)
+    mmf_full = recouple(kept_mmf, rx_mmf.detector, rx_mmf.aperture_m,
+                        rx_mmf.obscuration_ratio, lam, compact=False)
+    # The MMF pads the crop back, so the two routes are BIT-identical.
+    assert np.array_equal(mmf_back, mmf_full), (mmf_back, mmf_full)
+    # trial_field gives the same pixels on the crop and on the full grid.
+    _F_crop = trial_field(kept, 0, lam)
+    _F_full = trial_field(kept, 0, lam, compact=False)
+    assert _F_crop.N == _crop.side and _F_full.N == kept.patch.n
+    assert abs(_F_crop.dx - _F_full.dx) < 1e-12
+    assert np.array_equal(_F_crop.field,
+                          _F_full.field[_o:_o + _s, _o:_o + _s])
+
     # ---- 7d. no patch means no change at all ----
     assert multi.fields is None and multi.patch is None
     try:
@@ -2015,6 +2472,13 @@ if __name__ == '__main__':
     d_slopes = float(np.abs(post_slopes / eta_tt - 1.0).max())
     assert d_screens < 1e-4, (post_screens[:3], eta_tt[:3])
     assert d_slopes < 0.05, (post_slopes[:3], eta_tt[:3])
+    # The CROP route of a compensated read agrees with the full grid. The modes
+    # are zero outside the aperture mask, and the mask sits inside the crop.
+    for _src, _got in (("screens", post_screens), ("slopes", post_slopes)):
+        _full = recouple_compensated(
+            ao_store, [TipTilt()], ground_smf.detector, ground_smf.aperture_m,
+            ground_smf.obscuration_ratio, lam, source=_src, compact=False)
+        assert np.all(np.abs(_got / _full - 1.0) < 1e-6), (_src, _got, _full)
 
     # V3 IN MINIATURE. The two sensing sources must give the same tip-tilt on a
     # SPACE link, where both are valid: the slab starts from a plane wave, so
@@ -2024,7 +2488,8 @@ if __name__ == '__main__':
         circle(ao_store.patch.n, ground_smf.aperture_m / ao_store.patch.pixel_m,
                ground_smf.obscuration_ratio))
     tilt_scr, tilt_slp = [], []
-    for _row, _arr in _rebuilt_fields(ao_store, ground_smf.aperture_m, None):
+    for _row, _arr in _rebuilt_fields(ao_store, ground_smf.aperture_m, None,
+                                      compact=False):
         _ph = np.zeros(ao_store.patch.n ** 2)
         _ph[ao_store.patch.indices] = ao_store.screen_phase[_row]
         tilt_scr.append(_modes21.estimate(_ph[_modes21.indices])[1:3])
