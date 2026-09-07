@@ -77,6 +77,7 @@ keeps the LightPipes names and call order:
 - `camera.py` — the focal-plane array: `camera_image` bins the focused spot onto square camera pixels, and `spot_metrics` gives the centroid, the second-moment radius and the on-sensor power fraction (`SpotMetrics`). It reuses `mmf.focal_intensity`, so the focus, the defocus sign and the normalisation stay in one place. It is a DIAGNOSTIC layer: it builds no Term, and no budget reads it.
 - `grid.py` — `GridSpec.for_scenario`, the automatic grid sizer with a manual override, `beam_magnification`, and `forvard_max_z`.
 - `run.py` — `propagate_scenario(scenario, geometry, grid=None) -> WaveResult`, one end-to-end propagation.
+- `compensation/` — the perfect-AO modal machinery (2026-09-07): `zernike.py` (the Noll modes and the circular mask), `modal.py` (`ApertureModes`, the modal projector, and `modes_from_stack`, the map of a `Terminal.compensation` stack to a Noll mode count), and `slopes.py` (the wrapped-gradient slopes of a stored field and their modal fit). It is pure numpy and scipy, it imports NO other olb module (`modes_from_stack` reads the CLASS NAME of a stage, so it does not import `olb.terminal`), and it builds no Term. The dependency runs one way: `compensation/` <- `turbulence/run.py`, `turbulence/campaign.py` and `olb/models/waveoptics.py`; nothing reads it back.
 
 The grid sizer selects the ROUTE, and the runner obeys it. `for_scenario` tries a
 flat grid first, and it falls back to the scaled (co-moving) grid when the flat
@@ -124,6 +125,19 @@ N. The default `detectors=None` leaves `detector_etas` None, so the
 single-detector record is bit-identical. The shared field is exact, because a
 beamsplitter multiplies the field of an arm by a constant and every coupling
 efficiency is power-normalised (see Section 3).
+
+`propagate_turbulent_scenario` also takes the PERFECT-AO correction
+(`compensation`, an opt-in of 2026-09-07, default OFF) and `store_screen_phase`.
+With a stack, each trial removes the first N Noll modes of the wavefront over the
+receive aperture, BEFORE the clip, the coupling, the multi-arm `detector_etas`
+and the reciprocity overlap (R. J. Noll, DOI 10.1364/JOSA.66.000207, Table I).
+The sensing source follows the channel family: a SPACE link senses the summed
+screen phase (the slab starts from a plane wave), and a TERRESTRIAL link senses
+the wrapped-gradient slopes of the receive field. The stored patch keeps the
+UNCORRECTED field, so `recouple_compensated` corrects a stored trial with ANY
+stack after the run. The default keeps an uncorrected run bit-identical, and both
+options enter the campaign fingerprint only when they are not their default. See
+[api-waveoptics.md](api-waveoptics.md) Sections 9d and 9h.
 
 The runner also takes `start_index` (the index of the FIRST trial, so a slice of
 one seeded run computes alone and stays bit-identical) and `patch_radius_m` (the

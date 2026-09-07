@@ -275,6 +275,24 @@ Adaptive-optics correction stage. It removes the first `n_modes` Zernike modes.
 |---|---|---|---|---|
 | `n_modes` | int | — | `20` | Number of Zernike modes that the stage removes. The model uses the large-order Noll asymptotic residual. |
 
+#### The stack at fidelity 2
+
+At fidelity 0 and fidelity 1 the stack drives the analytic or the FAST residual
+directly. At fidelity 2 it drives the WAVE RECORD, and the record is UNCORRECTED
+unless the caller passes `compensation="terminal"` to
+`olb.models.waveoptics.run_fidelity2`. Each trial then removes the first N NOLL
+modes over the receive aperture: 3 for a `TipTilt` stage, and `n_modes` for an
+`AO` stage. That is the count of `olb.turbulence.ao`, so the two ladders count
+the same modes. Source: R. J. Noll, J. Opt. Soc. Am. 66, 207 (1976),
+DOI 10.1364/JOSA.66.000207, Table I.
+
+The wave-optics fit is PERFECT: no wavefront-sensor noise, no servo lag, no
+aliasing, and a snapshot. So a corrected fidelity-2 Term is the UPPER BOUND of
+the benefit of the stack. A terminal that declares a stack with an uncorrected
+record gets a loud `UNCORRECTED` flag on its Term. See
+[api-budget.md](api-budget.md) and [api-waveoptics.md](api-waveoptics.md)
+Section 9h.
+
 ### Snippet: monostatic and bistatic terminals
 
 ```python

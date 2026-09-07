@@ -72,7 +72,13 @@ on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
   geometric spread, aperture capture, vacuum fibre coupling) and a stochastic
   turbulence Term (the fade). Only the analytic extinction (molecular absorption)
   and pointing (mechanical jitter) Terms remain, because a vacuum-index field sim
-  models neither.
+  models neither. Fidelity 2 also takes an OPT-IN **perfect-AO correction**
+  (2026-09-07): `run_fidelity2(compensation="terminal")` removes the first N Noll
+  modes of the wavefront over the receive aperture in each trial, with N from the
+  `Terminal.compensation` stack, and the uplink reads that corrected ground field
+  as a pre-compensated launch. The fit is ideal (no sensor noise, no servo lag),
+  so it is the UPPER BOUND of the AO benefit; the default is OFF, and an
+  uncorrected run is unchanged.
 
 Set `fidelity=0`, `1`, or `2` on each budget. **Fidelity 1 does not exist for a
 terrestrial link** (FAST is a far-field plane-wave-source model; a near-field

@@ -524,7 +524,10 @@ The path forward for each is a second reference or a derivation.
   `Campaign` so a refit costs no propagation. GATES before the rung becomes
   a DEFAULT: the 2-W1 owner reference-model decision, and the AO question of
   2-AO (an uncorrected field against a tracked fidelity-0 Term is not like
-  for like; fit the uncorrected case first and say so).
+  for like; fit the uncorrected case first and say so). UPDATE 2026-09-07: a
+  tracked field case is now available, because the terrestrial correction leg
+  of 2-AO senses the receive-field slopes; the stored terrestrial campaigns
+  answer it post hoc through `Campaign.recouple_compensated`, with no rerun.
 - **1-7. REFERENCE for the residual scintillation of a pre-compensated
   uplink.** Gap 2 (0-W1) decided that NO trustworthy analytic scintillation
   form exists for a beacon + AO pre-compensated ground-to-space beam, so the
@@ -624,35 +627,64 @@ The path forward for each is a second reference or a derivation.
 
 ## Fidelity 2 — wave optics
 
-- **2-AO. VERY IMPORTANT — the fidelity-2 sims model NO adaptive optics. This
-  includes tip-tilt correction (2026-08-31).** The split-step layer
-  (`olb/waveoptics/turbulence/`) propagates the field through the raw phase
-  screens and reads the receive plane with NO wavefront correction applied. So a
-  fidelity-2 budget shows the UNCORRECTED atmosphere on EVERY link:
-  - No tip-tilt (beam-wander / angle-of-arrival) removal. A tracked terminal
-    removes the received tilt in the real system; the sim does not, so the
-    fidelity-2 fade and the coupling loss are PESSIMISTIC for a tracked link,
-    and the walk-off is fully counted.
-  - No higher-order AO (the deformable-mirror correction of the residual phase).
-  - No uplink pre-compensation. A beacon + AO uplink (the fidelity-1 model of
-    record, `uplink_fast_term`) has NO fidelity-2 equivalent: `uplink_budget`
-    RAISES at `fidelity=2` for a pre-compensated scenario, and the reciprocity
-    route carries no point-ahead correction either (see 2-P4).
-  This means a fidelity-2 result is directly comparable to the fidelity-0/1
-  UNCORRECTED case only. It is NOT a like-for-like reference for the
-  AO-corrected fidelity-1 terms (`smf_fast_term`, `uplink_fast_term`) or for any
-  tracked terrestrial coupling Term until AO is modelled in the field solve.
-  The fix is a correction stage in the split-step receive path: at minimum a
-  tip-tilt removal (subtract the measured wavefront tilt, or the centroid shift),
-  then a modal / zonal higher-order correction, and for the uplink a
-  pre-compensation phase applied at the launch plane crossed with the point-ahead
-  decorrelation. Each stage changes budget numbers, so each is an owner-gated
-  step. NOTE (2026-09-02): `olb/waveoptics/camera.py` `spot_metrics` MEASURES the
-  spot centroid, but it is diagnostic only. No runner and no budget uses that
-  measurement to remove the tilt. Pairs with 2-P4 (point-ahead anisoplanatism in
-  the reciprocity route) and the reference-model gap of 2-W1 (the field reads
-  less coupling loss than FAST — part of that gap is this missing correction, so
-  the two are NOT yet comparable).
+- **2-AO. The RECEIVE-side perfect AO and the reciprocity pre-compensation are
+  BUILT (2026-09-07, branch `waveoptics-ao`). They are an OPT-IN, and the
+  DEFAULT stays OFF.** Before 2026-09-07 the split-step layer read the receive
+  plane with NO wavefront correction, so a fidelity-2 budget showed the
+  UNCORRECTED atmosphere on every link. That is no longer forced.
+
+  WHAT IS BUILT. `olb/waveoptics/compensation/` (`zernike.py`, `modal.py`,
+  `slopes.py`) holds the modal machinery: the NOLL mode order and rasters
+  (R. J. Noll, DOI 10.1364/JOSA.66.000207, Table I and Eqs. (2) to (4)), the
+  `ApertureModes` least-squares projector over one aperture, `modes_from_stack`
+  (a `TipTilt` stage removes 3 Noll modes and an `AO(n)` stage removes `n`, the
+  count of `olb.turbulence.ao` and the FAST `ZMAX` map), and the
+  wrapped-gradient slope route. `propagate_turbulent_scenario`, `Campaign`,
+  `run_waveoptics` and `run_fidelity2` take `compensation=None|"terminal"|
+  [stages]` and `store_screen_phase=False`. The correction runs IN THE RUNNER,
+  per trial, before the clip, the coupling, the multi-arm `detector_etas` and
+  the reciprocity overlap. The sensing source follows the family: SPACE reads
+  the summed screen phase (a plane-wave slab, so no unwrap is needed) and
+  TERRESTRIAL reads the wrapped-gradient slopes of the receive field (it fits
+  `max(n, 21)` modes and zeros the extra, because a short slope fit aliases the
+  tilt 6 percent low; it warns when the phase step per pixel nears pi). The
+  stored patch keeps the UNCORRECTED field, so `recouple_compensated` (and
+  `Campaign.recouple_compensated`) corrects a stored campaign with ANY stack and
+  no new propagation. Both options enter the fingerprint only when they are not
+  their default (the append-only tail rule), so every existing campaign key
+  stays valid. The UPLINK PRE-COMPENSATION at fidelity 2 is OPEN: the ground
+  stack corrects the ground-plane field before the Shapiro overlap
+  (DOI 10.1364/JOSA.61.000492), so `uplink_budget(fidelity=2)` accepts a
+  pre-compensated scenario with a CORRECTED record and raises on an uncorrected
+  one. Three flags report the state: `PERFECT AO`, `NO ANISOPLANATISM` and
+  `UNCORRECTED` (`flag_uncorrected_compensation`, on all three fidelity-2
+  budgets). Docs: physics.md Section 7 and 9l, api-waveoptics.md Sections 9d,
+  9g, 9h and 11a, api-budget.md.
+
+  WHAT "PERFECT" MEANS, AND WHY THE DEFAULT IS OFF. The fit is IDEAL: no
+  wavefront-sensor noise, no servo lag, no aliasing, no branch points, and it is
+  a snapshot. So a corrected Term is the UPPER BOUND of the AO benefit, not a
+  realistic corrector. Turning it on changes budget numbers, so the default is
+  OFF and an uncorrected run stays bit-identical (measured: the
+  `olb.multidetector` self-check output is byte-identical, and every seeded
+  fidelity-2 self-check number is unchanged).
+
+  WHAT IS NOT BUILT (phase 2, each an owner-gated step):
+  - The POINT-AHEAD shift of the sensing source, so a pre-compensated uplink
+    pays the anisoplanatism it pays in the real system (2-P4). The hinge exists:
+    `ApertureModes.estimate` and `ApertureModes.apply` are separate calls, so a
+    sensing source at one direction and a target at another is a wiring step,
+    not a rewrite.
+  - A WFS-LIMITED AO knob (sensor noise, a finite subaperture, aliasing, a servo
+    lag), so the layer can bracket the benefit instead of bounding it.
+  - The DEVICE-SIDE projection. A compensated or screen-storing `"cupy"` trial
+    falls back to the HOST tail today, which costs one full field download for
+    each trial (about 8 MB at 1024 px).
+  - The LaserGuideStar source, and the temporal axis.
+  NOTE (2026-09-02, still true): `olb/waveoptics/camera.py` `spot_metrics`
+  MEASURES the spot centroid, but it is diagnostic only. The correction reads
+  the wavefront, not that centroid. Pairs with 2-P4 and with the reference-model
+  gap of 2-W1, which the correction now makes measurable.
 - **2-W1. Fidelity-2 is WIRED whole-path via `fidelity=0|1|2` (2026-08-28,
   branch `fidelity2-budget-wiring`). BOTH the turbulent split step AND the
   vacuum core are now consumed.** A fidelity-2 budget shows TWO Terms: a
@@ -702,8 +734,14 @@ The path forward for each is a second reference or a derivation.
   drops about 1.6 dB at 20 deg, the field about 0.8 dB) and FAST's NOAO tilt is
   grid-defined at inf (the NPXLS guard pinned 512 at inf against 128 at 25 m). So
   the old gap was the `L0 = inf` mismatch, not a wave-optics error. CAVEAT: this
-  is the UNCORRECTED rung only (2-AO); an AO-corrected comparison is still not
-  possible in fidelity 2. The analytic fidelity-0 term stays about 1 to 2.5 dB
+  measurement is the UNCORRECTED rung only. THE AO-CORRECTED COMPARISON IS NOW
+  POSSIBLE (2026-09-07, 2-AO): `run_fidelity2(compensation="terminal")` gives a
+  field record with the SAME Noll mode count that `smf_fast_term` corrects, so
+  the like-for-like AO rung can be measured at last. It is NOT yet measured; the
+  numbers are pending in `validation/waveoptics_ao/` (physics.md Section 9l).
+  Read the result with the perfect-fit caveat: the field AO has no
+  wavefront-sensor noise and no servo lag, so it is the upper bound and FAST is
+  not. The analytic fidelity-0 term stays about 1 to 2.5 dB
   OPTIMISTIC against both (it is L0-agnostic). FOLLOW-UP (owner-requested
   2026-08-28): an AUTOMATIC fidelity selector, the way `model="auto"` picks a
   distribution.
@@ -909,7 +947,9 @@ The path forward for each is a second reference or a derivation.
   NOT a measurement; a matched-seed L0 = inf against L0 = 25 m campaign pair
   would measure it), the largest known bias in the fidelity-2 SMF tail, and a
   PHYSICS CHOICE, not a numerical limit. For a
-  tracked terminal (2-AO) it matters much less. THE WORK: (1) choose an
+  tracked terminal (2-AO, BUILT 2026-09-07) it matters much less, and that is
+  now testable: run the same matched-seed pair with
+  `compensation="terminal"`. THE WORK: (1) choose an
   explicit outer scale for the production screens (a site parameter on
   `Site`, threaded to `L0_m`; von Karman; a value of order 10 to 100 m near
   the ground, with a source); (2) DONE (2026-09-04): the stacking test takes
@@ -1043,8 +1083,21 @@ The path forward for each is a second reference or a derivation.
   receiver-cone clip (route (b), tested in `validation/receiver_cone_clip/`)
   and of the full co-moving chain (2-P3). Not built; not tested.
 - **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
-  (the uplink and downlink read the same screens;
-  docs/api-waveoptics.md:824).
+  (the uplink and downlink read the same screens). UPDATED 2026-09-07: the
+  fidelity-2 PRE-COMPENSATION route now EXISTS (2-AO), so this item is the
+  ONE missing piece of it. The ground stack corrects the same screens the
+  uplink reads back, so the corrected uplink Term is OPTIMISTIC and it carries
+  a loud `NO ANISOPLANATISM` flag. THE HINGE is the source/target split of
+  `ApertureModes.estimate` against `ApertureModes.apply`
+  (`olb/waveoptics/compensation/modal.py`): the projector takes an ARBITRARY
+  sensing phase and it does not assume that the phase comes from the field it
+  corrects. So the work is to sense at the BEACON direction and apply at the
+  POINT-AHEAD direction, which needs a laterally shifted sensing source (a
+  screen-plane shift by `theta_pa * h` for each screen height `h` is the
+  cheapest form; the Stone analytic model of physics.md Section 5g gives the
+  cross-check). Until then the model of record for a real pre-compensated
+  uplink stays fidelity 1 (`uplink_fast_term`), which DOES carry the
+  point-ahead decorrelation.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
   MEASURED AGAIN on the production 1024 px grid (2026-09-04,
@@ -1235,7 +1288,13 @@ The path forward for each is a second reference or a derivation.
   `patch_radius_m` reach the runner and `Campaign` but NOT `run_waveoptics`
   or `run_fidelity2`; `detectors` reaches the runner and `run_fidelity2` but
   NOT `run_waveoptics` or `Campaign`; every entry point still defaults
-  `L0_m=np.inf` against the owner decision of a fixed 25 m (see 2-P5). The
+  `L0_m=np.inf` against the owner decision of a fixed 25 m (see 2-P5). TWO MORE
+  STRAGGLERS (2026-09-07, from the perfect-AO work of 2-AO): `compensation` and
+  `store_screen_phase` reach the runner, `run_waveoptics`, `run_fidelity2` and
+  `Campaign` but NOT `propagate_turbulent_field`, so the single-snapshot
+  diagnostic cannot show a corrected field; and the option list is now
+  DUPLICATED in FIVE places, which is one more copy of the same prose to keep in
+  step. The
   pattern is the problem, not any one item: a feature lands on the entry
   point that the study of the day used, and the others fall behind. THE
   TASK: (1) tabulate every keyword against every entry point in
@@ -1339,9 +1398,12 @@ The path forward for each is a second reference or a derivation.
   detector kind, the TRACKED (aligned) coupler at
   `curvature_focus_shift` (`cell.json` holds that shift for each aperture), and
   the centre-pixel point index.
-  NO TIP-TILT CORRECTION. Fidelity 2 models no adaptive optics and no tracking
-  (2-AO), so every stored fibre number is UNTRACKED and it holds the full beam
-  wander.
+  NO TIP-TILT CORRECTION IN THE STORED SCALARS. The campaigns ran before the
+  perfect-AO correction of 2-AO landed (2026-09-07), so every stored `smf_eta`
+  is UNTRACKED and it holds the full beam wander. The stored FIELD PATCH still
+  answers the tracked question POST HOC:
+  `Campaign.recouple_compensated([TipTilt()], detector)` reads the receive-field
+  slopes of each stored trial, with no rerun.
   THE CLAMPED GRIDS — a caveat. The 5 mm waist gives a beam radius of 49 cm at
   5 km and 99 cm at 10 km. The grid side must hold that beam plus the scattering
   cone, so the pixel count the sizer wants passes the preset `n_max`. The sizer
