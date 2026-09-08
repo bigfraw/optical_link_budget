@@ -1775,6 +1775,30 @@ The path forward for each is a second reference or a derivation.
   `hasattr(scenario, "direction")`; that test now reads `"ground"`, because a
   terrestrial scenario also has a direction. Docs updated: CLAUDE.md, docs/architecture.md,
   docs/api-terminal-scenario.md, docs/getting-started.md.
+- **I-6. Claude Code HOOKS across the repository — WANTED (owner-flagged
+  2026-09-08), NOT started.** The owner wants hooks in
+  `.claude/settings.json` so the harness, and not the model, applies the
+  house rules of `CLAUDE.md` and `CONVENTIONS.md` mechanically. Nothing
+  exists today: `.claude/` holds only `skills/update/SKILL.md`, and there is
+  no `settings.json`. Candidate hooks, to agree with the owner before the
+  work starts:
+  * `PostToolUse` on `Edit`/`Write` of `olb/**.py` — run the module
+    self-check (`python -m olb.<module>`), because each module has one.
+  * `PostToolUse` on `Edit`/`Write` — a citation guard: a new equation
+    without a DOI is a house-rule violation.
+  * `PostToolUse` or `PreToolUse` — an ASD-STE100 check on a docstring, a
+    comment and a commit message.
+  * `PreToolUse` on `Bash(git commit)` — block a commit that changes a
+    seeded fidelity-2 number without a note.
+  * `SessionStart` — report the branch, the campaign roots that are on disk,
+    and whether the optional `fast` and `cupy` extras import.
+  * `Stop` — remind the session to run `/update` when a public API, the
+    physics, the module layout or the roadmap status changed.
+  DECISIONS the owner must make: which hooks BLOCK (exit code 2) and which
+  only WARN; how long a self-check may run before a hook is too slow; and
+  whether the hooks live in `settings.json` (shared, committed) or in
+  `settings.local.json` (private). The `update-config` skill writes the
+  file. See the CLAUDE.md open item of the same date.
 
 ---
 

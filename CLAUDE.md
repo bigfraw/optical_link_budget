@@ -1021,3 +1021,14 @@ Open items:
   in the cone factor, so no practical cone is safe.
 - **`examples/andrews/`** demonstrates the layer script by script; its
   README repeats this wired-versus-available status.
+- **CLAUDE CODE HOOKS across the repository — WANTED (owner-flagged
+  2026-09-08), NOT started.** The owner wants hooks in
+  `.claude/settings.json`, so the harness applies the house rules of this
+  file and of `CONVENTIONS.md` mechanically instead of by memory. Nothing
+  exists today: `.claude/` holds only `skills/update/SKILL.md`. The
+  candidate hooks (module self-checks after an edit, a DOI citation guard,
+  an ASD-STE100 check, a commit guard on seeded fidelity-2 numbers, a
+  `SessionStart` environment report, a `Stop` reminder to run `/update`) and
+  the three owner decisions (block against warn, the time budget of a hook,
+  and shared `settings.json` against private `settings.local.json`) are in
+  backlog item I-6. Ask the owner before you build.
