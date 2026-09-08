@@ -1915,6 +1915,24 @@ run log, a memory note or a backlog aside is not documented.
   to four decimals at c = 0, 1, 2 and 4.
 - **Script.** `validation/defocus/defocus_sensing.py`; write-up
   [validation/defocus/fidelity2_mmf_coupling_gap.md](../validation/defocus/fidelity2_mmf_coupling_gap.md).
+- **Follow-up: the coarse-pupil NA gate.** The fidelity-2 MMF coupling has a
+  SECOND limit, a NUMERICAL one, apart from the spot shape. A wave-optics
+  receive field is often only about 8 to 13 pixels across the aperture. On that
+  coarse pupil the numerical-aperture gate `rho <= f*NA` becomes a SUB-PIXEL
+  hard mask, because the gated annulus (the aperture radius minus `f*NA`) is
+  thinner than one pupil pixel. The gate transmission is then quantization-noisy
+  and it changes with the pupil pixel size, so the MMF mean wiggles with
+  turbulence when it should hold near `(NA/NA_optic)^2` (Section 6a). The focal
+  field of view `lambda*f/dx_pupil` can also fall below the core. The cure is
+  `mmf_coupling_efficiency(..., upsample=M)` (docs/api-waveoptics.md Section 4a):
+  it Fourier-interpolates the pupil to a finer pixel before the aperture clip,
+  the NA gate and the focus, so the gate resolves and the focal field of view
+  holds the core. The input field MUST carry MARGIN beyond the aperture, so a
+  campaign stored for post-hoc MMF re-coupling must use a patch radius LARGER
+  than the aperture. The `olb/waveoptics/mmf.py` self-check measures the effect:
+  on a coarse pupil the pixelized gate scatters over a wide spread, while
+  `upsample=8` holds near the analytic `(NA/NA_optic)^2` and agrees across
+  upsample factors.
 
 ### 9e. Is the aperture-averaged lognormal power draw trustworthy?
 

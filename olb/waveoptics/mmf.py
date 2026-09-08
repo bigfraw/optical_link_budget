@@ -32,6 +32,70 @@ import warnings
 
 import numpy as np
 
+from .field import Begin
+
+
+def _fourier_upsample(E, factor):
+    """Interpolate a band-limited complex field onto a finer pixel grid.
+
+    The function keeps the SAME physical grid side. It multiplies the pixel
+    count by `factor` on each axis, so the pixel gets finer. This is a sinc
+    (Fourier) interpolation: it transforms the field to the spatial-frequency
+    domain, it zero-pads the spectrum around the centre, and it transforms
+    back. So it adds NO new spatial frequency. It only samples the SAME
+    band-limited field on more points. This is a NUMERICAL interpolation step,
+    not a physics equation.
+
+    The `factor*factor` gain keeps the field VALUES, so |E_up| matches |E| at a
+    coincident point. The forward transform divides the amplitude sum by
+    nothing here (a plain fft2), and the inverse transform of the padded
+    spectrum divides by (factor*N)^2 in place of N^2, so the values fall by
+    factor*factor. The gain removes that.
+
+    The grid layout is the zero-centred convention of olb.waveoptics.field: the
+    ifftshift/fftshift pair moves the field centre to the FFT corner and back,
+    so the interpolated field keeps the same centre pixel.
+
+    Args:
+        E:      an N x N complex array (the pupil field).
+        factor: the integer upsample factor M. M = 1 returns E unchanged.
+
+    Returns:
+        An (M*N) x (M*N) complex array on the same physical grid side.
+    """
+    if factor == 1:
+        return E
+    n = E.shape[0]
+    nf = factor * n
+    spectrum = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(E)))
+    padded = np.zeros((nf, nf), dtype=spectrum.dtype)
+    lo = (nf - n) // 2
+    padded[lo:lo + n, lo:lo + n] = spectrum
+    e_up = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(padded)))
+    return e_up * (factor * factor)
+
+
+def _upsampled_field(field, factor):
+    """Give a finer-pixel copy of a pupil field at the same grid side.
+
+    It builds a new Field of (factor*N) pixels on the original physical side,
+    and it fills it with the Fourier-interpolated field. The new field keeps
+    the original wavelength and the original precision, so the focus route
+    reads a finer pixel and a wider focal field of view. See _fourier_upsample.
+
+    Args:
+        field:  the pupil-plane Field.
+        factor: the integer upsample factor M.
+
+    Returns:
+        A new Field of (factor*N) x (factor*N) pixels.
+    """
+    e_up = _fourier_upsample(field.field, factor)
+    field_up = Begin(field.siz, field.lam, factor * field.N,
+                     dtype=field.field.dtype)
+    field_up.field = e_up
+    return field_up
+
 
 def defocus_phase(field, defocus_m, focal_length_m):
     """Give the quadratic pupil phase of the plane z = f + defocus_m.
@@ -70,7 +134,7 @@ def defocus_phase(field, defocus_m, focal_length_m):
 
 
 def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
-                    defocus_m=0.0):
+                    defocus_m=0.0, upsample=1):
     """Focus a pupil field to the detector plane and give the intensity.
 
     The focal-plane amplitude is the 2-D Fourier transform of the pupil field
@@ -113,15 +177,40 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
                             mask.
         defocus_m:          the detector offset from the focal plane, in m
                             (z = f + defocus_m). 0.0 is the focal plane.
+        upsample:           the integer Fourier-interpolation factor M. M = 1
+                            (the default) is the plain focus, bit-identical to
+                            before. M > 1 first interpolates the pupil field to
+                            M*N pixels at the same grid side (see
+                            _fourier_upsample), so the NA gate resolves on a
+                            finer pixel and the focal field of view grows by M.
+                            M > 1 with a `mask` raises, because a coarse mask
+                            cannot map to the fine grid.
 
     Returns:
-        A tuple (If, dx_focal). If is the N x N intensity |A|^2 at the detector
-        plane. dx_focal is the focal pixel size, in m.
+        A tuple (If, dx_focal). If is the (M*N) x (M*N) intensity |A|^2 at the
+        detector plane. dx_focal is the focal pixel size, in m (M does not
+        change it: dx_focal = lambda*f/siz and the grid side siz is unchanged).
+
+    Raises:
+        ValueError: upsample > 1 and a mask is given.
 
     Note:
         norm='ortho' keeps Parseval exact, so sum(If) equals the summed power of
         the gated pupil field. The defocus phase keeps the power.
     """
+    if upsample != 1:
+        # A coarse mask does not map to the fine grid, and masking BEFORE the
+        # interpolation re-adds the Gibbs edge. The only in-repo upsampling
+        # caller (mmf_coupling_efficiency) builds its own fine aperture, so a
+        # mask here is a misuse. The finer-pixel field carries the same margin
+        # as the input.
+        if mask is not None:
+            raise ValueError(
+                'focal_intensity: upsample > 1 does not accept a mask. Pass the '
+                'unmasked field with margin beyond the aperture, or use '
+                'upsample=1.')
+        field = _upsampled_field(field, upsample)
+
     E = field.field
     if mask is not None:
         E = E * mask
@@ -159,7 +248,8 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
 
 
 def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
-                            numerical_aperture=None, mask=None, defocus_m=0.0):
+                            numerical_aperture=None, mask=None, defocus_m=0.0,
+                            upsample=1):
     """Calculate the power fraction that couples into a multimode fibre.
 
     eta = P_core / P_total. P_total is the collected pupil power. P_core is the
@@ -185,6 +275,33 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
     reshapes (broadens) the focal spot, because it changes the field before the
     focus. None applies no gate (the old light-bucket-only behaviour).
 
+    THE COARSE-PUPIL PROBLEM. A wave-optics receive field is often only about
+    8 to 13 pixels across the aperture. Two things go wrong on that coarse grid
+    for a LARGE core:
+    - The NA gate radius f*NA can sit less than one pupil pixel inside the
+      aperture radius, so the gate becomes a SUB-PIXEL hard mask. Its
+      transmission is then quantization-noisy and it changes with the pupil
+      pixel size, so the coupling wiggles non-monotonically with turbulence
+      when it should be a flat about (NA/NA_optic)^2.
+    - The focal field of view lambda*f/dx_pupil can be SMALLER than the core, so
+      the focal plane cannot even hold the core disk.
+    The `upsample` factor cures both: it Fourier-interpolates the pupil field to
+    M*N pixels at the same grid side BEFORE the aperture clip, the NA gate, the
+    defocus and the focus (see _fourier_upsample). The finer pixel resolves the
+    gate, and the M-times wider focal field of view holds the core. It invents
+    no finer detail, because the field is band-limited.
+
+    THE APERTURE WITH UPSAMPLING. With upsample=1 the aperture_m does NOT clip
+    the field: the caller pre-clips the field or passes `mask`, and aperture_m
+    is the defocus-window guard only. With upsample>1 a coarse mask cannot map
+    to the fine grid, and masking before the interpolation re-adds the Gibbs
+    edge, so this function builds the circular aperture clip INTERNALLY on the
+    fine grid from aperture_m (radius aperture_m/2). So the input field MUST
+    carry MARGIN beyond the aperture (the field is defined past aperture_m/2),
+    or the aperture edge upsamples with a Gibbs ripple; the caller stores a
+    patch radius wider than the aperture. Passing BOTH `mask` and upsample>1
+    raises.
+
     Args:
         field:              the received PUPIL-plane Field. The caller clips it
                             to the receive aperture first. The grid, the
@@ -204,6 +321,13 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                             (z = f + defocus_m). 0.0 is the focal plane. A
                             non-zero value grows the spot, so a fixed core
                             captures less.
+        upsample:           the integer Fourier-interpolation factor M. M = 1
+                            (the default) is bit-identical to before: the caller
+                            supplies the aperture clip through `mask` or a
+                            pre-clipped field. M > 1 interpolates the field to
+                            M*N pixels and builds the aperture clip internally
+                            from aperture_m (see the coarse-pupil note above).
+                            M > 1 with a `mask` raises.
 
     Returns:
         The coupling efficiency, a float between 0 and 1. It is the fraction of
@@ -211,12 +335,27 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
         numerical-aperture gate loss.
 
     Raises:
-        ValueError: the field carries no power.
+        ValueError: the field carries no power, or upsample > 1 with a mask.
 
     Note:
         By Parseval with norm='ortho', sum(|A|^2) = sum(|Eg|^2) <= P_total, and
-        P_core <= sum(|A|^2). So eta stays in [0, 1].
+        P_core <= sum(|A|^2). So eta stays in [0, 1]. The M*M amplitude gain of
+        the upsample cancels in the ratio P_core/P_total.
     """
+    if upsample != 1:
+        # The fine grid cannot read a coarse mask, and a mask before the
+        # interpolation re-adds the Gibbs edge. So build the aperture clip
+        # internally on the fine grid. The input field must carry margin past
+        # the aperture radius.
+        if mask is not None:
+            raise ValueError(
+                'mmf_coupling_efficiency: upsample > 1 does not accept a mask. '
+                'Pass the unmasked field with margin beyond the aperture; the '
+                'aperture clip is built internally from aperture_m.')
+        field = _upsampled_field(field, upsample)
+        # The circular aperture clip on the fine grid, radius aperture_m/2.
+        mask = field.mgrid_Rsquared <= (aperture_m / 2.0) ** 2
+
     E = field.field
     if mask is not None:
         E = E * mask
@@ -389,6 +528,93 @@ if __name__ == '__main__':
     except ValueError:
         pass
 
+    # --- the Fourier upsample on a COARSE pupil with a LARGE core -----------
+    # A wave-optics receive field is often only about 10 pixels across the
+    # aperture. Two things then break for a large core and a tight NA gate:
+    # (1) the NA gate radius f*NA sits less than one pupil pixel inside the
+    # aperture edge, so the gate is a sub-pixel hard mask, quantization-noisy;
+    # (2) the focal field of view is smaller than the core. So the pixelized
+    # (upsample=1) NA-gate eta wiggles with the pupil pixel size, when it should
+    # be a flat about (NA/NA_optic)^2. The Fourier upsample resolves the gate
+    # and grows the focal field of view, so eta collapses onto the analytic
+    # value. MEASURED (25 mm aperture, f=50.4 mm, 1550 nm): pixelized eta
+    # spreads about 0.75 to 0.88 across coarse grids, the upsampled eta holds
+    # near 0.77 to 0.79. See the mmf-upsample-fix work item.
+    lam_c = 1550e-9
+    D_c = 25e-3                 # the receive aperture diameter
+    f_c = 50.4e-3               # the coupling focal length
+    NA_c = 0.22                 # a tight fibre numerical aperture
+    core_c = 40e-6              # a LARGE core (many focal-spot radii)
+    size_c = 3.0 * D_c          # generous margin: aperture = grid_size / 3
+    na_optic = (D_c / 2.0) / f_c
+    # The angular NA-mismatch limit. A ray outside the fibre acceptance cone
+    # does not guide, so the coupled fraction saturates at (NA/NA_optic)^2.
+    # See Snyder and Love, DOI 10.1007/978-1-4613-2813-1.
+    eta_analytic = (NA_c / na_optic) ** 2
+
+    # Sweep coarse grids (about 10 to 13 pixels across the aperture) to expose
+    # the pupil-pixel quantization of the sub-pixel NA gate.
+    grids = [30, 32, 34, 36, 38, 40]
+    e1s, e4s, e8s = [], [], []
+    with warnings.catch_warnings():
+        # The coarse focal window cannot hold the 40 um core at upsample=1, and
+        # the sub-pixel gate is under-sampled: both raise expected warnings.
+        warnings.simplefilter('ignore')
+        for Ng in grids:
+            # upsample=1 reads a PRE-CLIPPED hard disk (the old contract: the
+            # caller clips the field; aperture_m does not).
+            pw = PlaneWave(Begin(size_c, lam_c, Ng), D_c)
+            e1s.append(mmf_coupling_efficiency(pw, D_c, core_c, f_c,
+                                               numerical_aperture=NA_c))
+            # The upsample path reads the UNCLIPPED uniform field (margin past
+            # the aperture), and it builds the fine aperture clip internally.
+            full = Begin(size_c, lam_c, Ng)
+            e4s.append(mmf_coupling_efficiency(full, D_c, core_c, f_c,
+                                               numerical_aperture=NA_c,
+                                               upsample=4))
+            e8s.append(mmf_coupling_efficiency(full, D_c, core_c, f_c,
+                                               numerical_aperture=NA_c,
+                                               upsample=8))
+    e1s = np.array(e1s)
+    e4s = np.array(e4s)
+    e8s = np.array(e8s)
+    spread1 = float(e1s.max() - e1s.min())
+    spread8 = float(e8s.max() - e8s.min())
+
+    # The pixelized eta is quantization-sensitive: it spreads widely across the
+    # coarse grids.
+    assert spread1 > 0.08, (spread1, e1s)
+    # The upsampled eta is STABLE across the same grids.
+    assert spread8 < 0.03, (spread8, e8s)
+    assert spread1 > 3.0 * spread8, (spread1, spread8)
+    # The upsampled eta is CLOSE to the analytic NA-mismatch value.
+    assert np.all(np.abs(e8s - eta_analytic) < 0.04), (e8s, eta_analytic)
+    # upsample=4 and upsample=8 agree (the interpolation has converged).
+    assert np.all(np.abs(e4s - e8s) < 0.03), (e4s, e8s)
+
+    # upsample=1 is the DEFAULT and it is bit-identical to a plain call, so the
+    # earlier assertions above already prove the default path is unchanged.
+    assert mmf_coupling_efficiency(flat, D, a_large, f, upsample=1) == eta_large
+
+    # A mask with upsample > 1 raises in BOTH functions: the coarse mask cannot
+    # map to the fine grid, and the aperture clip is built internally.
+    ones = np.ones((N, N))
+    try:
+        mmf_coupling_efficiency(flat, D, a_large, f, mask=ones, upsample=2)
+        raise AssertionError('a mask with upsample > 1 must raise')
+    except ValueError:
+        pass
+    try:
+        focal_intensity(flat, f, mask=ones, upsample=2)
+        raise AssertionError('focal_intensity mask with upsample > 1 must raise')
+    except ValueError:
+        pass
+    # focal_intensity with upsample grows the grid by the factor and keeps the
+    # focal pixel size (dx_focal = lambda*f/siz, siz unchanged).
+    If_up, dx_up = focal_intensity(flat, f, upsample=2)
+    assert If_up.shape == (2 * N, 2 * N), If_up.shape
+    assert np.isclose(dx_up, lam * f / size), (dx_up, lam * f / size)
+
     print(f"pupil diameter D        {D * 1e3:9.2f} mm")
     print(f"focal length f          {f * 1e3:9.1f} mm")
     print(f"spot radius w_s         {w_s * 1e6:9.3f} um")
@@ -402,4 +628,12 @@ if __name__ == '__main__':
     print(f"  mid core, wide NA     {eta_wide:9.4f}")
     print(f"  10 um core, on axis   {eta_untilt:9.4f}")
     print(f"  10 um core, tilted    {eta_tilt:9.4f}")
+    print("")
+    print("coarse-pupil NA gate (25 mm aperture, f=50.4 mm, large core):")
+    print(f"  analytic (NA/NA_optic)^2   {eta_analytic:9.4f}")
+    print(f"  pixelized (upsample=1)     {e1s.min():.4f} to {e1s.max():.4f}"
+          f"  (spread {spread1:.4f})")
+    print(f"  upsample=4                 {e4s.min():.4f} to {e4s.max():.4f}")
+    print(f"  upsample=8                 {e8s.min():.4f} to {e8s.max():.4f}"
+          f"  (spread {spread8:.4f})")
     print("mmf coupling self-check passed")

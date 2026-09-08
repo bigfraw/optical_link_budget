@@ -287,7 +287,7 @@ inside that disk. So the coupled fraction is the ENCIRCLED ENERGY of the focal
 spot inside the core.
 
 - `mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
-  numerical_aperture=None, mask=None, defocus_m=0.0)` — the
+  numerical_aperture=None, mask=None, defocus_m=0.0, upsample=1)` — the
   power fraction that couples into a
   multimode fibre, a float between 0 and 1. It is `eta = P_core / P_total`.
   `P_total` is the total collected pupil power. `P_core` is the detector-plane
@@ -297,20 +297,22 @@ spot inside the core.
   turbulent tilt walks the focused spot off the core on its own; the fade is
   intrinsic. The receive MECHANICAL jitter is NOT in this efficiency (it is a
   separate analytic Term), so this eta is a turbulence-only quantity.
-  `aperture_m` is the pupil DIAMETER; it sets the defocused-spot window guard
-  only. An
+  `aperture_m` is the pupil DIAMETER; with `upsample=1` it sets the
+  defocused-spot window guard only (the caller clips to the aperture first, or
+  passes `mask`). An
   optional `mask` multiplies the field first. A field with no power raises
   `ValueError`. The function WARNS when the core spans fewer than about 3 focal
-  pixels.
+  pixels. `upsample` (default 1) is the coarse-pupil cure — see below.
 - `focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
-  defocus_m=0.0)` —
+  defocus_m=0.0, upsample=1)` —
   the shared helper that both `mmf_coupling_efficiency` and the example scripts
   use. It returns the tuple `(If, dx_focal)`. `If` is the detector-plane
   intensity,
   `|fftshift(fft2(ifftshift(Eg), norm='ortho'))|^2`, and `norm='ortho'` keeps
   Parseval exact. `dx_focal = field.lam * focal_length_m / field.siz` is the
   focal pixel size, in m. It applies the mask, the numerical-aperture pupil
-  gate, and the defocus before the focus.
+  gate, and the defocus before the focus. `upsample` (default 1) is the
+  coarse-pupil cure — see below.
 - `defocus_phase(field, defocus_m, focal_length_m)` — the quadratic pupil phase
   of the plane `z = f + defocus_m`,
   `exp(-i*pi*defocus_m*rho^2/(lambda*f^2))` (Goodman,
@@ -351,6 +353,32 @@ DOI 10.1007/978-1-4613-2813-1). `None` applies no gate.
 A SMALL receive aperture in a beam-sized grid gives a SHORT focal length and a
 small focal field of view (about `lambda*f/dx_pupil`), so a plot window must stay
 inside it; the focal integral is then also grid-limited.
+
+#### The coarse-pupil problem and `upsample`
+
+A wave-optics receive field is often only about 8 to 13 pixels across the
+aperture. Two things then go wrong for a LARGE core:
+
+- The NA gate radius `f*NA` can sit less than one pupil pixel inside the
+  aperture radius, so the gate becomes a SUB-PIXEL hard mask. Its transmission
+  is quantization-noisy and it changes with the pupil pixel size, so the MMF
+  coupling can wiggle non-monotonically with turbulence when it should be a flat
+  about `(NA/NA_optic)^2`.
+- The focal field of view `lambda*f/dx_pupil` can be SMALLER than the core, so
+  the focal plane cannot hold the core disk.
+
+`upsample=M` (an integer, default 1) cures both. `upsample=1` is bit-identical to
+the old call. `M > 1` interpolates the pupil field to `M*N` pixels at the SAME
+grid side (a sinc/Fourier interpolation, so it adds NO new spatial frequency),
+BEFORE the aperture clip, the NA gate, the defocus and the focus. The finer pixel
+resolves the gate, and the focal field of view grows by `M` and holds the core.
+With `M > 1`, `mmf_coupling_efficiency` clips the aperture INTERNALLY from
+`aperture_m` (radius `aperture_m/2`) on the fine grid, and a passed `mask` raises
+`ValueError` (a coarse mask does not map to the fine grid); `focal_intensity`
+with `M > 1` and a `mask` raises for the same reason. The input field MUST carry
+MARGIN beyond the aperture (the field is defined past `aperture_m/2`), or the
+aperture edge interpolates with a Gibbs ring. So a campaign that stores fields
+for post-hoc MMF re-coupling must store a patch radius LARGER than the aperture.
 
 ### 4b. The focal-plane camera (`olb/waveoptics/camera.py`)
 
