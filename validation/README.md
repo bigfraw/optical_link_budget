@@ -100,15 +100,23 @@ See [lognormal_certification/README.md](lognormal_certification/README.md).
 
 ## fibre_fade_models/
 
-A PLAN, not a study yet (2026-09-05, backlog 1-9). No script exists. The
-README records what the stored fidelity-2 results already show about the
-uncorrected fibre-coupled fade (it sits at the SPECKLE limit, 11 to 14 dB at
-p5, and it does NOT follow the point index), the candidate analytic families
-for it (lognormal times Rician from the Noll residual, a Zernike Monte Carlo
-with no propagation, the fourth-order coherence route), the receiver-kind
-split, the Zernike TEMPORAL spectrum extension (Conan 1995), and the order of
-work. The owner reviews it before any code is written.
+The terrestrial power-distribution study (backlog 1-9, steps 1 to 3 DONE
+2026-09-08; the certification of record is physics.md Section 9m). It reads
+the twelve 2-TC terrestrial campaigns post hoc and fits every family of
+`andrews/distributions.py` to the bucket power, the fibre-coupled power and
+the point irradiance, with the tilt split out. VERDICTS: the fidelity-0
+analytic lognormal holds a bucket to `sigma_R^2 = 0.7` and a refit
+gamma-gamma above it; NO free route holds a 10 cm fibre (the shipped chain
+under-reads the p5 fade by 1.3 to 11 dB, the tilt is the tail), and its
+fitted family of record is the lognormal-Rician; the received tilt is the
+aperture angle of arrival at the Gaussian r0 reduced by the outer scale, and
+the walk-off Term reads half its variance.
 See [fibre_fade_models/README.md](fibre_fade_models/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [fibre_fade_models/extract_trials.py](fibre_fade_models/extract_trials.py) | The one-pass read of the stored campaigns on bigfraw (`Campaign.map_trials`): the bucket power, the SMF coupling three ways (untracked, tracked focus, tilt removed), the Noll tilt pair, the slope aliasing test, the point irradiance and an MMF coupling, for each trial. |
+| [fibre_fade_models/fit_distributions.py](fibre_fade_models/fit_distributions.py) | The fits (moment, maximum likelihood, and the free analytic routes), the verdict tables, `fit_results.json` and the three exceedance figures. |
 
 ## tail_convergence/
 

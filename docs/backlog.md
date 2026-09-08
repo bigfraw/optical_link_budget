@@ -51,7 +51,10 @@ are from 2026-08-26 and can drift.
    scripts across a scenario sweep, and wire the family that holds as
    `terrestrial_budget(fidelity=1)`. This EXTENDS the aperture-averaged
    certification 1-6 and the calibrated-draw proposal 1-8, and it now
-   supersedes 1-8 as the plan of record. See 1-9.
+   supersedes 1-8 as the plan of record. See 1-9. UPDATE 2026-09-08: steps
+   1 to 3 are DONE (`validation/fibre_fade_models/`, physics.md 9m): no
+   free route holds a fibre, the rung is a REFIT family from a short
+   campaign, and step 4 waits for three owner decisions listed in 1-9.
 2d. **Audit the fidelity-2 entry points (owner-flagged 2026-09-05).** The
    runner, `run_waveoptics`, `run_fidelity2` and `Campaign` each carry a
    different keyword list; the priority boost, the screen generator, the
@@ -458,9 +461,12 @@ The path forward for each is a second reference or a derivation.
   the four `standard` cells past 2 km under the `_scipy_lean` roots. The run
   logs, the `cell.json` records and the block census are committed under
   `validation/terrestrial_campaigns/records/`.
-  The ANALYSIS that closes the gate is DEFERRED by the owner: 2-TC
-  stores the trials only, and no script yet tests the SHAPE, the index or the
-  quantiles. Two limits stay. A FOCUSED launch is BLOCKED: olb cannot express a
+  The ANALYSIS that closes the gate is DONE (2026-09-08, as step 1 of 1-9,
+  `validation/fibre_fade_models/`): the lognormal shape holds to
+  `sigma_R^2 = 0.7`, sits on the edge at 1.1, and goes at 3.8, where the
+  gamma-gamma refit holds. So the calibrated LOGNORMAL draw of this item is
+  a weak-band route only; the refit family of record above it is the
+  gamma-gamma, and a fibre needs the lognormal-Rician. See 1-9. Two limits stay. A FOCUSED launch is BLOCKED: olb cannot express a
   converging beam at all (see 0-P17), so that leg of the gate cannot run. And
   the DIVERGED launch is a command-line option of the runner
   (`--launch diverged`), a spot check, not a stored cell of the twelve.
@@ -484,6 +490,54 @@ The path forward for each is a second reference or a derivation.
   help here: it is far-field only, and its amplitude is one aperture-averaged
   lognormal scalar for each trial (checked in the FAST source, 2026-09-05), so
   it would give the bucket the same draw olb already builds analytically.
+  UPDATE 2026-09-08: STEPS 1 TO 3 ARE DONE on the twelve 2-TC campaigns
+  (`validation/fibre_fade_models/extract_trials.py` on bigfraw,
+  `fit_distributions.py` locally; the record is that folder README and
+  physics.md Section 9m). THE VERDICTS. Bucket: the fidelity-0 analytic
+  lognormal is the FREE draw while `sigma_R^2 <= 0.7` (0.2 to 0.6 dB
+  optimistic at p5), on the 0.5 dB edge at 1.1, and the lognormal SHAPE goes
+  at 3.8, where a maximum-likelihood gamma-gamma holds to 0.4 dB; the
+  saturated 10 km / 1e-14 cell is grid-limited and gives no verdict. Fibre:
+  NO free route holds a 10 cm fibre. The shipped fidelity-0 chain under-reads
+  the p5 fade by 1.3 dB (weakest cell) to 8 to 11 dB (strong cells), and the
+  Strehl-map lognormal-Rician heuristic (olb's, not the book's) is 6 to 12 dB
+  pessimistic below saturation.
+  The tail is the TILT (0.6 to 3.1 dB of the p5 fade, 1.5 to 5.4 dB of the
+  p1 fade on the unaliased cells); with the tilt removed every family holds.
+  The fitted family of record is the lognormal-Rician (MLE, 9 of 12 cells
+  untracked); the gamma-gamma holds the 5 cm fibre to 0.1 dB (9 of 12). The
+  received TILT is the aperture angle of arrival at the Gaussian-beam r0
+  reduced by the `L0 = 25 m` outer scale (Andrews Ch. 6, Eq. (83), inside 3
+  percent at 10 cm), NOT the beam-wander arrival tilt: the walk-off Term
+  reads HALF the tilt variance (1.65 to 2.1 times low; Conflict C-01, 2-P5).
+  The slope sensor aliases past `sigma_R^2 = 3.8`, so the tilt-removed cases
+  of the 5 km / 1e-14 and 10 km cells are not results.
+  STEP 4 WAITS FOR THREE OWNER DECISIONS: (a) whether the fidelity-1 rung is
+  the CALIBRATED route of 1-8 generalised (a short Campaign, a
+  maximum-likelihood fit of the gamma-gamma for a bucket and of the
+  lognormal-Rician for a fibre, a Term through `olb/models/fade.py` with the
+  measured mean coupling as its mean face), because no free draw exists for a
+  fibre; (b) the lognormal-Rician CDF, quantile and sampler in
+  `andrews/distributions.py` (0-W7; the study built the numeric CDF in the
+  script); (c) whether `terrestrial_smf_walkoff_term` is re-pointed at the
+  aperture angle-of-arrival tilt at the Gaussian r0 with the site `L0`,
+  which fixes half the shipped-chain deficit and changes every terrestrial
+  fibre budget at fidelity 0. The other half (the higher-order phase fade,
+  1.8 to 3.9 dB at p5 on the unaliased cells) has no analytic Term. Not
+  done: a focused launch (0-P17), the Zernike Monte Carlo (a candidate for
+  the parameter map at D/r0 of 1 to 3), the temporal extension.
+  THE r RULE (2026-09-08, `r_rule.py`, README Section 6a): with `sigma_z^2`
+  pinned to the bucket index and r fitted alone, the TILT-REMOVED fibre
+  follows `r = 2.3 / sigma2_HO` (leave-one-cell-out 12 of 12, to
+  `sigma2_HO = 0.15`, one launch only), and the UNTRACKED fibre has no rule
+  in r alone (8 of 24). So a FREE fibre route is a COMPOSITE: that
+  higher-order lognormal-Rician times the walk-off fade fed the aperture
+  tilt at the Gaussian r0 with the outer scale. PROPOSED, NOT BUILT (the
+  owner paused on 2026-09-08 to think); the first test is the composite in
+  `fit_distributions.py` with the modelled and with the measured tilt, so
+  the independence assumption of the two factors is judged apart from the
+  tilt model. It needs the lognormal-Rician sampler (decision (b)) and a
+  second waist before the 2.3 is called general.
   THE FAMILIES TO FIT. `olb/turbulence/andrews/distributions.py` holds the
   lognormal, the gamma-gamma, the K distribution and the lognormal-Rician
   PDF, each with the book citation; the K and lognormal-Rician are unused

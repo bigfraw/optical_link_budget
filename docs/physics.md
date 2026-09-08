@@ -2376,6 +2376,91 @@ run log, a memory note or a backlog aside is not documented.
   [validation/waveoptics_ao/README.md](../validation/waveoptics_ao/README.md).
   See backlog 2-AO, 2-P4 and 2-W1.
 
+### 9m. Which distribution holds the terrestrial received power, for a bucket and for a fibre?
+
+- **Question.** Backlog 1-9: can a `terrestrial_budget(fidelity=1)` draw the
+  fade of a horizontal link from a family that fidelity 2 certifies, for a
+  bucket AND for a single-mode fibre, and does any FREE (analytic-parameter)
+  route hold? This extends 1-6 (one weak path, the bucket) to the whole
+  2-TC band and to the fibre.
+- **Model under test.** For the bucket, the fidelity-0 lognormal of
+  Section 5d with `sigma2_P = A sigma2_I`. For the fibre, the shipped
+  fidelity-0 chain (the mean-only higher-order coupling Term plus the
+  exponential tip-tilt walk-off Term of `olb/models/coupling/terrestrial.py`),
+  the lognormal-Rician with the Strehl map `r = S/(1-S)` of the Noll residual
+  (an olb heuristic from the 2026-09-05 plan, not a book result: the book
+  states at printed p. 369 that no map from the atmosphere to r and
+  `sigma_z^2` is known), and the speckle limit. Then every family of `andrews/distributions.py`
+  refit by maximum likelihood.
+- **Reference.** The twelve terrestrial fidelity-2 campaigns (2 / 5 / 10 km,
+  `Cn2` 3e-15 / 1e-14, `rapid` / `standard`, 2000 trials, `L0 = 25 m`,
+  `sigma_R^2` 0.21 to 13.6), read post hoc; the read reproduces the in-run
+  scalars to 3e-7. The tilt of each trial comes from the wrapped-gradient
+  slope sensor; past `sigma_R^2 = 3.8` that sensor ALIASES (34 to 97 percent
+  of the trials over the 2.8 rad step), so the tilt-removed cases and the
+  tilt tables of the 5 km / 1e-14 and 10 km cells are not results (the
+  sensor reads the tilt too small, so a "tilt removed" case there still
+  holds part of the tilt). The field of those cells is also under-sampled on
+  the clamped grid, and its untracked coupled loss leans optimistic by under
+  1 dB at p5 (`standard` against `rapid`); not converged.
+- **Measured (2026-09-08).**
+  - THE BUCKET. The analytic lognormal holds to the 1 percent fade while
+    `sigma_R^2 <= 0.7` (0.2 to 0.6 dB optimistic at 5 percent; the analytic
+    index reads about 1.5 times low, the 1-6 filter fault), sits on the 0.5 dB
+    edge at 1.1, and misses by 0.8 to 1.0 dB at 5 percent and 1.3 to 1.8 dB at
+    1 percent at 3.8, where the lognormal SHAPE goes (the refit lognormal
+    misses the 1 percent fade by 1.3 to 1.6 dB) and the maximum-likelihood
+    gamma-gamma holds to 0.4 dB. In saturation (13.6) the analytic index is
+    2 to 3 times too high (pessimistic by 3 to 7 dB), the skew of `ln P`
+    turns positive, and the two presets disagree; that cell is grid-limited
+    and gives no verdict. The MMF light bucket (100 um core, NA 0.22,
+    f = 0.25 m) has the bucket index to three digits in every cell.
+  - THE FIBRE. No free route holds a 10 cm fibre (D/r0 of 1 to 5). The
+    shipped fidelity-0 chain under-reads the 5 percent fade by 1.3 dB on the
+    weakest cell and by 8 to 11 dB on the strong ones; the Strehl-map
+    lognormal-Rician heuristic is 6 to 12 dB pessimistic below saturation and lands
+    only at `sigma_R^2 = 13.6`, where the fibre sits at the speckle limit.
+    The tail is the TILT: removing it takes the 5 percent fade from 2.4 to
+    1.8, from 6.6 to 3.5 and from 6.4 to 3.9 dB on the three unaliased cells
+    (0.6 to 3.1 dB of tilt at 5 percent, 1.5 to 5.4 dB at 1 percent), and the
+    skew of `ln P` from -0.7 .. -1.8 to -0.2 .. -0.5. Fitted by maximum
+    likelihood the lognormal-Rician holds the untracked 10 cm fibre in 9 of
+    12 cells and the gamma-gamma in 5 of 12 (it misses the 1 percent phase
+    tail by 0.9 to 2.0 dB at `sigma_R^2` 0.7 to 1.1). The 5 cm fibre (D/r0
+    to 1) carries little tilt and is a gamma-gamma to 0.1 dB in 9 of 12.
+  - THE TILT. On every unaliased cell the measured per-axis tilt variance is
+    1.65 to 2.1 times the beam-wander arrival tilt that the walk-off Term
+    reads (2.1 to 2.6 at 5 cm), it grows from 10 cm to 5 cm by the
+    `D^(-1/3)` angle-of-arrival law to three digits, and it is 0.74 of the
+    Noll Zernike tilt at the Gaussian-beam r0. The von Karman outer-scale
+    factor of Ch. 6, Eq. (83) at `L0 = 25 m` (0.763 at 10 cm, 0.812 at 5 cm)
+    brings that prediction inside 3 percent at 10 cm and 9 percent at 5 cm.
+    So the received tilt is the aperture angle of arrival at the Gaussian
+    r0, reduced by the outer scale, and the walk-off Term reads half its
+    variance (Conflict C-01, backlog 2-P5).
+  - A RULE FOR r (`r_rule.py`). With `sigma_z^2` pinned to the bucket index
+    (the analytic one serves) and r fitted alone, the tilt-removed fibre
+    follows `r = 2.3 / sigma2_HO` (the Strehl map's small-residual limit
+    times 2.3; scatter a factor 1.5) and a leave-one-cell-out test holds 12
+    of 12, to `sigma2_HO = 0.15`. The untracked fibre has no rule in r alone
+    (8 of 24, misses of 3 to 6 dB): the tilt must stay its own factor.
+- **VERDICT.** The bucket keeps the fidelity-0 lognormal as its free draw
+  while `sigma_R^2 <= 1`, and takes a REFIT gamma-gamma above it. A fibre has
+  NO free draw: its fade needs a two-parameter family (the lognormal-Rician
+  of record, the gamma-gamma for a small aperture) REFIT to a short campaign,
+  which is the 1-8 calibrated route generalised. A FREE composite for the
+  fibre is in reach and NOT built: the higher-order lognormal-Rician with
+  `r = 2.3 / sigma2_HO` times the walk-off fade fed the aperture tilt at the
+  Gaussian r0 with the outer scale; its open assumption is the independence
+  of the two factors. Whether that rung is built,
+  whether the lognormal-Rician gets its CDF, quantile and sampler (0-W7), and
+  whether the walk-off Term is re-pointed at the aperture tilt (which changes
+  every terrestrial fibre budget) are OWNER decisions; see backlog 1-9.
+- **Script.** `validation/fibre_fade_models/extract_trials.py` (the one-pass
+  read on bigfraw) and `fit_distributions.py` (the fits); write-up
+  [validation/fibre_fade_models/README.md](../validation/fibre_fade_models/README.md).
+  See backlog 1-9, 1-8, 0-W7 and C-01.
+
 ---
 
 ## Source summary

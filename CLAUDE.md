@@ -685,7 +685,21 @@ Open items:
   phase-dominated and uncertified. FAST does not help: it is far-field only,
   and its amplitude is one aperture-averaged lognormal scalar for each trial.
   It extends 1-6 and supersedes the 1-8 calibrated-draw proposal as the plan
-  of record. Not started.
+  of record. STEPS 1 TO 3 ARE DONE (2026-09-08, `validation/
+  fibre_fade_models/`, physics.md 9m): the bucket keeps the fidelity-0
+  lognormal as its free draw while `sigma_R^2 <= 0.7` and needs a REFIT
+  gamma-gamma above 1; a 10 cm fibre has NO free route (the shipped
+  fidelity-0 chain under-reads the p5 fade by 1.3 to 11 dB, the tilt is the
+  tail), and its fitted family of record is the lognormal-Rician (MLE); the
+  received tilt is the aperture angle of arrival at the Gaussian r0 reduced
+  by `L0 = 25 m`, and the walk-off Term reads HALF its variance. STEP 4 (the
+  wiring) waits for three owner decisions listed in backlog 1-9: the
+  calibrated-campaign rung, the lognormal-Rician faces (0-W7), and the
+  walk-off tilt re-point. A FREE fibre route is PROPOSED and NOT built
+  (`r_rule.py`): the tilt-removed fibre follows `r = 2.3 / sigma2_HO`
+  (12 of 12 leave-one-out), so a composite of that higher-order
+  lognormal-Rician times the walk-off fade with the corrected tilt is the
+  candidate; the owner paused there on 2026-09-08.
 - **Gap 2 is DECIDED (2026-08-27): the pre-compensated uplink gets NO analytic
   scintillation Term.** `andrews.paths.uplink_scintillation_index(tracked=True)`
   is OPTIMISTIC there, not a floor: it models a perfect tilt removal, the
