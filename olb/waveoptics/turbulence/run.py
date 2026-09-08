@@ -1752,11 +1752,28 @@ class _PostTail:
             numerator = np.abs((E * self._conj_mode()).sum()) ** 2
             return float(numerator / denominator)
         # An MMF FOCUSES the field, so it reads the grid extent. Pad the crop
-        # back to the full grid, and call the same in-run helper.
+        # back to the full grid. Do NOT pre-clip: the auto upsample needs the
+        # field beyond the aperture (the stored patch carries the margin). It
+        # builds the aperture clip internally on the fine grid. When the stored
+        # patch has margin (patch_radius_m > aperture_m/2 with energy in the
+        # annulus), "auto" upsamples the pupil, so a coarse aperture does not
+        # make the NA gate a sub-pixel step. When the patch sits at exactly the
+        # aperture radius (no margin), "auto" falls back to M=1 and the
+        # unclipped padded field IS the aperture disc, so the result equals the
+        # old pre-clipped path. See olb.waveoptics.mmf.mmf_coupling_efficiency.
+        # NOTE: a central obscuration AND a no-margin patch is the one gap: the
+        # M=1 fallback does not remove the obscured core (the mmf clip is
+        # internal only at M>1). Store a patch WIDER than the aperture radius so
+        # "auto" engages M>1 and builds the annular clip. An unobscured aperture
+        # (obscuration_ratio=0.0, the default) matches the old path exactly.
         F = _patch_field(self.patch, self._padded(array), self.lam)
-        collected = _clip(F, self.aperture_m, self.obscuration_ratio)
-        eta = _detector_eta(det, collected, self.aperture_m, self.lam)
-        return None if eta is None else float(eta)
+        f_mmf = _mmf_focal_length(det, self.aperture_m, self.lam)
+        eta = mmf_coupling_efficiency(
+            F, self.aperture_m, det.core_radius_m, f_mmf,
+            numerical_aperture=det.numerical_aperture,
+            obscuration_ratio=self.obscuration_ratio,
+            defocus_m=det.defocus_m, upsample="auto")
+        return float(eta)
 
 
 class _PostCorrector:
@@ -2315,17 +2332,40 @@ if __name__ == '__main__':
     assert abs((pw[0] / pw[1]) / (run_pw[0] / run_pw[1]) - 1.0) < 1e-5, \
         (pw, run_pw)
 
-    # ---- 7c. the MMF round trip ----
+    # ---- 7c. the MMF round trip: the NO-MARGIN patch is the M=1 equivalence -
+    # A patch stored at EXACTLY the aperture radius carries NO margin beyond the
+    # aperture, so recouple(MMF) with the auto upsample falls back to M=1 and the
+    # unclipped padded field IS the aperture disc. So it equals the coarse in-run
+    # value to the float rounding level. See _PostTail.eta and
+    # olb.waveoptics.mmf.mmf_coupling_efficiency.
     rx_mmf = mmf_scn.rx_terminal
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
         kept_mmf = propagate_turbulent_scenario(
             mmf_scn, path, n_trials=2, seed=1, preset="standard",
-            patch_radius_m=0.6 * rx_mmf.aperture_m)
+            patch_radius_m=0.5 * rx_mmf.aperture_m)
     mmf_back = recouple(kept_mmf, rx_mmf.detector, rx_mmf.aperture_m,
                         rx_mmf.obscuration_ratio, lam)
     mmf_run = np.array([tr.mmf_eta for tr in kept_mmf.trials])
     assert np.all(np.abs(mmf_back / mmf_run - 1.0) < 1e-5), (mmf_back, mmf_run)
+
+    # A patch stored WIDER than the aperture carries margin, so recouple(MMF)
+    # auto-upsamples the coarse pupil (the fix). The result is a valid
+    # efficiency, it is STABLE across the crop and the full grid, and it MOVES
+    # away from the coarse in-run value. So the safe default engages the fix on
+    # a margined patch on its own. See _PostTail.eta.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        kept_mmf_marg = propagate_turbulent_scenario(
+            mmf_scn, path, n_trials=2, seed=1, preset="standard",
+            patch_radius_m=0.6 * rx_mmf.aperture_m)
+    mmf_up = recouple(kept_mmf_marg, rx_mmf.detector, rx_mmf.aperture_m,
+                      rx_mmf.obscuration_ratio, lam)
+    mmf_up_full = recouple(kept_mmf_marg, rx_mmf.detector, rx_mmf.aperture_m,
+                           rx_mmf.obscuration_ratio, lam, compact=False)
+    assert np.all((mmf_up > 0.0) & (mmf_up <= 1.0)), mmf_up
+    assert np.array_equal(mmf_up, mmf_up_full), (mmf_up, mmf_up_full)
+    assert np.all(np.abs(mmf_up / mmf_run - 1.0) > 0.01), (mmf_up, mmf_run)
 
     # ---- 7c2. the CROP route agrees with the FULL-GRID route ----
     # The crop holds every stored pixel, and it keeps the centre pixel and the

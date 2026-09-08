@@ -1924,15 +1924,19 @@ run log, a memory note or a backlog aside is not documented.
   and it changes with the pupil pixel size, so the MMF mean wiggles with
   turbulence when it should hold near `(NA/NA_optic)^2` (Section 6a). The focal
   field of view `lambda*f/dx_pupil` can also fall below the core. The cure is
-  `mmf_coupling_efficiency(..., upsample=M)` (docs/api-waveoptics.md Section 4a):
-  it Fourier-interpolates the pupil to a finer pixel before the aperture clip,
-  the NA gate and the focus, so the gate resolves and the focal field of view
-  holds the core. The input field MUST carry MARGIN beyond the aperture, so a
-  campaign stored for post-hoc MMF re-coupling must use a patch radius LARGER
-  than the aperture. The `olb/waveoptics/mmf.py` self-check measures the effect:
-  on a coarse pupil the pixelized gate scatters over a wide spread, while
-  `upsample=8` holds near the analytic `(NA/NA_optic)^2` and agrees across
-  upsample factors.
+  the `upsample` factor of `mmf_coupling_efficiency`
+  (docs/api-waveoptics.md Section 4a): it Fourier-interpolates the pupil to a
+  finer pixel before the aperture clip, the NA gate and the focus, so the gate
+  resolves and the focal field of view holds the core. It defaults to `"auto"`,
+  which is MARGIN-AWARE: it resolves to no interpolation (bit-identical) for a
+  pre-clipped field with no margin or when a mask is passed, and it sizes the
+  factor from the geometry otherwise. `Campaign.recouple` of an MMF detector
+  engages it on its own, so the fix is on by default WHEN the campaign stored a
+  patch radius LARGER than the aperture; the input field MUST carry that margin,
+  or the aperture edge interpolates with a Gibbs ring. The
+  `olb/waveoptics/mmf.py` self-check measures the effect: on a coarse pupil the
+  pixelized gate scatters over a wide spread, while the upsampled read holds near
+  the analytic `(NA/NA_optic)^2` and agrees across upsample factors.
 
 ### 9e. Is the aperture-averaged lognormal power draw trustworthy?
 

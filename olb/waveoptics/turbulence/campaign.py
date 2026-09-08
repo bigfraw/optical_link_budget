@@ -463,7 +463,21 @@ class Campaign:
                            given, else half the aperture of the clip terminal
                            (run.clip_terminal: the ground terminal of a space
                            scenario in every direction, the receive terminal
-                           of a terrestrial one).
+                           of a terrestrial one). The None default stores a disc
+                           at EXACTLY the aperture radius, so it carries NO
+                           margin beyond the aperture. A post-hoc MMF re-couple
+                           (recouple with an MMF detector) then falls back to the
+                           coarse M=1 focus, because the auto pupil upsample
+                           needs margin (see olb.waveoptics.mmf and
+                           run._PostTail.eta). A campaign meant for post-hoc MMF
+                           re-coupling on a coarse pupil must pass an EXPLICIT
+                           patch_radius_m LARGER than the aperture radius (about
+                           1.5x), so the stored field carries margin and the
+                           auto upsample engages. The None default is NOT widened
+                           to add margin, because patch_radius_m is checked in
+                           the stored manifest and a reopen with None recomputes
+                           it; a wider default would make every existing default
+                           campaign fail to reopen.
             sizing_aperture_m: an optional LARGER receive aperture that sizes
                            the grid. The trials still run with the original
                            scenario. Use it to store one field that serves every
@@ -559,6 +573,12 @@ class Campaign:
         self.store_screen_phase = bool(store_screen_phase)
 
         if patch_radius_m is None:
+            # The default stores a disc at EXACTLY the aperture radius (no
+            # margin). It is NOT widened for post-hoc MMF margin, because a
+            # reopen with patch_radius_m=None recomputes this value and
+            # _check_manifest compares it against the stored manifest. A wider
+            # default would raise on every existing default campaign. For a
+            # post-hoc MMF re-couple pass an EXPLICIT larger patch_radius_m.
             base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
                     else clip_terminal(scenario).aperture_m)
             patch_radius_m = float(base) / 2.0

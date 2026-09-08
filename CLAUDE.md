@@ -206,18 +206,27 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   coupling: `focal_intensity` and `mmf_coupling_efficiency`, both of which take a
   `defocus_m` (the plane z = f + defocus_m, a quadratic pupil phase of SIGN
   `exp(-i*pi*defocus_m*rho^2/(lam*f^2))`, so a DIVERGING received beam couples
-  best at a POSITIVE defocus_m), and both take an `upsample=1` (2026-09-08): the
+  best at a POSITIVE defocus_m), and both take an `upsample` (2026-09-08): the
   COARSE-PUPIL cure. A wave receive field is often only 8 to 13 px across the
   aperture, so the NA gate `rho<=f*NA` is a SUB-PIXEL hard mask (the gated
   annulus is thinner than a pixel) and the MMF eta wiggles with turbulence
   instead of holding near `(NA/NA_optic)^2`; the focal FoV `lam*f/dx_pupil` can
   also fall below the core. `upsample=M>1` Fourier-interpolates the pupil to M*N
-  px at the same side BEFORE the clip, the gate and the focus (default 1 is
-  BIT-IDENTICAL), so the gate resolves and the FoV grows by M; at M>1
-  `mmf_coupling_efficiency` clips the aperture INTERNALLY from `aperture_m` and a
-  passed `mask` raises, and the input field MUST carry MARGIN beyond the aperture
-  (a campaign for post-hoc MMF re-coupling stores a patch radius > the aperture).
-  See `docs/api-waveoptics.md` Section 4a and `docs/physics.md` Section 9d),
+  px at the same side BEFORE the clip, the gate and the focus, so the gate
+  resolves and the FoV grows by M; at M>1 `mmf_coupling_efficiency` clips the
+  aperture INTERNALLY from `aperture_m` (annular when `obscuration_ratio>0`) and
+  a passed `mask` raises. `mmf_coupling_efficiency` DEFAULTS to `upsample="auto"`
+  (2026-09-08): margin-aware, it resolves to M=1 (BIT-IDENTICAL) for a
+  pre-clipped/no-margin field or with a mask, and it sizes M from the geometry
+  (FoV >= ~3x core, NA annulus >= ~4 px, cap 16, power of two) otherwise. So
+  `Campaign.recouple` of an MMF engages it on its own (its tail hands the
+  UNCLIPPED patch), on by default WHEN the campaign stored a patch radius > the
+  aperture; the input field MUST carry that MARGIN or the edge rings. The
+  campaign DEFAULT patch radius is the aperture radius (NO margin, kept to not
+  break reopening old stores), so an MMF re-coupling campaign passes an explicit
+  larger `patch_radius_m`. The in-run scalar `mmf_eta` and the CUDA tail pass
+  pre-clipped fields, so they resolve to M=1 and are UNCHANGED. See
+  `docs/api-waveoptics.md` Section 4a and `docs/physics.md` Section 9d),
   `camera.py` (the focal-plane array:
   `camera_image` bins the focused spot onto the square camera pixels, and
   `spot_metrics` -> `SpotMetrics` gives the centroid, the second-moment radius

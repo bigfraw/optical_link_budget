@@ -287,7 +287,8 @@ inside that disk. So the coupled fraction is the ENCIRCLED ENERGY of the focal
 spot inside the core.
 
 - `mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
-  numerical_aperture=None, mask=None, defocus_m=0.0, upsample=1)` — the
+  numerical_aperture=None, mask=None, defocus_m=0.0, obscuration_ratio=0.0,
+  upsample="auto")` — the
   power fraction that couples into a
   multimode fibre, a float between 0 and 1. It is `eta = P_core / P_total`.
   `P_total` is the total collected pupil power. `P_core` is the detector-plane
@@ -297,12 +298,13 @@ spot inside the core.
   turbulent tilt walks the focused spot off the core on its own; the fade is
   intrinsic. The receive MECHANICAL jitter is NOT in this efficiency (it is a
   separate analytic Term), so this eta is a turbulence-only quantity.
-  `aperture_m` is the pupil DIAMETER; with `upsample=1` it sets the
+  `aperture_m` is the pupil DIAMETER; when `upsample` resolves to 1 it sets the
   defocused-spot window guard only (the caller clips to the aperture first, or
   passes `mask`). An
   optional `mask` multiplies the field first. A field with no power raises
   `ValueError`. The function WARNS when the core spans fewer than about 3 focal
-  pixels. `upsample` (default 1) is the coarse-pupil cure — see below.
+  pixels. `obscuration_ratio` builds an ANNULAR aperture clip in the upsample
+  path only. `upsample` defaults to `"auto"`, the coarse-pupil cure — see below.
 - `focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
   defocus_m=0.0, upsample=1)` —
   the shared helper that both `mmf_coupling_efficiency` and the example scripts
@@ -367,18 +369,38 @@ aperture. Two things then go wrong for a LARGE core:
 - The focal field of view `lambda*f/dx_pupil` can be SMALLER than the core, so
   the focal plane cannot hold the core disk.
 
-`upsample=M` (an integer, default 1) cures both. `upsample=1` is bit-identical to
-the old call. `M > 1` interpolates the pupil field to `M*N` pixels at the SAME
-grid side (a sinc/Fourier interpolation, so it adds NO new spatial frequency),
-BEFORE the aperture clip, the NA gate, the defocus and the focus. The finer pixel
-resolves the gate, and the focal field of view grows by `M` and holds the core.
-With `M > 1`, `mmf_coupling_efficiency` clips the aperture INTERNALLY from
-`aperture_m` (radius `aperture_m/2`) on the fine grid, and a passed `mask` raises
-`ValueError` (a coarse mask does not map to the fine grid); `focal_intensity`
-with `M > 1` and a `mask` raises for the same reason. The input field MUST carry
-MARGIN beyond the aperture (the field is defined past `aperture_m/2`), or the
-aperture edge interpolates with a Gibbs ring. So a campaign that stores fields
-for post-hoc MMF re-coupling must store a patch radius LARGER than the aperture.
+`upsample` cures both. `mmf_coupling_efficiency` defaults to `upsample="auto"`;
+`focal_intensity` defaults to `upsample=1` (a diagnostic caller opts in with an
+int). An explicit integer `M` still works.
+
+`"auto"` is MARGIN-AWARE and it resolves to `M=1` (bit-identical, no
+interpolation) in three cases: a `mask` is passed, or the field carries NO
+energy in the annulus `aperture_m/2 < rho <= field.siz/2` (no margin), or the
+pupil is already fine enough. So every caller that hands a pre-clipped,
+aperture-sized field (the in-run coupling, the vacuum Term, the camera) stays
+bit-identical. When margin IS present and no `mask` is given, `"auto"` sizes the
+factor from the geometry: `M` grows the focal field of view to at least about
+`3 * (2*core_radius_m)`, and it spans the NA annulus (`aperture_m/2 - f*NA`) with
+about 4 fine pixels; it is capped at `UPSAMPLE_MAX = 16` and rounded up to a
+power of two.
+
+`M > 1` interpolates the pupil field to `M*N` pixels at the SAME grid side (a
+sinc/Fourier interpolation, so it adds NO new spatial frequency), BEFORE the
+aperture clip, the NA gate, the defocus and the focus. The finer pixel resolves
+the gate, and the focal field of view grows by `M` and holds the core. With
+`M > 1`, `mmf_coupling_efficiency` clips the aperture INTERNALLY from `aperture_m`
+(an ANNULAR clip when `obscuration_ratio > 0`) on the fine grid, and a passed
+`mask` raises `ValueError`; `focal_intensity` with `M > 1` and a `mask` raises for
+the same reason. The input field MUST carry MARGIN beyond the aperture, or the
+aperture edge interpolates with a Gibbs ring.
+
+`Campaign.recouple` of an MMF detector engages `"auto"` on its own: the recouple
+tail hands the UNCLIPPED stored patch to `mmf_coupling_efficiency`. So it
+upsamples when the campaign stored a patch radius LARGER than the aperture, and
+it falls back to the old pixelized result when the patch sits at the aperture
+radius. The campaign default patch radius is the aperture radius (NO margin), so
+a campaign meant for post-hoc MMF re-coupling MUST pass an explicit
+`patch_radius_m` larger than the aperture radius.
 
 ### 4b. The focal-plane camera (`olb/waveoptics/camera.py`)
 

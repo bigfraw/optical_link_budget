@@ -34,6 +34,127 @@ import numpy as np
 
 from .field import Begin
 
+# The auto-upsample constants. See _resolve_auto_factor.
+# UPSAMPLE_MAX caps the factor, so a very coarse pupil does not build a huge
+# fine grid. K_CORE asks the focal field of view to hold the core with room:
+# the field of view must span at least K_CORE core diameters. N_ANN asks the
+# numerical-aperture annulus to span at least N_ANN fine pixels, so the gate
+# edge is not a sub-pixel step. MARGIN_ENERGY_FRACTION is the relative energy
+# in the outer annulus that marks a field with usable margin beyond the
+# aperture. These are numerical sampling choices, not physics, so they carry no
+# citation.
+UPSAMPLE_MAX = 16
+K_CORE = 3.0
+N_ANN = 4.0
+MARGIN_ENERGY_FRACTION = 1e-9
+
+
+def _next_power_of_two(m):
+    """Give the smallest power of two that is not less than m.
+
+    m is a positive integer. This is a numerical FFT-friendly rounding step,
+    not a physics equation.
+    """
+    m = int(m)
+    if m < 1:
+        return 1
+    return 1 << (m - 1).bit_length()
+
+
+def _has_margin(field, aperture_m):
+    """Say if the field carries usable energy beyond the aperture radius.
+
+    The auto upsample builds the aperture clip on the fine grid, so it needs
+    the field to be defined PAST the aperture radius. A field that is already
+    zero outside the aperture (a hard-clipped disc) has no margin: its fine
+    aperture edge would ring (Gibbs). The test measures the energy in the outer
+    annulus aperture_m/2 < rho <= field.siz/2 as a fraction of the total. The
+    field has margin when that fraction is above MARGIN_ENERGY_FRACTION. This is
+    a numerical test of the stored field, not a physics equation.
+
+    Args:
+        field:      the pupil-plane Field.
+        aperture_m: the aperture DIAMETER, in m.
+
+    Returns:
+        True when the field has usable margin, False otherwise.
+    """
+    half_side = field.siz / 2.0
+    a_rad = aperture_m / 2.0
+    # No annulus exists when the aperture reaches the grid edge.
+    if half_side <= a_rad:
+        return False
+    rho2 = field.mgrid_Rsquared
+    annulus = (rho2 > a_rad ** 2) & (rho2 <= half_side ** 2)
+    e2 = np.abs(field.field) ** 2
+    total = float(e2.sum())
+    if total == 0.0:
+        return False
+    return float(e2[annulus].sum()) > MARGIN_ENERGY_FRACTION * total
+
+
+def _resolve_auto_factor(upsample, field, aperture_m, core_radius_m,
+                         focal_length_m, numerical_aperture, mask):
+    """Resolve the upsample argument to an integer factor M.
+
+    An explicit integer passes through. The string "auto" resolves to M as
+    follows, and it MUST give M = 1 (the bit-identical no-upsample path) when:
+      - a mask is passed (the caller pre-clips, so the coarse mask cannot map
+        to a fine grid), OR
+      - the field has no usable margin beyond the aperture (see _has_margin),
+        so a fine aperture clip would ring, OR
+      - the pupil is already fine enough (the criteria below give M <= 1).
+
+    The auto formula, when margin exists and no mask is passed:
+      - The focal field of view at M = 1 is fov = lambda*f/dx_pupil, with
+        dx_pupil = field.siz/field.N. The field of view must hold the core with
+        room: M_fov = ceil(K_CORE * 2*core_radius_m / fov). This is a sampling
+        choice, not a physics equation.
+      - The numerical-aperture annulus (only when numerical_aperture is not
+        None) is aperture_m/2 - f*numerical_aperture. When it is positive the
+        gate edge must span several fine pixels: M_na = ceil(N_ANN * dx_pupil /
+        annulus). A non-positive annulus needs no refinement (M_na = 1).
+      - M = max(1, M_fov, M_na), capped at UPSAMPLE_MAX, then rounded UP to the
+        next power of two (FFT-friendly).
+
+    Args:
+        upsample:           an integer, or the string "auto".
+        field:              the pupil-plane Field.
+        aperture_m:         the aperture DIAMETER, in m.
+        core_radius_m:      the fibre core radius, in m.
+        focal_length_m:     the focal length of the coupling optic, in m.
+        numerical_aperture: the fibre numerical aperture, or None.
+        mask:               the optional pupil mask (the pre-clip flag).
+
+    Returns:
+        The integer factor M (M >= 1).
+
+    Raises:
+        ValueError: upsample is a string other than "auto".
+    """
+    if not isinstance(upsample, str):
+        return int(upsample)
+    if upsample != "auto":
+        raise ValueError(
+            f"mmf upsample: the only string value is 'auto', not {upsample!r}. "
+            "Pass an integer or 'auto'.")
+    # The bit-identical fallbacks: a pre-clip mask, or a field with no margin.
+    if mask is not None:
+        return 1
+    if not _has_margin(field, aperture_m):
+        return 1
+    dx_pupil = field.siz / field.N
+    fov = field.lam * focal_length_m / dx_pupil
+    m_fov = int(np.ceil(K_CORE * (2.0 * core_radius_m) / fov))
+    m_na = 1
+    if numerical_aperture is not None:
+        annulus = aperture_m / 2.0 - focal_length_m * numerical_aperture
+        if annulus > 0.0:
+            m_na = int(np.ceil(N_ANN * dx_pupil / annulus))
+    m = max(1, m_fov, m_na)
+    m = min(m, UPSAMPLE_MAX)
+    return _next_power_of_two(m)
+
 
 def _fourier_upsample(E, factor):
     """Interpolate a band-limited complex field onto a finer pixel grid.
@@ -177,14 +298,19 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
                             mask.
         defocus_m:          the detector offset from the focal plane, in m
                             (z = f + defocus_m). 0.0 is the focal plane.
-        upsample:           the integer Fourier-interpolation factor M. M = 1
-                            (the default) is the plain focus, bit-identical to
-                            before. M > 1 first interpolates the pupil field to
-                            M*N pixels at the same grid side (see
-                            _fourier_upsample), so the NA gate resolves on a
-                            finer pixel and the focal field of view grows by M.
-                            M > 1 with a `mask` raises, because a coarse mask
-                            cannot map to the fine grid.
+        upsample:           the Fourier-interpolation factor M, an integer or
+                            the string "auto". M = 1 (the default) is the plain
+                            focus, bit-identical to before. M > 1 first
+                            interpolates the pupil field to M*N pixels at the
+                            same grid side (see _fourier_upsample), so the NA
+                            gate resolves on a finer pixel and the focal field
+                            of view grows by M. M > 1 with a `mask` raises,
+                            because a coarse mask cannot map to the fine grid.
+                            "auto" resolves to M = 1 here: this helper does not
+                            know the core radius or the numerical aperture, so
+                            it cannot size a factor. The caller
+                            mmf_coupling_efficiency sizes M and passes an
+                            integer.
 
     Returns:
         A tuple (If, dx_focal). If is the (M*N) x (M*N) intensity |A|^2 at the
@@ -192,12 +318,21 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
         change it: dx_focal = lambda*f/siz and the grid side siz is unchanged).
 
     Raises:
-        ValueError: upsample > 1 and a mask is given.
+        ValueError: upsample > 1 and a mask is given, or upsample is a string
+                    other than "auto".
 
     Note:
         norm='ortho' keeps Parseval exact, so sum(If) equals the summed power of
         the gated pupil field. The defocus phase keeps the power.
     """
+    if isinstance(upsample, str):
+        if upsample != "auto":
+            raise ValueError(
+                f"focal_intensity: the only string upsample is 'auto', not "
+                f"{upsample!r}.")
+        # "auto" cannot size a factor without the core and the NA. So it is the
+        # plain focus. mmf_coupling_efficiency does the sizing and passes an int.
+        upsample = 1
     if upsample != 1:
         # A coarse mask does not map to the fine grid, and masking BEFORE the
         # interpolation re-adds the Gibbs edge. The only in-repo upsampling
@@ -249,7 +384,7 @@ def focal_intensity(field, focal_length_m, numerical_aperture=None, mask=None,
 
 def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                             numerical_aperture=None, mask=None, defocus_m=0.0,
-                            upsample=1):
+                            obscuration_ratio=0.0, upsample="auto"):
     """Calculate the power fraction that couples into a multimode fibre.
 
     eta = P_core / P_total. P_total is the collected pupil power. P_core is the
@@ -295,12 +430,20 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
     the field: the caller pre-clips the field or passes `mask`, and aperture_m
     is the defocus-window guard only. With upsample>1 a coarse mask cannot map
     to the fine grid, and masking before the interpolation re-adds the Gibbs
-    edge, so this function builds the circular aperture clip INTERNALLY on the
-    fine grid from aperture_m (radius aperture_m/2). So the input field MUST
-    carry MARGIN beyond the aperture (the field is defined past aperture_m/2),
-    or the aperture edge upsamples with a Gibbs ripple; the caller stores a
-    patch radius wider than the aperture. Passing BOTH `mask` and upsample>1
-    raises.
+    edge, so this function builds the ANNULAR aperture clip INTERNALLY on the
+    fine grid from aperture_m and obscuration_ratio ((aperture_m/2)^2 >= rho^2
+    >= (obscuration_ratio*aperture_m/2)^2). So the input field MUST carry MARGIN
+    beyond the aperture (the field is defined past aperture_m/2), or the
+    aperture edge upsamples with a Gibbs ripple; the caller stores a patch
+    radius wider than the aperture. Passing BOTH `mask` and upsample>1 raises.
+
+    THE AUTO FACTOR. upsample="auto" (the default) sizes M from the pupil pixel,
+    the core and the numerical aperture (see _resolve_auto_factor). It is SAFE:
+    it falls back to M=1 (the bit-identical path) when a mask is passed, when
+    the field has no margin beyond the aperture (see _has_margin), or when the
+    pupil is already fine enough. So an existing caller that pre-clips the field
+    (a hard disc, no margin) gets the exact old number. A caller that stores a
+    field with margin gets the upsample fix with no code change.
 
     Args:
         field:              the received PUPIL-plane Field. The caller clips it
@@ -321,13 +464,22 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                             (z = f + defocus_m). 0.0 is the focal plane. A
                             non-zero value grows the spot, so a fixed core
                             captures less.
-        upsample:           the integer Fourier-interpolation factor M. M = 1
-                            (the default) is bit-identical to before: the caller
+        obscuration_ratio:  the central obscuration of the aperture, a fraction
+                            of the aperture radius. It builds an ANNULAR clip on
+                            the fine grid when M > 1. It defaults to 0.0 (a full
+                            disc). It has no effect when M resolves to 1 (the
+                            caller supplies the clip then).
+        upsample:           the Fourier-interpolation factor M, an integer or
+                            the string "auto". "auto" (the default) sizes M and
+                            falls back to M = 1 when it cannot help (see
+                            _resolve_auto_factor and the auto-factor note
+                            above). M = 1 is bit-identical to before: the caller
                             supplies the aperture clip through `mask` or a
                             pre-clipped field. M > 1 interpolates the field to
-                            M*N pixels and builds the aperture clip internally
-                            from aperture_m (see the coarse-pupil note above).
-                            M > 1 with a `mask` raises.
+                            M*N pixels and builds the annular aperture clip
+                            internally from aperture_m and obscuration_ratio
+                            (see the coarse-pupil note above). M > 1 with a
+                            `mask` raises.
 
     Returns:
         The coupling efficiency, a float between 0 and 1. It is the fraction of
@@ -335,13 +487,20 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
         numerical-aperture gate loss.
 
     Raises:
-        ValueError: the field carries no power, or upsample > 1 with a mask.
+        ValueError: the field carries no power, upsample > 1 with a mask, or
+                    upsample is a string other than "auto".
 
     Note:
         By Parseval with norm='ortho', sum(|A|^2) = sum(|Eg|^2) <= P_total, and
         P_core <= sum(|A|^2). So eta stays in [0, 1]. The M*M amplitude gain of
         the upsample cancels in the ratio P_core/P_total.
     """
+    # Resolve "auto" (or an explicit int). "auto" gives M=1 (the bit-identical
+    # path) when a mask is passed, when the field has no margin, or when the
+    # pupil is already fine. See _resolve_auto_factor.
+    upsample = _resolve_auto_factor(upsample, field, aperture_m, core_radius_m,
+                                    focal_length_m, numerical_aperture, mask)
+
     if upsample != 1:
         # The fine grid cannot read a coarse mask, and a mask before the
         # interpolation re-adds the Gibbs edge. So build the aperture clip
@@ -353,8 +512,14 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                 'Pass the unmasked field with margin beyond the aperture; the '
                 'aperture clip is built internally from aperture_m.')
         field = _upsampled_field(field, upsample)
-        # The circular aperture clip on the fine grid, radius aperture_m/2.
-        mask = field.mgrid_Rsquared <= (aperture_m / 2.0) ** 2
+        # The ANNULAR aperture clip on the fine grid: it keeps the pixels
+        # (aperture_m/2)^2 >= rho^2 >= (obscuration_ratio*aperture_m/2)^2. With
+        # obscuration_ratio=0.0 (the default) the lower bound is zero, so it is
+        # the full disc, the same clip as before.
+        rho2 = field.mgrid_Rsquared
+        mask = rho2 <= (aperture_m / 2.0) ** 2
+        if obscuration_ratio > 0.0:
+            mask &= rho2 >= (obscuration_ratio * aperture_m / 2.0) ** 2
 
     E = field.field
     if mask is not None:
@@ -614,6 +779,68 @@ if __name__ == '__main__':
     If_up, dx_up = focal_intensity(flat, f, upsample=2)
     assert If_up.shape == (2 * N, 2 * N), If_up.shape
     assert np.isclose(dx_up, lam * f / size), (dx_up, lam * f / size)
+    # focal_intensity "auto" resolves to M=1 (it does not know the core or NA).
+    If_a, _ = focal_intensity(flat, f, upsample='auto')
+    If_1, _ = focal_intensity(flat, f, upsample=1)
+    assert np.array_equal(If_a, If_1), 'focal_intensity auto must equal M=1'
+
+    # --- the AUTO factor: safe, margin-aware, default ON --------------------
+    # (a) A hard-clipped COARSE field has NO margin beyond the aperture (the
+    # field is zero outside the aperture disc), so "auto" MUST fall back to
+    # M=1, bit-identical to the old default path.
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        pw_c = PlaneWave(Begin(size_c, lam_c, 34), D_c)
+        assert not _has_margin(pw_c, D_c), 'a hard-clipped field has no margin'
+        assert _resolve_auto_factor('auto', pw_c, D_c, core_c, f_c,
+                                    NA_c, None) == 1
+        eta_auto_clip = mmf_coupling_efficiency(pw_c, D_c, core_c, f_c,
+                                                numerical_aperture=NA_c,
+                                                upsample='auto')
+        eta_one_clip = mmf_coupling_efficiency(pw_c, D_c, core_c, f_c,
+                                               numerical_aperture=NA_c,
+                                               upsample=1)
+    assert eta_auto_clip == eta_one_clip, (eta_auto_clip, eta_one_clip)
+
+    # (b) A MARGINED coarse field (a uniform field, NOT clipped, so it carries
+    # energy in the annulus past the aperture radius) makes "auto" pick M>1.
+    # The auto eta then matches the fixed upsample=8 value and the analytic
+    # (NA/NA_optic)^2, so the safe default engages the fix on its own.
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        auto_etas = []
+        auto_factors = []
+        for Ng in grids:
+            full = Begin(size_c, lam_c, Ng)
+            assert _has_margin(full, D_c), 'a uniform field must have margin'
+            M = _resolve_auto_factor('auto', full, D_c, core_c, f_c,
+                                     NA_c, None)
+            assert M > 1, (Ng, M)
+            auto_factors.append(M)
+            auto_etas.append(mmf_coupling_efficiency(full, D_c, core_c, f_c,
+                                                     numerical_aperture=NA_c,
+                                                     upsample='auto'))
+    auto_etas = np.array(auto_etas)
+    # The auto eta agrees with the fixed upsample=8 value.
+    assert np.all(np.abs(auto_etas - e8s) < 0.03), (auto_etas, e8s)
+    # The auto eta is close to the analytic NA-mismatch value.
+    assert np.all(np.abs(auto_etas - eta_analytic) < 0.05), \
+        (auto_etas, eta_analytic)
+
+    # (c) The obscuration annular clip path runs on the fine grid. It removes
+    # the central pupil, so it gives a valid efficiency in (0, 1] that differs
+    # from the full disc of the same diameter.
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        full_ob = Begin(size_c, lam_c, 34)
+        eta_disc = mmf_coupling_efficiency(full_ob, D_c, core_c, f_c,
+                                           numerical_aperture=NA_c,
+                                           obscuration_ratio=0.0, upsample=8)
+        eta_obsc = mmf_coupling_efficiency(full_ob, D_c, core_c, f_c,
+                                           numerical_aperture=NA_c,
+                                           obscuration_ratio=0.3, upsample=8)
+    assert 0.0 < eta_obsc <= 1.0, eta_obsc
+    assert eta_obsc != eta_disc, (eta_obsc, eta_disc)
 
     print(f"pupil diameter D        {D * 1e3:9.2f} mm")
     print(f"focal length f          {f * 1e3:9.1f} mm")
@@ -636,4 +863,13 @@ if __name__ == '__main__':
     print(f"  upsample=4                 {e4s.min():.4f} to {e4s.max():.4f}")
     print(f"  upsample=8                 {e8s.min():.4f} to {e8s.max():.4f}"
           f"  (spread {spread8:.4f})")
+    print("")
+    print("auto factor (margin-aware, default ON):")
+    print(f"  clipped field (no margin)  auto -> M=1, eta {eta_auto_clip:.4f} "
+          f"== M=1 {eta_one_clip:.4f}")
+    print(f"  margined field factors     {auto_factors}")
+    print(f"  margined auto              {auto_etas.min():.4f} to "
+          f"{auto_etas.max():.4f}  (analytic {eta_analytic:.4f})")
+    print(f"  obscured (0.3) annular     {eta_obsc:.4f}  (full disc "
+          f"{eta_disc:.4f})")
     print("mmf coupling self-check passed")
