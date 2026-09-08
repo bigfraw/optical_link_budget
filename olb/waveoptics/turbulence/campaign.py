@@ -1141,11 +1141,17 @@ class Campaign:
                                the scenario receive terminal.
             n_trials:          the number of trials. None takes every stored
                                trial.
-            source:            "screens", "slopes", or None. None follows the
-                               channel family: "screens" for a space link (the
-                               slab starts from a plane wave, so the summed
-                               screen phase IS the sensed wavefront) and
-                               "slopes" for a terrestrial link.
+            source:            "screens", "slopes", "gtilt", or None. None
+                               follows the channel family: "screens" for a
+                               space link (the slab starts from a plane wave, so
+                               the summed screen phase IS the sensed wavefront)
+                               and "slopes" for a terrestrial link. "gtilt"
+                               senses the tilt from the far-field centroid; it
+                               is tilt-only, pairs with a TipTilt() stack, and
+                               is an opt-in model of a centroid tracker (the
+                               validation showed it does not beat the slopes).
+                               See
+                               olb.waveoptics.turbulence.run.recouple_compensated.
             workers:           None runs in this process. An int or "auto"
                                opens a process pool (see `map_trials`).
             compact:           True reads on the crop (the default). False

@@ -1799,31 +1799,41 @@ class _PostCorrector:
             compensation:      a sequence of TipTilt and AO stages.
             aperture_m:        the receive aperture diameter, in m.
             obscuration_ratio: the central obscuration of that aperture.
-            source:            "screens" or "slopes".
+            source:            "screens", "slopes", "gtilt", or "auto".
             compact:           True works on the crop. False works on the full
                                grid.
 
         Raises:
-            ValueError: the source name is unknown, or the stack removes no
-                        mode.
+            ValueError: the source name is unknown, the stack removes no mode,
+                        or a tilt-only source (gtilt, auto) is asked for a
+                        higher-order stack.
         """
-        if source not in ("screens", "slopes"):
+        if source not in ("screens", "slopes", "gtilt"):
             raise ValueError(
-                "recouple_compensated: source must be 'screens' or 'slopes', "
-                f"not {source!r}.")
+                "recouple_compensated: source must be 'screens', 'slopes', or "
+                f"'gtilt', not {source!r}.")
         n_modes = modes_from_stack(compensation)
         if n_modes < 1:
             raise ValueError(
                 "recouple_compensated: the compensation stack removes no "
                 "mode. Pass a TipTilt or an AO(n) stage.")
+        if source == "gtilt" and n_modes > 3:
+            raise ValueError(
+                f"recouple_compensated: source={source!r} senses only tip and "
+                f"tilt, but the stack removes {n_modes} modes. Use a TipTilt() "
+                "stack, or source='slopes' for a higher-order fit.")
         self.patch = patch
         self.source = source
         self.n_modes = n_modes
         self.compact = bool(compact)
         crop = patch.crop()
         self.side = crop.side if self.compact else int(patch.n)
-        n_fit = (n_modes if source == "screens"
-                 else max(n_modes, SLOPE_MIN_MODES))
+        # The screen route fits exactly the removed modes. The slope route
+        # fits a longer set and zeros the extra (SLOPE_MIN_MODES). The auto
+        # route needs the slope reconstructor, so it fits the longer set too.
+        # The gtilt route is tilt-only, so it fits just the tilt.
+        n_fit = ({"screens": n_modes, "gtilt": max(n_modes, 3)}
+                 .get(source, max(n_modes, SLOPE_MIN_MODES)))
         self.modes = ApertureModes(
             n_fit, self.side,
             circle(self.side, aperture_m / patch.pixel_m, obscuration_ratio))
@@ -1854,8 +1864,16 @@ class _PostCorrector:
                    else self.patch.indices)
             flat[idx] = screen_phase
             coeffs = self.modes.estimate(flat[self.modes.indices])
+        elif self.source == "gtilt":
+            coeffs = self.modes.estimate_gtilt(array)
+            coeffs[self.n_modes:] = 0.0
         else:
-            sx, sy = wrapped_gradient(array)
+            # "slopes". The step is measured over the APERTURE MASK: on the
+            # stored crop the pixels outside the patch disc are zero, so an
+            # unmasked slope would read the disc edge, not the turbulence.
+            # Masking a pair leaves the both-in-mask pairs unchanged, so the
+            # fit is bit-identical to the unmasked route.
+            sx, sy = wrapped_gradient(array, mask=self.modes.mask)
             coeffs = self.modes.estimate_from_slopes(sx, sy)
             coeffs[self.n_modes:] = 0.0
         return self.modes.apply(array, coeffs, sign=-1)
@@ -1925,6 +1943,17 @@ def recouple_compensated(result, compensation, detector, aperture_m,
     TERRESTRIAL source. The slope route fits at least SLOPE_MIN_MODES modes and
     it zeros the extra coefficients, exactly as the runner does.
 
+    source="gtilt" reads the GRADIENT (centroid) tilt of the stored field from
+    the far-field centroid (see `olb.waveoptics.compensation.gtilt`). It never
+    unwraps a phase, so it does not alias a local phase step. It is TILT-ONLY,
+    so it pairs with a TipTilt() stack and raises for a stack that removes more
+    than the 3 tip-tilt modes. IT IS AN OPT-IN, NOT A DEFAULT: the terrestrial
+    campaign study (validation/gtilt_sensing) MEASURED it against the slope
+    route over sigma_R^2 = 0.21 to 13.56 and it never wins, because the slope
+    least-squares fit is robust to aliased pixels for the low-order tilt, and
+    the far-field centroid is speckle-noisy in strong scintillation. So it is
+    kept only as a faithful model of a real focal-plane centroid tracker.
+
     THE CROP RULE. The correction and the coupling run on the square crop of
     the stored patch, because both are PUPIL-plane quantities. The modal basis
     and the slope reconstructor are built ONE time for the whole call. See
@@ -1937,7 +1966,7 @@ def recouple_compensated(result, compensation, detector, aperture_m,
         aperture_m:        the receive aperture diameter, in m.
         obscuration_ratio: the central obscuration of that aperture.
         lam:               the wavelength, in m.
-        source:            "screens" or "slopes".
+        source:            "screens", "slopes", or "gtilt".
         trials:            an optional sequence of trial row indices. None
                            takes every stored trial.
         compact:           True reads on the crop (the default). False reads on
@@ -1950,8 +1979,9 @@ def recouple_compensated(result, compensation, detector, aperture_m,
     Raises:
         ValueError: the result holds no field, the aperture is larger than the
                     stored patch, the stack is empty, the source name is
-                    unknown, or source="screens" and the result holds no stored
-                    screen phase.
+                    unknown, the tilt-only source "gtilt" is asked for a
+                    higher-order stack, or source="screens" and the result
+                    holds no stored screen phase.
     """
     _check_patch(result, aperture_m)
     corrector = _PostCorrector(result.patch, compensation, aperture_m,
@@ -2519,6 +2549,23 @@ if __name__ == '__main__':
             ao_store, [TipTilt()], ground_smf.detector, ground_smf.aperture_m,
             ground_smf.obscuration_ratio, lam, source=_src, compact=False)
         assert np.all(np.abs(_got / _full - 1.0) < 1e-6), (_src, _got, _full)
+
+    # THE G-TILT SOURCE runs on the stored field and it is TILT-ONLY. It
+    # removes a real tilt, so it stays in (0, 1).
+    post_gtilt = recouple_compensated(
+        ao_store, [TipTilt()], ground_smf.detector, ground_smf.aperture_m,
+        ground_smf.obscuration_ratio, lam, source="gtilt")
+    assert np.all(np.isfinite(post_gtilt) & (post_gtilt > 0.0)
+                  & (post_gtilt < 1.0)), post_gtilt
+    # A tilt-only source refuses a higher-order stack.
+    try:
+        recouple_compensated(
+            ao_store, [AO(n_modes=10)], ground_smf.detector,
+            ground_smf.aperture_m, ground_smf.obscuration_ratio, lam,
+            source="gtilt")
+        raise AssertionError("gtilt with AO(10) must raise")
+    except ValueError as exc:
+        assert "tip" in str(exc) and "tilt" in str(exc), str(exc)
 
     # V3 IN MINIATURE. The two sensing sources must give the same tip-tilt on a
     # SPACE link, where both are valid: the slab starts from a plane wave, so
