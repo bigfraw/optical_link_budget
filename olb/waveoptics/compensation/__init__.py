@@ -24,8 +24,10 @@ Modules:
     zernike.py  the Noll modes and the circular mask.
     modal.py    the ApertureModes projector and the stack-to-mode-count map.
     slopes.py   the wrapped-gradient slopes and their modal fit.
+    gtilt.py    the gradient (centroid) tilt, from the far-field centroid.
 """
 
+from .gtilt import far_field_tilt
 from .modal import ApertureModes, modes_from_stack
 from .slopes import SlopeReconstructor, max_abs_step, wrapped_gradient
 from .zernike import circle, mask_radius_px, noll_to_nm, zernike_basis, zernike_j
@@ -34,6 +36,7 @@ __all__ = [
     "ApertureModes",
     "SlopeReconstructor",
     "circle",
+    "far_field_tilt",
     "mask_radius_px",
     "max_abs_step",
     "modes_from_stack",

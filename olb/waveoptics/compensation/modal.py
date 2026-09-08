@@ -5,6 +5,7 @@ least-squares reconstructor of that basis. It gives four operations:
 
     estimate(phase)          -> the Noll coefficients of a sensed phase
     estimate_from_slopes()   -> the same coefficients from wrapped slopes
+    estimate_gtilt(field)    -> the tip and tilt from the far-field centroid
     reconstruct(coeffs)      -> the phase map of those coefficients
     apply(field, coeffs, s)  -> field * exp(s * 1j * reconstruct(coeffs))
 
@@ -34,6 +35,7 @@ printed p. 210. The self-check of this module measures that law.
 
 import numpy as np
 
+from .gtilt import far_field_tilt
 from .slopes import SlopeReconstructor, wrapped_gradient
 from .zernike import mask_radius_px, zernike_basis
 
@@ -178,6 +180,46 @@ class ApertureModes:
             self._slopes = SlopeReconstructor(self.n_modes, self.n, self.mask,
                                               radius_px=self.radius_px)
         return self._slopes.estimate(sx, sy)
+
+    def estimate_gtilt(self, field):
+        """Fit the tip and tilt to the G-tilt of a field.
+
+        The G-tilt is the intensity-weighted mean phase gradient over the
+        aperture, from the far-field intensity centroid. See
+        `olb.waveoptics.compensation.gtilt.far_field_tilt` and Tyler 1994,
+        DOI 10.1364/JOSAA.11.000358. The route reads the COMPLEX field, so it
+        never unwraps a phase and it does not alias a local phase step: it
+        senses the overall tilt where `estimate_from_slopes` aliases.
+
+        THE FIT IS TILT-ONLY. The far-field centroid gives the tip (Noll j = 2)
+        and the tilt (j = 3) and nothing higher. Every other coefficient,
+        piston included, is 0.0. So this route pairs with a TipTilt stage; it
+        does not sense a higher-order AO mode.
+
+        The Noll map: Z2 = 2 (x - c) / R over the aperture, so its column
+        gradient is 2 / R per pixel and the coefficient of a mean gradient g_x
+        is a2 = g_x R / 2, with R the aperture radius in pixels.
+
+        Args:
+            field: an (N, N) complex field, or the flat in-mask vector reshaped
+                   to the grid. It must be complex.
+
+        Returns:
+            A (n_modes,) array of the Noll coefficients, in radians. Only j = 2
+            and j = 3 are non-zero.
+        """
+        a = np.asarray(field)
+        if a.ndim == 1 and a.size == self.indices.size:
+            grid = np.zeros(self.n * self.n, dtype=a.dtype)
+            grid[self.indices] = a
+            a = grid.reshape(self.n, self.n)
+        gx, gy, _ = far_field_tilt(a, self.mask)
+        coeffs = np.zeros(self.n_modes, dtype=np.float64)
+        if self.n_modes >= 2:
+            coeffs[1] = gx * self.radius_px / 2.0
+        if self.n_modes >= 3:
+            coeffs[2] = gy * self.radius_px / 2.0
+        return coeffs
 
     def reconstruct(self, coeffs):
         """Give the phase map of a set of Noll coefficients.
@@ -354,6 +396,22 @@ if __name__ == '__main__':
     d = corrected[inside] * np.conj(field[inside])
     want = np.exp(-1j * mo.reconstruct(c1)[inside])
     assert np.abs(d - want).max() < 1e-4
+
+    # estimate_gtilt fits a KNOWN ramp to tip and tilt, and apply(-1) removes
+    # it. Only j = 2 and j = 3 are non-zero. This ties the G-tilt route to the
+    # correction path that the runner and recouple_compensated use.
+    mo3 = ApertureModes(6, N, mask)
+    cc = int(N / 2)
+    YY, XX = np.mgrid[:N, :N]
+    ramp = 0.22 * (XX - cc) - 0.13 * (YY - cc)             # rad, over the grid
+    ramp_field = (np.exp(1j * ramp) * mask).astype(np.complex64)
+    gt = mo3.estimate_gtilt(ramp_field)
+    assert np.abs(gt[[0, 3, 4, 5]]).max() == 0.0, gt        # tilt-only
+    left = mo3.apply(ramp_field, gt, sign=-1)
+    gx_left, gy_left, _ = far_field_tilt(left, mask)
+    print(f"estimate_gtilt: tip {gt[1]:+.3f}, tilt {gt[2]:+.3f} rad; "
+          f"residual g ({gx_left:+.4f}, {gy_left:+.4f}) rad/px")
+    assert abs(gx_left) < 5e-3 and abs(gy_left) < 5e-3, (gx_left, gy_left)
 
     # The stack map matches the count rule of olb.turbulence.ao.
     class TipTilt:
