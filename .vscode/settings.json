@@ -5,5 +5,7 @@
   // on GitHub), updated on every save.
   "markdown.extension.toc.levels": "2..3",
   "markdown.extension.toc.slugifyMode": "github",
-  "markdown.extension.toc.updateOnSave": true
+  "markdown.extension.toc.updateOnSave": true,
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
