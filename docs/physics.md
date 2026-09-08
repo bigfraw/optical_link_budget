@@ -1931,9 +1931,11 @@ run log, a memory note or a backlog aside is not documented.
   which is MARGIN-AWARE: it resolves to no interpolation (bit-identical) for a
   pre-clipped field with no margin or when a mask is passed, and it sizes the
   factor from the geometry otherwise. `Campaign.recouple` of an MMF detector
-  engages it on its own, so the fix is on by default WHEN the campaign stored a
-  patch radius LARGER than the aperture; the input field MUST carry that margin,
-  or the aperture edge interpolates with a Gibbs ring. The
+  engages it on its own, and the campaign DEFAULT patch radius now carries 1.5x
+  MARGIN, so the fix is on by default for a default campaign; a reopened campaign
+  reads its stored radius from the manifest, so the widened default never breaks
+  an older store. The stored field MUST carry that margin, or the aperture edge
+  interpolates with a Gibbs ring. The
   `olb/waveoptics/mmf.py` self-check measures the effect: on a coarse pupil the
   pixelized gate scatters over a wide spread, while the upsampled read holds near
   the analytic `(NA/NA_optic)^2` and agrees across upsample factors.

@@ -1450,8 +1450,14 @@ if __name__ == '__main__':
             warnings.simplefilter("ignore")
             live = run_fidelity2(down, orbit, n_trials=12, seed=7,
                                  preset="rapid", detectors=arms3, progress=False)
+            # Pin the patch to the aperture radius (NO margin), so the campaign
+            # recouple of the MMF arm stays on the pixelized M=1 focus and
+            # matches the in-run detector_etas of the live run. The widened
+            # default (margin -> auto upsample) is exercised by the campaign and
+            # mmf self-checks; here the point is the campaign-vs-live plumbing.
             camp = Campaign(down, orbit, root, seed=7, preset="rapid",
-                            block_size=4)
+                            block_size=4,
+                            patch_radius_m=down.ground.aperture_m / 2.0)
             assert camp.run(12) == 12, camp.n_stored
             stored = campaign_bundles(camp, arms3)
 

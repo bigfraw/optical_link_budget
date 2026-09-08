@@ -398,9 +398,11 @@ aperture edge interpolates with a Gibbs ring.
 tail hands the UNCLIPPED stored patch to `mmf_coupling_efficiency`. So it
 upsamples when the campaign stored a patch radius LARGER than the aperture, and
 it falls back to the old pixelized result when the patch sits at the aperture
-radius. The campaign default patch radius is the aperture radius (NO margin), so
-a campaign meant for post-hoc MMF re-coupling MUST pass an explicit
-`patch_radius_m` larger than the aperture radius.
+radius. The campaign DEFAULT patch radius now carries MARGIN
+(`PATCH_MARGIN_FACTOR = 1.5` times the aperture radius), so a default campaign's
+`recouple(MMF)` upsamples on its own. A REOPENED campaign reads its stored radius
+from the manifest, not the default, so the widened default never breaks an older
+store. Pass an explicit `patch_radius_m` to override.
 
 ### 4b. The focal-plane camera (`olb/waveoptics/camera.py`)
 
@@ -1366,15 +1368,20 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   `ValueError`.
 - `block_size` is the number of trials in one block. Block `b` holds the trials
   `b*block_size .. (b+1)*block_size - 1` of ONE native run.
-- `patch_radius_m` is the radius of the stored field disc, in m. `None` takes
-  `sizing_aperture_m / 2` when a sizing aperture is given, else half the
-  aperture of the CLIP terminal. The clip terminal is `run.clip_terminal`: the
+- `patch_radius_m` is the radius of the stored field disc, in m. `None` on a NEW
+  campaign takes `PATCH_MARGIN_FACTOR = 1.5` times `sizing_aperture_m / 2` when a
+  sizing aperture is given, else 1.5 times half the aperture of the CLIP
+  terminal. The clip terminal is `run.clip_terminal`: the
   ground terminal of a space scenario in EVERY direction (the field is always
   the downlink slab at the ground, and an uplink reads it through the Shapiro
   reciprocity overlap, DOI 10.1364/JOSA.61.000492), and the receive terminal of
   a terrestrial scenario. So the stored disc always covers the aperture the
   runner clipped (fixed 2026-09-05; before that an uplink read the SPACE
-  aperture, and its default patch was too small for its own fields).
+  aperture, and its default patch was too small for its own fields), plus the
+  1.5x MARGIN that a post-hoc MMF re-couple needs to upsample (see Section 4a).
+  `None` on a REOPENED campaign reads the stored radius from the manifest, NOT
+  the default, so a change of the default never breaks an older store. Pass an
+  explicit value to override the default.
 - `sizing_aperture_m` is an optional LARGER clip aperture that sizes the
   grid. It moves the same clip terminal. See the rule below.
 - `grid` is an optional `GridSpec`. The plan still comes from the `Cn2` inputs.
@@ -1557,6 +1564,10 @@ the old blocks.
 the patch radius and the sizing aperture must match the stored manifest. A
 different value raises `ValueError`, and the message names the field. A stored
 campaign is ONE physics case: use a new directory, or match the stored settings.
+The one exception is `patch_radius_m=None` on a reopen: it READS the stored
+radius from the manifest instead of the default, so a reopen with no explicit
+patch radius never mismatches, and a change of the default never breaks an older
+store.
 
 #### `workers`: ONE level of parallelism
 

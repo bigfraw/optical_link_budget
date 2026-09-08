@@ -85,6 +85,14 @@ from .sampling import ScreenPlan, turbulent_grid
 MANIFEST_NAME = "manifest.json"
 PATCH_NAME = "patch_indices.npy"
 
+# The margin factor of the DEFAULT stored patch radius. A NEW campaign with no
+# patch_radius_m stores a disc 1.5x the aperture radius, so the field carries
+# MARGIN beyond the aperture and a post-hoc MMF re-couple can upsample and clip
+# a resolved aperture edge (see olb.waveoptics.mmf). A REOPENED campaign reads
+# its stored radius from the manifest, so this factor never breaks an older
+# store. See Campaign.__init__.
+PATCH_MARGIN_FACTOR = 1.5
+
 # The columns of a block file. NaN marks a trial scalar that the runner left
 # None (no SMF detector, no MMF detector, no uplink overlap).
 _COLUMNS = ("collected_power", "smf_eta", "mmf_eta", "eta_turb", "wall_time_s")
@@ -458,26 +466,20 @@ class Campaign:
                            campaign must repeat.
             preset:        the name of a preset in sampling.PRESETS.
             block_size:    the number of trials in one block.
-            patch_radius_m: the radius of the stored field disc, in m. None
-                           takes sizing_aperture_m / 2 when a sizing aperture is
-                           given, else half the aperture of the clip terminal
+            patch_radius_m: the radius of the stored field disc, in m. None on a
+                           NEW campaign takes PATCH_MARGIN_FACTOR (1.5) times half
+                           the sizing aperture when a sizing aperture is given,
+                           else 1.5 times half the aperture of the clip terminal
                            (run.clip_terminal: the ground terminal of a space
-                           scenario in every direction, the receive terminal
-                           of a terrestrial one). The None default stores a disc
-                           at EXACTLY the aperture radius, so it carries NO
-                           margin beyond the aperture. A post-hoc MMF re-couple
-                           (recouple with an MMF detector) then falls back to the
-                           coarse M=1 focus, because the auto pupil upsample
-                           needs margin (see olb.waveoptics.mmf and
-                           run._PostTail.eta). A campaign meant for post-hoc MMF
-                           re-coupling on a coarse pupil must pass an EXPLICIT
-                           patch_radius_m LARGER than the aperture radius (about
-                           1.5x), so the stored field carries margin and the
-                           auto upsample engages. The None default is NOT widened
-                           to add margin, because patch_radius_m is checked in
-                           the stored manifest and a reopen with None recomputes
-                           it; a wider default would make every existing default
-                           campaign fail to reopen.
+                           scenario in every direction, the receive terminal of a
+                           terrestrial one). So the default disc carries MARGIN
+                           beyond the aperture, and a post-hoc MMF re-couple
+                           (recouple with an MMF detector) can upsample and clip a
+                           resolved aperture edge (see olb.waveoptics.mmf and
+                           run._PostTail.eta). None on a REOPENED campaign reads
+                           the stored radius from the manifest, NOT the default,
+                           so a change of the default never breaks an older store.
+                           Pass an explicit value to override the default.
             sizing_aperture_m: an optional LARGER receive aperture that sizes
                            the grid. The trials still run with the original
                            scenario. Use it to store one field that serves every
@@ -572,16 +574,27 @@ class Campaign:
             scenario, compensation)
         self.store_screen_phase = bool(store_screen_phase)
 
+        # Load the manifest FIRST when this store exists, so a reopened campaign
+        # reads its stored patch radius from the manifest, NOT from the None
+        # default. A change of the default then never breaks an older store.
+        manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
+        stored_manifest = None
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                stored_manifest = json.load(fh)
+
         if patch_radius_m is None:
-            # The default stores a disc at EXACTLY the aperture radius (no
-            # margin). It is NOT widened for post-hoc MMF margin, because a
-            # reopen with patch_radius_m=None recomputes this value and
-            # _check_manifest compares it against the stored manifest. A wider
-            # default would raise on every existing default campaign. For a
-            # post-hoc MMF re-couple pass an EXPLICIT larger patch_radius_m.
-            base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
-                    else clip_terminal(scenario).aperture_m)
-            patch_radius_m = float(base) / 2.0
+            if stored_manifest is not None and "patch_radius_m" in stored_manifest:
+                # A REOPEN: the manifest is the source of truth for the stored
+                # patch geometry.
+                patch_radius_m = float(stored_manifest["patch_radius_m"])
+            else:
+                # A NEW campaign stores a disc with MARGIN beyond the aperture
+                # (PATCH_MARGIN_FACTOR), so a post-hoc MMF re-couple can upsample
+                # and clip a resolved aperture edge (olb.waveoptics.mmf).
+                base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
+                        else clip_terminal(scenario).aperture_m)
+                patch_radius_m = float(base) / 2.0 * PATCH_MARGIN_FACTOR
         self.patch_radius_m = float(patch_radius_m)
 
         self.fingerprint = cache_key(
@@ -595,10 +608,8 @@ class Campaign:
             store_screen_phase=self.store_screen_phase)
 
         os.makedirs(self.root_dir, exist_ok=True)
-        manifest_path = os.path.join(self.root_dir, MANIFEST_NAME)
-        if os.path.exists(manifest_path):
-            with open(manifest_path, "r", encoding="utf-8") as fh:
-                man = json.load(fh)
+        if stored_manifest is not None:
+            man = stored_manifest
             self._check_manifest(man)
             self.grid = GridSpec(size_m=man["grid"]["size_m"],
                                  n=int(man["grid"]["n"]),
@@ -1234,6 +1245,7 @@ if __name__ == '__main__':
     root2 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck2_")
     root3 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck3_")
     root4 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck4_")
+    rootN = tempfile.mkdtemp(prefix="olb_campaign_selfcheck5_")
     root5 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck5_")
     root6 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck6_")
     root7 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck7_")
@@ -1318,13 +1330,23 @@ if __name__ == '__main__':
             camp3 = Campaign(scn, orbit, root3, seed=2024, preset="rapid",
                              block_size=4,
                              sizing_aperture_m=2 * ground.aperture_m)
-            assert camp3.patch_radius_m == ground.aperture_m, \
+            assert camp3.patch_radius_m == ground.aperture_m * PATCH_MARGIN_FACTOR, \
                 camp3.patch_radius_m
             assert camp3.run(4) == 4
             eta3 = camp3.recouple(ground.detector)
             assert eta3.size == 4 and np.all(eta3 > 0.0), eta3
             big = (camp3.grid.n, camp3.grid.size_m) != (camp.grid.n,
                                                         camp.grid.size_m)
+
+            # ---- 6b. a reopen reads patch_radius from the manifest ----
+            # A store written with an explicit NARROW radius must reopen under a
+            # None patch_radius_m with NO manifest mismatch, and it must read
+            # back the stored radius, not the wider default.
+            narrow = ground.aperture_m / 2.0
+            campN = Campaign(scn, orbit, rootN, patch_radius_m=narrow, **common)
+            assert campN.run(4) == 4
+            reopened = Campaign(scn, orbit, rootN, **common)
+            assert reopened.patch_radius_m == narrow, reopened.patch_radius_m
 
             # ---- 7. an injected plan is stored, fingerprinted, and reopened --
             # A convergence study holds the grid and moves the screens only.

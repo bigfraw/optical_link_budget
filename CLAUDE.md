@@ -220,12 +220,13 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   pre-clipped/no-margin field or with a mask, and it sizes M from the geometry
   (FoV >= ~3x core, NA annulus >= ~4 px, cap 16, power of two) otherwise. So
   `Campaign.recouple` of an MMF engages it on its own (its tail hands the
-  UNCLIPPED patch), on by default WHEN the campaign stored a patch radius > the
-  aperture; the input field MUST carry that MARGIN or the edge rings. The
-  campaign DEFAULT patch radius is the aperture radius (NO margin, kept to not
-  break reopening old stores), so an MMF re-coupling campaign passes an explicit
-  larger `patch_radius_m`. The in-run scalar `mmf_eta` and the CUDA tail pass
-  pre-clipped fields, so they resolve to M=1 and are UNCHANGED. See
+  UNCLIPPED patch), on by default because the campaign DEFAULT patch radius now
+  carries 1.5x MARGIN (`PATCH_MARGIN_FACTOR`); the stored field MUST carry that
+  MARGIN or the edge rings. Widening the default is SAFE because a reopen with
+  `patch_radius_m=None` now READS the stored radius from the manifest (not the
+  default), so an older store still reopens. The in-run scalar `mmf_eta` and the
+  CUDA tail pass pre-clipped fields, so they resolve to M=1 and are UNCHANGED.
+  See
   `docs/api-waveoptics.md` Section 4a and `docs/physics.md` Section 9d),
   `camera.py` (the focal-plane array:
   `camera_image` bins the focused spot onto the square camera pixels, and
