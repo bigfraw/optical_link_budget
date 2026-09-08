@@ -1,7 +1,0 @@
---- 2km:1e-14:rapid ---
-  root        : D:\repos\optical_link_budget\validation\terrestrial_campaigns\campaigns\L2km_cn21e-14_rapid
-  grid        : 1024 px, 1.022 m, 5 screens, L0 = 25.0 m
-  on disk     : 0 trials before this call
-  ran         : 2000 new trials in 498.6 s (0.249 s/trial), 2000 on disk
-  mean loss   : collected power 9.34 dB, SMF coupling 5.51 dB
-

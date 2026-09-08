@@ -7,14 +7,16 @@ dist/
 .env
 .pytest_cache/
 .ipynb_checkpoints/
-*.png
 *.pdf
-# Generated sim outputs and data. Ignore-only: this does NOT untrack the
-# json/log records already committed. To commit a deliberate provenance record
-# (e.g. validation/**/records/*.cell.json), force it in with `git add -f`.
+# Generated sim data and run outputs are NOT tracked (kept on disk, just ignored).
+# Figures (*.png) ARE tracked. The deliberate provenance records under
+# validation/**/records/ stay tracked; force a new one in with `git add -f`.
 *.npz
 *.log
 *.json
+*.csv
+*.err
+*.flag
 examples/waveoptics/_campaign_demo/
 examples/waveoptics/_campaign_demo2/
 validation/tail_convergence/campaigns/
