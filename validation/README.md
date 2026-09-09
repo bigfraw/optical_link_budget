@@ -149,6 +149,7 @@ See [fibre_fade_models/README.md](fibre_fade_models/README.md).
 | --- | --- |
 | [fibre_fade_models/extract_trials.py](fibre_fade_models/extract_trials.py) | The one-pass read of the stored campaigns on bigfraw (`Campaign.map_trials`): the bucket power, the SMF coupling three ways (untracked, tracked focus, tilt removed), the Noll tilt pair, the slope aliasing test, the point irradiance and an MMF coupling, for each trial. |
 | [fibre_fade_models/fit_distributions.py](fibre_fade_models/fit_distributions.py) | The fits (moment, maximum likelihood, and the free analytic routes), the verdict tables, `fit_results.json` and the three exceedance figures. |
+| [fibre_fade_models/r_rule.py](fibre_fade_models/r_rule.py) | The free-fibre rule search. With `sigma_z^2` pinned to the bucket index and the lognormal-Rician `r` fitted alone, the TILT-REMOVED fibre follows `r = 2.3 / sigma2_HO` (leave-one-cell-out 12 of 12, one launch); the untracked fibre has no rule in `r` alone. It motivates the PROPOSED composite free route (the higher-order lognormal-Rician times the walk-off fade). It writes `r_rule.log`. |
 
 ## tail_convergence/
 
@@ -329,6 +330,7 @@ results JSON and one run log; none touches production code.
 | [waveoptics_speed/coarse_screen_experiment.py](waveoptics_speed/coarse_screen_experiment.py) | P2 experiment (a): coarse screens plus interpolation. BURIED (loses the Fresnel-scale phase that builds scintillation). |
 | [waveoptics_speed/beam_grid_experiment.py](waveoptics_speed/beam_grid_experiment.py) | P2 experiment (b): a grid that follows the beam. BURIED for the wired scenarios (the flat grid already wins). |
 | [waveoptics_speed/scaling_study.py](waveoptics_speed/scaling_study.py) | P3: how trials scale across workers (threads, processes, batched split step). Processes beat threads; threads saturate at 8 to 16 workers. |
+| [waveoptics_speed/fair_scaling_rerun.py](waveoptics_speed/fair_scaling_rerun.py) | The FAIR rerun of P3 (2026-09-04): it pins the BLAS thread pool before numpy imports and it measures a warm process pool in steady state. VERDICT: threads and processes TIE on wall time for ONE run (the Windows pool spawn costs 2.5 to 4.4 s); processes win 1.15x to 1.7x only when the pool stays warm across many blocks, which is `Campaign`. The 8-to-16-worker plateau is the machine (memory bandwidth, the hybrid P/E cores), not the GIL. |
 | [waveoptics_speed/make_plots.py](waveoptics_speed/make_plots.py) | Draw one PNG per speed task from its results JSON, into `figures/`. Skips a task whose JSON is absent. |
 
 ## memory_cut/
@@ -350,3 +352,126 @@ See [memory_cut/README.md](memory_cut/README.md).
 | --- | --- |
 | [memory_cut/memory_cut_check.py](memory_cut/memory_cut_check.py) | The bit-identical half. It proves the lazy screens, the `Forvard` cache and the pool sizer, and it times one serial trial with the cache off and on (single 9 screens 3.61 to 2.58 s; double 15 screens 8.09 to 6.64 s). It writes `memory_cut_check.json`. |
 | [memory_cut/screen_generator_lean.py](memory_cut/screen_generator_lean.py) | The opt-in half. The lean generator against the default one (the same draw to 1e-7 in float32 and 2e-16 to 4e-16 in float64, the fitted `r0` inside the standard error), the cost of one screen, the raw transform time of the two FFT backends, and one trial in each of the four combinations (1.38x together). It writes `screen_generator_lean.json`. |
+
+## fast_stone_pointahead/
+
+The FAST against Stone point-ahead anisoplanatism study (backlog 1-5). An
+uplink terminal senses turbulence on a downlink beacon and applies the
+conjugate phase; the satellite moves during the round trip, so the correction
+decorrelates over the point-ahead angle and a residual phase variance stays.
+olb holds TWO models of that residual — fidelity 1 (FAST, `uplink_fast_term`;
+Farley et al., DOI 10.1364/OE.458659) and fidelity 0 (the Stone 1994 modal law,
+`uplink_point_ahead_term`; DOI 10.1364/JOSAA.11.000347) — and this study
+compares them at matched conditions. VERDICT (2026-09-02): MATCH, both routes
+validated (physics.md Section 9j). With the servo off the PAOLA filter reduces
+exactly to `2 - 2cos(delta_r . kappa)` (to 9e-16), and at MATCHED mode sets the
+two agree to about 5 % across the full sweep; the Term-level factor is the mode
+set (the FAST mask keeps piston and tilts, so its analytic partner is Stone
+`remove='none'`).
+See [fast_stone_pointahead/README.md](fast_stone_pointahead/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [fast_stone_pointahead/fast_stone_pointahead.py](fast_stone_pointahead/fast_stone_pointahead.py) | The comparison. It drives the FAST PAOLA aniso-servo residual and the Stone modal decorrelation residual on the same `Cn2` profile, aperture and corrected order, with the servo and the sensor effects off, then it sweeps the point-ahead angle and the corrected order. It also compares the fitting sides (FAST `sim.fitting_error` against the Noll residual) and the full Terms, and it decomposes the Term-level gap into the mode set, the FAST auto-grid truncation and the Marechal-versus-Monte-Carlo mapping. |
+
+## waveoptics_ao/
+
+The perfect-AO validation of the fidelity-2 layer (backlog 2-AO). The layer
+removes the first N Noll modes of the wavefront over the receive aperture
+(`olb/waveoptics/compensation/`); this study measures that chain on the hero
+0.7 m SMF downlink (V0 to V5, on the cupy backend, 2026-09-07, L0 = 25 m;
+physics.md Section 9l). VERDICTS: the modal chain matches the Noll residual law
+inside 2 % from J = 3 up (J = 1 reads the outer scale); the summed-screen source
+is TRUSTED to 20 deg; the post-hoc route equals the in-run route to 1.4e-07; the
+SMF p5 fade improves by 9.4 / 22.1 / 24.3 dB at 30 deg for TipTilt / AO(10) /
+AO(21), and the bucket power does not move; the corrected field and the tracked
+fidelity-1 FAST Term agree on the mean to -0.5 to +0.1 dB. THE SOURCE RULE
+(V5): screens on a space link, slopes on a terrestrial one — a summed screen
+weights every plane equally while the arriving terrestrial tilt carries the
+`(1 - z/L)` path lever, so a screen-sensed terrestrial AO is wrong.
+See [waveoptics_ao/README.md](waveoptics_ao/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [waveoptics_ao/waveoptics_ao.py](waveoptics_ao/waveoptics_ao.py) | The study. It runs (or reopens) the AO campaigns and answers the five questions: is the summed screen phase a valid space sensing source (V0); does the modal chain obey Noll's residual law (V2); does the correction move the SMF fade in the safe direction and how far is it from the tracked FAST Term (V1); does the wrapped-gradient slope source agree with the summed-screen source (V3), survive a terrestrial link (V4), and which source is right on a terrestrial path and by how much (V5). |
+
+## gtilt_sensing/
+
+The G-tilt against wrapped-slopes tilt-sensing study. For a terrestrial
+fidelity-2 TipTilt correction, does the far-field intensity centroid (the
+G-tilt, the intensity-weighted mean phase gradient; Tyler 1994,
+DOI 10.1364/JOSAA.11.000358) sense the tilt better than the shipped
+wrapped-gradient slopes, which alias where the local phase step passes pi? It
+reopens each stored terrestrial 2-TC campaign and runs the correction post hoc
+through both routes. VERDICT (2026-09-08): the wrapped slopes WIN; the G-tilt
+is kept as an opt-in source only, not a default. See
+[gtilt_sensing/README.md](gtilt_sensing/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [gtilt_sensing/gtilt_vs_slopes.py](gtilt_sensing/gtilt_vs_slopes.py) | The comparison. It reopens the terrestrial campaigns and runs three post-hoc coupling passes (uncorrected, slope-sensed TipTilt, G-tilt-sensed TipTilt) on the SAME stored fields, so the only change is the sensing source, and it reports the SMF fade each way. |
+
+## precision/
+
+The single-against-double precision check of the fidelity-2 layer. It runs the
+SAME turbulent trials two times — once in double precision (complex128,
+float64 screens, the pre-2026-09-05 record) and once in single precision
+(complex64, float32 screens, the default since 2026-09-05) — on one seed, so
+trial k sees the same atmosphere, and it measures the difference. Single
+precision exists because a `Campaign` is memory-bandwidth bound, so half the
+bytes for each element is the one change with real leverage. MEASURED: the two
+agree to parts per million. See [precision/README.md](precision/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [precision/precision_check.py](precision/precision_check.py) | The check. It runs matched-seed double and single trials of a downlink and reports the maximum relative difference of the per-trial scalars. It boosts its own process priority (it is a direct runner call over ssh; see the priority note). |
+
+## posthoc_speed/
+
+The post-hoc read-back of a stored campaign on the CROP (2026-09-07). A stored
+trial holds the patch DISC pixels only; the old read scattered them into the
+FULL grid and swept the zero padding (14.3x the useful pixels at 1024 px) and
+rebuilt the masks and the fibre mode for every trial. The read now works on the
+square CROP that just holds the disc, under ONE rule: PUPIL-plane quantities on
+the crop, FOCAL-plane quantities on the padded grid (an MMF or a Camera
+focuses). MEASURED: the pupil routes agree to 3e-15 (the padded MMF route is
+bit-identical) and one trial is 2.4x to 12.5x faster; a process pool loses on a
+light read (the Windows spawn) and wins 1.28x on a compensated read.
+See [posthoc_speed/README.md](posthoc_speed/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [posthoc_speed/posthoc_speed.py](posthoc_speed/posthoc_speed.py) | The benchmark. It reads a stored campaign both ways (the crop against the full-grid comparison route, `compact=True` against `compact=False`) and reports the agreement of each read-back quantity and the per-trial speed-up, for the light reads and for a compensated read, serial and pooled. It writes `posthoc_speed.json`. |
+
+## gpu_fft/
+
+The CUDA (cupy) FFT backend (backlog 2-N8), an explicit opt-in built in three
+milestones (2026-09-07). A fidelity-2 trial is FFTs, and the 12-worker CPU pool
+on bigfraw is memory-bandwidth bound, so a device with several times the host
+memory bandwidth is the one lever left on the plateau. The white noise stays a
+numpy PCG64 host draw, so the same seed gives the same atmosphere, and a device
+trial agrees with a host trial at the float32 rounding level. RESULT: one GPU
+stream beats the 12-worker CPU pool by about 4x at 1024 and 2048 px. It needs
+the `gpu` extra and the `olb-gpu-venv`. See [gpu_fft/README.md](gpu_fft/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [gpu_fft/gpu_microbench.py](gpu_fft/gpu_microbench.py) | The pre-code look: raw `fft2` at 512 to 4096 px (numpy, scipy, cupy), one real CPU trial of the hero downlink under the numpy and the scipy backends (a Forvard hook counts the plan's transforms), and a SYNTHETIC device trial that replays the hops and the screen transforms on the device. It gates the design before any package change. |
+| [gpu_fft/cupy_backend_check.py](gpu_fft/cupy_backend_check.py) | Milestone 1, the kernel certification: does `ScreenFactory.make` give the SAME screen on the device and the host for one seed (about 1e-7 rms), does `split_step` give the same receive field for the same start field and screens (about 1e-6 rms), and the speed of one 1024 px split step under the three backends. It writes `cupy_backend_check.json`. |
+| [gpu_fft/cupy_campaign_check.py](gpu_fft/cupy_campaign_check.py) | Milestone 2, the backend end to end through the ONE knob (`fft_backend="cupy"` on the runner, `Campaign`, `run_waveoptics` and `run_fidelity2`): the trials agree with the host to the float32 level (1024 and 2048 px, runner and campaign), and the speed. It writes `cupy_campaign_check.json`. |
+| [gpu_fft/cupy_trial_profile.py](gpu_fft/cupy_trial_profile.py) | Milestone 3, the profile and the fixes: it wraps the stages of the REAL trial loop with timers (so the measured code is the shipped code) to find the host cost that milestone 2 left, and it records the before and the after of moving the Forvard factors, the tail and the setup onto the device (18.7x on one serial 1024 px trial). It writes `cupy_trial_profile.json`. |
+
+## campaign_resources/
+
+The large-campaign resource monitor. `campaign_resources.py` runs one
+fidelity-2 space downlink through the production `Campaign` store and records
+the CPU and the RAM of the machine while the trials run, to VERIFY that the
+process pool does the parallel work. The case: a 700 mm ground aperture with a
+30 % central obscuration, an SMF detector, a 500 km orbit at 30 deg, the
+standard preset, L0 = 25 m, seed 20260905; the default is 4000 trials in blocks
+of 50 on 16 workers. Its README also carries the ssh-launch rules for a desktop
+run. See [campaign_resources/README.md](campaign_resources/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [campaign_resources/campaign_resources.py](campaign_resources/campaign_resources.py) | The monitored run. `--workers <N>` / `--workers auto` / `--threads` select the parallelism, `--precision single` the element size. It samples the per-core utility and the working set over the run and reports whether the pool saturates the machine, alongside the trials-per-second throughput. |
