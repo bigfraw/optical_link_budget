@@ -420,6 +420,7 @@ Ground station location and atmosphere (the propagation medium).
 | `cn2_ground` | float | m^-2/3 | `1.7e-14` | Hufnagel-Valley ground-level Cn2 scale (HV57 A). |
 | `wind_rms_m_s` | float | m/s | `21.0` | Bufton wind profile rms. |
 | `clear_sky_probability` | float | — | `1.0` | Cloud-free-line-of-sight fraction (0-1). |
+| `outer_scale_m` | float | m | `25.0` | Turbulence OUTER scale (von Karman corner). The fidelity-2 screens read it when `L0_m=None` (the default); `np.inf` is the Kolmogorov limit. The owner operating value, 25 m (backlog 2-P5). |
 
 ### `Channel`
 

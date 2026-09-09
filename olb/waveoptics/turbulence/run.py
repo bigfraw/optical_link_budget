@@ -51,7 +51,7 @@ from ..propagators import GForvard, set_fft_backend, xp
 from ..run import (_clip, _launch_aperture, _normalised_gauss, _smf_eta,
                    _smf_focal_length)
 from ..sources import GaussBeam
-from .sampling import PRESETS, turbulent_grid
+from .sampling import PRESETS, resolve_outer_scale, turbulent_grid
 from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
 
@@ -1003,7 +1003,7 @@ def clip_terminal(scenario):
 def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  preset="standard", grid=None, plan=None,
                                  cn2=None, hs=None, cn2_profile=None,
-                                 h_top_m=None, L0_m=np.inf,
+                                 h_top_m=None, L0_m=None,
                                  subharmonics=True, threader=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None, start_index=0,
@@ -1080,7 +1080,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         h_top_m:      the atmosphere top for the continuous integral, in m.
                       Space only.
-        L0_m:         the outer scale of the screens, in m.
+        L0_m:         the outer scale of the screens, in m. None (the default)
+                      reads the site value (olb.scenario.Site.outer_scale_m,
+                      25 m); a float or np.inf (the Kolmogorov limit) overrides.
+                      See sampling.resolve_outer_scale and backlog 2-P5.
         subharmonics: True adds the three subharmonic levels to each screen.
                       Keep it True: the tilt content drives the beam wander,
                       and the uplink overlap reads that wander.
@@ -1217,6 +1220,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             f"propagate_turbulent_scenario: the geometry gives {range_m.size} "
             "ranges. Give one range, and loop in the caller.")
 
+    # L0_m=None reads the site outer scale (25 m); an explicit value (a float,
+    # or np.inf for the Kolmogorov limit) overrides. Resolve it ONCE here, so
+    # the sizer, the screens and the record all read the same number.
+    L0_m = resolve_outer_scale(L0_m, scenario)
     p = PRESETS[preset] if isinstance(preset, str) else preset
     report = None
     if grid is None:
@@ -1565,7 +1572,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               preset="standard", grid=None, plan=None,
                               cn2=None, hs=None, cn2_profile=None,
-                              h_top_m=None, L0_m=np.inf,
+                              h_top_m=None, L0_m=None,
                               subharmonics=True, screen_generator="olb",
                               precision="single", fft_backend="numpy",
                               compensation=None):
@@ -1600,7 +1607,10 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         h_top_m:      the atmosphere top for the continuous integral, in m.
                       Space only.
-        L0_m:         the outer scale of the screens, in m.
+        L0_m:         the outer scale of the screens, in m. None (the default)
+                      reads the site value (olb.scenario.Site.outer_scale_m,
+                      25 m); a float or np.inf (the Kolmogorov limit) overrides.
+                      See sampling.resolve_outer_scale and backlog 2-P5.
         subharmonics: True adds the three subharmonic levels to each screen.
         screen_generator: "olb" (the default), "olb-lean" or "aotools". See
                       propagate_turbulent_scenario. The two give different draws
@@ -1650,6 +1660,9 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
             f"propagate_turbulent_field: the geometry gives {range_m.size} "
             "ranges. Give one range.")
 
+    # L0_m=None reads the site outer scale (25 m); see
+    # propagate_turbulent_scenario and sampling.resolve_outer_scale.
+    L0_m = resolve_outer_scale(L0_m, scenario)
     p = PRESETS[preset] if isinstance(preset, str) else preset
     if grid is None:
         grid, plan, _ = turbulent_grid(scenario, geometry, preset=p, cn2=cn2,
@@ -2366,6 +2379,10 @@ if __name__ == '__main__':
         warnings.simplefilter("always")
         vac = propagate_turbulent_scenario(terr_scn, path, n_trials=1, seed=1,
                                            preset="standard")
+    # The outer-scale reach guard may warn on a small grid at the site
+    # L0 = 25 m (backlog 2-P5). It is EXPECTED here and it does not bear on the
+    # vacuum limit; any OTHER warning is still a sampling regression.
+    caught = [w for w in caught if "subharmonic levels" not in str(w.message)]
     assert not caught, [str(w.message) for w in caught]
     ref = propagate_scenario(terr_scn, path, grid=vac.grid)
     assert ref.propagator == "GForvard", ref.propagator
@@ -2392,6 +2409,10 @@ if __name__ == '__main__':
         vac_up = propagate_turbulent_scenario(
             up_scn, orbit30, n_trials=1, seed=2, preset="rapid",
             hs=hs, cn2_profile=quiet_cn2)
+    # The outer-scale reach guard may warn on a small grid at the site
+    # L0 = 25 m (backlog 2-P5). It is EXPECTED here and it does not bear on the
+    # vacuum limit; any OTHER warning is still a sampling regression.
+    caught = [w for w in caught if "subharmonic levels" not in str(w.message)]
     assert not caught, [str(w.message) for w in caught]
     assert abs(vac_up.trials[0].eta_turb - 1.0) < 1e-3, \
         vac_up.trials[0].eta_turb

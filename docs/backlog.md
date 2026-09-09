@@ -37,12 +37,16 @@ are from 2026-08-26 and can drift.
    softens by about 2 dB from 9 to 25 screens (the safe direction) and its
    trend past 25 is unresolved. The screen generator is NOT the cause. See
    2-I2T and 2-N6, and `validation/tail_convergence/`.
-2b. **HIGH (owner-flagged 2026-09-04) — implement the OUTER SCALE.** The
-   fidelity-2 default `L0 = inf` claims an outer scale a 3.5 m grid cannot
-   hold; the screens behave like L0 of 30 to 100 m, and the SMF fade tail
-   pays of the order of 2 dB at p5 for the difference (an estimate, not yet
-   measured). Choose an explicit site L0, thread
-   it to the screens and to the analytic tilt Terms. See 2-P5 and 0-W4.
+2b. **MOSTLY DONE (2026-09-09) — implement the OUTER SCALE.** The fidelity-2
+   default was `L0 = inf`, which claims an outer scale a finite grid cannot
+   hold. FIXED: `L0` is now an explicit site input (`Site.outer_scale_m`,
+   default 25 m, the owner operating value), the fidelity-2 screens read it by
+   default (the runner, the field diagnostic and `Campaign` resolve
+   `L0_m=None` to the site), and a REACH GUARD raises the subharmonic level
+   count when a small grid cannot reach the corner (`required_n_sub_levels`).
+   Every default fidelity-2 run now uses 25 m (numbers moved, as decided).
+   REMAINING (0-W4): thread the same site `L0` into the ANALYTIC tilt Terms
+   (fidelity 0/1) for parity with the field; it tangles with 1-9. See 2-P5.
 2c. **HIGH (owner-flagged 2026-09-05) — build the terrestrial fidelity-1
    rung from fitted power distributions.** Compare the fidelity-2 aperture
    (bucket) power distribution AND the fibre-coupled power distribution of a
@@ -112,11 +116,17 @@ are from 2026-08-26 and can drift.
   bound. Note conflict C-04: olb holds two tilt conventions (gradient 0.174
   vs the Noll route in ao.py); a caller that adds them must say which.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
-  consumer. THE OUTER SCALE IS NOW HIGH (owner-flagged 2026-09-04): see
-  2-P5, the fidelity-2 half, which showed that the `L0 = inf` default claims
-  an outer scale the grid cannot hold and that the SMF fade tail pays a
-  MEASURED 2.49 dB at p5 for the choice (2026-09-05, 3.0 sigma,
-  `validation/outer_scale_tail/`; the earlier 2 dB was an estimate).** No Term passes an inner or outer scale. No Term reads the
+  consumer. THE OUTER SCALE: the FIELD half is DONE (2026-09-09), the
+  ANALYTIC half remains.** The fidelity-2 screens now read an explicit site
+  outer scale (`Site.outer_scale_m`, default 25 m; see 2-P5). The ANALYTIC
+  tilt and wander Terms (fidelity 0/1) still do NOT read it, so fidelity 0/1
+  and fidelity 2 are not yet at parity on the outer scale — that is the
+  remaining half of this item. It MATTERS: the SMF fade tail pays a MEASURED
+  2.49 dB at p5 for `inf` against `25 m` (2026-09-05, 3.0 sigma,
+  `validation/outer_scale_tail/`), and the terrestrial fibre tilt of 1-9 is
+  the aperture angle of arrival reduced by the site `L0`. The Andrews branches
+  that take an `L0` exist; no Term passes them. No Term passes an inner or
+  outer scale. No Term reads the
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
   Term (README node NT7; also the deferred TODO at
@@ -982,9 +992,28 @@ The path forward for each is a second reference or a derivation.
   Fresnel minimum distance), S-20 (the phase pitch rule) and S-27 (the
   aotools subharmonic screen) are recorded there too. Each one is an owner
   decision, because each one moves a production number.
-- **2-P5. THE OUTER SCALE — HIGH (owner-flagged 2026-09-04).** Production
-  fidelity 2 runs `L0_m = inf` by default (`run_fidelity2`, `Campaign`,
-  `propagate_turbulent_scenario`), but a 3.5 m grid with three subharmonic
+- **2-P5. THE OUTER SCALE — the production DEFAULT is DONE (2026-09-09); the
+  analytic-Term parity (0-W4) remains.** `L0` is now an explicit site input
+  (`Site.outer_scale_m`, default 25 m). The fidelity-2 screens read it by
+  default: `propagate_turbulent_scenario`, `propagate_turbulent_field` and
+  `Campaign` now default `L0_m=None`, which `sampling.resolve_outer_scale`
+  turns into the site value; an explicit `L0_m=` (a float or `np.inf`) still
+  overrides, so every pinned-L0 study is unchanged. Item (1) of THE WORK below
+  is DONE (the site parameter), and item (4) is DONE (the reach guard:
+  `screens.required_n_sub_levels` raises `n_sub_levels` when a finite `L0`
+  exceeds `3**n * side`, with a warning — it is a pure function of the
+  already-fingerprinted grid and `L0`, so no new threaded option and no
+  fingerprint change). Every default fidelity-2 number moved from the `inf`
+  grid-limited scale to 25 m, as decided; the package self-checks pass (they
+  test properties, not goldens). CAVEAT: the stored 2-TC terrestrial campaigns
+  (small grids, made at `n=3`) delivered an effective ~16 to 24 m, not 25 m,
+  which the guard would now catch; resuming such a pre-guard small-grid store
+  recomputes `n`, so treat those as read-only. REMAINING: item (3) below, the
+  0-W4 analytic-Term half. The original write-up follows.
+
+  Production fidelity 2 ran `L0_m = inf` by default (`run_fidelity2`,
+  `Campaign`, `propagate_turbulent_scenario`), but a 3.5 m grid with three
+  subharmonic
   levels holds scales up to about 27 x side = 95 m and nothing beyond. The
   screen-stacking test (`validation/screen_stacking/`, 2026-09-04) measured
   the result against the L0 = inf Kolmogorov reference: the tip-tilt-removed

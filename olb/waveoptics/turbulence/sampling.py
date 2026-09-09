@@ -736,6 +736,33 @@ def _plan_space_array(scenario, geometry, preset, lam, hs, cn2_profile, warns):
     return plan, r_beam, feature
 
 
+def resolve_outer_scale(L0_m, scenario):
+    """Give the outer scale to use, in m: the explicit L0_m, or the site value.
+
+    `L0_m=None` means "read the site". Both scenario families expose
+    `channel.site`, and the Site carries `outer_scale_m` (the owner operating
+    value, 25 m; see olb.scenario.Site and backlog 2-P5/0-W4). An explicit
+    value (a float, or np.inf for the Kolmogorov limit) overrides the site, so
+    a study that pins L0 is unchanged.
+
+    This reads the scenario by duck typing only; the turbulence layer does not
+    import olb.scenario (the one-way dependency). An object with no
+    channel.site.outer_scale_m falls back to np.inf, the pre-2026-09 default.
+
+    Args:
+        L0_m:     a float, np.inf, or None.
+        scenario: a SpaceScenario or a TerrestrialScenario.
+
+    Returns:
+        The outer scale, a float.
+    """
+    if L0_m is not None:
+        return float(L0_m)
+    channel = getattr(scenario, "channel", None)
+    site = getattr(channel, "site", None)
+    return float(getattr(site, "outer_scale_m", np.inf))
+
+
 def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
                    cn2_profile=None, h_top_m=None, L0_m=np.inf):
     """Size a turbulent split-step grid, and plan the screens.

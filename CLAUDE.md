@@ -65,7 +65,9 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   tx=space, rx=ground; retro -> tx=rx=ground. A TerrestrialScenario sets the
   roles the same way: forward (the default) -> tx=near, rx=far; reverse ->
   tx=far, rx=near. The channel is symmetric, so only the roles change. There is NO `Scenario` alias and NO `Link` dataclass. `Site`
-  stays. A SpaceScenario also holds an optional uplink `precompensation` source
+  stays; it holds the atmosphere medium (`cn2_ground`, `wind_rms_m_s`, and the
+  turbulence `outer_scale_m`, default 25 m, which the fidelity-2 screens read
+  when `L0_m=None`; see the outer-scale item below and 2-P5). A SpaceScenario also holds an optional uplink `precompensation` source
   (`DownlinkBeacon`, `LaserGuideStar` (a placeholder), or None); the uplink
   budget reads it to select the turbulence physics.
 - `olb/turbulence/` — pure physics. It imports only numpy, scipy, and the olb
@@ -960,24 +962,29 @@ Open items:
   of the tip-tilt variance at every count. That was the 2-N2 deficit, and it
   is now RESOLVED as the `L0 = inf` outer scale (2-P5, below), not a
   generator fault. NOT run: 20 deg, 40 screens.
-- **THE OUTER SCALE IS HIGH (owner-flagged 2026-09-04, backlog 2-P5).** The
-  fidelity-2 screens run `L0_m = inf` by default, but three subharmonic
-  levels reach only 27 x the grid side (95 m at 30 deg), and the screens
-  match a von Karman L0 = 95 m theory EXACTLY (Delta1 0.765 against 0.765);
-  asked for L0 = 25 m and judged against it they read 1.00 +-0.03 (one
-  screen) and 0.97 to 0.94 (a 5- to 25-screen plan, a mild stacking drift).
-  So the code claims an outer scale it does not deliver, and the fibre tilt
-  the SMF tail pays moves with that choice. MEASURED (2026-09-05,
-  `validation/outer_scale_tail/`, a matched-seed `L0=inf` against `L0=25 m` pair,
-  1000 trials): the SMF p5 fade moves by 2.49 dB at 30 deg (3.0 sigma) and
-  2.83 dB at 20 deg (2.4 sigma), and the POINT (centre-pixel) fade does NOT move,
-  which confirms the mechanism is the fibre TILT, not scintillation. So the
-  earlier "order of 2 dB" estimate is now a measured 2.5 to 2.8 dB, and the
-  `L0=inf` default is that much PESSIMISTIC on the SMF tail. DECISION (owner,
-  2026-09-05): run fidelity-2 sims at a FIXED `L0=25 m`, not `inf`. THE REMAINING
-  WORK: thread an explicit site L0 to the screens AND to the analytic tilt Terms
-  (0-W4), plus a sizer check that raises `n_sub_levels` when L0 > 3^n x side
-  (a small aperture). `validation/screen_stacking/ --L0 <m>` is the test.
+- **THE OUTER SCALE: the FIELD default is FIXED (2026-09-09, backlog 2-P5);
+  the analytic half (0-W4) remains.** `L0` is now an explicit SITE input:
+  `olb.scenario.Site.outer_scale_m` (default 25 m, the owner operating value).
+  The fidelity-2 screens read it by DEFAULT — `propagate_turbulent_scenario`,
+  `propagate_turbulent_field` and `Campaign` default `L0_m=None`, and
+  `olb.waveoptics.turbulence.sampling.resolve_outer_scale` turns None into the
+  site value; an explicit `L0_m=` (a float, or `np.inf` for the Kolmogorov
+  limit) still overrides, so every pinned-L0 study is bit-identical. A REACH
+  GUARD (`screens.required_n_sub_levels`) raises `n_sub_levels` with a warning
+  when a finite `L0` exceeds the subharmonic reach `3**n * side` (a small grid
+  / small aperture), so the outer scale is no longer silently truncated; it is
+  a pure function of the already-fingerprinted grid and `L0`, so no new option
+  and no fingerprint change. So every DEFAULT fidelity-2 number moved from the
+  old grid-limited `inf` scale (~95 m at 30 deg) to 25 m (the package
+  self-checks test properties, not goldens, so they pass; printed diagnostic
+  numbers shift). WHY it matters: the SMF p5 fade moves 2.49 dB at 30 deg
+  (3.0 sigma) and 2.83 dB at 20 deg between `inf` and `25 m`
+  (`validation/outer_scale_tail/`), and the POINT fade does not, so the
+  mechanism is the fibre TILT. CAVEAT: the stored 2-TC terrestrial campaigns
+  (small grids, `n=3`) delivered ~16 to 24 m, not 25 m; treat them as
+  read-only (a resume would recompute `n`). REMAINING (0-W4): thread the same
+  site `L0` into the ANALYTIC tilt and wander Terms (fidelity 0/1) for parity,
+  which tangles with 1-9. `validation/screen_stacking/ --L0 <m>` is the test.
 - **The non-focal-plane (defocus) sensing and the received curvature are WIRED
   (2026-08-31, see `validation/defocus/`).** `SMF`/`MMF` carry `defocus_m`; the
   terrestrial coupling Terms grow the spot over `dz_eff = defocus_m - dz_curv`

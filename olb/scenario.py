@@ -111,6 +111,13 @@ class Site:
     cn2_ground: float = 1.7e-14         # Hufnagel-Valley ground-level Cn2 scale (HV57 A)
     wind_rms_m_s: float = 21.0          # Bufton wind profile rms [m/s]
     clear_sky_probability: float = 1.0  # cloud-free-line-of-sight fraction (0-1)
+    # The turbulence OUTER SCALE, in m. It is the largest turbulent eddy, the
+    # scale where the von Karman spectrum flattens (PHI ~ (kappa^2 +
+    # (2pi/L0)^2)^(-11/6)). The fidelity-2 screens and (later) the analytic tilt
+    # Terms read it. 25 m is the owner operating value (2026-09-05): a fixed,
+    # physical continental outer scale in place of the grid-dependent Kolmogorov
+    # limit (L0 = inf), which a finite grid cannot hold (backlog 2-P5, 0-W4).
+    outer_scale_m: float = 25.0
 
 
 @dataclass

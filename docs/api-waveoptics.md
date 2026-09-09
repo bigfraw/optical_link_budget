@@ -724,13 +724,25 @@ of about 95 m: the stacking test of `validation/screen_stacking/` (2026-09-04)
 reads a piston-removed aperture variance of 0.765 of the Noll value on a
 0.7 m aperture, and the von Karman theory at `L0 = 95 m` gives 0.765; asked
 for `L0_m=25` and judged against the theory at 25 m, one screen reads
-1.00 +-0.03. The tilt-removed variance is 1.00 at every `L0`. So the default
-`L0_m=np.inf` CLAIMS an outer scale the grid does not deliver, and the fibre
-tilt that an SMF fade pays moves with the choice by an estimated (not
-measured) 2 dB at p5. Give an
-explicit `L0_m`, and keep `L0_m <= 27 * n * dx` (raise `n_sub_levels` of
-`ScreenFactory` when it is not; a small aperture makes a small grid). This is
-backlog 2-P5.
+1.00 +-0.03. The tilt-removed variance is 1.00 at every `L0`. A screen drawn
+with `L0_m=np.inf` therefore CLAIMS an outer scale the grid does not deliver,
+and the fibre tilt that an SMF fade pays moves with the choice by a MEASURED
+2.49 dB at p5 (30 deg, `validation/outer_scale_tail/`).
+
+**The default is now an explicit site outer scale (2026-09-09, backlog 2-P5).**
+`L0` is a physical site property, `olb.scenario.Site.outer_scale_m` (default
+25 m). The fidelity-2 entry points default `L0_m=None`, which
+`sampling.resolve_outer_scale(L0_m, scenario)` turns into the site value; an
+explicit `L0_m=` (a float, or `np.inf` for the Kolmogorov limit) still
+overrides. So every default fidelity-2 run uses 25 m, not the grid-limited
+`inf` scale. **The REACH GUARD** closes the small-grid trap:
+`screens.required_n_sub_levels(L0_m, side)` returns
+`max(3, ceil(log3(L0 / side)))`, and `ScreenFactory` raises `n_sub_levels` to
+it (with a warning) when a finite `L0` exceeds the reach `3**n * side`. So a
+small aperture (a small grid) no longer silently truncates the outer scale;
+the count is a pure function of the already-fingerprinted grid and `L0`, so it
+needs no new option and no fingerprint change. An `np.inf` L0 keeps three
+levels and accepts the grid-limited scale.
 
 ### 9b. The split-step engine (`olb/waveoptics/turbulence/splitstep.py`)
 
@@ -939,7 +951,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, boost=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1358,7 +1370,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.

@@ -36,6 +36,8 @@ Sources:
   match to theory (Ch. 9, text above Sec. 9.4, printed p. 172).
 """
 
+import warnings
+
 import numpy as np
 
 from ..field import Field, is_device_array
@@ -195,6 +197,38 @@ def _phase_psd_unit(f, L0_m, l0_m):
                     np.inf)
 
 
+def required_n_sub_levels(L0_m, grid_side_m, *, base=3):
+    """Give the subharmonic-level count the grid side needs for this L0.
+
+    THE REACH GUARD (backlog 2-P5). The subharmonics of a screen reach the
+    largest scale `3**n * side` (each level divides the grid fundamental by 3;
+    Johansson and Gavel, DOI 10.1117/12.177254). So a finite outer scale L0 is
+    only realised when `3**n * side >= L0`; below that the von Karman corner
+    `2*pi/L0` sits below the lowest sampled frequency and the screen delivers
+    the grid-limited scale `~3**base * side` in its place, NOT the L0 asked for.
+    This returns `max(base, ceil(log3(L0 / side)))`, so a SMALL aperture (a
+    small grid side) gets more subharmonic levels, enough to reach the corner.
+
+    An infinite L0 (the Kolmogorov limit) has no corner to reach, so it keeps
+    `base` and accepts the grid-limited scale: the count is returned `base`.
+
+    Args:
+        L0_m:        the outer scale, in m. np.inf keeps `base`.
+        grid_side_m: the grid side n*pixel, in m.
+        base:        the book count (3).
+
+    Returns:
+        The subharmonic-level count, an int >= base.
+    """
+    if not np.isfinite(L0_m) or L0_m <= 0.0 or grid_side_m <= 0.0:
+        return int(base)
+    reach = float(grid_side_m)
+    n = int(base)
+    while reach * (3.0 ** n) < float(L0_m):
+        n += 1
+    return n
+
+
 class ScreenFactory:
     """A fast, cached generator of von Karman phase screens for one grid.
 
@@ -290,7 +324,23 @@ class ScreenFactory:
         self.L0_m = float(L0_m)
         self.l0_m = float(l0_m)
         self.subharmonics = bool(subharmonics)
-        self.n_sub_levels = int(n_sub_levels)
+        # THE REACH GUARD (backlog 2-P5). A finite outer scale needs the
+        # subharmonics to reach its von Karman corner; a small grid side needs
+        # more levels for that. Raise the count when the requested levels do
+        # not reach L0, and say so, so the outer scale is not silently
+        # truncated to the grid-limited scale. An infinite L0 keeps the count.
+        needed = required_n_sub_levels(self.L0_m, self.n * self.pixel_m,
+                                       base=int(n_sub_levels))
+        if subharmonics and needed > int(n_sub_levels):
+            warnings.warn(
+                f"ScreenFactory: the outer scale L0 = {self.L0_m:.4g} m needs "
+                f"{needed} subharmonic levels on this grid (side "
+                f"{self.n * self.pixel_m:.4g} m, reach "
+                f"{self.n * self.pixel_m * 3 ** int(n_sub_levels):.4g} m at "
+                f"{int(n_sub_levels)} levels), so the count is raised from "
+                f"{int(n_sub_levels)} to {needed}. A wider grid (a larger "
+                f"receive aperture or a coarser pixel) would avoid it.")
+        self.n_sub_levels = needed
         self._rdtype = np.float32 if dtype == np.float32 else np.float64
         self._cdtype = (np.complex64 if dtype == np.float32
                         else np.complex128)

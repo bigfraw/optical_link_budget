@@ -78,7 +78,7 @@ from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
                   _crop_array, _field_patch, _patch_field, _PostCorrector,
                   _PostTail, _resolve_compensation, clip_terminal,
                   _resolve_seed, propagate_turbulent_scenario)
-from .sampling import ScreenPlan, turbulent_grid
+from .sampling import ScreenPlan, resolve_outer_scale, turbulent_grid
 
 # The manifest name and the block name. A block file holds one block only, so a
 # stopped campaign keeps every finished block.
@@ -446,7 +446,7 @@ class Campaign:
     def __init__(self, scenario, geometry, root_dir, *, seed,
                  preset="standard", block_size=100, patch_radius_m=None,
                  sizing_aperture_m=None, grid=None, plan=None, cn2=None,
-                 hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
+                 hs=None, cn2_profile=None, h_top_m=None, L0_m=None,
                  subharmonics=True, screen_generator="olb",
                  precision="single", fft_backend="numpy", compensation=None,
                  store_screen_phase=False):
@@ -564,7 +564,10 @@ class Campaign:
         self.screen_generator = screen_generator
         self.precision = precision
         self.fft_backend = fft_backend
-        self.L0_m = float(L0_m)
+        # L0_m=None reads the site outer scale (25 m). Resolve it BEFORE the
+        # fingerprint, so the key names the physical outer scale, not None, and
+        # a campaign that asks for the site and one that gives 25 m share a key.
+        self.L0_m = resolve_outer_scale(L0_m, scenario)
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
                                   else float(sizing_aperture_m))
@@ -600,7 +603,7 @@ class Campaign:
 
         self.fingerprint = cache_key(
             scenario, geometry, preset=self.preset, seed=self.seed,
-            screen_generator=screen_generator, L0_m=L0_m,
+            screen_generator=screen_generator, L0_m=self.L0_m,
             subharmonics=subharmonics, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m,
             block_size=self.block_size, grid=grid, plan=plan,
@@ -632,7 +635,7 @@ class Campaign:
                               _sizing_scenario(scenario, self.sizing_aperture_m))
             sized_grid, sized_plan, _ = turbulent_grid(
                 sizer_scenario, geometry, preset=self.preset, cn2=cn2, hs=hs,
-                cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
+                cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=self.L0_m)
             self.grid = sized_grid if grid is None else grid
             self.plan = sized_plan if plan is None else plan
             self.patch = _field_patch(self.grid, self.patch_radius_m)
