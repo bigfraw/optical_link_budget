@@ -21,9 +21,10 @@ Sources:
 """
 
 from .campaign import Campaign
-from .run import (TurbTrial, TurbWaveResult, clip_terminal,
-                  folded_terrestrial, propagate_turbulent_field,
-                  propagate_turbulent_scenario)
+from .run import (RUN_OPTIONS, TurbTrial, TurbWaveResult,
+                  check_run_option_coverage, clip_terminal, folded_terrestrial,
+                  grid_options, propagate_turbulent_field,
+                  propagate_turbulent_scenario, split_run_options)
 from .sampling import (PRESETS, QualityPreset, SamplingReport, ScreenPlan,
                        turbulent_grid)
 from .screens import Screen, phase_screen, screen_r0
@@ -34,18 +35,22 @@ __all__ = [
     'Campaign',
     'PRESETS',
     'QualityPreset',
+    'RUN_OPTIONS',
     'SamplingReport',
     'Screen',
     'ScreenPlan',
     'TemporalScreens',
     'TurbTrial',
     'TurbWaveResult',
+    'check_run_option_coverage',
     'clip_terminal',
     'folded_terrestrial',
+    'grid_options',
     'phase_screen',
     'propagate_turbulent_field',
     'propagate_turbulent_scenario',
     'screen_r0',
+    'split_run_options',
     'split_step',
     'super_gaussian_boundary',
     'turbulent_grid',

@@ -46,6 +46,7 @@ from ..compensation import (ApertureModes, circle, max_abs_step,
 from ..field import Begin, Field, Power, field_dtype, to_host
 from ..mmf import defocus_phase as mmf_defocus_phase
 from ..mmf import mmf_coupling_efficiency
+from ..priority import boost_process_priority
 from ..propagators import GForvard, set_fft_backend, xp
 from ..run import (_clip, _launch_aperture, _normalised_gauss, _smf_eta,
                    _smf_focal_length)
@@ -66,6 +67,158 @@ SLOPE_MIN_MODES = 21
 # that value, so a coarse grid is reported before it is wrong. See
 # olb.waveoptics.compensation.slopes.max_abs_step.
 SLOPE_STEP_WARN_RAD = 2.8
+
+
+# ---- the run options: ONE source of truth (backlog 2-I4) ----
+#
+# THE PROBLEM this fixes. Five entry points run the split-step Monte Carlo
+# (propagate_turbulent_scenario here, run_waveoptics and run_fidelity2 in
+# olb.models.waveoptics, Campaign in campaign.py, and the single-snapshot
+# propagate_turbulent_field). Each grew its own keyword list as a feature
+# landed on the entry point that a study of the day used, so the lists drifted
+# apart. RUN_OPTIONS is the ONE list of the atmosphere and numeric options that
+# describe a turbulent run. The runner below is their AUTHORITY: it names each
+# option once, with its default. A wrapper forwards a validated **runner_kwargs
+# instead of restating the list, so a new option is added in ONE place. The
+# module self-check asserts every entry point accepts exactly this set (less a
+# declared per-entry exemption), so the next straggler fails mechanically, the
+# way the olb.assumptions @assumes floor does.
+#
+# NOT here: the PER-CALL arguments (n_trials, seed, grid, plan, threader,
+# progress, detectors, start_index, patch_radius_m, and the run_fidelity2
+# selectors vacuum/turbulence). They are not shared "how to make the
+# atmosphere" options; each entry point owns the ones it needs.
+RUN_OPTIONS = (
+    "preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m", "subharmonics",
+    "screen_generator", "precision", "fft_backend", "compensation",
+    "store_screen_phase",
+)
+
+# The subset that the grid sizer (sampling.turbulent_grid) reads. A wrapper
+# that sizes the grid itself pulls these out of the run options.
+GRID_OPTIONS = ("preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m")
+
+
+def split_run_options(runner_kwargs, *, where):
+    """Validate caller run options against RUN_OPTIONS, and give them back.
+
+    A wrapper collects the atmosphere and numeric options as **runner_kwargs
+    and passes them here before it forwards them to the runner. An unknown key
+    raises, so a typo fails as loudly as a wrong keyword to an explicit
+    signature would (the safety a **kwargs pass-through would otherwise lose).
+
+    Args:
+        runner_kwargs: the caught **kwargs of a wrapper entry point.
+        where:         the wrapper name, for the error message.
+
+    Returns:
+        A shallow copy of runner_kwargs. Every key is a valid run option.
+
+    Raises:
+        TypeError: a key is not in RUN_OPTIONS.
+    """
+    unknown = [k for k in runner_kwargs if k not in RUN_OPTIONS]
+    if unknown:
+        raise TypeError(
+            f"{where}: unknown run option(s) {sorted(unknown)}. The run "
+            f"options are {list(RUN_OPTIONS)}. (Per-call arguments such as "
+            f"n_trials, seed, grid and plan are named on the entry point "
+            f"itself, not passed as run options.)")
+    return dict(runner_kwargs)
+
+
+def grid_options(run_opts):
+    """Give the subset of run options that turbulent_grid reads.
+
+    Only the keys the caller actually passed are returned, so turbulent_grid
+    falls back to its own defaults for the rest, exactly as before.
+    """
+    return {k: run_opts[k] for k in GRID_OPTIONS if k in run_opts}
+
+
+# The per-entry exemptions to the RUN_OPTIONS coverage. An entry point with an
+# EXPLICIT signature that does not accept a run option MUST list it here, with
+# the reason, so that ADDING a new run option forces a conscious decision for
+# each entry point: accept it, or record why not. The guard below fails until
+# one of the two is done, the way the olb.assumptions @assumes floor does.
+_RUN_OPTION_EXEMPT = {
+    # The single-snapshot diagnostic returns the field and stores no patch, so
+    # there is nowhere to keep the summed screen phase (that array lives on a
+    # stored patch). The correction it supports reads the phase in-line.
+    "propagate_turbulent_field": {"store_screen_phase"},
+}
+
+# The entry points that do NOT restate the options but forward a validated
+# **runner_kwargs to the runner (the pass-through of backlog 2-I4). The guard
+# asserts they take **kwargs, rather than asserting an explicit parameter set.
+_RUN_OPTION_FORWARDERS = ("run_waveoptics", "run_fidelity2")
+
+
+def check_run_option_coverage():
+    """Assert every fidelity-2 entry point covers the RUN_OPTIONS set.
+
+    THE STRAGGLER GUARD of backlog 2-I4. Five entry points run the split-step
+    Monte Carlo, and their option lists used to drift apart as a feature landed
+    on one and not the others. This check fails the moment a RUN_OPTIONS member
+    is not reachable through an entry point: an explicit-signature entry point
+    (the runner, the field diagnostic, Campaign) must NAME the option or list it
+    in _RUN_OPTION_EXEMPT, and a forwarder (run_waveoptics, run_fidelity2) must
+    take **kwargs and validate it. So the next straggler fails mechanically at
+    self-check time, the way the olb.assumptions @assumes floor does.
+
+    It runs at import-free time (inside a self-check), so its imports of the
+    model-level wrappers are local: olb.models.waveoptics imports this module,
+    so a top-level import here would be circular.
+
+    Raises:
+        AssertionError: an entry point misses a run option it did not exempt, a
+                        forwarder does not take **kwargs, or split_run_options
+                        disagrees with RUN_OPTIONS.
+    """
+    import inspect
+
+    from ...models.waveoptics import run_fidelity2, run_waveoptics
+    from .campaign import Campaign
+
+    run_set = set(RUN_OPTIONS)
+    assert len(run_set) == len(RUN_OPTIONS), "RUN_OPTIONS has a duplicate."
+    assert set(GRID_OPTIONS) <= run_set, "GRID_OPTIONS is not a subset."
+
+    explicit = {
+        "propagate_turbulent_scenario": propagate_turbulent_scenario,
+        "propagate_turbulent_field": propagate_turbulent_field,
+        "Campaign.__init__": Campaign.__init__,
+    }
+    for name, fn in explicit.items():
+        params = set(inspect.signature(fn).parameters)
+        exempt = _RUN_OPTION_EXEMPT.get(name, set())
+        assert exempt <= run_set, \
+            f"{name}: exemption {sorted(exempt - run_set)} is not a run option."
+        missing = run_set - params - exempt
+        assert not missing, (
+            f"{name} misses run option(s) {sorted(missing)}. Add the "
+            f"parameter, or (if it genuinely does not apply) list it in "
+            f"_RUN_OPTION_EXEMPT with a reason.")
+
+    forwarders = {"run_waveoptics": run_waveoptics,
+                  "run_fidelity2": run_fidelity2}
+    assert set(forwarders) == set(_RUN_OPTION_FORWARDERS)
+    for name, fn in forwarders.items():
+        kinds = [p.kind for p in inspect.signature(fn).parameters.values()]
+        assert inspect.Parameter.VAR_KEYWORD in kinds, (
+            f"{name} must take **runner_kwargs so a new run option reaches it "
+            f"with no edit (backlog 2-I4).")
+
+    # split_run_options IS the forwarders' validator: it must accept every run
+    # option and reject anything else, so the forwarders stay as strict as an
+    # explicit signature.
+    ok = split_run_options({k: None for k in RUN_OPTIONS}, where="_check")
+    assert set(ok) == run_set
+    try:
+        split_run_options({"not_a_run_option": 1}, where="_check")
+        raise AssertionError("split_run_options must reject an unknown key.")
+    except TypeError:
+        pass
 
 
 def _progress_bar(progress, total, desc):
@@ -393,6 +546,57 @@ def _resolve_compensation(scenario, compensation):
     if n_modes < 1:
         return None, 0
     return stack, n_modes
+
+
+def _apply_compensation(F_rx, comp_modes, comp_source, n_modes, summed_phase,
+                        warned, where):
+    """Remove the first n_modes Noll modes from a receive field, in place.
+
+    THE PERFECT-AO CORRECTION has ONE home here (backlog 2-I4): the per-trial
+    runner loop and the single-snapshot propagate_turbulent_field both call it,
+    so the correction physics is not copied. It fits the modes over the
+    aperture, builds the conjugate phase and multiplies it on, so the clip, the
+    coupling and the reciprocity overlap downstream read the CORRECTED
+    wavefront. The phase map is zero outside the aperture mask, so the stored
+    patch pixels outside the aperture do not move. The fit is IDEAL (no sensor
+    noise, no servo lag, no aliasing), so it is the UPPER BOUND of the benefit
+    of a corrector. Source: Noll 1976, DOI 10.1364/JOSA.66.000207.
+
+    THE SENSING SOURCE FOLLOWS THE FAMILY (see the runner). "screens" reads the
+    SUMMED SCREEN PHASE (a space slab starts from a plane wave). "slopes" reads
+    the WRAPPED-GRADIENT slopes of the receive field (a terrestrial screen is
+    not the receive wavefront), with a longer fit than it corrects.
+
+    Args:
+        F_rx:         the receive-plane Field. Its .field is corrected in place.
+        comp_modes:   the ApertureModes projector over the clip aperture.
+        comp_source:  "screens" or "slopes".
+        n_modes:      the number of Noll modes to remove.
+        summed_phase: the host 2D summed screen phase. Read only for "screens".
+        warned:       a one-element list that holds the slope-step warning
+                      state across trials, so the warning fires one time.
+        where:        the caller name, for the slope-step warning message.
+    """
+    if comp_source == "screens":
+        coeffs = comp_modes.estimate(summed_phase.ravel()[comp_modes.indices])
+    else:
+        sx, sy = wrapped_gradient(F_rx.field)
+        if not warned[0]:
+            step = max_abs_step(sx, sy)
+            if step > SLOPE_STEP_WARN_RAD:
+                warned[0] = True
+                warnings.warn(
+                    f"{where}: the largest "
+                    f"phase step of the receive field is {step:.2f} "
+                    "rad per pixel. A wrapped-gradient slope "
+                    "aliases above pi, so the modal fit of the "
+                    "compensation is not trustworthy here. Use a "
+                    "finer grid.")
+        coeffs = comp_modes.estimate_from_slopes(sx, sy)
+        # The fit holds more modes than the corrector removes, so the extra
+        # coefficients go to zero. See SLOPE_MIN_MODES.
+        coeffs[n_modes:] = 0.0
+    F_rx.field = comp_modes.apply(F_rx.field, coeffs, sign=-1)
 
 
 @dataclass(frozen=True)
@@ -805,7 +1009,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  detectors=None, start_index=0,
                                  patch_radius_m=None, precision="single",
                                  fft_backend="numpy", compensation=None,
-                                 store_screen_phase=False):
+                                 store_screen_phase=False, boost=True):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -966,6 +1170,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       terrestrial run may store it too, but its post-hoc
                       correction reads the field slopes. The default False
                       stores nothing.
+        boost:        True (the default) raises this process to the Above
+                      Normal priority class and opts it out of power
+                      throttling (EcoQoS) one time at entry. A windowless run
+                      (ssh, WMI) is throttled without it, so a direct runner
+                      call no longer needs the script to boost by hand. The
+                      threads of a Threader inherit the parent priority, and
+                      the call is idempotent and a no-op off Windows. See
+                      olb.waveoptics.priority.
 
     Returns:
         A TurbWaveResult.
@@ -979,6 +1191,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                             store_screen_phase comes with no patch radius.
         NotImplementedError: the scenario direction is "retro".
     """
+    if boost:
+        # THE PARENT BOOST LIVES HERE (backlog 2-I4, item 3). A windowless run
+        # (ssh, WMI) is throttled by EcoQoS without it, so a direct runner call
+        # over ssh used to need the SCRIPT to call boost_process_priority() by
+        # hand. Now it does not. A threaded run needs the parent only: the
+        # Threader threads inherit this priority. It is idempotent and a no-op
+        # off Windows, so a Campaign worker (already boosted in its pool
+        # initializer) is unaffected. See olb.waveoptics.priority.
+        boost_process_priority()
     cdtype = field_dtype(precision)
     is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
@@ -1246,31 +1467,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             if screen_phase is not None:
                 screen_phase[k - start_index] = acc.ravel()[patch.indices]
             if comp_modes is not None:
-                # THE PERFECT-AO CORRECTION. It removes the fitted modes from
-                # the receive field, so the clip, the coupling and the
-                # reciprocity overlap below all read the CORRECTED wavefront.
-                # The phase map is zero outside the aperture mask, so the
-                # stored patch pixels outside the aperture do not move.
-                if comp_source == "screens":
-                    coeffs = comp_modes.estimate(acc.ravel()[comp_modes.indices])
-                else:
-                    sx, sy = wrapped_gradient(F_rx.field)
-                    if not slope_step_warned[0]:
-                        step = max_abs_step(sx, sy)
-                        if step > SLOPE_STEP_WARN_RAD:
-                            slope_step_warned[0] = True
-                            warnings.warn(
-                                "propagate_turbulent_scenario: the largest "
-                                f"phase step of the receive field is {step:.2f} "
-                                "rad per pixel. A wrapped-gradient slope "
-                                "aliases above pi, so the modal fit of the "
-                                "compensation is not trustworthy here. Use a "
-                                "finer grid.")
-                    coeffs = comp_modes.estimate_from_slopes(sx, sy)
-                    # The fit holds more modes than the corrector removes, so
-                    # the extra coefficients go to zero. See SLOPE_MIN_MODES.
-                    coeffs[n_modes:] = 0.0
-                F_rx.field = comp_modes.apply(F_rx.field, coeffs, sign=-1)
+                # The clip, the coupling and the reciprocity overlap below all
+                # read the CORRECTED wavefront. See _apply_compensation (the
+                # one home of the correction; the stored patch row above keeps
+                # the UNCORRECTED field).
+                _apply_compensation(F_rx, comp_modes, comp_source, n_modes, acc,
+                                    slope_step_warned,
+                                    "propagate_turbulent_scenario")
 
             collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
             collected_power = float(Power(collected) / p_reference)
@@ -1364,7 +1567,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               cn2=None, hs=None, cn2_profile=None,
                               h_top_m=None, L0_m=np.inf,
                               subharmonics=True, screen_generator="olb",
-                              precision="single", fft_backend="numpy"):
+                              precision="single", fft_backend="numpy",
+                              compensation=None):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -1411,9 +1615,19 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         fft_backend:  "numpy" (the default), "scipy" or "cupy". See
                       propagate_turbulent_scenario. The field comes back on
                       the HOST for every backend.
+        compensation: None (the default, NO correction), "terminal", or a list
+                      of stages (backlog 2-I4). The perfect-AO correction of
+                      propagate_turbulent_scenario, applied to the RETURNED
+                      field, so the diagnostic can show a CORRECTED snapshot.
+                      It senses the SAME way the runner does: the summed screen
+                      phase on a space link, the field slopes on a terrestrial
+                      one. The default returns the uncorrected field, bit for
+                      bit as before. See _apply_compensation and
+                      olb.waveoptics.compensation.
 
     Returns:
-        A tuple (F_rx, grid, plan). F_rx is the receive-plane Field.
+        A tuple (F_rx, grid, plan). F_rx is the receive-plane Field, corrected
+        when `compensation` asks for it.
 
     Raises:
         ValueError:          the geometry gives more than one range, only one
@@ -1445,6 +1659,26 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
     entropy = _resolve_seed(seed)
+
+    # THE PERFECT-AO CORRECTION (an OPT-IN, default OFF). It builds the SAME
+    # projector the runner builds (the clip aperture on the grid), and it
+    # senses the SAME way: the summed screen phase on a space link, the field
+    # slopes on a terrestrial one. See _apply_compensation.
+    comp_stack, n_modes = _resolve_compensation(scenario, compensation)
+    comp_source = "screens" if is_space else "slopes"
+    comp_modes = None
+    if n_modes > 0:
+        rx = clip_terminal(scenario)
+        n_fit = (n_modes if comp_source == "screens"
+                 else max(n_modes, SLOPE_MIN_MODES))
+        comp_modes = ApertureModes(
+            n_fit, grid.n, circle(grid.n, rx.aperture_m / grid.pixel_m,
+                                  rx.obscuration_ratio))
+        if comp_source == "slopes":
+            comp_modes.estimate_from_slopes(np.zeros((grid.n, grid.n - 1)),
+                                            np.zeros((grid.n - 1, grid.n)))
+    need_sum = comp_modes is not None and comp_source == "screens"
+
     # THE BACKEND COMES BEFORE THE SCREEN FACTORY, because the factory reads
     # the array module of the backend in __init__. The finally restores it.
     previous_backend = set_fft_backend(fft_backend)
@@ -1457,12 +1691,19 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         # spare of each FFT), not the stack.
         stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
                  for j in range(int(plan.z_m.size)))
+        sum_box = [None]
+        if need_sum:
+            stack = _summing(stack, sum_box)
         F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
         # The field comes back on the host, so a picture reads it as before.
         F_rx = to_host(split_step(F_start, plan.z_m, stack, plan.z_total_m,
                                   boundary=mask))
     finally:
         set_fft_backend(previous_backend)
+    if comp_modes is not None:
+        acc = _host_array(sum_box[0]) if need_sum else None
+        _apply_compensation(F_rx, comp_modes, comp_source, n_modes, acc,
+                            [False], "propagate_turbulent_field")
     return F_rx, grid, plan
 
 
@@ -2066,6 +2307,9 @@ if __name__ == '__main__':
             phase_screen(0.1, 32, 0.01, seed=0)
     except ImportError:
         pass                                   # aotools is optional.
+
+    # ---- 2-I4. the run-option coverage guard (the straggler guard) ----
+    check_run_option_coverage()
 
     # ---- 6. the record NOTE names the optional stored field ----
     assert "fields" in TurbWaveResult.__doc__ and \

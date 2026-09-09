@@ -212,7 +212,8 @@ def _run_block(b):
         precision=_W["kwargs"]["precision"],
         fft_backend=_W["kwargs"]["fft_backend"],
         compensation=_W["kwargs"]["compensation"],
-        store_screen_phase=_W["kwargs"]["store_screen_phase"])
+        store_screen_phase=_W["kwargs"]["store_screen_phase"],
+        boost=False)        # the worker boosted itself in _init_worker.
     return int(b), _columns_of(res)
 
 
@@ -876,7 +877,8 @@ class Campaign:
                     precision=self.precision, threader=threader,
                     fft_backend=self.fft_backend,
                     compensation=self.compensation,
-                    store_screen_phase=self.store_screen_phase)
+                    store_screen_phase=self.store_screen_phase,
+                    boost=boost)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "

@@ -94,11 +94,8 @@ class Fidelity2Bundle:
     turbulent: object
 
 
-def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
-                   seed=None, threader=None, grid=None, plan=None, cn2=None,
-                   hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf,
-                   subharmonics=True, precision="single", fft_backend="numpy",
-                   compensation=None, store_screen_phase=False):
+def run_waveoptics(scenario, geometry, *, n_trials=200, seed=None,
+                   threader=None, grid=None, plan=None, **runner_kwargs):
     '''
     Run the turbulent split-step propagation ONE time.
 
@@ -106,6 +103,15 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
     plans the screens once (turbulent_grid), then it shares that grid and plan
     across every trial, so a longer run repeats a shorter run's atmosphere. Give
     the result to `waveoptics_turbulence_term`, which never runs a simulation.
+
+    THE RUN OPTIONS PASS THROUGH (backlog 2-I4). The atmosphere and numeric
+    options (preset, cn2, hs, cn2_profile, h_top_m, L0_m, subharmonics,
+    screen_generator, precision, fft_backend, compensation, store_screen_phase)
+    are NOT restated here. They forward as **runner_kwargs to the runner, which
+    is their single authority and their single list of defaults (see
+    olb.waveoptics.turbulence.run.propagate_turbulent_scenario and RUN_OPTIONS).
+    So a new run option is added in ONE place and reaches this wrapper at no
+    cost. An unknown keyword raises (split_run_options), so a typo fails loudly.
 
     Parameters:
         scenario : SpaceScenario or TerrestrialScenario
@@ -115,54 +121,17 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
             The link geometry. It must resolve to ONE range (scalar elevation).
         n_trials : int
             The number of independent atmosphere snapshots.
-        preset : str or QualityPreset
-            The sampling quality: "reference", "standard", or "rapid".
         seed : int or None
             The seed of the trial set. The same seed repeats the same set.
         threader : olb.waveoptics.Threader or None
             Run the trials across threads when set (the FFT releases the GIL).
         grid, plan : optional
             A precomputed grid and screen plan. Give both or neither. When None,
-            turbulent_grid sizes them from the scenario.
-        cn2 : callable, optional
-            A callable cn2(h) -> the zenith Cn2 at height h [m]. None (with no
-            hs/cn2_profile) integrates the site Hufnagel-Valley profile: the
-            continuous default (a space link only). See turbulent_grid.
-        hs, cn2_profile : numpy.ndarray, optional
-            The height grid and the zenith Cn2 profile of the LEGACY array
-            planner (a space link only). Give hs to opt out of the continuous
-            default.
-        h_top_m : float, optional
-            The atmosphere top for the continuous integral [m]. None takes 20
-            km (a space link only).
-        L0_m : float
-            The turbulence outer scale [m]. Infinite is the Kolmogorov limit.
-        subharmonics : bool
-            Add the aotools subharmonic low-frequency screen content.
-        precision : str
-            "single" (the default) or "double". "single" runs the propagation
-            in complex64, with float32 phase screens. WHY: a large run is
-            memory-bandwidth bound, so half the bytes for each element gives a
-            real speed-up. CAUTION: a single-precision run is a DIFFERENT
-            record; it is not bit-identical to a double-precision run of the
-            same seed. Validate it against a double-precision run before a
-            budget reads it. See validation/precision.
-        fft_backend : str
-            "numpy" (the default, the backend of record), "scipy" or "cupy".
-            "cupy" runs the split step on a CUDA device (an OPT-IN, see
-            olb.waveoptics.turbulence.run.propagate_turbulent_scenario). The
-            screen noise stays a host draw, so the same seed gives the same
-            atmosphere. Neither opt-in is bit-identical to "numpy".
-        compensation : None, "terminal", or a list of stages
-            The perfect-AO correction (an OPT-IN, default OFF). Each trial then
-            removes the first N Noll modes of the wavefront over the receive
-            aperture. "terminal" reads the stack of the clip terminal. See
-            olb.waveoptics.turbulence.run.propagate_turbulent_scenario and
-            olb.waveoptics.compensation.
-        store_screen_phase : bool
-            True stores the summed screen phase of each trial (it needs a
-            stored patch, which this entry point does not make). The default
-            False stores nothing.
+            turbulent_grid sizes them from the scenario (it reads the grid
+            subset of the run options).
+        **runner_kwargs :
+            Any of the run options above. See the runner for each one's meaning
+            and default.
 
     Returns:
         TurbWaveResult
@@ -170,16 +139,13 @@ def run_waveoptics(scenario, geometry, *, n_trials=200, preset="standard",
     '''
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
+    from ..waveoptics.turbulence.run import grid_options, split_run_options
+    opts = split_run_options(runner_kwargs, where="run_waveoptics")
     if grid is None or plan is None:
-        grid, plan, _ = turbulent_grid(scenario, geometry, preset=preset,
-                                       cn2=cn2, hs=hs, cn2_profile=cn2_profile,
-                                       h_top_m=h_top_m, L0_m=L0_m)
+        grid, plan, _ = turbulent_grid(scenario, geometry, **grid_options(opts))
     return propagate_turbulent_scenario(
-        scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
-        grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
-        h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader, precision=precision, fft_backend=fft_backend,
-        compensation=compensation, store_screen_phase=store_screen_phase)
+        scenario, geometry, n_trials=n_trials, seed=seed, grid=grid, plan=plan,
+        threader=threader, **opts)
 
 
 def waveoptics_turbulence_term(result, *, quantity=None, loss_db=None,
@@ -854,12 +820,9 @@ def _vacuum_record(scenario, geometry, grid, vacuum, is_space,
                               precision=precision)
 
 
-def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
-                  seed=None, threader=None, cn2=None, hs=None, cn2_profile=None,
-                  h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True,
-                  vacuum=None, turbulence=True, detectors=None,
-                  precision="single", fft_backend="numpy", compensation=None,
-                  store_screen_phase=False):
+def run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None,
+                  progress=True, vacuum=None, turbulence=True, detectors=None,
+                  **runner_kwargs):
     '''
     Run the wave-optics propagation(s) a fidelity-2 budget needs, ONE time each.
 
@@ -893,12 +856,20 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
 
     Parameters:
         scenario, geometry : the link case and geometry (one range only).
-        n_trials, preset, seed, threader, cn2, hs, cn2_profile, h_top_m, L0_m,
-        subharmonics :
-            passed to the turbulent run (see run_waveoptics). cn2 (with no
-            hs/cn2_profile) is the continuous Cn2 callable; None takes the site
-            Hufnagel-Valley profile, integrated. hs opts back to the legacy
-            array planner.
+        n_trials, seed, threader :
+            passed to the turbulent run (see run_waveoptics).
+        **runner_kwargs :
+            THE RUN OPTIONS (backlog 2-I4): preset, cn2, hs, cn2_profile,
+            h_top_m, L0_m, subharmonics, screen_generator, precision,
+            fft_backend, compensation, store_screen_phase. They are NOT
+            restated here; they forward to the turbulent run and the grid
+            sizer, which own their meanings and defaults (see the runner and
+            RUN_OPTIONS). cn2 (with no hs/cn2_profile) is the continuous Cn2
+            callable; None takes the site Hufnagel-Valley profile, integrated;
+            hs opts back to the legacy array planner. precision reaches the
+            vacuum run too, so the two records match. compensation and
+            fft_backend reach the TURBULENT run only. An unknown keyword
+            raises.
         progress : True (the default) prints a recap of the auto-chosen grid,
             screen plan, and sampling quality, then shows a tqdm bar over the
             turbulent trials. The bar needs the optional tqdm package; without
@@ -943,42 +914,20 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
             vacuum run at all; vacuum="wave" makes one full-path solve for each
             arm, which is slow (about 14 s each).
 
-        precision : str
-            "single" (the default) or "double". "single" runs the TURBULENT
-            Monte Carlo in complex64, with float32 phase screens. WHY: the
-            Monte Carlo is memory-bandwidth bound, so half the bytes for each
-            element gives a real speed-up. The vacuum run keeps the same
-            switch, so the two records match. CAUTION: a single-precision
-            bundle is a DIFFERENT record; it is not bit-identical to a
-            double-precision bundle of the same seed. Validate it against a
-            double-precision run before a budget reads it. See
-            validation/precision.
-
-        fft_backend : str
-            "numpy" (the default, the backend of record), "scipy" or "cupy".
-            It reaches the TURBULENT Monte Carlo only; the vacuum run keeps
-            the host route. "cupy" runs the split step on a CUDA device (an
-            OPT-IN, see run_waveoptics). Neither opt-in is bit-identical to
-            "numpy".
-
         compensation : None, "terminal", or a list of stages
-            The perfect-AO correction of the TURBULENT Monte Carlo (an OPT-IN,
-            default OFF). Each trial removes the first N Noll modes of the
-            wavefront over the receive aperture, BEFORE the coupling and the
-            reciprocity overlap. "terminal" reads the stack of the clip
-            terminal (the GROUND terminal of a space link in every direction).
-            An UPLINK therefore reads a PRE-COMPENSATED beam, because the
-            uplink overlap sees the corrected ground field (Shapiro,
+            A run option (see **runner_kwargs), kept here because its fidelity-2
+            budget semantics matter. The perfect-AO correction of the TURBULENT
+            Monte Carlo (an OPT-IN, default OFF). Each trial removes the first N
+            Noll modes of the wavefront over the receive aperture, BEFORE the
+            coupling and the reciprocity overlap. "terminal" reads the stack of
+            the clip terminal (the GROUND terminal of a space link in every
+            direction). An UPLINK therefore reads a PRE-COMPENSATED beam,
+            because the uplink overlap sees the corrected ground field (Shapiro,
             DOI 10.1364/JOSA.61.000492). The fit is IDEAL: no wavefront-sensor
             noise, no servo lag, no aliasing, and no point-ahead
             decorrelation. So the record is the UPPER BOUND of the benefit
             (Noll 1976, DOI 10.1364/JOSA.66.000207), and the Terms flag it.
             The default keeps an uncorrected run bit-identical.
-
-        store_screen_phase : bool
-            True stores the summed screen phase of each trial. It needs a
-            stored patch, which this entry point does not make; use a
-            Campaign for the post-hoc route. The default False stores nothing.
 
     Returns:
         Fidelity2Bundle, or list of Fidelity2Bundle
@@ -990,6 +939,12 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
     '''
     from ..waveoptics.turbulence import (propagate_turbulent_scenario,
                                           turbulent_grid)
+    from ..waveoptics.turbulence.run import grid_options, split_run_options
+    opts = split_run_options(runner_kwargs, where="run_fidelity2")
+    # The vacuum run follows the TURBULENT precision so the two records match.
+    # The runner owns the default, so read it the same way.
+    precision = opts.get("precision", "single")
+    preset = opts.get("preset", "standard")   # the recap line reads it.
     is_space = hasattr(scenario, "ground")   # a terrestrial scenario has near/far
     vacuum = _resolve_vacuum(vacuum, is_space)
     from .splitter import arm_scenario
@@ -1006,8 +961,7 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
         # needs no grid sizing at all.
         grid = None
         if not is_space:
-            grid, _, _ = turbulent_grid(scenario, geometry, preset=preset, hs=hs,
-                                        cn2_profile=cn2_profile, L0_m=L0_m)
+            grid, _, _ = turbulent_grid(scenario, geometry, **grid_options(opts))
         if progress:
             print(f"run_fidelity2: turbulence=False, vacuum-only bundle "
                   f"(vacuum={vacuum!r}, no screens and no trials).")
@@ -1018,18 +972,12 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard",
                                 turbulent=None)
                 for d in detectors]
 
-    grid, plan, report = turbulent_grid(scenario, geometry, preset=preset,
-                                        cn2=cn2, hs=hs, cn2_profile=cn2_profile,
-                                        h_top_m=h_top_m, L0_m=L0_m)
+    grid, plan, report = turbulent_grid(scenario, geometry, **grid_options(opts))
     if progress:
         print(_recap(scenario, geometry, grid, plan, report, n_trials, preset))
     turbulent = propagate_turbulent_scenario(
-        scenario, geometry, n_trials=n_trials, seed=seed, preset=preset,
-        grid=grid, plan=plan, cn2=cn2, hs=hs, cn2_profile=cn2_profile,
-        h_top_m=h_top_m, L0_m=L0_m, subharmonics=subharmonics,
-        threader=threader, progress=progress, detectors=detectors,
-        precision=precision, fft_backend=fft_backend,
-        compensation=compensation, store_screen_phase=store_screen_phase)
+        scenario, geometry, n_trials=n_trials, seed=seed, grid=grid, plan=plan,
+        threader=threader, progress=progress, detectors=detectors, **opts)
     if detectors is None:
         return Fidelity2Bundle(vacuum=vacuum_run(scenario, grid),
                                turbulent=turbulent)

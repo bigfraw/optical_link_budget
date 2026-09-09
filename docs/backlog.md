@@ -55,12 +55,11 @@ are from 2026-08-26 and can drift.
    1 to 3 are DONE (`validation/fibre_fade_models/`, physics.md 9m): no
    free route holds a fibre, the rung is a REFIT family from a short
    campaign, and step 4 waits for three owner decisions listed in 1-9.
-2d. **Audit the fidelity-2 entry points (owner-flagged 2026-09-05).** The
-   runner, `run_waveoptics`, `run_fidelity2` and `Campaign` each carry a
-   different keyword list; the priority boost, the screen generator, the
-   field patch and the detector arms each reach some and not others. Pick one
-   owner of the run options and a self-check that keeps them aligned. See
-   2-I4.
+2d. **DONE (2026-09-09) — the fidelity-2 entry points are unified.** The run
+   options now have one owner (`RUN_OPTIONS` on the runner), the wrappers
+   forward a validated `**runner_kwargs`, the boost moved into the runner, and
+   `check_run_option_coverage()` keeps the set aligned mechanically. Every
+   seeded fidelity-2 number is unchanged. See 2-I4.
 3. **DONE — the turbulent screen-count floor `min_screens`.** Work package 7
    resolved it. See 2-N1.
 4. **DONE — Gap 3, thread the beam curvature f0 into the Fried call site.**
@@ -1331,8 +1330,33 @@ The path forward for each is a second reference or a derivation.
   `"numpy"`, and a GPU run is a different fingerprint. A campaign of one
   process per device replaces the process pool. Every part of that plan is
   built.
-- **2-I4. The fidelity-2 entry points have DRIFTED apart — audit and unify
-  (owner-flagged 2026-09-05).** Four callers run the split-step Monte Carlo,
+- **2-I4. DONE (2026-09-09). The fidelity-2 entry points are UNIFIED behind a
+  validated run-option pass-through.** The atmosphere and numeric options now
+  have ONE owner: `olb.waveoptics.turbulence.run.RUN_OPTIONS`, the list the
+  runner `propagate_turbulent_scenario` names once with its defaults. The two
+  model-level wrappers (`run_waveoptics`, `run_fidelity2`) dropped their
+  restated option lists and forward a validated `**runner_kwargs`
+  (`split_run_options` raises on an unknown key; `grid_options` pulls the grid
+  subset for `turbulent_grid`), so a new run option is added in ONE place. The
+  two previous stragglers are CLOSED: `screen_generator` now reaches both
+  wrappers, and `compensation` was wired into the single-snapshot
+  `propagate_turbulent_field` (it shows a CORRECTED snapshot; the correction
+  physics moved to the shared `_apply_compensation`, so the runner and the
+  diagnostic do not copy it). The parent priority boost moved into the runner
+  (`boost=True`), so a direct ssh/WMI run is no longer throttled without a
+  hand-call. The straggler guard is `check_run_option_coverage()`: it asserts
+  every entry point covers `RUN_OPTIONS` (an explicit signature names the
+  option or lists a reasoned exemption in `_RUN_OPTION_EXEMPT`; a forwarder
+  takes `**kwargs`), and it runs in the `run.py` self-check, so the next
+  straggler fails mechanically the way the `@assumes` floor does. Measured:
+  every seeded fidelity-2 number is UNCHANGED (the `run.py`, `models.waveoptics`,
+  `multidetector` and `campaign` self-checks pass, and a 6-trial downlink through
+  both wrappers is bit-identical to the pre-change baseline). The keyword matrix
+  lives in `docs/api-waveoptics.md` Section 11. `Campaign` kept its explicit
+  signature by design (its attributes are its on-disk contract and fingerprint);
+  `_runner_kwargs` stays its forwarding point. The ORIGINAL audit follows.
+
+  Four callers run the split-step Monte Carlo,
   and each one grew its own keyword list as features landed: the runner
   `propagate_turbulent_scenario` (`olb/waveoptics/turbulence/run.py`), the
   model-level `run_waveoptics` and `run_fidelity2` (`olb/models/waveoptics.py`),
@@ -1855,9 +1879,10 @@ The path forward for each is a second reference or a derivation.
   bit-for-bit against the `my_analysis_modules` working tree (which held the
   Dios-verified fixes). olb no longer depends on `my_analysis_modules`. The
   kernel-repo owner may still want to commit its own working tree, but that is
-  no longer an olb blocker. (One stale trace is left: the `pyproject.toml`
-  Pylance block still names the deleted `olb/_deps.py` and keeps
-  `extraPaths = ["../my_analysis_modules"]`. It has no runtime effect.)
+  no longer an olb blocker. (The last stale trace is GONE (2026-09-09): the
+  dead `[tool.pyright]` block of `pyproject.toml`, which named the deleted
+  `olb/_deps.py` and kept `extraPaths = ["../my_analysis_modules"]`, is
+  removed.)
 - **X-2. KR-24: the kernel keeps three wrong constants**
   (general_atmospherics.py:23 uses 0.54 / 1.22 / 0.509; the book uses
   0.49 / 1.11 / 0.51). The olb half is fixed; the kernel half is open.

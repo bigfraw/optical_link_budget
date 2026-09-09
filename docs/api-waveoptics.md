@@ -80,7 +80,7 @@ tiers (see Section 9).
   - [10d. The turbulence and the screens (`turbulence.py`)](#10d-the-turbulence-and-the-screens-turbulencepy)
   - [10e. The example scripts](#10e-the-example-scripts)
 - [11. The fidelity-2 runner and the Terms (`olb/models/waveoptics.py`)](#11-the-fidelity-2-runner-and-the-terms-olbmodelswaveopticspy)
-  - [11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy")`](#11a-run_fidelity2scenario-geometry--n_trials200-presetstandard-seednone-threadernone-cn2none-hsnone-cn2_profilenone-h_top_mnone-l0_mnpinf-subharmonicstrue-progresstrue-vacuumnone-turbulencetrue-detectorsnone-precisionsingle)
+  - [11a. `run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None, progress=True, vacuum=None, turbulence=True, detectors=None, **runner_kwargs)`](#11a-run_fidelity2scenario-geometry--n_trials200-seednone-threadernone-progresstrue-vacuumnone-turbulencetrue-detectorsnone-runner_kwargs)
   - [11b. `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *, beam_type=BEAM_GAUSSIAN, name=None, note=None, meta_extra=None)`](#11b-waveoptics_vacuum_mmf_termvacuum_result-detector-aperture_m--beam_typebeam_gaussian-namenone-notenone-meta_extranone)
 - [12. Hardware acceleration: the compute backends](#12-hardware-acceleration-the-compute-backends)
   - [12a. What the CUDA path runs, and what stays on the host](#12a-what-the-cuda-path-runs-and-what-stays-on-the-host)
@@ -939,7 +939,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1971,7 +1971,47 @@ passes them in. See [api-budget.md](api-budget.md) for the budget side.
 | `waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, ...)` | The deterministic vacuum MMF core-capture Term (no fade). |
 | `flag_uncorrected_compensation(term, scenario)` | Not a factory. It flags a Term whose terminal declares a compensation stack that the wave record did not use. It returns the same Term. |
 
-### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, preset="standard", seed=None, threader=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, subharmonics=True, progress=True, vacuum=None, turbulence=True, detectors=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
+#### The run options: one owner (backlog 2-I4)
+
+Five entry points run the split-step Monte Carlo. The *atmosphere and numeric*
+options that describe a run — listed below — have ONE owner: the runner
+`propagate_turbulent_scenario`, which names each one once with its default
+(`olb.waveoptics.turbulence.run.RUN_OPTIONS`). The two model-level wrappers do
+NOT restate the list; they forward a validated `**runner_kwargs` to the runner
+(an unknown keyword raises, through `split_run_options`), so a new run option is
+added in ONE place and reaches them at no cost. `Campaign` keeps an explicit
+signature (its attributes are its on-disk contract and its fingerprint) and
+`propagate_turbulent_field` keeps one too; a module self-check
+(`check_run_option_coverage`) asserts every entry point covers `RUN_OPTIONS`, so
+the next straggler fails mechanically the way the `@assumes` floor does.
+
+| Run option | runner | `run_waveoptics` | `run_fidelity2` | `Campaign` | `…_field` |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `preset` | ● | → | → | ● | ● |
+| `cn2` | ● | → | → | ● | ● |
+| `hs` | ● | → | → | ● | ● |
+| `cn2_profile` | ● | → | → | ● | ● |
+| `h_top_m` | ● | → | → | ● | ● |
+| `L0_m` | ● | → | → | ● | ● |
+| `subharmonics` | ● | → | → | ● | ● |
+| `screen_generator` | ● | → | → | ● | ● |
+| `precision` | ● | → | → | ● | ● |
+| `fft_backend` | ● | → | → | ● | ● |
+| `compensation` | ● | → | → | ● | ● |
+| `store_screen_phase` | ● | → | → | ● | — |
+
+● names the option on its own signature; → forwards it via `**runner_kwargs`;
+— is an explicit, reasoned exemption (the single-snapshot diagnostic returns the
+field and stores no patch, so it has nowhere to keep the summed screen phase).
+`propagate_turbulent_field` gained `compensation` here, so the diagnostic can
+show a CORRECTED snapshot. The *per-call* arguments (`n_trials`, `seed`, `grid`,
+`plan`, `threader`, `progress`, `detectors`, `start_index`, `patch_radius_m`,
+and the `run_fidelity2` selectors `vacuum`/`turbulence`) are NOT run options:
+each entry point names the ones it needs. The parent priority **boost** also
+moved into the runner (`boost=True`), so a direct `ssh`/`WMI` run is no longer
+throttled without a hand-call to `boost_process_priority()`.
+
+### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None, progress=True, vacuum=None, turbulence=True, detectors=None, **runner_kwargs)`
 
 It runs the wave-optics propagations that a fidelity-2 budget needs, one time
 each: the TURBULENT split-step Monte Carlo (the fade), and a no-turbulence
