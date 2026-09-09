@@ -78,6 +78,38 @@ tables are in `screens/data/`.
 | [screens/oversize_crop.py](screens/oversize_crop.py) | Arm 1: the Fourier and the oversize-and-crop screens. |
 | [screens/infinite_screen_stats.py](screens/infinite_screen_stats.py) | Arm 2: the spatial statistics of the extruded screens. |
 | [screens/extrusion_stationarity.py](screens/extrusion_stationarity.py) | Arm 3: the drift test of the extrusion. |
+| [screens/n_columns_sweep.py](screens/n_columns_sweep.py) | Arm 4 (2026-09-08): what `n_columns` buys on the fixed float64 aotools kernel. It sweeps `n_columns` 2 to 32 at L0 2.56 and 25 m, N 128 and 512, 8 seeds, plus a record-length study. See FINDINGS Q6. |
+| [screens/subharmonic_start.py](screens/subharmonic_start.py) | Arm 5 (2026-09-08): a SUBHARMONIC initial frame against the stock plain start. It removes the optical spin-up at row 0 (the piston-removed variance 0.90 to 1.03 and the 1 m Z-tilt 1.04 to 1.08 of theory, against 0.32 and 0.71 for the plain start). See FINDINGS Q7. |
+| [screens/kept_start.py](screens/kept_start.py) | Arm 6 (2026-09-08, 32 seeds, 2 SE): is the subharmonic start KEPT on a 0.2 L0 frame? No, and it is not carried either: the plain and the subharmonic start read the SAME extrusion-axis excess (+0.19 to +0.27 at 0.5 L0, 2 SE 0.08, the Q6 value), so the recursion imposes its own axis statistics whatever the first frame held. The subharmonic start buys the first frame only. See FINDINGS Q8. |
+| [screens/PLAN_n_columns.md](screens/PLAN_n_columns.md) | The plan of arm 4, the aotools code review (PR 111, issues 107 and 109), and the parked Phase 4 (the time-axis speed evaluation, NOT started). |
+
+**The extrusion in the LEO point-ahead regime (2026-09-08).** The regime of
+record: a point-ahead angle of at most 10 arcsec, so the uplink and the
+downlink beams sit 0.97 m apart at 20 km; a ground aperture of at most 1 m;
+a realistic outer scale of 20 to 50 m; the usual sampling constraints, so a
+grid of more than 512 px with a side of 4 to 7 m. That is a frame side of
+0.1 to 0.35 outer scales, the cell of the sweep (N 512, L0 25 m, side 0.2 L0)
+where NO `n_columns` passes the extrusion-axis band. The reading splits by
+scale:
+
+- The PAA anisoplanatism is served. D(r) is isotropic inside 5 percent from
+  5 cm to 1 m at `n_columns = 2`. Eight columns do NOT help there: they clean
+  the 2.5 m end and roughen the 5 cm end by 15 percent, so keep 2 columns for
+  the aperture scale.
+- The absolute level is the real error, and it is a spin-up and frame-width
+  effect, not `n_columns`: the row-lag variance reads 0.91 of the theory and
+  the Z-tilt variance over 1 m reads 0.84 to 0.88, so a pointing-fade depth
+  from this screen is about 0.6 dB optimistic at every `n_columns`.
+- The extrusion-axis over-correlation (+0.1 to +0.23 in rho) lives at lags of
+  0.1 to 1 L0, so 2 to 50 m of translation. A snapshot study never sees it.
+  Under frozen flow it is the tilt and piston spectrum below v / (0.1 L0):
+  below about 100 Hz for the top layer at 250 m/s of apparent slew, below
+  about 2 Hz for the ground layer, so a temporal tilt model reads too slow in
+  the tracking band and its fade durations come out too benign.
+
+Not measured yet: the absolute D(1 m) on both axes at L0 20 and 50 m (the
+sweep stored correlation coefficients for the 25 m cell). That one read closes
+the PAA question with a number.
 
 ## lognormal_certification/
 
