@@ -1025,7 +1025,7 @@ if __name__ == '__main__':
     cpl_off = next(t for t in smf_off.terms if t.category == "coupling")
     wo_off = next(t for t in smf_off.terms if t.name == "SMF tip-tilt walk-off")
     assert cpl_off.meta["model"] == "static" and not cpl_off.mean_only
-    assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
+    assert wo_off.meta["sigma2_tilt"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
     wo_off_q99 = wo_off.quantile_db(0.99)
     assert smf_off.provides_fade and wo_off_q99 is not None and wo_off_q99 > wo_off.mean_db
     # The jitter drives the coupling fade even with turbulence off (the whole point).

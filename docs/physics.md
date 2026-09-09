@@ -2452,10 +2452,14 @@ run log, a memory note or a backlog aside is not documented.
   fibre is in reach and NOT built: the higher-order lognormal-Rician with
   `r = 2.3 / sigma2_HO` times the walk-off fade fed the aperture tilt at the
   Gaussian r0 with the outer scale; its open assumption is the independence
-  of the two factors. Whether that rung is built,
-  whether the lognormal-Rician gets its CDF, quantile and sampler (0-W7), and
-  whether the walk-off Term is re-pointed at the aperture tilt (which changes
-  every terrestrial fibre budget) are OWNER decisions; see backlog 1-9.
+  of the two factors. The walk-off Term IS now re-pointed at the aperture tilt
+  (2026-09-09, backlog 1-9 decision (c)): `_received_tiptilt_variance` and both
+  terrestrial fibre Terms read the aperture angle of arrival at the Gaussian r0
+  with the site `L0` (via `aperture_arrival_angle_variance(..., L0=...)`), a
+  fidelity-0 number move for every terrestrial fibre budget (the L0 factor is
+  0.763 at 10 cm, the new radial tilt about 1.6 times the old wander). Whether
+  the calibrated rung is built and whether the lognormal-Rician gets its CDF,
+  quantile and sampler (0-W7) remain OWNER decisions; see backlog 1-9.
 - **Script.** `validation/fibre_fade_models/extract_trials.py` (the one-pass
   read on bigfraw) and `fit_distributions.py` (the fits); write-up
   [validation/fibre_fade_models/README.md](../validation/fibre_fade_models/README.md).

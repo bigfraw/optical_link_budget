@@ -125,12 +125,21 @@ def wander_arrival_angle_variance(L, cn2_slant, w_profile, hs, *,
 
 @assumes(TILT_G_TILT, FRESNEL_ZONE, beam_type=BEAM_GAUSSIAN,
          turbulence_regime=REGIME_WEAK, spectrum=SPECTRUM_KOLMOGOROV)
-def aperture_arrival_angle_variance(D, r0, wavelength):
+def aperture_arrival_angle_variance(D, r0, wavelength, *, L0=None, l0=1e-3):
     '''
     Return the aperture angle-of-arrival tip-tilt variance (per axis) [rad^2].
 
     This is the second, smaller aperture angle-of-arrival "corrugation" tilt. It
     is separate from the beam-wander arrival tilt above.
+
+    OUTER SCALE. `L0=None` (the default) gives the Kolmogorov form. A finite
+    `L0` applies the von Karman two-scale reduction of Ch. 6, Eq. (83), printed
+    p. 201: the large-aperture factor `[1 - 0.81 (k0 D)^(1/3)]` with
+    `k0 = 2*pi/L0`, which lowers the tilt (the largest eddies no longer tilt the
+    whole aperture together). At `L0 = 25 m` the factor is about 0.76 at
+    `D = 0.1 m` and 0.81 at `D = 0.05 m`. For `D >> l0` the value does not depend
+    on `l0` (it only sets the sub-inner-scale branch). This is the received-tilt
+    model of record for a terrestrial fibre (backlog 1-9, physics.md 9m).
 
     TILT DEFINITION - THE OWNER MADE THIS CHOICE. This function returns the
     ANDREWS GRADIENT TILT (G-tilt), which is what a centroid tracker measures.
@@ -182,7 +191,12 @@ def aperture_arrival_angle_variance(D, r0, wavelength):
     # product Cn2 * z, so z = 1 m carries it.
     k = 2.0 * np.pi / wavelength
     cn2_l = np.asarray(r0, dtype=float) ** (-5.0 / 3.0) / (0.423 * k ** 2)
-    return _andrews_angle_of_arrival_variance(D, wavelength, 1.0, cn2_l)
+    if L0 is None:
+        return _andrews_angle_of_arrival_variance(D, wavelength, 1.0, cn2_l)
+    # A finite outer scale: the von Karman Eq. (83) reduction at the SAME r0.
+    # The recast carries Cn2*L through z = 1 m, exactly as the Kolmogorov path.
+    return _andrews_angle_of_arrival_variance(
+        D, wavelength, 1.0, cn2_l, spectrum='von_karman', L0=float(L0), l0=l0)
 
 
 if __name__ == '__main__':
@@ -222,6 +236,20 @@ if __name__ == '__main__':
     recast = 0.174 * (D_ap / r0_ap) ** (5.0 / 3.0) * (lam / D_ap) ** 2
     pct = abs(v_ap - recast) / recast * 100.0
     assert pct < 2.0, pct
+
+    # The finite outer scale (von Karman Eq. (83), printed p. 201) LOWERS the
+    # tilt by the factor [1 - 0.81 (k0 D)^(1/3)], k0 = 2*pi/L0. At L0 = 25 m the
+    # factor is about 0.763 at D = 0.1 m (the value measured against the
+    # fidelity-2 campaigns, physics.md 9m).
+    v_l0 = aperture_arrival_angle_variance(0.10, r0_ap, lam, L0=25.0)
+    v_kol = aperture_arrival_angle_variance(0.10, r0_ap, lam)
+    factor = 0.10  # D
+    expect = 1.0 - 0.81 * (2.0 * np.pi / 25.0 * factor) ** (1.0 / 3.0)
+    assert np.isclose(v_l0 / v_kol, expect, rtol=1e-3), (v_l0 / v_kol, expect)
+    assert abs(v_l0 / v_kol - 0.763) < 0.01, v_l0 / v_kol
+    # The Kolmogorov limit: a huge L0 recovers the no-outer-scale value.
+    assert np.isclose(aperture_arrival_angle_variance(0.10, r0_ap, lam, L0=1e7),
+                      v_kol, rtol=1e-3)
 
     print(f"wander tilt variance (3 km, Cn2=1e-14) = {v:.3e} rad^2")
     print(f"aperture AoA tilt (D=0.2 m, r0=0.1 m) = {v_ap:.3e} rad^2  "

@@ -107,14 +107,17 @@ are from 2026-08-26 and can drift.
   `gaussian_fried_parameter` keeps the collimated signature; the budgets use
   the profile form, which is fixed. Docs: docs/physics.md GF-01 note updated;
   crosscheck GF-01.
-- **0-W3. Gap 1: the aperture angle-of-arrival tilt feeds no Term.**
-  `andrews.structure.angle_of_arrival_variance` is built, and
-  `olb.turbulence.angle_of_arrival.aperture_angle_of_arrival_variance`
-  delegates to it. No coupling Term adds contribution C: the terrestrial
-  walk-off Term reads `wander_arrival_angle_variance` only
-  (olb/models/coupling/terrestrial.py:41). So the received tip-tilt is a lower
-  bound. Note conflict C-04: olb holds two tilt conventions (gradient 0.174
-  vs the Noll route in ao.py); a caller that adds them must say which.
+- **0-W3. Gap 1: the aperture angle-of-arrival tilt NOW feeds a Term
+  (DONE 2026-09-09).** `andrews.structure.angle_of_arrival_variance` and
+  `olb.turbulence.angle_of_arrival.aperture_arrival_angle_variance` (now with an
+  `L0` outer-scale factor) are the received-tilt model of the terrestrial fibre
+  Terms: `_received_tiptilt_variance` reads the aperture AoA at the Gaussian r0
+  with the site `L0`, so the SMF walk-off Term and the MMF coupling Term both
+  charge it (backlog 1-9, decision (c)). The old beam-wander-only reading (a
+  lower bound, 1.65 to 2.1 times low) is retired. Conflict C-04 is SETTLED for
+  this use: the walk-off is a spot-CENTROID displacement, so it reads the
+  G-tilt (gradient, 0.174) that this function returns, NOT the Noll Zernike
+  tilt of ao.py; the two are not added.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
   consumer. THE OUTER SCALE: the FIELD half is DONE (2026-09-09), the
   ANALYTIC half remains.** The fidelity-2 screens now read an explicit site
@@ -521,20 +524,28 @@ The path forward for each is a second reference or a derivation.
   reads HALF the tilt variance (1.65 to 2.1 times low; Conflict C-01, 2-P5).
   The slope sensor aliases past `sigma_R^2 = 3.8`, so the tilt-removed cases
   of the 5 km / 1e-14 and 10 km cells are not results.
-  STEP 4 WAITS FOR THREE OWNER DECISIONS: (a) whether the fidelity-1 rung is
+  STEP 4 — THE THREE OWNER DECISIONS: (a) whether the fidelity-1 rung is
   the CALIBRATED route of 1-8 generalised (a short Campaign, a
   maximum-likelihood fit of the gamma-gamma for a bucket and of the
   lognormal-Rician for a fibre, a Term through `olb/models/fade.py` with the
   measured mean coupling as its mean face), because no free draw exists for a
-  fibre; (b) the lognormal-Rician CDF, quantile and sampler in
+  fibre — OPEN; (b) the lognormal-Rician CDF, quantile and sampler in
   `andrews/distributions.py` (0-W7; the study built the numeric CDF in the
-  script); (c) whether `terrestrial_smf_walkoff_term` is re-pointed at the
-  aperture angle-of-arrival tilt at the Gaussian r0 with the site `L0`,
-  which fixes half the shipped-chain deficit and changes every terrestrial
-  fibre budget at fidelity 0. The other half (the higher-order phase fade,
-  1.8 to 3.9 dB at p5 on the unaliased cells) has no analytic Term. Not
-  done: a focused launch (0-P17), the Zernike Monte Carlo (a candidate for
-  the parameter map at D/r0 of 1 to 3), the temporal extension.
+  script) — OPEN; (c) whether `terrestrial_smf_walkoff_term` is re-pointed at
+  the aperture angle-of-arrival tilt at the Gaussian r0 with the site `L0` —
+  DONE (2026-09-09). `olb.turbulence.angle_of_arrival.aperture_arrival_angle_variance`
+  gained an `L0` argument (the von Karman Eq. (83) factor), and
+  `_received_tiptilt_variance` now reads the aperture AoA at the Gaussian-beam
+  r0 with `Site.outer_scale_m` in place of the beam-wander tilt. Measured: the
+  L0 factor is 0.763 at D = 0.1 m (matches physics.md 9m), and the new radial
+  tilt is about 1.6 times the old wander, so both terrestrial fibre receivers
+  (SMF walk-off, MMF) now pay a deeper, correct tilt fade at fidelity 0. The
+  weak-regime gate moved to the plane-wave Rytov of the path (sourced at the
+  AoA kernel), so a strong path still flags. This is a fidelity-0 number move
+  for every terrestrial fibre budget. The other half of the fibre deficit (the
+  higher-order phase fade, 1.8 to 3.9 dB at p5 on the unaliased cells) has no
+  analytic Term. Not done: a focused launch (0-P17), the Zernike Monte Carlo (a
+  candidate for the parameter map at D/r0 of 1 to 3), the temporal extension.
   THE r RULE (2026-09-08, `r_rule.py`, README Section 6a): with `sigma_z^2`
   pinned to the bucket index and r fitted alone, the TILT-REMOVED fibre
   follows `r = 2.3 / sigma2_HO` (leave-one-cell-out 12 of 12, to

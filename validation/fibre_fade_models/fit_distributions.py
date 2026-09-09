@@ -314,7 +314,10 @@ def analytic_feeds(path_m, cn2, D, dz_curv_m):
     out["walkoff"] = {
         "mean_db": float(walk.mean_db),
         "mean_db_tracked": float(walk_t.mean_db),
-        "sigma2_wander_radial": float(walk.meta["sigma2_wander"]),
+        # The walk-off meta now carries the re-pointed aperture-AoA tilt
+        # (2026-09-09, 1-9), not the old beam-wander tilt; the key is
+        # "sigma2_tilt". The local name below is kept for continuity.
+        "sigma2_wander_radial": float(walk.meta["sigma2_tilt"]),
         "w_eff_m": float(walk.meta["w_eff_m"]),
         "w_eff_tracked_m": float(walk_t.meta["w_eff_m"]),
         "spot_offset_1sigma_m": float(walk.meta["spot_offset_1sigma_m"]),

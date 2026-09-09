@@ -110,11 +110,14 @@ def evaluate(scenario):
     wo = terrestrial_smf_walkoff_term(scenario, hp)
     f = wo.meta["focal_length_m"]
     w_eff = wo.meta["w_eff_m"]
-    mean_wander = _K * f ** 2 * wo.meta["sigma2_wander"] / w_eff ** 2
+    # The turbulent received tilt is the aperture angle of arrival at the
+    # Gaussian r0 with the site outer scale (the 2026-09-09 re-point, 1-9);
+    # the meta key is "sigma2_tilt".
+    mean_tilt = _K * f ** 2 * wo.meta["sigma2_tilt"] / w_eff ** 2
     mean_jitter = _K * f ** 2 * wo.meta["sigma2_jitter"] / w_eff ** 2
     # The two parts sum to the walk-off mean (a linear split).
-    assert np.isclose(mean_wander + mean_jitter, wo.mean_db), \
-        (mean_wander, mean_jitter, wo.mean_db)
+    assert np.isclose(mean_tilt + mean_jitter, wo.mean_db), \
+        (mean_tilt, mean_jitter, wo.mean_db)
 
     tx_q99 = tx.quantile_db(0.99)
     wo_q99 = wo.quantile_db(0.99)

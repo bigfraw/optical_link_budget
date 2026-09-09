@@ -5,7 +5,7 @@ This module builds the receive-coupling Terms of a terrestrial far terminal: the
 single-mode-fibre mean coupling, the single-mode-fibre tip-tilt walk-off fade, and
 the multimode-fibre (light-bucket) coupling. The shared single-mode-fibre coupling
 physics lives in olb.models.coupling._common; this module reads it. The received
-tip-tilt (beam wander plus receive mechanical jitter) lives here, because only the
+tip-tilt (the received aperture tilt plus receive mechanical jitter) lives here, because only the
 terrestrial Terms use it.
 
 RECEIVED CURVATURE (the olb convention). A terrestrial received beam is a
@@ -21,7 +21,8 @@ Sources:
   Marechal / Dikmelik-Davidson coupling: see olb.models.coupling._common.
   eta_max(a): Shaklan and Roddier, Appl. Opt. 27, 2334 (1988), DOI
   10.1364/AO.27.002334.
-  Beam-wander arrival tilt: Dios et al. 2004 (see olb.turbulence.angle_of_arrival).
+  Aperture angle-of-arrival tilt at the Gaussian-beam r0 with the site outer
+  scale: Andrews and Phillips, Ch. 6, Eq. (83) (see olb.turbulence.angle_of_arrival).
   Off-axis Gaussian encircled energy (Marcum Q): Marcum, RAND RM-753 (1950).
   Thin-lens focus shift of a spherical Gaussian input: S. A. Self, "Focusing of
   spherical Gaussian beams," Appl. Opt. 22, 658 (1983), DOI 10.1364/AO.22.000658.
@@ -37,8 +38,10 @@ from ...assumptions import (trace_assumptions, BEAM_GAUSSIAN, REGIME_WEAK,
 from ...terminal import SMF, MMF, TipTilt, AO
 from ...beam import (free_space_radius, launch_curvature, gaussz,
                      phase_front_radius)
-from ...turbulence.gaussian_fried import gaussian_fried_parameter_profile
-from ...turbulence.angle_of_arrival import wander_arrival_angle_variance
+from ...turbulence.gaussian_fried import (gaussian_fried_parameter_profile,
+                                          rytov_std)
+from ...turbulence.andrews.scintillation import WEAK_REGIME_LIMIT
+from ...turbulence.angle_of_arrival import aperture_arrival_angle_variance
 from ...turbulence.ao import apply_compensation
 from ._common import (_smf_eta_max, _smf_coupling_efficiency, _effective_dr0,
                      _smf_static_term, smf_eta_defocused, SMF_OPTIMAL_A,
@@ -243,12 +246,22 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
     Return the radial (2-axis) received tip-tilt variance at the fibre [rad^2].
 
     Sum two contributions:
-      A. The beam-wander arrival tilt over the horizontal path. Reuse
-         olb.turbulence.angle_of_arrival.wander_arrival_angle_variance. A receive
-         tip-tilt or AO stage tracks it out, so the code gates it: a TipTilt or an
-         AO stage in the rx compensation stack removes the wander tilt (residual
-         ~ 0). Without a tip-tilt corrector, the full wander tilt reaches the
-         fibre.
+      A. The APERTURE angle-of-arrival tilt of the received wavefront across
+         the receive aperture, at the GAUSSIAN-beam r0, reduced by the site
+         outer scale (olb.turbulence.angle_of_arrival
+         .aperture_arrival_angle_variance with `L0`). This REPLACES the old
+         beam-wander arrival tilt (2026-09-09, backlog 1-9 / 0-W4): the
+         fidelity-2 terrestrial campaigns measured the received per-axis tilt
+         at 1.65 to 2.1 times the beam-wander tilt the old Term read, and it
+         matches the aperture angle of arrival at the Gaussian r0 with the
+         von Karman Eq. (83) outer-scale factor to 3 percent at 10 cm
+         (physics.md 9m). It is the G-tilt (centroid) convention, which is the
+         tilt that moves the focal spot (Conflict C-04: olb also holds the Noll
+         Zernike tilt in ao.py; the walk-off DISPLACEMENT is a centroid, so the
+         G-tilt is the right one here). A receive tip-tilt or AO stage tracks it
+         out, so the code gates it: a TipTilt or an AO stage in the rx
+         compensation stack removes the tilt (residual ~ 0). Without a tip-tilt
+         corrector, the full aperture tilt reaches the fibre.
          TODO (deferred): a finite-bandwidth tracking loop leaves a residual
          tilt. There is no tracking-bandwidth model yet, so the correction is
          all-or-nothing.
@@ -260,16 +273,19 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
     NOT the transmit-side pointing loss (olb.models.pointing uses the TRANSMIT
     terminal against the far aperture). So the two do not double-count.
 
-    The beam-wander arrival tilt (A) is a turbulence quantity; the mechanical
-    jitter (B) is not. With turbulence=False the wander tilt drops to zero and only
-    the receive mechanical jitter reaches the fibre, so the fibre walk-off fade is
+    The aperture arrival tilt (A) is a turbulence quantity; the mechanical
+    jitter (B) is not. With turbulence=False the tilt drops to zero and only the
+    receive mechanical jitter reaches the fibre, so the fibre walk-off fade is
     the jitter alone. See the master turbulence switch on the link budgets.
 
-    The weak-regime gate of the wander model is FUNCTION-OWNED: the kernel
-    olb.turbulence.coupled_flux.beam_wander_variance holds it, and it runs only
-    when the caller gives the wavelength. `regime_check=True` gives it. The SMF
-    walk-off Term and the MMF coupling Term both ask for it (the MMF check is
-    an owner decision of 2026-09-04: the two Terms read the same wander model).
+    The VALIDITY gates ride on the traced physics, not on a flag here: the
+    Gaussian-beam Fried parameter carries the weak-regime assumption, and the
+    aperture angle-of-arrival kernel carries the G-tilt convention and the
+    small-Fresnel-zone constraint of Eq. (83). A Term that opens a trace around
+    this call inherits them. `regime_check` is kept for the caller contract (the
+    SMF walk-off and the MMF coupling Terms both pass it); since the re-point
+    (2026-09-09) it no longer toggles a wavelength, because the AoA path owns
+    its own constraint.
 
     Returns:
         tuple
@@ -290,35 +306,62 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
         wavelength = rx.wavelength_m
         L = float(scenario.channel.path_length_m)
         cn2 = float(scenario.channel.cn2)
+        D = rx.aperture_m
+        L0 = float(scenario.channel.site.outer_scale_m)
 
+        # The Gaussian-beam r0 over the constant-Cn2 path, the SAME r0 the
+        # coupling Term uses (the launch curvature of a diverged beam enters it,
+        # olb Gap 3). The received tilt is the APERTURE angle of arrival at that
+        # r0, reduced by the site outer scale (von Karman Eq. (83)). It matches
+        # the fidelity-2 measurement to 3 percent at 10 cm, where the old
+        # beam-wander tilt read 1.65 to 2.1 times low (backlog 1-9, physics.md
+        # 9m).
+        f0 = launch_curvature(w0, divergence, wavelength)
         hs = np.linspace(0.0, L, int(n_grid))
-        cn2_slant = np.full_like(hs, cn2)
-        w_profile = free_space_radius(w0, hs, divergence, wavelength)
-        # A tip-tilt (or AO, which includes tilt) tracking loop removes the wander
-        # arrival tilt. The all-or-nothing gate is the ponytail model (no bandwidth).
+        cn2_profile = np.full_like(hs, cn2)
+        r0 = gaussian_fried_parameter_profile(hs, cn2_profile, w0, wavelength,
+                                              path='terrestrial', f0=f0)
+        # A tip-tilt (or AO, which includes tilt) tracking loop removes it. The
+        # all-or-nothing gate is the ponytail model (no bandwidth).
         tracks = any(isinstance(s, (TipTilt, AO)) for s in rx.compensation)
-        # The wavelength does NOT change the value. It turns ON the weak-regime
-        # runtime check inside the wander kernel, so a strong path flags through
-        # the trace. Give it only when the caller asks (regime_check) AND the
-        # wander tilt reaches the detector (it is not tracked out). That is the
-        # same gate the old factory patch used.
-        check_wavelength = wavelength if (regime_check and not tracks) else None
-        sigma2_wander = wander_arrival_angle_variance(
-            L, cn2_slant, w_profile, hs, wavelength=check_wavelength)
+        # Per-axis AoA at the Gaussian r0 with the outer scale; the radial
+        # (2-axis) variance is twice it. Compute it even when tracked, so the
+        # Term inherits the tilt provenance, then zero it.
+        sigma2_tilt = 2.0 * aperture_arrival_angle_variance(D, r0, wavelength,
+                                                            L0=L0)
         if tracks:
-            sigma2_wander = 0.0
+            sigma2_tilt = 0.0
+        # THE WEAK-REGIME GATE. The aperture angle-of-arrival tilt is a
+        # weak-turbulence form (it reads r0, the weak coherence). The recast
+        # that carries the Gaussian r0 into the AoA kernel hides the path, so
+        # the kernel's own Fresnel-zone constraint cannot also gate the regime.
+        # Gate it here, from the plane-wave Rytov variance of the real path, and
+        # only when the tilt reaches the detector (it is not tracked out). The
+        # factory (regime_check=True) reads `regime_violation` and flags it, so
+        # a strong path reads not-ok through the Term.
+        regime_violation = None
+        if regime_check and not tracks:
+            sigma2_R = float(rytov_std(L, cn2, wavelength)) ** 2
+            if sigma2_R >= WEAK_REGIME_LIMIT:
+                regime_violation = (
+                    f"the aperture angle-of-arrival tilt is a weak-turbulence "
+                    f"form; the plane-wave Rytov variance sigma_R^2 = "
+                    f"{sigma2_R:.2f} exceeds {WEAK_REGIME_LIMIT:.0f}, so the "
+                    f"received-tilt model is not trusted.")
     else:
-        # Turbulence off: no beam-wander arrival tilt, only the mechanical jitter.
-        sigma2_wander = 0.0
+        # Turbulence off: no aperture arrival tilt, only the mechanical jitter.
+        sigma2_tilt = 0.0
         tracks = False
+        regime_violation = None
 
     sigma2_jitter = 2.0 * rx.pointing_jitter_rad ** 2   # per-axis -> 2 axes
-    sigma2_total = sigma2_wander + sigma2_jitter
+    sigma2_total = sigma2_tilt + sigma2_jitter
     meta = {
         "sigma2_theta_radial": sigma2_total,
-        "sigma2_wander": sigma2_wander,
+        "sigma2_tilt": sigma2_tilt,
         "sigma2_jitter": sigma2_jitter,
-        "wander_tracked": bool(tracks),
+        "tilt_tracked": bool(tracks),
+        "regime_violation": regime_violation,
     }
     return sigma2_total, meta
 
@@ -636,16 +679,16 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
 
     This is the RECEIVE-side fibre walk-off. It is NOT the transmit pointing loss
     (olb.models.pointing, transmit beam against the far aperture). The received
-    tip-tilt (beam wander + receive mechanical jitter) moves the focal spot on the
+    tip-tilt (the received aperture tilt + receive mechanical jitter) moves the focal spot on the
     fibre tip by f*theta. The focal spot radius w_s and the fibre mode radius w_m
     set the tolerated displacement together, through the effective scale
     w_eff=sqrt(w_s^2+w_m^2) (the two-Gaussian overlap). The fade is exponential in
     dB (see _walkoff_faces).
 
     The received tip-tilt uses _received_tiptilt_variance: a receive tip-tilt or
-    AO stage tracks out the wander tilt, and the receive mechanical jitter always
+    AO stage tracks out the tilt, and the receive mechanical jitter always
     reaches the fibre. This Term carries a real fade (mean, quantile, sampler).
-    With turbulence=False the beam-wander tilt drops, so the walk-off fade is the
+    With turbulence=False the aperture tilt drops, so the walk-off fade is the
     receive mechanical jitter alone.
 
     Note (single-mode-fibre subtlety): at a fixed coupling parameter a, the focal
@@ -664,7 +707,7 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
             Unused (the path length and Cn2 come from the channel). Kept for the
             f(scenario, geometry) -> Term signature.
         n_grid : int
-            Points on the constant-Cn2 path grid for the wander integral.
+            Points on the constant-Cn2 path grid for the r0 and tilt computation.
 
     Returns:
         Term
@@ -708,9 +751,10 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
     w_det = gaussz(w_s, dz_eff, rx.wavelength_m)
     w_eff = np.sqrt(w_det ** 2 + w_m ** 2)
     # Open the collection context around the PHYSICS CALL only. The received
-    # tip-tilt reads the decorated beam-wander arrival-tilt kernel (through
-    # _received_tiptilt_variance), so the Term inherits its assumptions and
-    # carries traced provenance.
+    # tip-tilt reads the decorated Gaussian-Fried and aperture angle-of-arrival
+    # kernels (through _received_tiptilt_variance), so the Term inherits their
+    # assumptions and carries traced provenance. The weak-regime gate of the
+    # tilt comes back in meta and is flagged below.
     with trace_assumptions() as trace:
         sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
                                                         turbulence=turbulence,
@@ -726,8 +770,10 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
         turbulence_regime=REGIME_WEAK,
         spectrum=SPECTRUM_KOLMOGOROV,
         validity="Receive tip-tilt walk-off of the spot against the single-mode "
-                 "fibre mode. The wander arrival tilt is the weak beam-wander "
-                 "model (Dios et al. 2004). A receive tip-tilt or AO stage tracks "
+                 "fibre mode. The received tilt is the aperture angle of arrival "
+                 "at the Gaussian-beam r0, reduced by the site outer scale (von "
+                 "Karman Eq. (83)); a weak-turbulence form (backlog 1-9). A "
+                 "receive tip-tilt or AO stage tracks "
                  "it out (all-or-nothing, no bandwidth). The receive mechanical "
                  "jitter adds to it. The fade is exponential in dB. The coupling "
                  "loss has no upper limit: more tilt gives more loss. The spot "
@@ -767,10 +813,14 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
             "MMF (light bucket) or fidelity-2 model.",
             source="factory:models.coupling.terrestrial",
         )
-    # The weak-regime gate of the beam-wander arrival tilt is FUNCTION-OWNED
-    # (2026-09-04). The kernel olb.turbulence.coupled_flux.beam_wander_variance
-    # holds the check, and _received_tiptilt_variance gives it the wavelength, so
-    # a strong path flags through the trace above. The old factory patch is gone.
+    # THE WEAK-REGIME GATE of the aperture angle-of-arrival tilt (2026-09-09).
+    # _received_tiptilt_variance gates it from the plane-wave Rytov variance of
+    # the real path and returns the reason in meta; flag it here, source tagged,
+    # so a strong path reads not-ok. It fires only when the tilt is untracked.
+    if meta.get("regime_violation"):
+        assumptions.flag(
+            meta["regime_violation"],
+            source="olb.turbulence.angle_of_arrival.aperture_arrival_angle_variance")
     return Term(
         name="SMF tip-tilt walk-off",
         category="pointing",
@@ -780,7 +830,7 @@ def terrestrial_smf_walkoff_term(scenario, geometry, *, n_grid=64, turbulence=Tr
         note=f"SMF walk-off, w_eff={w_eff * 1e6:.1f} um "
              f"(w_det={w_det * 1e6:.1f}, w_m={w_m * 1e6:.1f}), f={f * 1e3:.1f} mm, "
              f"defocus={dz * 1e3:.2f} mm, dz_eff={dz_eff * 1e3:.2f} mm, "
-             f"wander_tracked={meta['wander_tracked']}",
+             f"tilt_tracked={meta['tilt_tracked']}",
         meta={**meta, "detector": "SMF", "focal_length_m": f,
               "mode_field_radius_m": w_m, "spot_radius_m": float(w_s),
               "spot_radius_detector_m": float(w_det), "w_eff_m": float(w_eff),
@@ -859,7 +909,7 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
     does not double-count the transmit pointing Term.
 
     With turbulence=False the received tip-tilt keeps only the receive mechanical
-    jitter (the beam-wander tilt drops). So the coupling is the encircled energy
+    jitter (the aperture tilt drops). So the coupling is the encircled energy
     with only the jitter offset. The on-axis static loss stays, because it is a
     fixed optical loss, not turbulence.
 
@@ -873,7 +923,7 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
             Unused (the path length and Cn2 come from the channel). Kept for the
             f(scenario, geometry) -> Term signature.
         n_grid : int
-            Points on the constant-Cn2 path grid for the wander integral.
+            Points on the constant-Cn2 path grid for the r0 and tilt computation.
 
     Returns:
         Term
@@ -937,8 +987,9 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
     # core (a light bucket, NOT a mode overlap). See _mmf_encircled_efficiency.
     #
     # Open the collection context around the PHYSICS CALL only. The received
-    # tip-tilt reads the decorated beam-wander arrival-tilt kernel, so the Term
-    # inherits its assumptions and carries traced provenance.
+    # tip-tilt reads the decorated Gaussian-Fried and aperture angle-of-arrival
+    # kernels, so the Term inherits their assumptions and carries traced
+    # provenance; the weak-regime gate comes back in meta and is flagged below.
     with trace_assumptions() as trace:
         sigma2_theta, meta = _received_tiptilt_variance(scenario, n_grid=n_grid,
                                                         turbulence=turbulence,
@@ -973,9 +1024,10 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
         dy = rng.normal(0.0, sigma_d, n)
         return _loss_db(np.sqrt(dx ** 2 + dy ** 2))
 
-    # The traced beam-wander kernel owns the beam type, the weak regime, and the
-    # spectrum; the merge inherits its union and provenance. State the three
-    # headline fields explicitly (this is a Gaussian-beam light-bucket Term).
+    # The traced Gaussian-Fried and aperture angle-of-arrival kernels own the
+    # beam type, the weak regime, and the spectrum; the merge inherits their
+    # union and provenance. State the three headline fields explicitly (this is
+    # a Gaussian-beam light-bucket Term).
     assumptions = trace.merge(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
@@ -998,7 +1050,9 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
                  "Phillips 2005, Ch. 4, DOI 10.1117/3.626196; ray-optics chief-ray "
                  "of a thin lens). optimal_focus is a focal-LENGTH rule; it never "
                  "moves the detector. The "
-                 "tip-tilt is the weak beam wander (tracked by a tip-tilt or AO "
+                 "received tilt is the aperture angle of arrival at the "
+                 "Gaussian r0 with the site outer scale (a weak-turbulence form, "
+                 "tracked by a tip-tilt or AO "
                  "stage) plus the receive mechanical jitter. The spot model assumes "
                  "a uniform, unobscured "
                  "circular aperture. The numerical-aperture gate (when set) is a "
@@ -1034,6 +1088,12 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
             "assumes a uniform circular aperture and does not model it.",
             source="factory:models.coupling.terrestrial",
         )
+    # THE WEAK-REGIME GATE of the aperture angle-of-arrival tilt (2026-09-09),
+    # the same as the SMF walk-off Term; see _received_tiptilt_variance.
+    if meta.get("regime_violation"):
+        assumptions.flag(
+            meta["regime_violation"],
+            source="olb.turbulence.angle_of_arrival.aperture_arrival_angle_variance")
     return Term(
         name="receive coupling (MMF)",
         category="coupling",
@@ -1088,12 +1148,12 @@ if __name__ == '__main__':
 
     hpath = HorizontalPath(3e3)
 
-    # --- Received tip-tilt: a tip-tilt stage tracks out the wander -----------
+    # --- Received tip-tilt: a tip-tilt stage tracks out the tilt -----------
     v_full, _ = _received_tiptilt_variance(_terr(Aperture(), jitter=5e-6), n_grid=64)
     v_track, m_track = _received_tiptilt_variance(
         _terr(Aperture(), jitter=5e-6, compensation=[TipTilt()]), n_grid=64)
-    assert v_full > v_track, (v_full, v_track)         # tracking removes the wander
-    assert m_track["wander_tracked"] and m_track["sigma2_wander"] == 0.0
+    assert v_full > v_track, (v_full, v_track)         # tracking removes the tilt
+    assert m_track["tilt_tracked"] and m_track["sigma2_tilt"] == 0.0
     assert np.isclose(v_track, 2.0 * 5e-6 ** 2)        # only the jitter remains
 
     # --- SMF walk-off: a real fade. A larger jitter deepens the loss ---------
@@ -1210,11 +1270,11 @@ if __name__ == '__main__':
     # --- turbulence=False: static coupling + jitter, no turbulence quantity --
     v_off, m_off = _received_tiptilt_variance(_terr(Aperture(), jitter=5e-6),
                                               n_grid=64, turbulence=False)
-    assert m_off["sigma2_wander"] == 0.0 and np.isclose(v_off, 2.0 * 5e-6 ** 2)
+    assert m_off["sigma2_tilt"] == 0.0 and np.isclose(v_off, 2.0 * 5e-6 ** 2)
     # The SMF walk-off then carries the jitter fade with NO turbulence.
     wo_off = terrestrial_smf_walkoff_term(
         _terr(smf_opt, jitter=10e-6), hpath, turbulence=False)
-    assert wo_off.meta["sigma2_wander"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
+    assert wo_off.meta["sigma2_tilt"] == 0.0 and wo_off.meta["sigma2_jitter"] > 0.0
     wo_off_q = wo_off.quantile_db(0.99)
     assert wo_off_q is not None and wo_off_q > wo_off.mean_db
     # An SMF static term needs no launch beam (turbulence off skips the r0 path).
@@ -1241,19 +1301,20 @@ if __name__ == '__main__':
                for s in cpl.assumptions.provenance), cpl.assumptions.provenance
     wo_prov = terrestrial_smf_walkoff_term(_terr(smf_opt, jitter=10e-6, cn2=1e-15),
                                            hpath)
-    assert any("wander_arrival_angle_variance" in s
+    assert any("gaussian_fried_parameter_profile" in s
                for s in wo_prov.assumptions.provenance), wo_prov.assumptions.provenance
     mmf_prov = terrestrial_mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15),
                                              hpath)
     assert mmf_prov.assumptions.provenance, "MMF coupling must carry provenance"
 
-    # (2) THE GAP CLOSED, and the check is FUNCTION-OWNED (2026-09-04): the
-    #     violation comes from the wander kernel through the trace, not from a
-    #     factory patch. In strong turbulence the Term reads not-ok; in genuinely
-    #     weak turbulence it stays ok. No spurious field-region violation:
-    #     the walk-off reads wander_arrival_angle_variance, NOT the z=1.0-carrier
-    #     aperture_arrival_angle_variance, so the delegate Fresnel-zone check is
-    #     never on the trace.
+    # (2) THE WEAK-REGIME GATE of the re-pointed aperture angle-of-arrival tilt
+    #     (2026-09-09, backlog 1-9). In strong turbulence the Term reads not-ok;
+    #     in genuinely weak turbulence it stays ok. The flag is gated in
+    #     _received_tiptilt_variance from the plane-wave Rytov variance of the
+    #     real path and flagged by the factory, sourced at the aperture AoA
+    #     kernel. No spurious field-region violation: the AoA recast carries the
+    #     Gaussian r0 through z = 1 m, so the delegate Fresnel-zone check never
+    #     fires.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         wo_weak = terrestrial_smf_walkoff_term(
@@ -1262,13 +1323,14 @@ if __name__ == '__main__':
             _terr(smf_opt, jitter=10e-6, cn2=1e-13), hpath)
     assert wo_weak.assumptions.ok, wo_weak.assumptions.violations
     assert not wo_strong.assumptions.ok, \
-        "the walk-off Term must flag in strong turbulence (gap closed)"
-    assert any("beam-wander model is not trusted" in v
+        "the walk-off Term must flag in strong turbulence (weak-regime gate)"
+    assert any("weak-turbulence form" in v
                for v in wo_strong.assumptions.violations), \
         wo_strong.assumptions.violations
-    assert any(v.startswith("[olb.turbulence.coupled_flux.beam_wander_variance]")
+    assert any(v.startswith(
+        "[olb.turbulence.angle_of_arrival.aperture_arrival_angle_variance]")
                for v in wo_strong.assumptions.violations), \
-        "the regime violation must be sourced at the kernel, not the factory"
+        "the regime violation must be sourced at the aperture AoA kernel"
     assert not any("field-region" in v.lower() or "Fresnel" in v
                    for v in wo_strong.assumptions.violations), \
         "no spurious field-region violation must reach the walk-off Term"

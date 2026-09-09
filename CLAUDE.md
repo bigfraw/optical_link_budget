@@ -177,9 +177,13 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   (`terrestrial_smf_walkoff_term`) when the coupling optics are set. An `MMF`
   (light bucket) takes the spot-in-core coupling Term plus the same walk-off fade
   (`terrestrial_mmf_coupling_term`). The walk-off reads the received tip-tilt from
-  `olb.turbulence.angle_of_arrival` (beam wander) plus the receive jitter; the
-  coupling Term keeps the higher-order residual only, so the tip-tilt is not
-  counted two times. `terrestrial_budget` also takes a master `turbulence` switch
+  `olb.turbulence.angle_of_arrival`: since 2026-09-09 (backlog 1-9 decision (c))
+  it is the APERTURE angle-of-arrival tilt at the Gaussian-beam r0, reduced by
+  the site outer scale `Site.outer_scale_m` (von Karman Eq. (83),
+  `aperture_arrival_angle_variance(..., L0=...)`), NOT the old beam-wander tilt
+  (which read 1.65 to 2.1 times low); plus the receive jitter. Its weak-regime
+  gate is the plane-wave Rytov of the path. The coupling Term keeps the
+  higher-order residual only, so the tip-tilt is not counted two times. `terrestrial_budget` also takes a master `turbulence` switch
   that drops every turbulence quantity but keeps the static and jitter parts.
   Every terrestrial coupling Term charges the received-curvature defocus, in BOTH
   branches, because that curvature is static optics, not turbulence. At
@@ -694,10 +698,14 @@ Open items:
   fidelity-0 chain under-reads the p5 fade by 1.3 to 11 dB, the tilt is the
   tail), and its fitted family of record is the lognormal-Rician (MLE); the
   received tilt is the aperture angle of arrival at the Gaussian r0 reduced
-  by `L0 = 25 m`, and the walk-off Term reads HALF its variance. STEP 4 (the
-  wiring) waits for three owner decisions listed in backlog 1-9: the
-  calibrated-campaign rung, the lognormal-Rician faces (0-W7), and the
-  walk-off tilt re-point. A FREE fibre route is PROPOSED and NOT built
+  by `L0 = 25 m`. STEP 4 (the wiring): the walk-off tilt re-point is DONE
+  (2026-09-09, backlog 1-9 decision (c)) — `_received_tiptilt_variance` and
+  both terrestrial fibre Terms now read that aperture AoA (via
+  `aperture_arrival_angle_variance(..., L0=...)`) instead of the old
+  beam-wander tilt, a fidelity-0 number move for every terrestrial fibre
+  budget. TWO owner decisions remain: the calibrated-campaign rung (a) and the
+  lognormal-Rician CDF/quantile/sampler (b, 0-W7). A FREE fibre route is
+  PROPOSED and NOT built A FREE fibre route is PROPOSED and NOT built
   (`r_rule.py`): the tilt-removed fibre follows `r = 2.3 / sigma2_HO`
   (12 of 12 leave-one-out), so a composite of that higher-order
   lognormal-Rician times the walk-off fade with the corrected tilt is the
