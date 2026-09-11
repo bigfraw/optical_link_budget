@@ -71,9 +71,17 @@ the script reports the truncation instead of gating it.
 THE MODE SETS MUST MATCH. The FAST modal mask sums the Noll modes 1..ZMAX, so
 it KEEPS the piston and the two tilts. The Stone set that holds the same modes
 is remove='none' over the band 0..max_order. That pair (the column Q/S_n) is
-the physics test. The production Term uplink_point_ahead_term removes the
-piston and the tilt, because a separate tracking loop points the beam, so the
-pair FAST against Stone piston+tilt (the column F/S_pt) is NOT mode matched.
+the physics test.
+
+THE PRODUCTION MODE SET CHANGED ON 2026-09-11. The Term
+uplink_point_ahead_term now defaults to remove='piston', so the TILT STAYS IN:
+the terminal senses the downlink beacon tilt and the steering mirror adds the
+point-ahead offset geometrically, so there is no uplink tilt reference. The
+production pairing is therefore FAST against Stone with the piston removed, and
+the two sets differ by the PISTON ALONE, which no overlap integral sees. The
+Term also reads the site outer scale (25 m), so stage C runs FAST at the same
+outer scale. The old piston-and-tilt column (F/S_pt) stays in the tables for
+the record.
 
 THE STAGES.
   A0  A single turbulence layer at the zenith. It gives the cleanest test of the
@@ -162,6 +170,13 @@ GRID_A0 = GRID_QUICK
 # so the same integral becomes a fair numerics test. Source of the von Karman
 # spectrum: Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3.
 L0_GATE = 5.0
+
+# The outer scale of the PRODUCTION-PAIRING arm (stage C) [m]. The shipped Term
+# uplink_point_ahead_term reads olb.scenario.Site.outer_scale_m, and the site
+# default is 25 m. Stage C gives FAST the SAME outer scale (fast_params L0), so
+# the two sides are like for like. The MODE-MATCHED physics arm (stages A and B)
+# keeps the Kolmogorov limit, because the Stone paper writes it.
+L0_PRODUCTION = 25.0
 
 # The lowest frequency of the whole-plane quadrature [rad/m]. It stands for an
 # outer scale of 6000 km, so it is the Kolmogorov (L0 = infinite) limit. The
@@ -394,22 +409,22 @@ def _quadrature(spectra, cn2_dh, h, theta_rad, zmax, kmax=None, L0=np.inf,
 _STONE_CACHE = {}
 
 
-def _stone(D, theta_rad, hs, cn2, elev_deg, max_order):
+def _stone(D, theta_rad, hs, cn2, elev_deg, max_order, L0=np.inf):
     """Give the Stone residual for the three mode sets [rad^2].
 
     The Bessel quadrature of Eq. (36) runs one time for each height, so the
-    call is expensive. Several rows ask for the SAME numbers (the outer scale
-    and the grid do not change an analytic value), so the results stay in a
-    cache.
+    call is expensive. Several rows ask for the SAME numbers (the grid does not
+    change an analytic value), so the results stay in a cache. The outer scale
+    L0 DOES change the value, so it is part of the cache key.
     """
     key = (float(D), float(theta_rad), float(elev_deg), int(max_order),
-           len(hs), float(np.sum(cn2)), float(np.sum(hs)))
+           len(hs), float(np.sum(cn2)), float(np.sum(hs)), float(L0))
     if key not in _STONE_CACHE:
         out = {}
         for remove in ("none", "piston", "piston_tilt"):
             out[remove] = float(anisoplanatic_phase_variance(
                 D, theta_rad, hs, cn2, LAM, remove=remove,
-                max_order=max_order, elevation_deg=elev_deg))
+                max_order=max_order, elevation_deg=elev_deg, L0=L0))
         _STONE_CACHE[key] = out
     return _STONE_CACHE[key]
 
@@ -497,8 +512,14 @@ def _row(fast, funcs, spectra, stage, label, elev_deg, zmax, theta_arcsec, hs,
         if stone["none"] > 0 else float("nan"),
         "ratio_fast_stone_none": float(split["aniso_corr"] / stone["none"])
         if stone["none"] > 0 else float("nan"),
-        # The PRODUCTION pairing. uplink_point_ahead_term removes the piston
-        # and the two tilts, because a separate tracking loop points the beam.
+        # The PRODUCTION pairing. uplink_point_ahead_term removes the PISTON
+        # only from 2026-09-11, so the tilt stays in both sets and the pair
+        # differs by the piston alone.
+        "ratio_fast_stone_piston": float(split["aniso_corr"]
+                                         / stone["piston"])
+        if stone["piston"] > 0 else float("nan"),
+        # The OLD production pairing, kept for the record: the Term removed the
+        # piston AND the two tilts before 2026-09-11.
         "ratio_fast_stone_pt": float(split["aniso_corr"] / stone_pt)
         if stone_pt > 0 else float("nan"),
         "fit_fast_raw": float(sim.fitting_error),
@@ -530,6 +551,7 @@ def _uncorrected_row(elev_deg, theta_arcsec):
         "stone_none": 0.0, "stone_piston": 0.0, "stone_pt": 0.0,
         "ratio_quad_stone_none": float("nan"),
         "ratio_fast_stone_none": float("nan"),
+        "ratio_fast_stone_piston": float("nan"),
         "ratio_fast_stone_pt": float("nan"),
         "fit_fast_raw": float("nan"), "fit_corr": float("nan"),
         "noll": float("nan"), "r0_los_m": float("nan"), "seconds": 0.0,
@@ -551,7 +573,7 @@ def _verdict(ratios):
 
 _HEAD = (f"{'case':<22}{'theta[as]':>9}{'ZMAX':>5}{'FASTraw':>9}"
          f"{'FASTcorr':>9}{'quad':>8}{'LFtrunc':>8}{'Stone_n':>9}"
-         f"{'Stone_pt':>9}{'Q/S_n':>7}{'F/S_n':>7}{'F/S_pt':>8}")
+         f"{'Stone_pis':>10}{'Q/S_n':>7}{'F/S_n':>7}{'F/S_pis':>9}")
 
 
 def _fmt(row):
@@ -560,9 +582,10 @@ def _fmt(row):
             f"{row['fast_raw']:9.4f}{row['fast_corr']:9.4f}"
             f"{row['quad_full']:8.4f}{row['lf_truncation']:8.3f}"
             f"{row['stone_none']:9.4f}"
-            f"{row['stone_pt']:9.4f}{row['ratio_quad_stone_none']:7.3f}"
+            f"{row['stone_piston']:10.4f}"
+            f"{row['ratio_quad_stone_none']:7.3f}"
             f"{row['ratio_fast_stone_none']:7.3f}"
-            f"{row['ratio_fast_stone_pt']:8.3f}")
+            f"{row['ratio_fast_stone_piston']:9.3f}")
 
 
 def _scenario(n_modes):
@@ -577,12 +600,14 @@ def _scenario(n_modes):
         precompensation=DownlinkBeacon())
 
 
-def _default_servo_params(elev_deg, hs, cn2, zmax, theta_arcsec):
+def _default_servo_params(elev_deg, hs, cn2, zmax, theta_arcsec,
+                          L0=L0_PRODUCTION):
     """Build the FAST parameter dict of a DEFAULT-SERVO run.
 
     These are the servo and wavefront-sensor values that uplink_fast_term ships:
     DSUBAP = 0.02 m, TLOOP = 0.001 s, TEXP = 0.001 s, ALIAS on, and the HV5/7
-    wind. The grid is automatic, the same as the Term uses.
+    wind. The grid is automatic, the same as the Term uses. The outer scale is
+    the SITE value, because stage C gives the Term the same one.
     """
     return dict(
         WVL=LAM, D_GROUND=D_GROUND, OBSC_GROUND=0.0, W0=0.2,
@@ -591,7 +616,7 @@ def _default_servo_params(elev_deg, hs, cn2, zmax, theta_arcsec):
         WIND_SPD=WIND_RMS * np.ones_like(hs), WIND_DIR=np.zeros_like(hs),
         DTHETA=[float(theta_arcsec), 0.0], AO_MODE="AO", MODAL=True,
         ZMAX=int(zmax), DSUBAP=0.02, TLOOP=0.001, TEXP=0.001, ALIAS=True,
-        NOISE=0, SUBHARM=True, L0=np.inf, l0=1e-6, NITER=2, NCHUNKS=1,
+        NOISE=0, SUBHARM=True, L0=float(L0), l0=1e-6, NITER=2, NCHUNKS=1,
         LOGLEVEL="ERROR")
 
 
@@ -601,42 +626,60 @@ def _stage_c_point(fast, funcs, spectra, n_modes, elev_deg, hs, cn2, niter,
 
     It gives the fidelity-1 FAST Term, the fidelity-0 analytic pair, and the
     attribution ladder between them.
+
+    THE ARM IS LIKE FOR LIKE (2026-09-11). The Term uplink_point_ahead_term
+    keeps the TILT (remove="piston") and it reads the site outer scale
+    (L0_PRODUCTION). So this arm gives FAST, the servo-off sim, the
+    default-servo sim and the Stone values the SAME outer scale. The two sides
+    then differ by the PISTON only, and a piston changes no overlap integral.
     """
     t0 = time.time()
     scn = _scenario(n_modes)
     geom = CircularOrbit(ALT_M, elevation_deg=elev_deg)
     theta_arcsec = float(geom.point_ahead_rad) * ARCSEC_PER_RAD
+    l0_site = float(scn.channel.site.outer_scale_m)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        term_mc = uplink_fast_term(scn, geom, n_samples=int(niter))
+        # The Term reads the SITE outer scale, so FAST takes the same one.
+        term_mc = uplink_fast_term(scn, geom, n_samples=int(niter),
+                                   fast_params={"L0": l0_site})
         term_pa = uplink_point_ahead_term(scn, geom)
         term_fit = uplink_fitting_term(scn, geom)
 
     # The matched servo-off sim at this point.
     sim_off = _build(fast, _servo_off_params(elev_deg, hs, cn2, n_modes,
-                                             theta_arcsec, grid))
+                                             theta_arcsec, grid, L0=l0_site))
     split_off = split_errors(sim_off, funcs)
     assert abs(split_off["closure_corr"]) < GATE_CLOSURE, split_off
 
     # The default-servo sim: the residual that the Monte Carlo actually draws.
     sim_on = _build(fast, _default_servo_params(elev_deg, hs, cn2, n_modes,
-                                                theta_arcsec))
+                                                theta_arcsec, L0=l0_site))
     servo_sigma2 = float(sim_on.aniso_servo_error + sim_on.alias_error
                          + sim_on.noise_error)
 
     order = max_radial_order(int(n_modes))
     stone = _stone(D_GROUND, float(geom.point_ahead_rad), hs, cn2, elev_deg,
-                   order)
+                   order, L0=l0_site)
+    # The Kolmogorov values of the same case, for the outer-scale attribution.
+    stone_inf = _stone(D_GROUND, float(geom.point_ahead_rad), hs, cn2,
+                       elev_deg, order)
     return {
         "stage": "C", "label": f"AO({n_modes}) @ {elev_deg:.0f} deg",
         "n_modes": int(n_modes), "elev": float(elev_deg),
         "theta_arcsec": theta_arcsec, "niter": int(niter),
+        "L0_m": l0_site,
+        "stone_piston": stone["piston"],
         "stone_pt": stone["piston_tilt"], "stone_none": stone["none"],
+        "stone_none_inf": stone_inf["none"],
+        "stone_piston_inf": stone_inf["piston"],
+        "stone_pt_inf": stone_inf["piston_tilt"],
         "fast_servo_off_sigma2": split_off["aniso_corr"],
         "fast_servo_on_sigma2": servo_sigma2,
         "fast_servo_on_npxls": int(sim_on.Npxls),
         "fast_servo_on_df": float(sim_on.freq.main.df),
+        "stone_piston_db": _marechal_db(stone["piston"]),
         "stone_pt_db": _marechal_db(stone["piston_tilt"]),
         "fast_servo_off_db": _marechal_db(split_off["aniso_corr"]),
         "fast_servo_on_db": _marechal_db(servo_sigma2),
@@ -684,9 +727,8 @@ def _figures(rows_theta, rows_order, rows_c, fig_dir):
             label="FAST filter, whole-plane quadrature")
     ax.plot(th, [r["stone_none"] for r in rows_theta], "^-",
             label="Stone, all corrected orders (0 to 9)")
-    ax.plot(th, [r["stone_pt"] for r in rows_theta], "v-",
-            label="Stone, orders 2 to 9 (production: tilt "
-                  "charged to tracking)")
+    ax.plot(th, [r["stone_piston"] for r in rows_theta], "v-",
+            label="Stone, piston removed (the production mode set)")
     ax.set_xlabel("point-ahead angle [arcsec]")
     ax.set_ylabel("residual phase variance [rad$^2$]")
     ax.set_title("Point-ahead residual against the angle\n"
@@ -709,9 +751,8 @@ def _figures(rows_theta, rows_order, rows_c, fig_dir):
             label="FAST filter, whole-plane quadrature")
     ax.plot(zs, [r["stone_none"] for r in rows_order], "^-",
             label="Stone, all corrected orders")
-    ax.plot(zs, [r["stone_pt"] for r in rows_order], "v-",
-            label="Stone, corrected orders 2 up (production: tilt "
-                  "charged to tracking)")
+    ax.plot(zs, [r["stone_piston"] for r in rows_order], "v-",
+            label="Stone, piston removed (the production mode set)")
     ax.plot(zs, [r["fit_corr"] for r in rows_order], "d:",
             label="FAST fitting (uncorrected band)")
     ax.set_xlabel("corrected Zernike modes ZMAX")
@@ -731,8 +772,8 @@ def _figures(rows_theta, rows_order, rows_c, fig_dir):
     names = [r["label"] for r in rows_c]
     x = np.arange(len(names))
     w = 0.2
-    ax.bar(x - 1.5 * w, [r["stone_pt_db"] for r in rows_c], w,
-           label="Stone piston+tilt")
+    ax.bar(x - 1.5 * w, [r["stone_piston_db"] for r in rows_c], w,
+           label="Stone, piston removed")
     ax.bar(x - 0.5 * w, [r["fast_servo_off_db"] for r in rows_c], w,
            label="FAST servo off")
     ax.bar(x + 0.5 * w, [r["fast_servo_on_db"] for r in rows_c], w,
@@ -786,8 +827,10 @@ def main():
     say(f"gates         : quadrature {GATE_QUADRATURE:.0%}, closure "
         f"{GATE_CLOSURE:.1%}, convergence {GATE_CONVERGENCE:.0%}, "
         f"zero point-ahead {GATE_ZERO_RAD2:g} rad^2")
-    say(f"outer scale   : Kolmogorov (L0 = infinite) everywhere, except the "
-        f"GATED legs, which use L0 = {L0_GATE:g} m")
+    say(f"outer scale   : Kolmogorov (L0 = infinite) in the mode-matched "
+        f"stages A and B; L0 = {L0_GATE:g} m in the GATED legs; "
+        f"L0 = {L0_PRODUCTION:g} m in stage C, which is the site value that "
+        "the shipped Term reads")
     say()
 
     gates = []
@@ -884,11 +927,13 @@ def main():
     say(f"    mode matched, on the FAST grid   (FAST / Stone none)       : "
         f"{a1['ratio_fast_stone_none']:.3f}   "
         f"(the grid misses {a1['lf_truncation']:.1%})")
-    say(f"    production pairing               (FAST / Stone piston+tilt): "
+    say(f"    production mode set              (FAST / Stone piston)     : "
+        f"{a1['ratio_fast_stone_piston']:.3f}   "
+        "(uplink_point_ahead_term removes the PISTON only from 2026-09-11, so "
+        "the tilt stays in both sets and the pair differs by the piston alone)")
+    say(f"    the OLD production mode set     (FAST / Stone piston+tilt): "
         f"{a1['ratio_fast_stone_pt']:.3f}   "
-        "(the FAST modal mask KEEPS the piston and the tilt, and "
-        "uplink_point_ahead_term removes them, so this pair is NOT mode "
-        "matched)")
+        "(the Term removed the two tilts as well before 2026-09-11)")
     say()
 
     # ----------------------------------------------------------------- B -----
@@ -906,7 +951,7 @@ def main():
         say(_fmt(r))
     zero = [r for r in rows_theta if r["theta_arcsec"] == 0.0][0]
     say(f"  theta = 0: FAST corrected {zero['fast_corr']:.3e} rad^2, "
-        f"Stone piston+tilt {zero['stone_pt']:.3e} rad^2, "
+        f"Stone piston removed {zero['stone_piston']:.3e} rad^2, "
         f"FAST RAW {zero['fast_raw']:.5f} rad^2 (the soft-mask leakage)")
     assert zero["fast_corr"] < GATE_ZERO_RAD2, zero["fast_corr"]
     assert zero["stone_pt"] < GATE_ZERO_RAD2, zero["stone_pt"]
@@ -1028,6 +1073,13 @@ def main():
 
     # ----------------------------------------------------------------- C -----
     say(f"STAGE C. The full Term comparison in dB (NITER = {niter}).")
+    say(f"  LIKE FOR LIKE: uplink_point_ahead_term keeps the TILT "
+        f"(remove='piston') and it reads the site outer scale from "
+        f"2026-09-11. So every leg of this stage runs at L0 = "
+        f"{L0_PRODUCTION:g} m: the FAST Monte Carlo (fast_params L0), the "
+        "servo-off sim, the default-servo sim and the Stone values. The two "
+        "sides then differ by the PISTON only, which no overlap integral "
+        "sees.")
     points = [(60, 60.0), (60, 30.0), (21, 60.0)]
     if args.full:
         points += [(60, 90.0), (10, 60.0)]
@@ -1035,17 +1087,35 @@ def main():
     for n_modes, elev in points:
         rows_c.append(_stage_c_point(fast, funcs, spectra, n_modes, elev, hs,
                                      cn2, niter, grid))
-    say(f"{'point':<20}{'theta[as]':>9}{'Stone_pt':>10}{'FASToff':>10}"
+    say(f"{'point':<20}{'theta[as]':>9}{'Stone_pis':>10}{'FASToff':>10}"
         f"{'FASTservo':>11}{'->dB Stone':>11}{'->dB off':>10}"
         f"{'->dB servo':>11}{'fid0 dB':>9}{'fid1 dB':>9}")
     for r in rows_c:
-        say(f"{r['label']:<20}{r['theta_arcsec']:9.2f}{r['stone_pt']:10.4f}"
+        say(f"{r['label']:<20}{r['theta_arcsec']:9.2f}"
+            f"{r['stone_piston']:10.4f}"
             f"{r['fast_servo_off_sigma2']:10.4f}"
-            f"{r['fast_servo_on_sigma2']:11.4f}{r['stone_pt_db']:11.3f}"
+            f"{r['fast_servo_on_sigma2']:11.4f}{r['stone_piston_db']:11.3f}"
             f"{r['fast_servo_off_db']:10.3f}{r['fast_servo_on_db']:11.3f}"
             f"{r['fidelity0_db']:9.3f}{r['fidelity1_db']:9.3f}")
-    say("  fid0 dB = uplink_point_ahead_term + uplink_fitting_term (mean "
-        "only). fid1 dB = uplink_fast_term Monte Carlo mean.")
+    say("  Stone_pis = the Stone band with the PISTON removed, the mode set of "
+        "the shipped Term. fid0 dB = uplink_point_ahead_term + "
+        "uplink_fitting_term (mean only). fid1 dB = uplink_fast_term Monte "
+        "Carlo mean.")
+    say("  THE MODE-SET ATTRIBUTION at L0 = "
+        f"{L0_PRODUCTION:g} m, against the Kolmogorov limit:")
+    say(f"{'point':<20}{'none':>9}{'piston':>9}{'pist+tilt':>10}"
+        f"{'|pistonD':>10}{'tiltD':>9}{'|none_inf':>10}{'pis_inf':>9}"
+        f"{'pt_inf':>9}")
+    for r in rows_c:
+        say(f"{r['label']:<20}{r['stone_none']:9.4f}{r['stone_piston']:9.4f}"
+            f"{r['stone_pt']:10.4f}"
+            f"{r['stone_none'] - r['stone_piston']:10.4f}"
+            f"{r['stone_piston'] - r['stone_pt']:9.4f}"
+            f"{r['stone_none_inf']:10.4f}{r['stone_piston_inf']:9.4f}"
+            f"{r['stone_pt_inf']:9.4f}")
+    say("  pistonD = the piston decorrelation, the ONLY mode that the FAST "
+        "mask keeps and the Term removes. tiltD = the tilt decorrelation, "
+        "which BOTH sides now keep.")
     for r in rows_c:
         say(f"  {r['label']}: point-ahead {r['term_point_ahead_db']:.3f} dB + "
             f"fitting {r['term_fitting_db']:.3f} dB = "
@@ -1099,6 +1169,7 @@ def main():
             "cn2_ground": CN2_GROUND, "wind_rms_m_s": WIND_RMS,
             "dsubap_servo_off_m": DSUBAP_OFF, "zmax_nominal": ZMAX_NOM,
             "l0_gate_m": L0_GATE,
+            "l0_production_m": L0_PRODUCTION,
             "kappa_min_full_rad_m": KAPPA_MIN_FULL,
             "kappa_max_quad_rad_m": KAPPA_MAX_QUAD,
             "n_kappa": N_KAPPA, "n_phi": N_PHI,

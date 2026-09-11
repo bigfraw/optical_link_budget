@@ -2301,14 +2301,12 @@ run log, a memory note or a backlog aside is not documented.
   quadrature of the FAST filter breaks the tie, because the FAST grid truncates
   the low-frequency band. The mode sets are matched: the FAST modal mask keeps
   the piston and the tilts, so its analytic partner is the Stone band with NO
-  mode removed, not the production `piston_tilt` form.
-  THE PRODUCTION MODE SET MOVED ON 2026-09-11. `uplink_point_ahead_term` now
-  defaults to `remove="piston"`, so it KEEPS the tilt. The production pairing of
-  FAST against Stone therefore differs by the PISTON only, and the piston
-  changes no overlap integral. The prose of this study, and the 3.5x production
-  reading below, were both built on the old `piston_tilt` default, so they are
-  STALE. A re-read is owner-gated; see the backlog.
-- **Measured (2026-09-02, FULL run: grid 1024 x 0.01 m, 3000 draws).**
+  mode removed. The PRODUCTION pairing is FAST against the Stone band with the
+  PISTON removed, because `uplink_point_ahead_term` defaults to
+  `remove="piston"` from 2026-09-11 and KEEPS the tilt. Stage C is like for
+  like: it runs the FAST Monte Carlo, the two FAST sims and the Stone values at
+  the site outer scale `L0` = 25 m, the value that the Term reads.
+- **Measured (2026-09-11, FULL run: grid 1024 x 0.01 m, 3000 draws, 604 s).**
   - The mode-matched ratio reads 1.044 to 1.055 across the whole sweep
     (point-ahead 0.25x to 2x nominal, ZMAX 1 to 66, elevation 30 to 90 deg);
     the single-layer case reads 0.991. The uncorrected anchor (ZMAX = 0) is
