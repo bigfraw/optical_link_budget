@@ -451,9 +451,68 @@ not show that five screens are wrong.
   1000 draws, and it moves 0.2 to 0.3 dB from run to run. So a gap of 0.5 dB
   against the field is at the level of that spread.
 
+## The TILT anisoplanatism, in rad^2 (`tilt_anisoplanatism.py`)
+
+THE QUESTION (owner, 2026-09-11). p1 reads FAST about 0.3 dB ABOVE the field
+on the TIP-TILT stack at 30 deg, with the same sign at every angle, after the
+known FAST leak is taken away. At 20 deg that offset goes away and an excess
+appears on the AO rows instead. A dB number holds two things together: the
+phase variance and the extended Marechal map of that variance. This script
+takes the MAP away. It measures the TILT decorrelation alone, in rad^2, from
+the STORED planes of the `base` campaigns, and it puts the field, Stone and
+FAST next to each other mode by mode.
+
+THE THREE ROUTES. (1) The SCREEN route: the difference of the summed screen
+phase of the shifted window and of the beacon window, fitted with 21 Noll
+modes over the 0.7 m aperture mask. That IS the Stone quantity. (2) The FIELD
+route: the tilt of the propagated point-ahead field minus the tilt of the
+propagated beacon field, from the wrapped slopes and from the G-tilt centroid.
+(3) The REFERENCES: the continuous Stone integral at `L0 = 25 m` and at
+`L0 = inf`, the delta-layer Stone sum on the campaign's OWN plan with the
+pixel-rounded shifts, and the FAST tilt band.
+
+THE BAND UNITS. Every band is a phase variance over the aperture mask, in
+rad^2, and the bands ADD UP to the mask variance of the piston-removed
+difference. The Noll basis is only NEAR-orthonormal on a pixel mask, so each
+band is reported as the SHARE of the fitted variance, which adds EXACTLY. The
+script asserts that closure at 1e-6.
+
+THE FAST TILT BAND is the difference of two SERVO-OFF runs: the clean
+anisoplanatic split of `ZMAX = 3` (the piston and the two tilts) minus the
+split of `ZMAX = 1` (the piston alone). The grid rule is the rule of
+`validation/fast_stone_pointahead/`: an EXPLICIT `(NPXLS, DX)` pair, here
+1024 px and 0.05 m, so the side 51.2 m holds the 25 m outer scale.
+
+THE SCRIPT PROPAGATES NOTHING. It reads the stored planes only. Run it from
+the repository root as a module of `validation.waveoptics_pointahead`.
+
+PLACEHOLDER. The table below is NOT MEASURED. Fill it from
+`tilt_anisoplanatism_results.json` after the run on the stored 1000-trial
+campaigns.
+
+| el [deg] | angle | screen tilt [rad^2] | +-2 sigma | slopes | G-tilt | Stone px | Stone 25 m | Stone inf | FAST | field/Stone | FAST/Stone |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 30 | geom | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 30 | 2 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 30 | 5 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 30 | 10 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 20 | geom | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 20 | 2 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 20 | 5 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 20 | 10 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+
+THE SMOKE TEST (2026-09-11, this laptop, 8 trials, `preset="rapid"`, two
+angles, 256 px, 5 screens) says only that the machinery runs: the band-sum
+closure held to 3e-16, and FAST read 1.047 of the continuous Stone tilt band
+at both angles. The field column of an 8-trial rapid store carries a +-2 sigma
+bar of 0.15 rad^2 on a 0.24 rad^2 value, so it is NOT a result.
+
 ## The files
 
 - `waveoptics_pointahead.py`: the driver. `--study p0 p1 p2 p3`.
+- `tilt_anisoplanatism.py`: the tilt-band analysis of the stored planes.
+- `tilt_anisoplanatism.log`, `tilt_anisoplanatism_results.json`,
+  `figures/tilt_anisoplanatism.png`.
 - `waveoptics_pointahead_<study>.log`: the log of each study.
 - `waveoptics_pointahead_<study>_results.json`: the numbers of each study.
 - `figures/p1_penalty_vs_angle.png`, `figures/p2_p5_vs_angle.png`.
