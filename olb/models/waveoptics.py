@@ -861,7 +861,8 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None,
         **runner_kwargs :
             THE RUN OPTIONS (backlog 2-I4): preset, cn2, hs, cn2_profile,
             h_top_m, L0_m, subharmonics, screen_generator, precision,
-            fft_backend, compensation, store_screen_phase. They are NOT
+            fft_backend, compensation, store_screen_phase, point_ahead_rad,
+            screen_margin_m. They are NOT
             restated here; they forward to the turbulent run and the grid
             sizer, which own their meanings and defaults (see the runner and
             RUN_OPTIONS). cn2 (with no hs/cn2_profile) is the continuous Cn2
@@ -928,6 +929,29 @@ def run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None,
             decorrelation. So the record is the UPPER BOUND of the benefit
             (Noll 1976, DOI 10.1364/JOSA.66.000207), and the Terms flag it.
             The default keeps an uncorrected run bit-identical.
+
+        point_ahead_rad, screen_margin_m : the point ahead
+            Two run options (see **runner_kwargs), kept here because their
+            budget meaning matters. The UPLINK POINT-AHEAD pass (an OPT-IN,
+            default OFF, backlog 2-P4). The one-line call is:
+
+                run_fidelity2(scn, geom, compensation="terminal",
+                              point_ahead_rad="geometry")
+
+            Each angle adds one more propagation of the SAME atmosphere
+            through a LATERALLY SHIFTED window of each screen, so the uplink
+            reads the direction it launches into while the correction still
+            senses the BEACON. The record then holds: the resolved angles in
+            TurbWaveResult.point_ahead_rad, the overlap of each angle in
+            TurbTrial.eta_turb_pa (the angle order, next to the unchanged
+            beacon eta_turb), the stored point-ahead fields in
+            TurbWaveResult.fields_pa, and the screen width the windows needed
+            in screen_margin_m and screen_n. olb.links.uplink.uplink_budget
+            reads the angle of its own geometry. "geometry" takes the angle of
+            the geometry; a float or a sequence of floats gives explicit
+            angles (0.0 repeats the beacon path, the control case).
+            screen_margin_m=None sizes the oversize screen from the geometry.
+            The default keeps a run bit-identical.
 
     Returns:
         Fidelity2Bundle, or list of Fidelity2Bundle
@@ -1180,6 +1204,42 @@ if __name__ == '__main__':
     assert "3 Noll modes removed" in term_ao.note, term_ao.note
     assert any("PERFECT AO" in v for v in term_ao.assumptions.violations)
     assert not any("PERFECT AO" in v for v in term.assumptions.violations)
+
+    # THE POINT AHEAD (backlog 2-P4). The two run options reach the runner, and
+    # a per-arm re-key keeps the point-ahead record of the shared run.
+    from ..terminal import SMF as _SMF
+    from ..waveoptics.turbulence.run import RUN_OPTIONS, split_run_options
+    assert "point_ahead_rad" in RUN_OPTIONS, RUN_OPTIONS
+    assert "screen_margin_m" in RUN_OPTIONS, RUN_OPTIONS
+    pa_opts = split_run_options(
+        {"point_ahead_rad": "geometry", "screen_margin_m": 1.0},
+        where="self-check")
+    assert pa_opts["point_ahead_rad"] == "geometry"
+    assert pa_opts["screen_margin_m"] == 1.0
+    pa_trials = [_replace(t, eta_turb=0.5, eta_turb_pa=(0.5, 0.4),
+                          detector_etas=(0.3,))
+                 for t in rec.trials]
+    pa_rec = _replace(rec, trials=pa_trials, point_ahead_rad=(0.0, 1e-5),
+                      screen_margin_m=2.0, screen_n=288)
+    pa_arm = _arm_turbulent(pa_rec, 0, _SMF())
+    assert pa_arm.point_ahead_rad == (0.0, 1e-5), pa_arm.point_ahead_rad
+    assert pa_arm.screen_margin_m == 2.0 and pa_arm.screen_n == 288
+    assert all(t.eta_turb_pa == (0.5, 0.4) for t in pa_arm.trials)
+    # The Term of ONE angle is the empirical loss of that angle, through the
+    # loss_db route that olb.links.uplink.uplink_budget uses.
+    pa_loss = -10.0 * np.log10(np.array([t.eta_turb_pa[1]
+                                         for t in pa_rec.trials]))
+    pa_term = waveoptics_turbulence_term(
+        pa_rec, loss_db=pa_loss, quantity="eta_turb",
+        name=_QUANTITY_SPEC["eta_turb"][0], category=_QUANTITY_SPEC["eta_turb"][1],
+        meta_extra={"point_ahead_rad": 1e-5})
+    assert pa_term.name == "turbulence (wave optics, reciprocity)"
+    assert pa_term.category == "turbulence"
+    assert pa_term.mean_db == float(pa_loss.mean())
+    assert pa_term.meta["point_ahead_rad"] == 1e-5
+    # The point-ahead angle costs: its overlap is below the beacon overlap.
+    assert pa_term.mean_db > float((-10.0 * np.log10(
+        np.array([t.eta_turb for t in pa_rec.trials]))).mean())
 
     # WP3a: the wave-optics factory opens NO collection context (its physics is
     # the field solve, not @assumes functions), so its Terms SELF-DECLARE an
