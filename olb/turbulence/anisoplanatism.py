@@ -62,6 +62,14 @@ hypergeometric 3F2 series of Eqs. (31)-(32) in the paper. The two give the same
 number, but the direct integral is shorter and it has no series-convergence
 limit.
 
+The outer scale.
+    Stone writes the Kolmogorov spectrum. The functions below also take an outer
+    scale L0. With the von Karman spectrum
+        Phi(kappa) = 0.033 Cn2 (kappa^2 + kappa0^2)^(-11/6),  kappa0 = 2 pi / L0
+    (Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20),
+    printed p. 68) the kernel of Eq. (36) changes in one place. See
+    _inner_integral. L0 = infinity gives the Stone kernel back exactly.
+
 Source of all equations in this module:
     J. Stone, P. H. Hu, S. P. Mills and S. Ma, "Anisoplanatic effects in
     finite-aperture optical systems," J. Opt. Soc. Am. A 11(1), 347-357 (1994).
@@ -195,7 +203,7 @@ def _mode_factor(u, n_lo, max_order):
     return factor
 
 
-def _inner_integral(beta, n_lo, max_order):
+def _inner_integral(beta, n_lo, max_order, u0=0.0):
     '''
     Return the spatial-frequency integral of the anisoplanatic variance.
 
@@ -211,6 +219,22 @@ def _inner_integral(beta, n_lo, max_order):
     max_order puts the Bessel peak near u = max_order, so the code carries the
     upper limit past that peak.
 
+    THE OUTER SCALE. The kernel u^(-8/3) comes from the polar element
+    kappa dkappa times the Kolmogorov spectrum kappa^(-11/3), with u = kappa R.
+    Three lines give the von Karman form:
+        (1) Kolmogorov:  kappa dkappa kappa^(-11/3) -> u^(-8/3) du
+                         and u^(-8/3) = u (u^2)^(-11/6);
+        (2) von Karman:  Phi goes as (kappa^2 + kappa0^2)^(-11/6) with
+                         kappa0 = 2 pi / L0 (Andrews and Phillips, 2nd ed.
+                         (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed
+                         p. 68), so the same element gives
+                         u (u^2 + u0^2)^(-11/6) du with u0 = kappa0 R
+                         = 2 pi R / L0;
+        (3) every prefactor stays the same, and u0 = 0 gives the Stone kernel
+            back exactly.
+    The von Karman integrand is finite at u = 0, so the low edge is easier than
+    the Kolmogorov one.
+
     Parameters:
         beta : float
             The scaled angular offset S * theta / R. It has no unit.
@@ -218,14 +242,24 @@ def _inner_integral(beta, n_lo, max_order):
             Lowest radial order that counts as error (0, 1, or 2).
         max_order : int or None
             Highest corrected radial order, or None for all orders.
+        u0 : float
+            The scaled outer-scale wavenumber 2 pi R / L0. It has no unit. 0.0
+            (the default) is the Kolmogorov kernel of Stone.
 
     Returns:
         float
             I(beta). It has no unit.
     '''
-    def f(u):
-        return (u ** (-8.0 / 3.0) * (1.0 - jv(0, beta * u))
-                * _mode_factor(u, n_lo, max_order))
+    u0 = float(u0)
+    if u0 > 0.0:
+        def f(u):
+            return (u * (u * u + u0 * u0) ** (-11.0 / 6.0)
+                    * (1.0 - jv(0, beta * u))
+                    * _mode_factor(u, n_lo, max_order))
+    else:
+        def f(u):
+            return (u ** (-8.0 / 3.0) * (1.0 - jv(0, beta * u))
+                    * _mode_factor(u, n_lo, max_order))
 
     # The J_{n+1} peak sits near u = max_order, so carry the top past it.
     top = 500.0 if max_order is None else max(500.0, 4.0 * (max_order + 2))
@@ -266,7 +300,8 @@ def max_radial_order(n_zernike_modes):
 
 
 @assumes(_ISOPLANATISM, _PLANE_PARALLEL, spectrum=SPECTRUM_KOLMOGOROV)
-def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0):
+def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0,
+                      L0=np.inf):
     '''
     Return the classical isoplanatic angle theta0.
 
@@ -291,11 +326,29 @@ def isoplanatic_angle(hs, cn2_profile, wavelength, elevation_deg=90.0):
             Optical wavelength [m].
         elevation_deg : float
             Elevation angle above the horizon [deg]. 90 is the zenith.
+        L0 : float
+            Outer scale [m]. Only np.inf (the default) is available. See the
+            note below.
 
     Returns:
         float
             theta0 [rad].
+
+    Raises:
+        NotImplementedError
+            If L0 is finite.
+
+    OUTER SCALE. This function stays Kolmogorov. The angle theta0 exists because
+    the classical variance is the pure power (theta/theta0)^(5/3). The von Karman
+    substitution of _inner_integral breaks that power law, so the variance is no
+    longer a single power of theta and one angle cannot hold it. Use
+    anisoplanatic_phase_variance(L0=...) for a finite outer scale.
     '''
+    if not np.isinf(L0):
+        raise NotImplementedError(
+            "isoplanatic_angle is Kolmogorov only. A finite outer scale breaks "
+            "the (theta/theta0)^(5/3) power law that defines theta0. Use "
+            "anisoplanatic_phase_variance(..., L0=...) instead.")
     hs = np.asarray(hs, dtype=float)
     cn2 = np.asarray(cn2_profile, dtype=float)
     k0 = 2.0 * np.pi / wavelength
@@ -317,7 +370,7 @@ _REMOVE_NLO = {'none': 0, 'piston': 1, 'piston_tilt': 2}
          beam_type=BEAM_PLANE_WAVE, spectrum=SPECTRUM_KOLMOGOROV)
 def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
                                  remove='piston_tilt', max_order=None,
-                                 elevation_deg=90.0):
+                                 elevation_deg=90.0, L0=np.inf):
     '''
     Return the angular anisoplanatic phase variance over a finite aperture.
 
@@ -335,6 +388,17 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
     Source: Eqs. (29) and (36) of Stone et al. (1994), with R1(S) = R2(S) = R.
     That is the pure angular case: both sources are at infinity.
     DOI: 10.1364/JOSAA.11.000347
+
+    THE OUTER SCALE. L0 = infinity (the default) is the Kolmogorov spectrum of
+    the paper. A finite L0 puts the von Karman spectrum in the kernel of
+    Eq. (36), through u0 = 2 pi R / L0. See _inner_integral for the three-line
+    substitution and Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196,
+    Ch. 3, Eq. (20), printed p. 68, for the spectrum. The outer scale cuts the
+    large scales, and the tilt is the mode that holds the most of them, so it
+    lowers a tilt-keeping result much more than a tilt-removed one. The
+    @assumes decorator is static, so it declares the Kolmogorov spectrum. A
+    caller that passes a finite L0 must label the Term von Karman itself
+    (olb.links.uplink.uplink_point_ahead_term does that).
 
     Parameters:
         D : float
@@ -365,6 +429,9 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
             into this value.
         elevation_deg : float
             Elevation angle above the horizon [deg]. 90 is the zenith.
+        L0 : float
+            Turbulence outer scale [m]. np.inf (the default) is the Kolmogorov
+            spectrum of the paper. A finite value is the von Karman spectrum.
 
     Returns:
         float
@@ -372,8 +439,8 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
 
     Raises:
         ValueError
-            If `remove` is not "none", "piston", or "piston_tilt", or if
-            max_order is a negative integer.
+            If `remove` is not "none", "piston", or "piston_tilt", if
+            max_order is a negative integer, or if L0 is not positive.
     '''
     if remove not in _REMOVE_NLO:
         raise ValueError(
@@ -384,16 +451,21 @@ def anisoplanatic_phase_variance(D, theta, hs, cn2_profile, wavelength,
     if max_order is not None and max_order < 0:
         raise ValueError(f"max_order must be a non-negative int or None, "
                          f"not {max_order!r}")
+    L0 = float(L0)
+    if not L0 > 0.0:
+        raise ValueError(f"L0 must be a positive length or np.inf, not {L0!r}")
 
     hs = np.asarray(hs, dtype=float)
     cn2 = np.asarray(cn2_profile, dtype=float)
     k0 = 2.0 * np.pi / wavelength
     R = D / 2.0
     airmass = 1.0 / np.sin(np.radians(elevation_deg))
+    # The scaled outer-scale wavenumber. 0.0 is the Kolmogorov kernel.
+    u0 = 0.0 if np.isinf(L0) else 2.0 * np.pi * R / L0
 
     # beta = S * theta / R at each height of the grid.
     betas = hs * airmass * theta / R
-    inner = np.array([_inner_integral(b, n_lo, max_order) for b in betas])
+    inner = np.array([_inner_integral(b, n_lo, max_order, u0) for b in betas])
 
     prefactor = 2.0 * _TWO_PI_83 * C_A * k0 ** 2 * R ** (5.0 / 3.0) * airmass
     return float(prefactor * np.trapezoid(cn2 * inner, hs))
@@ -548,6 +620,77 @@ if __name__ == '__main__':
     print("   n:     " + "  ".join(f"{m:>6d}" for m in orders) + "     inf")
     print("   var: " + "  ".join(f"{b:6.3f}" for b in bands)
           + f"   {inf_pt:6.3f}")
+
+    # --- the outer scale (von Karman kernel) ---------------------------------
+    # (1) u0 = 0 must give the OLD Kolmogorov integrand, bit for bit in value.
+    from scipy.integrate import quad as _quad
+
+    def _old_inner(beta, n_lo, max_order):
+        '''The expression of the module before the outer scale came in.'''
+        def f(u):
+            return (u ** (-8.0 / 3.0) * (1.0 - jv(0, beta * u))
+                    * _mode_factor(u, n_lo, max_order))
+        top = 500.0 if max_order is None else max(500.0, 4.0 * (max_order + 2))
+        edges = [0.0, 1.0, 50.0, top]
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            return sum(_quad(f, a, b, limit=400)[0]
+                       for a, b in zip(edges[:-1], edges[1:]))
+
+    for b in (0.05, 0.5, 3.0, 20.0):
+        for n_lo, mo in ((1, None), (2, None), (2, 3)):
+            new = _inner_integral(b, n_lo, mo, 0.0)
+            old = _old_inner(b, n_lo, mo)
+            assert abs(new - old) <= 1e-12 * max(1.0, abs(old)), (b, new, old)
+
+    # (2) A finite outer scale takes variance away, and the TILT holds the most
+    #     of the large scales, so remove='piston' falls much more than
+    #     remove='piston_tilt' does.
+    D, th = 0.7, 10e-6
+    v_p_inf = anisoplanatic_phase_variance(D, th, hs, cn2, lam, remove='piston')
+    v_p_25 = anisoplanatic_phase_variance(D, th, hs, cn2, lam, remove='piston',
+                                          L0=25.0)
+    v_t_inf = anisoplanatic_phase_variance(D, th, hs, cn2, lam,
+                                           remove='piston_tilt')
+    v_t_25 = anisoplanatic_phase_variance(D, th, hs, cn2, lam,
+                                          remove='piston_tilt', L0=25.0)
+    assert v_p_25 < v_p_inf, (v_p_25, v_p_inf)
+    assert v_t_25 < v_t_inf, (v_t_25, v_t_inf)
+    cut_p = 1.0 - v_p_25 / v_p_inf
+    cut_t = 1.0 - v_t_25 / v_t_inf
+    assert cut_p > 2.0 * cut_t, (cut_p, cut_t)
+
+    # (3) A very large outer scale is the Kolmogorov limit.
+    v_big = anisoplanatic_phase_variance(D, th, hs, cn2, lam, remove='piston',
+                                         L0=1e9)
+    assert np.isclose(v_big, v_p_inf, rtol=1e-6), (v_big, v_p_inf)
+
+    # (4) The variance grows with the outer scale (monotone in L0).
+    chain = [anisoplanatic_phase_variance(D, th, hs, cn2, lam,
+                                          remove='piston', L0=x)
+             for x in (5.0, 10.0, 25.0, 100.0, 400.0)]
+    assert all(x < y for x, y in zip(chain, chain[1:])), chain
+    assert chain[-1] < v_p_inf, (chain[-1], v_p_inf)
+
+    # (5) A non-positive outer scale is an error, and the isoplanatic angle
+    #     refuses a finite one.
+    try:
+        anisoplanatic_phase_variance(D, th, hs, cn2, lam, L0=0.0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('L0 must be positive')
+    try:
+        isoplanatic_angle(hs, cn2, lam, 90.0, L0=25.0)
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError('isoplanatic_angle must refuse a finite L0')
+
+    print(f"outer scale at D={D} m, {th * 1e6:.0f} urad: piston "
+          f"{v_p_inf:.4f} -> {v_p_25:.4f} rad^2 ({cut_p * 100:.1f}% cut); "
+          f"piston+tilt {v_t_inf:.4f} -> {v_t_25:.4f} rad^2 "
+          f"({cut_t * 100:.1f}% cut)")
 
     # --- assumptions layer ---------------------------------------------------
     from ..assumptions import trace_assumptions
