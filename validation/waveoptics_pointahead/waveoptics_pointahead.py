@@ -660,10 +660,10 @@ def run_p0(args):
         "AO(10) campaign of the same seeds.")
     say("  3. the regeneration route at a STORED angle gives the stored "
         "column back.")
-    say("  Check 3 runs the regeneration on the numpy backend, so a campaign "
-        "computed on the CUDA backend agrees to the")
-    say("  float32 rounding level only. The gate is 1e-5 and the log prints "
-        "the measured error.")
+    say("  Check 3 runs the regeneration on the backend of the campaign, so "
+        "the gate is BIT identity. The host (numpy)")
+    say("  read of a CUDA campaign is printed next to it as a report: it "
+        "agrees at the float32 rounding level only.")
     say()
 
     rows = {}
@@ -699,10 +699,20 @@ def run_p0(args):
 
         # Check 3: the regeneration route at the STORED 5 arcsec angle.
         i5 = len(angles) - 1 - FIXED_ARCSEC[::-1].index(5.0)
-        regen = base.point_ahead([angles[i5]], None, n_trials=n_check)
+        # The SAME backend as the campaign gives the stored column back bit
+        # for bit. The host read is a report only (the float32 rounding of
+        # two FFT libraries).
+        regen = base.point_ahead([angles[i5]], None, n_trials=n_check,
+                                 fft_backend=args.fft_backend)
         rel_regen = float(np.abs(regen[:, 0] / stored[:n_check, i5]
                                  - 1.0).max())
         bit_regen = bool(np.array_equal(regen[:, 0], stored[:n_check, i5]))
+        rel_host = None
+        if args.fft_backend != "numpy":
+            host = base.point_ahead([angles[i5]], None, n_trials=n_check,
+                                    fft_backend="numpy")
+            rel_host = float(np.abs(host[:, 0] / stored[:n_check, i5]
+                                    - 1.0).max())
 
         rows[str(el)] = {
             "elevation_deg": float(el),
@@ -717,6 +727,7 @@ def run_p0(args):
             "posthoc_max_rel": rel_post,
             "regenerate_max_rel": rel_regen,
             "regenerate_bit_identical": bit_regen,
+            "regenerate_host_max_rel": rel_host,
             "wall_s_per_trial": float(walls.mean()),
             "fft_backend": args.fft_backend,
             "disk_bytes": _dir_bytes(base.root_dir),
@@ -726,10 +737,12 @@ def run_p0(args):
         say(f"  2. the post-hoc AO(10) against the in-run AO(10), {n_check} "
             f"trials: worst relative error {rel_post:.2e} "
             f"({'PASS' if rel_post < 1e-6 else 'FAIL'}, the gate is 1e-6)")
-        say(f"  3. the regeneration at 5 arcsec, {n_check} trials: worst "
-            f"relative error {rel_regen:.2e} "
-            f"({'PASS' if rel_regen < 1e-5 else 'FAIL'}, the gate is 1e-5; "
-            f"bit identical: {bit_regen})")
+        say(f"  3. the regeneration at 5 arcsec on the {args.fft_backend} "
+            f"backend, {n_check} trials: worst relative error "
+            f"{rel_regen:.2e} ({'PASS, bit identical' if bit_regen else 'FAIL'}"
+            f", the gate is bit identity)"
+            + (f"; the host read differs by {rel_host:.2e}"
+               if rel_host is not None else ""))
         say(f"  the trial wall time is {walls.mean():.3f} s for "
             f"{1 + len(angles)} split steps "
             f"({walls.mean() / (1 + len(angles)):.3f} s for each pass)")
