@@ -31,6 +31,16 @@ THE PIXEL. A split-step screen is a grid, so a real run can only offset a window
 by a WHOLE pixel. The script also reports the variance of the pixel-ROUNDED
 offset round(theta z_g / dx) dx at the production pixel.
 
+THE CONVENTION. The default is `--remove piston`: the TILT STAYS IN (owner
+decision, 2026-09-11). The terminal senses the downlink beacon tilt and the
+steering mirror adds the point-ahead offset geometrically, so the uplink has no
+tilt reference of its own. `--remove piston_tilt` gives the old rows back.
+
+THE OUTER SCALE. `--L0` puts the von Karman spectrum in the Stone kernel of BOTH
+the continuous reference and the discrete sum, through u0 = 2 pi R / L0 (Andrews
+and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed
+p. 68). The default is infinite, the Kolmogorov limit of the paper.
+
 THE PLANS. The production plan (9 screens at the standard preset), the override
 plans of 5, 9, 15 and 25 screens, the ground-split plan (the lowest screen cut
 into 4), and the EQUAL-ANISOPLANATIC-WEIGHT plans of the same counts. The last
@@ -51,6 +61,7 @@ Sources:
 Run it from the repository root:
 
     python -m validation.anisoplanatism_screens.anisoplanatism_screens
+    python -m validation.anisoplanatism_screens.anisoplanatism_screens --L0 25
 """
 
 import argparse
@@ -68,7 +79,7 @@ from olb.turbulence.andrews.paths import sec_zeta
 from olb.waveoptics.turbulence.sampling import (DEFAULT_H_TOP_M,
                                                 _integration_heights)
 from validation.anisoplanatism_screens.common import (ANGLES_ARCSEC, ARCSEC,
-                                                     APERTURES_M,
+                                                     APERTURES_M, HERE,
                                                      ELEVATIONS_DEG, LAM,
                                                      equal_aniso_plan,
                                                      fig_dir,
@@ -110,12 +121,20 @@ class InnerI:
         max_order: the highest corrected radial order, or None.
     """
 
-    def __init__(self, n_lo, max_order, n_nodes=161, b_lo=1e-4, b_hi=1e3):
-        """Build the table of one (n_lo, max_order) pair."""
+    def __init__(self, n_lo, max_order, u0=0.0, n_nodes=161, b_lo=1e-4,
+                 b_hi=1e3):
+        """Build the table of one (n_lo, max_order, u0) triple.
+
+        `u0` is the scaled outer-scale wavenumber 2 pi R / L0 of the von Karman
+        kernel. 0.0 is the Kolmogorov kernel of Stone. It depends on the
+        APERTURE radius R, so one table serves one aperture.
+        """
         self.n_lo = int(n_lo)
         self.max_order = max_order
+        self.u0 = float(u0)
         self.b = np.geomspace(float(b_lo), float(b_hi), int(n_nodes))
-        self.v = np.array([_inner_integral(b, self.n_lo, self.max_order)
+        self.v = np.array([_inner_integral(b, self.n_lo, self.max_order,
+                                           self.u0)
                            for b in self.b])
         self._lb = np.log(self.b)
         self._lv = np.log(self.v)
@@ -148,20 +167,36 @@ class InnerI:
         """Give the largest relative error of the table against fresh quad."""
         err = 0.0
         for b in betas:
-            exact = _inner_integral(float(b), self.n_lo, self.max_order)
+            exact = _inner_integral(float(b), self.n_lo, self.max_order,
+                                    self.u0)
             if exact > 0.0:
                 err = max(err, abs(self(float(b)) / exact - 1.0))
         return float(err)
 
 
+def u0_of(D, L0):
+    """Give the scaled outer-scale wavenumber u0 = 2 pi R / L0, R = D / 2.
+
+    It is the von Karman substitution of
+    `olb.turbulence.anisoplanatism._inner_integral`, from the von Karman
+    spectrum of Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196,
+    Ch. 3, Eq. (20), printed p. 68. An infinite L0 gives 0.0, the Kolmogorov
+    kernel of Stone.
+    """
+    L0 = float(L0)
+    if not np.isfinite(L0):
+        return 0.0
+    return 2.0 * np.pi * (float(D) / 2.0) / L0
+
+
 def _inner_cache():
-    """Give the InnerI table of each (remove, max_order) pair that runs."""
+    """Give the InnerI table of each (remove, max_order, u0) triple that runs."""
     cache = {}
 
-    def get(remove, max_order):
-        key = (remove, max_order)
+    def get(remove, max_order, u0=0.0):
+        key = (remove, max_order, round(float(u0), 12))
         if key not in cache:
-            cache[key] = InnerI(_REMOVE_NLO[remove], max_order)
+            cache[key] = InnerI(_REMOVE_NLO[remove], max_order, float(u0))
         return cache[key]
 
     return get
@@ -180,8 +215,8 @@ def stone_prefactor(D, lam):
     return 2.0 * _TWO_PI_83 * C_A * k0 ** 2 * (D / 2.0) ** (5.0 / 3.0)
 
 
-def discrete_stone(plan, D, theta, lam, remove="piston_tilt", max_order=None,
-                   dx=None, inner=None):
+def discrete_stone(plan, D, theta, lam, remove="piston", max_order=None,
+                   dx=None, inner=None, L0=np.inf):
     """Give the delta-layer Stone variance of one screen plan.
 
         sigma^2 = 2 (2 pi)^(8/3) C_A k0^2 R^(5/3)
@@ -213,14 +248,15 @@ def discrete_stone(plan, D, theta, lam, remove="piston_tilt", max_order=None,
         remove:    "none", "piston" or "piston_tilt".
         max_order: the highest corrected radial order, or None.
         dx:        the pixel pitch, in m, or None for the exact offset.
-        inner:     an InnerI of the same (remove, max_order), or None to build
-                   one.
+        inner:     an InnerI of the same (remove, max_order, u0), or None to
+                   build one.
+        L0:        the outer scale, in m. It is read only when `inner` is None.
 
     Returns:
         A dict with the keys sigma2, contributions, shift_m, shift_px and beta.
     """
     if inner is None:
-        inner = InnerI(_REMOVE_NLO[remove], max_order)
+        inner = InnerI(_REMOVE_NLO[remove], max_order, u0_of(D, L0))
     zg = ground_distances(plan)
     shift = zg * float(theta)
     shift_px = shift / float(dx) if dx else None
@@ -235,7 +271,7 @@ def discrete_stone(plan, D, theta, lam, remove="piston_tilt", max_order=None,
 
 
 def continuous_stone(scn, elevation_deg, D, theta, lam,
-                     remove="piston_tilt", max_order=None, inner=None):
+                     remove="piston", max_order=None, inner=None, L0=np.inf):
     """Give the continuous Stone variance of the site profile.
 
     It is Eq. (29) of Stone et al. (1994), DOI 10.1364/JOSAA.11.000347, on the
@@ -252,13 +288,15 @@ def continuous_stone(scn, elevation_deg, D, theta, lam,
         lam:           the wavelength, in m.
         remove:        "none", "piston" or "piston_tilt".
         max_order:     the highest corrected radial order, or None.
-        inner:         an InnerI of the same pair, or None.
+        inner:         an InnerI of the same triple, or None.
+        L0:            the outer scale, in m. It is read only when `inner` is
+                       None.
 
     Returns:
         The variance, in rad^2.
     """
     if inner is None:
-        inner = InnerI(_REMOVE_NLO[remove], max_order)
+        inner = InnerI(_REMOVE_NLO[remove], max_order, u0_of(D, L0))
     sec = float(sec_zeta(float(elevation_deg)))
     h = _integration_heights(DEFAULT_H_TOP_M)
     cn2_h = np.asarray(site_cn2(scn)(h), dtype=float)
@@ -267,7 +305,7 @@ def continuous_stone(scn, elevation_deg, D, theta, lam,
                  * np.trapezoid(cn2_h * inner(beta), h))
 
 
-def check_continuous(scn, elevation_deg, lam, get_inner):
+def check_continuous(scn, elevation_deg, lam, get_inner, remove, L0):
     """Compare `continuous_stone` with the production library function.
 
     The library call integrates the SAME equation on the same height grid, but
@@ -283,11 +321,12 @@ def check_continuous(scn, elevation_deg, lam, get_inner):
     for D, arcsec, max_order in ((0.7, 10.0, None), (0.4, 2.0, 3)):
         theta = arcsec * ARCSEC
         mine = continuous_stone(scn, elevation_deg, D, theta, lam,
-                                max_order=max_order,
-                                inner=get_inner("piston_tilt", max_order))
+                                remove=remove, max_order=max_order,
+                                inner=get_inner(remove, max_order,
+                                                u0_of(D, L0)))
         lib = anisoplanatic_phase_variance(
-            D, theta, h, cn2_h, lam, remove="piston_tilt",
-            max_order=max_order, elevation_deg=float(elevation_deg))
+            D, theta, h, cn2_h, lam, remove=remove,
+            max_order=max_order, elevation_deg=float(elevation_deg), L0=L0)
         out.append({"D_m": D, "theta_arcsec": arcsec,
                     "max_order": max_order, "mine": mine, "library": lib,
                     "ratio": mine / lib if lib else float("nan")})
@@ -315,11 +354,14 @@ def sweep(say, args):
     """Run the whole sweep. Give the JSON payload."""
     get_inner = _inner_cache()
     lam = LAM
+    remove = args.remove
+    L0 = float(args.L0)
 
-    # The interpolation guard. It measures InnerI against fresh quad calls.
+    # The interpolation guard. It measures InnerI against fresh quad calls. It
+    # reads the 0.7 m aperture, so its u0 is the u0 of that aperture.
     guard = []
     for max_order in MAX_ORDERS:
-        inner = get_inner("piston_tilt", max_order)
+        inner = get_inner(remove, max_order, u0_of(0.7, L0))
         err = inner.check((3e-4, 0.01, 0.3, 1.7, 12.0, 90.0))
         guard.append({"max_order": max_order, "max_rel_error": err,
                       "small_beta_exponent": inner.small_beta_exponent})
@@ -329,10 +371,11 @@ def sweep(say, args):
             f"{g['max_rel_error']:.2e}; I(beta) goes as beta^"
             f"{g['small_beta_exponent']:.3f} at a small beta")
     exponent = float(guard[-1]["small_beta_exponent"])
-    say(f"  The piston-and-tilt-removed weight takes the exponent "
-        f"{exponent:.2f}. The classical (remove='none') exponent is 5/3; the "
+    say(f"  The remove={remove!r} weight takes the exponent {exponent:.2f}. The "
+        f"classical (remove='none') exponent is 5/3; the "
         f"equal-anisoplanatic-weight plan uses the exponent of the swept "
-        f"`remove`.")
+        f"`remove`. The piston-removed kernel keeps the small-beta exponent 2, "
+        f"because M(u) still goes as u^2 at a small u.")
     say()
 
     # THE ORDER SANITY CHECK. Each removed mode takes variance away, so the
@@ -341,22 +384,26 @@ def sweep(say, args):
     scn30, geom30 = hero_uplink(30.0)
     _, plans30 = plan_set(scn30, geom30, COUNTS, split_n=SPLIT_N)
     order = {}
-    for remove in ("none", "piston", "piston_tilt"):
-        inner = get_inner(remove, None)
-        order[remove] = {
+    for rm in ("none", "piston", "piston_tilt"):
+        inner = get_inner(rm, None, u0_of(0.7, L0))
+        order[rm] = {
             "continuous": continuous_stone(scn30, 30.0, 0.7, 10.0 * ARCSEC,
-                                           lam, remove=remove, inner=inner),
+                                           lam, remove=rm, inner=inner),
             "discrete": discrete_stone(plans30["production"], 0.7,
-                                       10.0 * ARCSEC, lam, remove=remove,
+                                       10.0 * ARCSEC, lam, remove=rm,
                                        inner=inner)["sigma2"]}
     say("THE ORDER SANITY CHECK at 30 deg, D = 0.7 m, 10 arcsec "
         "(continuous / discrete, rad^2)")
-    for remove in ("none", "piston", "piston_tilt"):
-        say(f"  remove = {remove:<12s} {order[remove]['continuous']:10.4g} / "
-            f"{order[remove]['discrete']:10.4g}")
+    for rm in ("none", "piston", "piston_tilt"):
+        say(f"  remove = {rm:<12s} {order[rm]['continuous']:10.4g} / "
+            f"{order[rm]['discrete']:10.4g}")
     assert (order["none"]["continuous"] > order["piston"]["continuous"]
             > order["piston_tilt"]["continuous"]), order
     say("  The order holds: every removed mode takes variance away.")
+    say(f"  THE TILT adds a factor "
+        f"{order['piston']['continuous'] / order['piston_tilt']['continuous']:.3f} "
+        f"on that cell: it is the part that remove='piston' keeps and "
+        f"remove='piston_tilt' drops.")
     say()
 
     rows = []
@@ -372,7 +419,8 @@ def sweep(say, args):
         # does not depend on the elevation.
         if abs(el - 30.0) < 1e-9:
             checks.append({"elevation_deg": el,
-                           "cells": check_continuous(scn, el, lam, get_inner)})
+                           "cells": check_continuous(scn, el, lam, get_inner,
+                                                     remove, L0)})
         angles = list(args.angles_arcsec) + [theta_geom / ARCSEC]
         say(f"ELEVATION {el:.0f} deg: grid {grid.n} px, pixel "
             f"{dx * 1e3:.3f} mm, slab {plans['production'].z_total_m / 1e3:.1f} "
@@ -387,13 +435,15 @@ def sweep(say, args):
                 for arcsec in angles:
                     theta = arcsec * ARCSEC
                     for max_order in MAX_ORDERS:
-                        inner = get_inner("piston_tilt", max_order)
+                        inner = get_inner(remove, max_order, u0_of(D, L0))
                         cont = continuous_stone(scn, el, D, theta, lam,
+                                                remove=remove,
                                                 max_order=max_order,
                                                 inner=inner)
-                        d = discrete_stone(plan, D, theta, lam,
+                        d = discrete_stone(plan, D, theta, lam, remove=remove,
                                            max_order=max_order, inner=inner)
                         d_px = discrete_stone(plan, D, theta, lam,
+                                              remove=remove,
                                               max_order=max_order, dx=dx,
                                               inner=inner)
                         ratio = d["sigma2"] / cont if cont > 0 else float("nan")
@@ -405,7 +455,8 @@ def sweep(say, args):
                             "theta_arcsec": float(arcsec),
                             "is_geometry_angle": bool(
                                 abs(arcsec - theta_geom / ARCSEC) < 1e-9),
-                            "max_order": max_order,
+                            "max_order": max_order, "remove": remove,
+                            "L0_m": None if not np.isfinite(L0) else L0,
                             "continuous_rad2": cont,
                             "discrete_rad2": d["sigma2"], "ratio": ratio,
                             "discrete_rounded_rad2": d_px["sigma2"],
@@ -422,12 +473,12 @@ def sweep(say, args):
         # The per-screen table of the production plan.
         if abs(el - 30.0) < 1e-9:
             per_screen = screen_table(say, scn, plans["production"], dx, lam,
-                                      get_inner)
+                                      get_inner, remove, L0)
         say()
     return rows, guard, checks, per_screen, order
 
 
-def screen_table(say, scn, plan, dx, lam, get_inner):
+def screen_table(say, scn, plan, dx, lam, get_inner, remove, L0):
     """Print the per-screen contribution table of the production plan.
 
     The case is 30 deg, 10 arcsec, D = 0.7 m, max_order None. It answers the
@@ -435,8 +486,9 @@ def screen_table(say, scn, plan, dx, lam, get_inner):
     """
     D, arcsec, max_order = 0.7, 10.0, None
     theta = arcsec * ARCSEC
-    inner = get_inner("piston_tilt", max_order)
-    d = discrete_stone(plan, D, theta, lam, max_order=max_order, inner=inner)
+    inner = get_inner(remove, max_order, u0_of(D, L0))
+    d = discrete_stone(plan, D, theta, lam, remove=remove,
+                       max_order=max_order, inner=inner)
     zg = ground_distances(plan)
     sec = float(sec_zeta(30.0))
     heights = zg / sec
@@ -553,7 +605,79 @@ def verdict(say, rows):
             "worst_rounded_delta": round_worst}
 
 
-def plot(rows):
+def band_label(row):
+    """Give the label of the corrected band of one row.
+
+    The band runs from the lowest radial order that `remove` keeps up to
+    max_order. remove="piston" keeps the TILT, so the band starts at order 1.
+    The Noll mode count of an order comes from `max_radial_order`
+    (Noll, DOI 10.1364/JOSA.66.000207, Table I).
+    """
+    n_lo = _REMOVE_NLO[row.get("remove", "piston_tilt")]
+    tilt = "tilt in" if n_lo <= 1 else "tilt out"
+    if row["max_order"] is None:
+        return f"all orders ({tilt})"
+    n_modes = {3: 10, 5: 21}.get(int(row["max_order"]))
+    stack = f"AO({n_modes}), " if n_modes else ""
+    return f"{stack}orders {n_lo}-{int(row['max_order'])} ({tilt})"
+
+
+def write_table(rows, tag):
+    """Write the production table of the equal-Rytov plans as markdown.
+
+    One row for each (elevation, aperture, angle, band). The columns are the
+    continuous Stone variance and the ratio of each override plan to it, plus
+    the 9-screen ratio at the pixel-rounded offsets.
+    """
+    import os
+    counts = list(COUNTS)
+    key_of = (lambda r: (r["elevation_deg"], r["D_m"], r["theta_arcsec"],
+                         99 if r["max_order"] is None else int(r["max_order"])))
+    cells = {}
+    names = {f"n{n}" for n in counts}
+    for r in rows:
+        if r["plan"] in names:
+            cells.setdefault(key_of(r), {})[r["plan"]] = r
+    lines = [
+        "# Discrete Stone sum of the equal-Rytov plans against the continuous "
+        "integral",
+        "",
+        f"Convention `remove = {rows[0].get('remove', 'piston')}` on every row "
+        f"(the tilt stays in when the band starts at order 1). The outer scale is "
+        + ("infinite (the Kolmogorov kernel)." if rows[0].get("L0_m") is None
+           else f"`L0 = {rows[0]['L0_m']:g} m` (the von Karman kernel).")
+        + " `sigma2` is the continuous "
+        "Stone anisoplanatic variance of the corrected band [rad^2]; each `nN` "
+        "column is the ratio of the N-screen plan's delta-layer sum to it; "
+        "`n9 px` is the 9-screen ratio with the offsets rounded to the "
+        "production pixel. `geom` marks the geometry point-ahead angle of that "
+        "elevation.",
+        "",
+        "| el [deg] | D [m] | theta [arcsec] | corrected band | sigma2 [rad^2] | "
+        + " | ".join(f"n{n}" for n in counts) + " | n9 px |",
+        "|---|---|---|---|---|" + "---|" * (len(counts) + 1),
+    ]
+    for key in sorted(cells):
+        group = cells[key]
+        base = group.get(f"n{counts[1]}")
+        if base is None:
+            continue
+        angle = (f"{base['theta_arcsec']:.2f} (geom)"
+                 if base["is_geometry_angle"] else f"{base['theta_arcsec']:.2f}")
+        ratios = " | ".join(
+            f"{group[f'n{n}']['ratio']:.3f}" if f"n{n}" in group else "-"
+            for n in counts)
+        lines.append(
+            f"| {base['elevation_deg']:.0f} | {base['D_m']} | {angle} | "
+            f"{band_label(base)} | {base['continuous_rad2']:.4f} | {ratios} | "
+            f"{base['ratio_rounded']:.3f} |")
+    path = os.path.join(HERE, f"production_table{tag}.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def plot(rows, tag=""):
     """Draw the ratio against the screen count, one line for each elevation.
 
     One panel for each plan family: the equal-Rytov cut (the production shape),
@@ -596,7 +720,7 @@ def plot(rows):
                  "D = 0.7 m, 10 arcsec, max_order None", fontsize=10)
     fig.tight_layout()
     import os
-    path = os.path.join(fig_dir(), "discrete_vs_continuous.png")
+    path = os.path.join(fig_dir(), f"discrete_vs_continuous{tag}.png")
     fig.savefig(path, dpi=140)
     plt.close(fig)
     return [path]
@@ -616,16 +740,31 @@ def main():
                          "of each elevation is always added")
     ap.add_argument("--verbose", action="store_true",
                     help="print every cell, not the production plan only")
+    ap.add_argument("--remove", default="piston",
+                    choices=("none", "piston", "piston_tilt"),
+                    help="the modes that carry no error; the convention of "
+                         "record is piston (the tilt stays in)")
+    ap.add_argument("--L0", type=float, default=np.inf,
+                    help="the outer scale of the Stone kernel [m]; the default "
+                         "is infinite (the Kolmogorov limit of the paper)")
     args = ap.parse_args()
+    L0 = float(args.L0)
+    tag = "" if not np.isfinite(L0) else f"_L0{L0:g}"
 
-    say, log_path = log_maker("anisoplanatism_screens")
+    say, log_path = log_maker(f"anisoplanatism_screens{tag}")
     t0 = time.time()
     say("THE POINT-AHEAD ANISOPLANATISM OF THE SCREEN PLAN (no simulation)")
     say("case          : uplink, 1550 nm, 500 km, 700 mm ground terminal, "
         "HV5/7 site")
     say("reference     : Stone et al. (1994), DOI 10.1364/JOSAA.11.000347, "
         "Eqs. (29) and (36)")
-    say("remove        : piston_tilt on every cell")
+    say(f"remove        : {args.remove} on every cell "
+        f"({'the tilt stays in' if _REMOVE_NLO[args.remove] <= 1 else 'the tilt is out'})")
+    say("outer scale   : "
+        + ("L0 is infinite (the Kolmogorov kernel of the paper)"
+           if not np.isfinite(L0) else
+           f"L0 = {L0:g} m (the von Karman kernel; Andrews and Phillips, "
+           "DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed p. 68)"))
     say(f"elevations    : {args.elevations} deg")
     say(f"apertures     : {args.apertures} m")
     say(f"angles        : {args.angles_arcsec} arcsec, plus the geometry angle")
@@ -645,10 +784,13 @@ def main():
                 f"{cell['max_order']}: ratio {cell['ratio']:.6f}")
     say()
     v = verdict(say, rows)
-    figs = plot(rows)
+    figs = plot(rows, tag)
     for p in figs:
         say(f"wrote {p}")
+    say(f"wrote {write_table(rows, tag)}")
     payload = {"study": "anisoplanatism_screens",
+               "remove": args.remove,
+               "L0_m": None if not np.isfinite(L0) else L0,
                "counts": list(COUNTS), "split_n": SPLIT_N,
                "max_orders": [None if m is None else int(m)
                               for m in MAX_ORDERS],
@@ -657,7 +799,7 @@ def main():
                "per_screen_30deg": per_screen,
                "rows": rows, "verdict": v,
                "runtime_s": time.time() - t0}
-    json_path = write_results("anisoplanatism_screens", payload)
+    json_path = write_results(f"anisoplanatism_screens{tag}", payload)
     say(f"wrote {json_path}")
     say(f"wrote {log_path}")
     say(f"runtime {time.time() - t0:.1f} s")

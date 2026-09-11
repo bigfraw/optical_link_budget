@@ -24,21 +24,28 @@ THE RECIPE.
   4. Sum (uplink - beacon) over the screens. That is the phase difference of
      the two directions.
   5. Fit J = 36 Noll modes over each receive aperture, and measure
-       (a) the piston-and-tilt-removed variance, which is the Stone quantity
-           remove="piston_tilt", max_order=None; and
-       (b) the band variance of the Noll modes 4 to J_ao, which is the Stone
-           band max_order = max_radial_order(J_ao). The modes 4 to 10 fill the
-           radial orders 2 and 3, and the modes 4 to 21 fill the orders 2 to 5,
+       (a) the PISTON-removed variance, which is the Stone quantity
+           remove="piston", max_order=None; and
+       (b) the band variance of the Noll modes 2 to J_ao, which is the Stone
+           band max_order = max_radial_order(J_ao). The modes 2 to 10 fill the
+           radial orders 1 to 3, and the modes 2 to 21 fill the orders 1 to 5,
            so the two bands match exactly.
+
+THE TILT STAYS IN (owner decision, 2026-09-11). The terminal senses the downlink
+beacon tilt and the steering mirror adds the point-ahead offset geometrically, so
+the uplink pays the full tilt anisoplanatism. So every quantity above keeps the
+tilt, and the reference is Stone with remove="piston".
 
 THE REFERENCE is `discrete_stone` of the companion script, at the SAME
 pixel-rounded offsets, plus the continuous Stone integral of the site profile.
 The pass band is a ratio of 0.95 to 1.05 inside the bootstrap 2-sigma band.
 
-THE OUTER SCALE. Run it at `--L0 inf` (the Kolmogorov limit that the Stone law
-assumes) and at `--L0 25` (the site operating value, backlog 2-P5). The
-difference phase cancels every scale that is much larger than theta z_g, so the
-outer-scale effect must be small. A large effect is a result.
+THE OUTER SCALE. Run it at `--L0 inf` (the Kolmogorov limit) and at `--L0 25`
+(the site operating value, backlog 2-P5). BOTH runs are pass tests, because the
+Stone reference carries the SAME outer scale through the von Karman kernel of
+`olb.turbulence.anisoplanatism._inner_integral` (Andrews and Phillips, 2nd ed.
+(2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed p. 68). The 25 m run is
+the numerical validation of that kernel.
 
 Sources:
 - J. Stone, P. H. Hu, S. P. Mills and S. Ma, J. Opt. Soc. Am. A 11(1), 347
@@ -64,11 +71,11 @@ import warnings
 
 import numpy as np
 
-from olb.turbulence.anisoplanatism import max_radial_order
+from olb.turbulence.anisoplanatism import _REMOVE_NLO, max_radial_order
 from olb.waveoptics.compensation import ApertureModes, circle
 from olb.waveoptics.turbulence.screens import ScreenFactory
 from validation.anisoplanatism_screens.anisoplanatism_screens import (
-    InnerI, continuous_stone, discrete_stone)
+    InnerI, continuous_stone, discrete_stone, u0_of)
 from validation.anisoplanatism_screens.common import (ARCSEC, LAM,
                                                       ground_distances,
                                                       hero_uplink, log_maker,
@@ -82,6 +89,10 @@ N_MODES = 36
 # The adaptive-optics bands. Each J_ao maps to a Stone max_order through
 # max_radial_order (Noll, DOI 10.1364/JOSA.66.000207, Table I).
 AO_BANDS = (10, 21)
+
+# The mode convention of record: the piston only comes out, so the TILT stays in
+# (owner decision, 2026-09-11). See the module docstring.
+REMOVE = "piston"
 
 # The receive apertures of the measurement, in m.
 APERTURES_M = (0.7, 0.4)
@@ -172,11 +183,11 @@ def measure(fac, plan, shifts, n, readers, n_draws, seed):
         seed:    the seed of the draws.
 
     Returns:
-        A dict aperture_m -> {"piston_tilt": array, J_ao: array}, each array of
+        A dict aperture_m -> {"piston": array, J_ao: array}, each array of
         the per-draw mean over the aperture windows, in rad^2.
     """
     rng = np.random.default_rng(seed)
-    out = {D: {"piston_tilt": np.zeros(n_draws)}
+    out = {D: {"piston": np.zeros(n_draws)}
            for D in readers}
     for D in readers:
         for j_ao in AO_BANDS:
@@ -185,20 +196,20 @@ def measure(fac, plan, shifts, n, readers, n_draws, seed):
         stack = fac.make_stack(np.asarray(plan.r0_m, dtype=float), rng)
         diff = difference_phase(stack, n, shifts)
         for D, (modes, corners, w) in readers.items():
-            acc = {"piston_tilt": [], **{j: [] for j in AO_BANDS}}
+            acc = {"piston": [], **{j: [] for j in AO_BANDS}}
             for (r, c) in corners:
                 window = diff[r:r + w, c:c + w]
                 coeffs = modes.estimate(window)
-                # (a) the piston-and-tilt-removed residual. Keep the first 3
-                #     Noll modes in the fit that is REMOVED.
+                # (a) the PISTON-removed residual. The tilt stays in, so the
+                #     fit that is REMOVED keeps the first Noll mode only.
                 keep = np.zeros_like(coeffs)
-                keep[:3] = coeffs[:3]
-                acc["piston_tilt"].append(
+                keep[:1] = coeffs[:1]
+                acc["piston"].append(
                     modes.residual_variance(window, keep))
-                # (b) the band variance of the Noll modes 4 to J_ao.
+                # (b) the band variance of the Noll modes 2 to J_ao.
                 for j_ao in AO_BANDS:
                     band = np.zeros_like(coeffs)
-                    band[3:j_ao] = coeffs[3:j_ao]
+                    band[1:j_ao] = coeffs[1:j_ao]
                     acc[j_ao].append(
                         float(modes.reconstruct(band)[modes.mask].var()))
             for key, values in acc.items():
@@ -216,11 +227,15 @@ def bootstrap_two_sigma(x):
 
 
 def reference(scn, el, plan, D, theta, dx, max_order, inner):
-    """Give the discrete (pixel-rounded) and the continuous Stone variance."""
-    disc = discrete_stone(plan, D, theta, LAM, max_order=max_order, dx=dx,
-                          inner=inner)["sigma2"]
-    cont = continuous_stone(scn, el, D, theta, LAM, max_order=max_order,
-                            inner=inner)
+    """Give the discrete (pixel-rounded) and the continuous Stone variance.
+
+    THE CONVENTION IS remove="piston": the tilt stays in. The outer scale sits
+    in `inner`, which the caller built for this aperture.
+    """
+    disc = discrete_stone(plan, D, theta, LAM, remove=REMOVE,
+                          max_order=max_order, dx=dx, inner=inner)["sigma2"]
+    cont = continuous_stone(scn, el, D, theta, LAM, remove=REMOVE,
+                            max_order=max_order, inner=inner)
     return disc, cont
 
 
@@ -257,16 +272,19 @@ def run_cell(say, scn, el, name, plan, arcsec, grid, L0, n_draws, readers,
 
     rows = []
     for D in readers:
-        for key in ("piston_tilt", *AO_BANDS):
-            max_order = (None if key == "piston_tilt"
+        for key in ("piston", *AO_BANDS):
+            max_order = (None if key == "piston"
                          else max_radial_order(int(key)))
-            inner = inners[max_order]
+            # The outer scale enters through u0 = 2 pi R / L0, so the table of
+            # the Stone integral belongs to ONE aperture.
+            inner = inners[(max_order, D)]
             disc, cont = reference(scn, el, plan, D, theta, dx, max_order,
                                    inner)
             x = stats[D][key]
             mean = float(x.mean())
             half = bootstrap_two_sigma(x)
-            row = {"elevation_deg": el, "plan": name,
+            row = {"elevation_deg": el, "plan": name, "remove": REMOVE,
+                   "L0_m": None if not np.isfinite(L0) else float(L0),
                    "n_screens": int(plan.z_m.size), "theta_arcsec": float(arcsec),
                    "aperture_m": float(D), "quantity": str(key),
                    "max_order": max_order, "grid_n": n, "grid_n_prime": n_prime,
@@ -302,7 +320,7 @@ def plot(rows, tag):
     plt = pyplot()
     if plt is None:
         return []
-    quantities = ("piston_tilt", "10", "21")
+    quantities = ("piston", "10", "21")
     fig, axes = plt.subplots(1, len(quantities), figsize=(13.0, 4.4),
                              sharey=True)
     for ax, q in zip(axes, quantities):
@@ -321,8 +339,8 @@ def plot(rows, tag):
         ax.axhline(1.0, color="k", lw=0.8)
         ax.axhspan(PASS_LO, PASS_HI, color="0.85", zorder=0)
         ax.set_xlabel("screens in the plan")
-        title = ("piston and tilt removed" if q == "piston_tilt"
-                 else f"Noll band 4 to {q}")
+        title = ("piston removed, tilt in" if q == "piston"
+                 else f"Noll band 2 to {q}")
         ax.set_title(title, fontsize=9)
         ax.grid(alpha=0.3)
     axes[0].set_ylabel("measured / discrete Stone")
@@ -360,18 +378,28 @@ def main():
     say("THE SHIFTED-WINDOW POINT-AHEAD TEST (phase only, no propagation)")
     say("case          : uplink, 1550 nm, 500 km, 700 mm ground terminal, "
         "HV5/7 site")
-    say(f"outer scale   : L0 = {L0:g} m (the screens)")
+    say("outer scale   : "
+        + ("L0 is infinite (the screens AND the Stone reference)"
+           if not np.isfinite(L0) else
+           f"L0 = {L0:g} m (the screens AND the von Karman Stone reference)"))
     say(f"draws         : {args.n_draws} per cell; seed {SEED}; float32 screens")
-    say(f"fit           : {N_MODES} Noll modes; bands 4 to "
-        f"{' and 4 to '.join(str(j) for j in AO_BANDS)}")
+    say(f"fit           : {N_MODES} Noll modes; remove={REMOVE} (the tilt "
+        f"stays in); bands 2 to "
+        f"{' and 2 to '.join(str(j) for j in AO_BANDS)}")
     say("reference     : the delta-layer Stone sum at the SAME pixel-rounded "
         "offsets, and the continuous Stone integral")
     say()
 
-    inners = {None: InnerI(2, None)}
-    for j_ao in AO_BANDS:
-        m = max_radial_order(int(j_ao))
-        inners[m] = InnerI(2, m)
+    # One Stone table for each (max_order, aperture) pair: the outer scale
+    # enters the kernel through u0 = 2 pi R / L0, and R is the aperture radius.
+    n_lo = _REMOVE_NLO[REMOVE]
+    inners = {}
+    for D in APERTURES_M:
+        u0 = u0_of(D, L0)
+        inners[(None, D)] = InnerI(n_lo, None, u0)
+        for j_ao in AO_BANDS:
+            m = max_radial_order(int(j_ao))
+            inners[(m, D)] = InnerI(n_lo, m, u0)
 
     rows = []
     for el in args.elevations:
@@ -436,7 +464,7 @@ def main():
         f"{worst['ratio_discrete']:.3f} +- "
         f"{worst['ratio_discrete_two_sigma']:.3f}.")
     by_q = {}
-    for q in ("piston_tilt", *[str(j) for j in AO_BANDS]):
+    for q in ("piston", *[str(j) for j in AO_BANDS]):
         sel = [r["ratio_discrete"] for r in main_rows if r["quantity"] == q]
         if sel:
             by_q[q] = [min(sel), max(sel)]
