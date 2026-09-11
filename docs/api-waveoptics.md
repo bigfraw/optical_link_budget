@@ -951,7 +951,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, boost=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1042,6 +1042,20 @@ it. The trials are independent snapshots.
   `patch_radius_m`; without one the call raises `ValueError`. `False` (the
   default) stores nothing. It is the sensing source of the post-hoc SPACE
   correction (`recouple_compensated`).
+- `point_ahead_rad` is the uplink point-ahead pass (an OPT-IN, 2026-09-11,
+  default OFF). `None` (the default) makes no point-ahead pass, and the run
+  stays bit for bit the old run. The string `"geometry"` takes the one angle of
+  the geometry (`olb.geometry.CircularOrbit.point_ahead_rad`). A float is that
+  one angle, in rad. A sequence gives those angles, in the caller order; `0.0`
+  is valid and it repeats the beacon path, which is the control case of a
+  study. It needs a SPACE scenario and the `"olb"` screen generator; a
+  terrestrial scenario, the `"olb-lean"` generator and the `"aotools"`
+  generator all raise `ValueError`. An empty sequence and a negative angle
+  raise. See the paragraph below.
+- `screen_margin_m` is the extra screen width the shifted windows need, in m.
+  `None` (the default) reads the geometry: `max(angles) * max(z_g)`, with `z_g`
+  the ground distance of a screen. A run with no point-ahead angle keeps the
+  margin `0.0` and draws the screen of record.
 
 **THE BLOCK CONTRACT (`start_index`).** The runner seeds trial `k` off
 `(seed, k)`, so a block of trials is a SLICE of one long run. A run of `n`
@@ -1153,9 +1167,55 @@ where `E_vac` is the zero-screen vacuum run through the same mask and the same
 hops. So the vacuum limit of `eta_turb` is exactly 1.0, and
 `-10*log10(eta_turb)` is the uplink turbulence loss on the free-space baseline.
 That is the baseline of the `(w_free/w_st)^2` rescale of
-`olb.turbulence.uplink_flux`, so the two numbers compare. Point-ahead
-anisoplanatism is NOT modelled: the uplink and the downlink read the same
-screens.
+`olb.turbulence.uplink_flux`, so the two numbers compare. This one pass reads
+the BEACON direction: the uplink and the downlink read the same window of the
+same screens. The next paragraph adds the point-ahead directions.
+
+**THE POINT AHEAD (`point_ahead_rad`, `screen_margin_m`, 2026-09-11, backlog
+2-P4).** A ground station senses the DOWNLINK beacon and it launches the uplink
+`theta` ahead of it, so the two directions cross the screens along two different
+paths and the beacon correction no longer fits the uplink path. The runner
+models that with a LATERALLY SHIFTED WINDOW of the SAME screens.
+
+- **ONE DRAW, MANY WINDOWS.** The runner draws each screen one time on an
+  oversize grid of `TurbWaveResult.screen_n` pixels, a multiple of 32 px
+  (`SCREEN_DRAW_ALIGN`) wide enough for the widest shift. The pixel pitch does
+  not change, so the wider screen holds the same physics over a wider patch of
+  sky, and every pass reads ONE atmosphere.
+- **THE WINDOW RULE.** The beacon reads `screen[0:n, 0:n]`. The uplink of the
+  angle `theta` reads `screen[0:n, s_j:s_j + n]` with
+  `s_j = round(theta * z_g,j / dx)`, the plane-parallel offset of Andrews and
+  Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14). The shift is an INTEGER
+  number of pixels, so no interpolation touches the screen statistics and the
+  propagation grid does not grow. A window that falls off the drawn screen
+  raises `ValueError`, and the message names the shift and the fix.
+- **THE PASSES.** Each trial runs the BEACON pass on the unshifted window and
+  ONE more pass for each angle. The ground stack senses the BEACON only, and the
+  SAME Noll coefficients go on the uplink-direction field. So the overlap is
+  `eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx)|^2 /
+  o_vac`, against the SAME vacuum baseline `space_vacuum_baseline` that the
+  beacon overlap uses. See Shapiro, DOI 10.1364/JOSA.61.000492, and Stone, Hu,
+  Mills and Ma, DOI 10.1364/JOSAA.11.000347.
+- **THE RECORD.** `TurbTrial.eta_turb_pa` holds one overlap for each angle, in
+  the record angle order, next to the UNCHANGED beacon `eta_turb`.
+  `TurbWaveResult` gains `point_ahead_rad`, `screen_margin_m`, `screen_n`,
+  `fields_pa` and `screen_phase_pa`. A record whose angle list holds `0.0` gives
+  the beacon overlap back in that column, bit for bit.
+- **THE COST.** One split step and one stored field for each angle, plus the
+  beacon pass. So a record of four angles costs five passes for each trial.
+- **THE LASER-GUIDE-STAR HOOK.** `SensingGeometry` and
+  `sensing_geometry(plan, source, theta)` give the lateral shift, the transverse
+  cone scale and the screen mask of one sensing direction. A `DownlinkBeacon`
+  (or `None`) is a source at infinity: the cone scale is `1.0` at every screen
+  and the window only moves. A `LaserGuideStar` at the altitude `H` reads the
+  cone scale `1 - z_g/H` and no screen above `H`, and the runner then raises
+  `NotImplementedError`, because a scaled window needs a RESAMPLED screen.
+  Backlog 0-P1. The function reads the CLASS NAME of the source, so this module
+  does not import `olb.scenario`.
+- **THE LIMITS.** Plane-parallel screens (no Earth curvature), integer-pixel
+  offsets (the run measures the ROUNDED angle), a snapshot (the fade depth, not
+  the fade rate), and the PERFECT AO of the correction above. See
+  `docs/physics.md` Section 7 and Section 9n.
 
 **THE SEED CONTRACT.** `seed` takes an int, a numpy `Generator`, or `None` for a
 fresh entropy, and the runner resolves it to ONE integer. Each screen then draws
@@ -1179,6 +1239,7 @@ A frozen dataclass. One atmosphere snapshot.
 | `seed_key` | tuple | The pair `(seed_entropy, trial_index)`. |
 | `wall_time_s` | float | The time of the trial, in s. It holds the screen generation and the propagation. |
 | `detector_etas` | tuple or None | The coupling efficiency of each detector of the `detectors` argument, in that order. `None` on the default path, so a single-detector record does not change. A `Camera` arm holds `None`, and an `Aperture` arm holds `1.0`. |
+| `eta_turb_pa` | tuple or None | The uplink reciprocity overlap at each POINT-AHEAD angle, in the `point_ahead_rad` order. The beacon senses the correction, and the uplink pays what that estimate misses at its own angle. `None` when the caller asks for no point-ahead pass, and for a case that has no `eta_turb`. |
 
 #### `TurbWaveResult`
 
@@ -1198,6 +1259,11 @@ A frozen dataclass. The result of a set of trials.
 | `compensation` | tuple or None | The perfect-AO stack that each trial removed, as a tuple of stages. `None` for an UNCORRECTED record. |
 | `n_modes_corrected` | int | The number of removed Noll modes. `0` for an uncorrected record. |
 | `screen_phase` | `np.ndarray` or None | The summed screen phase at the patch pixels, a `float32` array of the shape `(n_trials, n_patch)`. `None` unless the run used `store_screen_phase=True`. |
+| `point_ahead_rad` | tuple or None | The RESOLVED point-ahead angles of the run, in rad. `None` for a run with no point-ahead pass. |
+| `screen_margin_m` | float | The extra screen width the widest window needed, in m. `0.0` for a run with no point-ahead pass. |
+| `screen_n` | int or None | The pixel count of one DRAWN screen side. It equals `grid.n` when the run makes no point-ahead pass. |
+| `fields_pa` | `np.ndarray` or None | The stored UPLINK-direction field of each angle at the patch pixels, a `complex64` array of the shape `(n_angles, n_trials, n_patch)`. The field is UNCORRECTED, exactly like `fields`. |
+| `screen_phase_pa` | `np.ndarray` or None | The summed screen phase of each point-ahead window at the patch pixels, a `float32` array of the shape `(n_angles, n_trials, n_patch)`. |
 
 **The record holds the per-trial SCALARS, and, when the caller asks for it, the
 OPTIONAL masked receive field (`fields` and `patch`).** The field capture is an
@@ -1316,6 +1382,56 @@ trials, which needs no reference. The power is a masked sum, so the crop of
 - A result that holds no field raises `ValueError`. A receive aperture larger
   than the stored patch also raises `ValueError`.
 
+#### `point_ahead_overlap(result, compensation, scenario, *, source="screens", trials=None, compact=True, precision=None)`
+
+It gives the point-ahead uplink overlap of the STORED planes, as a float array
+of the shape `(n_trials_selected, n_angles)`. The column order is the order of
+`result.point_ahead_rad`.
+
+THE ROUTE MAKES NO PROPAGATION. It reads the stored point-ahead field of each
+trial (`TurbWaveResult.fields_pa`), it corrects that field with the BEACON
+estimate of the given stack, and it takes the reciprocity overlap with the
+ground transmit mode. So a stored record gives the point-ahead fade of ANY
+compensation stack, with no new trial.
+
+- `compensation` is `None` (no correction), the string `"terminal"`, or a list
+  of `TipTilt` and `AO` stages.
+- `scenario` is the `SpaceScenario` of the record. Its GROUND terminal gives the
+  transmit mode and the clip aperture.
+- `source` is `"screens"` (the default, the SPACE source; it needs
+  `store_screen_phase=True`), `"slopes"` or `"gtilt"`.
+- `compact=True` (the default) reads on the crop. The correction and the overlap
+  are PUPIL-plane quantities, so the crop is exact; `compact=False` is the
+  full-grid comparison route.
+- `precision` must match the run. `None` takes the runner default.
+- A record with no point-ahead plane raises `ValueError`, and so does
+  `source="screens"` with no stored screen phase.
+
+#### `point_ahead_regenerate(result, angles, compensation, scenario, geometry, *, source="screens", trials=None, fft_backend="numpy", precision=None, L0_m=None, subharmonics=True, screen_generator="olb")`
+
+It gives the uplink overlap at ANY angle inside the drawn screen margin, as a
+float array of the shape `(n_trials_selected, n_angles)`.
+
+THE ROUTE REGENERATES THE ATMOSPHERE. It rebuilds the screens of each trial from
+the seeds of the record, it crops them at the window of each asked angle, and it
+propagates. So it answers an angle the run never stored, and a whole angle SWEEP
+comes from one stored record. On the backend that computed the record it gives a
+STORED column back bit for bit.
+
+- The cost for each trial is ONE draw set of the screens and ONE split step for
+  each angle. `source="slopes"` adds one more split step for the beacon field.
+  `point_ahead_overlap` costs no propagation, so use it whenever the angle is a
+  stored angle.
+- THE RECORD DOES NOT CARRY THE FACTORY OPTIONS. `TurbWaveResult` holds the
+  grid, the plan, the screen side and the seed, but not the outer scale, the
+  subharmonics, the generator or the precision. So this function takes them,
+  with the runner defaults. `Campaign.point_ahead()` passes them from its
+  manifest.
+- `source="screens"` checks the regenerated screen sum against the stored one,
+  when the record holds one, and it raises on a disagreement.
+- A window that falls off the drawn screen raises `ValueError`, with the
+  numbers.
+
 ### 9e. The stubs
 
 Each of these raises. Each one is a deliberate deferral, not a defect.
@@ -1329,12 +1445,14 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 
 ### 9f. The example scripts
 
-The suite in `examples/waveoptics/` holds ELEVEN scripts: three vacuum scripts
+The suite in `examples/waveoptics/` holds TWELVE scripts: three vacuum scripts
 (`space_farfield.py`, `terrestrial_stages.py`, `grid_artefacts.py`), the three
 turbulent scripts below, the budget demonstration `budget_wiring.py`, two
 multimode-fibre demonstrations (`mmf_core_psf.py`,
 `mmf_core_psf_terrestrial.py`), the camera demonstration `camera_tracking.py`,
-and the campaign demonstration `campaign_demo.py`.
+the campaign demonstration `campaign_demo.py`, and the point-ahead
+demonstration `uplink_point_ahead.py` (the pre-compensated uplink at
+`fidelity=2`, backlog 2-P4).
 
 Every script that runs a Monte Carlo keeps its trials in a `Campaign` of
 Section 9g, under `examples/waveoptics/_campaigns/`. So a second run of a script
@@ -1352,7 +1470,7 @@ seconds.
 - `turbulent_uplink_reciprocity.py` — a 600 km uplink through the overlap of
   Section 9d, at the zenith and at 30 degrees.
 
-For the guide to each of the eleven scripts, see
+For the guide to each of the twelve scripts, see
 [examples/waveoptics/README.md](../examples/waveoptics/README.md). See also
 [examples.md](examples.md) for what each one prints and what it shows.
 
@@ -1370,7 +1488,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False)`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None)`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1431,10 +1549,21 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   each block file, and it enters the fingerprint when it is `True`. Store it
   when a SPACE campaign must answer post-hoc AO questions
   (`recouple_compensated(source="screens")`).
+- `point_ahead_rad` passes to the runner (Section 9d): `None` (the default),
+  `"geometry"`, a float, or a sequence of angles in rad. The campaign RESOLVES
+  the angles BEFORE the fingerprint, exactly as it resolves the compensation
+  stack, so the key names the ANGLES and not the string `"geometry"`. Each block
+  file then holds `eta_turb_pa`, `fields_pa` and `screen_phase_pa` next to the
+  arrays it always held. It needs a SPACE scenario.
+- `screen_margin_m` passes to the runner. `None` on a NEW campaign reads the
+  geometry. `None` on a REOPENED campaign reads the stored value from the
+  manifest, exactly as `patch_radius_m` does, so a change of the automatic rule
+  never breaks an older store. The RESOLVED value enters the fingerprint.
 
 Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
 `patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`, `precision`,
-`compensation`, `n_modes_corrected`, `store_screen_phase`.
+`compensation`, `n_modes_corrected`, `store_screen_phase`, `point_ahead_rad`,
+`screen_margin_m`, `screen_n`.
 
 **The fingerprint.** `fingerprint` is `cache_key(...)` from
 `olb/waveoptics/turbulence/fingerprint.py`: one SHA-256 of everything that
@@ -1446,7 +1575,8 @@ stores it, and an existing campaign whose fingerprint does not match raises.
 **THE APPEND-ONLY TAIL RULE.** An option that came after the first campaigns
 enters the key ONLY when it is not its default: `precision` when it is
 `"single"`, `fft_backend` when it is not `"numpy"`, `compensation` when it is not
-`None`, and `store_screen_phase` when it is `True`. A default therefore adds NO
+`None`, `store_screen_phase` when it is `True`, and `point_ahead_rad` with
+`screen_margin_m` when the run makes a point-ahead pass. A default therefore adds NO
 line to the hashed text, so every key that a stored campaign holds stays valid.
 Follow that rule for each new option.
 This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
@@ -1545,6 +1675,42 @@ question after the fact. The campaign self-check measures that: a post-hoc
 `TipTilt` correction of an uncorrected campaign agrees with an in-run `TipTilt`
 campaign of the same seed to better than 1e-04.
 
+#### `Campaign.recouple_point_ahead(compensation, *, source=None, n_trials=None, workers=None, compact=True)`
+
+It gives the point-ahead uplink overlap of the STORED planes, as a float array
+of the shape `(n_trials, n_angles)`. The column order is the order of
+`Campaign.point_ahead_rad`. It is the campaign-level twin of
+`point_ahead_overlap()` of Section 9d, and it makes NO propagation: it corrects
+the stored point-ahead field of each trial with the BEACON estimate of the given
+stack, and it takes the reciprocity overlap with the ground transmit mode. So
+ONE computed campaign answers EVERY compensation stack.
+
+- `compensation` is `None`, `"terminal"`, or a list of stages.
+- `source=None` (the default) follows the channel family, so a space campaign
+  senses the stored summed screen phase. `"screens"` then needs a campaign that
+  ran with `store_screen_phase=True`.
+- The transmit mode and the vacuum baseline are computed ONE time for the call,
+  and the modal basis builds one time for each block. It is a `map_trials`
+  wrapper, so it takes `workers=` and `compact=`.
+- A campaign that made no point-ahead pass, or that stores no field, raises
+  `ValueError`.
+
+#### `Campaign.point_ahead(angles, compensation, *, source=None, n_trials=None, workers=None, fft_backend="numpy")`
+
+It gives the uplink overlap at ANY angle inside the drawn margin, as a float
+array of the shape `(n_trials, n_angles)`. It is the campaign-level twin of
+`point_ahead_regenerate()` of Section 9d: it rebuilds the screens of each stored
+trial from the seeds of the campaign, it crops them at the window of each asked
+angle, and it propagates. So ONE stored campaign answers a whole angle SWEEP.
+
+- The factory options (the outer scale, the subharmonics, the generator and the
+  precision) come from the MANIFEST, so the regenerated atmosphere is the stored
+  one.
+- The cost for each trial is ONE draw set of the screens and ONE split step for
+  each angle. `recouple_point_ahead` costs no propagation, so use it whenever
+  the angle is a stored angle.
+- The read needs no stored field: it makes its own.
+
 #### `Campaign.recollect(aperture_m=None, obscuration_ratio=None, n_trials=None, workers=None, compact=True)`
 
 It gives the collected power of each STORED trial, in grid units, as a float
@@ -1560,8 +1726,8 @@ A property. The number of trials on disk, counted from block 0 with no gap.
 
 | File | What it holds |
 |---|---|
-| `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. A campaign with `store_screen_phase=True` adds ONE more array, the `float32` `screen_phase` rows. A block that a run wrote without it holds no such array, and a reader gives `None`. |
-| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the precision, the FFT backend, the compensation stack, the screen-phase switch, the olb version, the scenario text, the grid, the plan and the patch shape. A manifest from before an option reads that option's default (no compensation, no stored screen phase, `"double"`, `"numpy"`). |
+| `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. A campaign with `store_screen_phase=True` adds ONE more array, the `float32` `screen_phase` rows. A campaign with a POINT-AHEAD pass adds THREE more: `eta_turb_pa` (`(n_trials, n_angles)`), the `complex64` `fields_pa` and the `float32` `screen_phase_pa`. A block that a run wrote without an array holds no such array, and a reader gives `None`, so an OLD block file still reads. |
+| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the precision, the FFT backend, the compensation stack, the screen-phase switch, the point-ahead angles, the screen margin, the olb version, the scenario text, the grid, the plan and the patch shape. A manifest from before an option reads that option's default (no compensation, no stored screen phase, no point-ahead angle, `"double"`, `"numpy"`). |
 | `patch_indices.npy` | The flat pixel indices of the `FieldPatch`. |
 
 A block file holds ONE block, and the parent writes it with an atomic replace.
@@ -2011,6 +2177,8 @@ the next straggler fails mechanically the way the `@assumes` floor does.
 | `fft_backend` | ● | → | → | ● | ● |
 | `compensation` | ● | → | → | ● | ● |
 | `store_screen_phase` | ● | → | → | ● | — |
+| `point_ahead_rad` | ● | → | → | ● | ● |
+| `screen_margin_m` | ● | → | → | ● | ● |
 
 ● names the option on its own signature; → forwards it via `**runner_kwargs`;
 — is an explicit, reasoned exemption (the single-snapshot diagnostic returns the
@@ -2082,12 +2250,32 @@ the same defaults. `compensation="terminal"` reads the stack of the CLIP termina
   (DOI 10.1364/JOSA.61.000492), so the launched beam carries the conjugate
   wavefront.
 
-The fit is IDEAL, and the reciprocity route reads the SAME screens up and down,
-so the record carries NO point-ahead decorrelation, no wavefront-sensor noise and
-no servo lag. It is the UPPER BOUND of the benefit (Noll 1976,
-DOI 10.1364/JOSA.66.000207). The Terms say so; see the flags below.
-`store_screen_phase` needs a stored patch, which this entry point does not make.
-Use a `Campaign` for the post-hoc route.
+The fit is IDEAL: no wavefront-sensor noise and no servo lag. It is the UPPER
+BOUND of the benefit (Noll 1976, DOI 10.1364/JOSA.66.000207). With no
+point-ahead angle the reciprocity route also reads the SAME screens up and down,
+so the record carries NO point-ahead decorrelation. The Terms say so; see the
+flags below. `store_screen_phase` needs a stored patch, which this entry point
+does not make. Use a `Campaign` for the post-hoc route.
+
+**THE POINT AHEAD (`point_ahead_rad`, `screen_margin_m`, 2026-09-11, backlog
+2-P4).** Both options pass to the runner of Section 9d, with the same meanings
+and the same defaults. The one-line call is
+
+```python
+wave = run_fidelity2(scn, geom, compensation="terminal",
+                     point_ahead_rad="geometry")
+```
+
+Each angle adds one more propagation of the SAME atmosphere through a laterally
+shifted window of each screen, so the uplink reads the direction it launches
+into while the correction still senses the BEACON. The record then holds the
+resolved angles in `TurbWaveResult.point_ahead_rad`, the overlap of each angle
+in `TurbTrial.eta_turb_pa`, the stored planes in `TurbWaveResult.fields_pa`, and
+the drawn screen width in `screen_margin_m` and `screen_n`.
+`olb.links.uplink.uplink_budget(fidelity=2)` then reads the angle of its own
+geometry, and its turbulence Term pays the point-ahead anisoplanatism. The
+default keeps a run bit-identical. A per-arm bundle keeps the point-ahead
+record of the shared run.
 
 **THE TWO COMPENSATION FLAGS.**
 
@@ -2100,8 +2288,10 @@ Use a `Campaign` for the post-hoc route.
   that hardware. The function does nothing when the record IS corrected, or when
   the terminal declares no stack, and it returns the same Term. The Term factory
   has no scenario, so the three fidelity-2 budgets call it.
-- The pre-compensated uplink adds a third, `NO ANISOPLANATISM`; see
-  [api-budget.md](api-budget.md).
+- The pre-compensated uplink adds a third flag, and which one it adds depends on
+  the record: `NO ANISOPLANATISM` for a record with no point-ahead angle (or a
+  zero angle), and `POINT-AHEAD ANISOPLANATISM MODELLED` for a record that names
+  a non-zero angle for this geometry. See [api-budget.md](api-budget.md).
 
 `progress=True` (the default) prints a recap of the auto-chosen grid, the screen
 plan and the sampling quality, then it shows a tqdm bar over the turbulent

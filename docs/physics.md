@@ -751,8 +751,29 @@ order n has the weight (Stone Eq. A11):
     p_n(u) = 4 (n+1)^2 ( J_{n+1}(u) / u )^2
 
 The order n=0 is the piston. The order n=1 is the two tilts. The weights of all
-orders sum to 1. So the piston-and-tilt-removed weight is `M(u) = 1 - p0 - p1`.
-This is the residual of a perfect, infinite-order correction.
+orders sum to 1. So the piston-removed weight is `M(u) = 1 - p0`, and the
+piston-and-tilt-removed weight is `M(u) = 1 - p0 - p1`. Each one is the residual
+of a perfect, infinite-order correction of that mode set.
+
+Outer scale (the von Karman kernel). Stone writes the Kolmogorov spectrum. The
+kernel `u^(-8/3)` of Eq. (36) comes from the polar element `kappa d kappa` times
+the spectrum `kappa^(-11/3)`, with `u = kappa R`. The von Karman spectrum
+`Phi(kappa) = 0.033 Cn2 (kappa^2 + kappa0^2)^(-11/6)` with `kappa0 = 2 pi / L0`
+(Andrews and Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20),
+printed p. 68) changes that kernel in one place:
+
+    Kolmogorov:  u^(-8/3)              = u (u^2)^(-11/6)
+    von Karman:  u (u^2 + u0^2)^(-11/6),   u0 = kappa0 R = 2 pi R / L0
+
+Every prefactor stays the same, and `L0 = infinity` gives the Stone kernel back
+exactly. `_inner_integral` takes `u0`, and `anisoplanatic_phase_variance` takes
+`L0`. `isoplanatic_angle` stays Kolmogorov only, and it raises on a finite `L0`:
+the von Karman substitution breaks the `(theta/theta0)^(5/3)` power law that
+defines `theta0`. The effect is small, because the anisoplanatic variance is a
+DIFFERENCE of two wavefronts, and that difference already cancels every scale
+much larger than the offset `theta z`. At 30 deg, D = 0.7 m and 10 arcsec,
+`L0 = 25 m` takes 1.6 percent off the piston-removed variance and 0.1 percent
+off the piston-and-tilt-removed one.
 
 Each order's variance is the DECORRELATION residual between the two directions:
 
@@ -777,8 +798,8 @@ of magnitude for a small aperture (Stone Fig. 1).
 
 - Inputs: the aperture diameter D, the angle theta, the Cn2 profile, the height
   grid, the wavelength, `remove` (`"none"`, `"piston"`, or `"piston_tilt"`),
-  `max_order` (None for all orders, or an integer for a finite AO), and the
-  elevation.
+  `max_order` (None for all orders, or an integer for a finite AO), the
+  elevation, and `L0` (the outer scale [m]; `np.inf` is the Kolmogorov limit).
 - Output: the phase variance sigma^2 [rad^2].
 - `max_radial_order(n_zernike_modes)` turns a Noll mode count into the highest
   complete radial order, so an `AO(n_modes)` stage maps to a `max_order`.
@@ -787,11 +808,25 @@ of magnitude for a small aperture (Stone Fig. 1).
 
 #### Assumptions and limits
 
-- Kolmogorov spectrum, no inner or outer scale.
+- Kolmogorov spectrum at `L0 = infinity`, and the von Karman spectrum at a
+  finite `L0`. There is no inner scale.
 - The pure angular case: both sources are at infinity and the two beams share
   the aperture radius.
-- The piston is always removed as optically harmless. The tilt is removed for a
-  beam that a separate tracking loop points.
+- The piston is always removed as optically harmless. THE TILT STAYS IN (owner
+  decision, 2026-09-11). The production Term
+  `olb.links.uplink.uplink_point_ahead_term` defaults to `remove="piston"` and
+  to the site outer scale (`L0_m=None` reads `Site.outer_scale_m`, 25 m). The
+  terminal senses the DOWNLINK beacon tilt, and the steering mirror adds the
+  point-ahead offset geometrically, so the terminal holds no uplink tilt
+  reference and the uplink pays the FULL tilt anisoplanatism. The tilt is the
+  largest single part of the error: at 30 deg, D = 0.7 m and 10 arcsec the
+  variance goes from 0.703 rad^2 with the tilt out to 1.708 rad^2 with the tilt
+  in (`L0 = infinity`). The old default `remove="piston_tilt"` assumed a
+  separate uplink tilt loop, and that loop does not exist in this design. Pass
+  `remove="piston_tilt"` only with such a reference. The Term flags which
+  convention it used. The new default also matches the mode set of the
+  fidelity-1 FAST Term and of the fidelity-2 runner, except the piston, which
+  changes no overlap integral.
 - This is a phase quantity. It carries no amplitude scintillation. The uplink
   pre-compensation budget that uses this Term (`uplink_budget(fidelity=0)` with a
   `DownlinkBeacon` source) is therefore phase-only and mean-only: no
@@ -812,6 +847,9 @@ of magnitude for a small aperture (Stone Fig. 1).
   DOI: 10.1364/JOSAA.11.000347.
 - R. J. Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976), DOI 10.1364/JOSA.66.000207,
   for the Zernike mode count in `max_radial_order`.
+- L. C. Andrews and R. L. Phillips, Laser Beam Propagation through Random Media,
+  2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed p. 68, for the
+  von Karman spectrum of the outer-scale kernel.
 
 ---
 
@@ -1478,8 +1516,9 @@ The code reads
 with `psi_tx` the normalised ground transmit mode and `E_vac` a zero-screen
 vacuum run through the SAME mask and the SAME hops. So the vacuum limit is
 exactly 1.0, and `-10*log10(eta_turb)` sits on the free-space baseline of the
-analytic Terms. Point-ahead anisoplanatism is NOT modelled here: the uplink and
-the downlink read the same screens.
+analytic Terms. This one pass reads the BEACON direction: the uplink and the
+downlink cross the same screens through the same window. The point-ahead
+subsection below adds one more pass for each point-ahead angle.
 
 ### The perfect-AO modal correction (an opt-in, 2026-09-07)
 
@@ -1568,11 +1607,12 @@ accepts a pre-compensated scenario from 2026-09-07.
   the pure fitting error of the higher modes. So a corrected Term is the UPPER
   BOUND of the benefit of a corrector of that mode count, and it is NOT a
   realistic corrector.
-- **NO ANISOPLANATISM (uplink).** The ground stack corrects the SAME screens the
-  uplink reads back, so nothing decorrelates over the point-ahead angle. The
-  analytic Stone model of Section 5g and the fidelity-1 FAST Term both charge
-  that decorrelation; the fidelity-2 route does not. The model of record for a
-  real pre-compensated uplink stays fidelity 1. Backlog 2-P4.
+- **NO ANISOPLANATISM (uplink), unless the run asks for the point ahead.** With
+  `point_ahead_rad=None` the ground stack corrects the SAME screens the uplink
+  reads back, so nothing decorrelates over the point-ahead angle, and the Term
+  carries the flag `NO ANISOPLANATISM`. The subsection below adds the
+  point-ahead pass, and a record that names an angle pays that decorrelation.
+  Backlog 2-P4.
 - **SNAPSHOT.** There is no time axis, so the correction gives no fade rate and
   no fade duration, the same limit as the rest of the layer.
 - **THE OUTER SCALE.** The measured piston-only residual reads low against the
@@ -1580,6 +1620,124 @@ accepts a pre-compensated scenario from 2026-09-07.
   backlog 2-P5.
 
 The measured validity is in Section 9l.
+
+### The point-ahead (anisoplanatic) pre-compensation (an opt-in, 2026-09-11)
+
+File: `olb/waveoptics/turbulence/run.py`. Backlog 2-P4. The pass is OFF by
+default (`point_ahead_rad=None`), so every earlier fidelity-2 number stays what
+it was.
+
+**What the code models.** A ground station senses the DOWNLINK beacon and it
+launches the uplink beam `theta` ahead of that beacon. `theta` is the
+point-ahead angle (`olb.geometry.CircularOrbit.point_ahead_rad`). The two
+directions cross the atmosphere along two different paths, so the correction
+that the beacon gives does not fit the uplink path. That difference is the
+point-ahead anisoplanatism. Sources: Stone, Hu, Mills and Ma,
+DOI 10.1364/JOSAA.11.000347; Shapiro, DOI 10.1364/JOSA.61.000492; Noll 1976,
+DOI 10.1364/JOSA.66.000207.
+
+**The window rule.** In the plane-parallel screen model the uplink ray crosses
+screen `j` at the lateral distance
+
+    d_j = theta * z_g,j
+
+with `z_g,j` the distance of that screen from the GROUND plane (Andrews and
+Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (14), the plane-parallel geometry).
+The code turns that distance into a whole number of pixels:
+
+    s_j = round(theta * z_g,j / dx)
+
+The beacon reads the window `screen[0:n, 0:n]`, and the uplink of angle
+`theta_i` reads `screen[0:n, s_j:s_j + n]`. The shift is an INTEGER number of
+pixels, so no interpolation touches the screen statistics, and the propagation
+grid does not grow.
+
+**The oversize draw.** The runner draws each screen ONE time on a wider grid, so
+every pass reads ONE atmosphere. The extra width is `screen_margin_m`;
+`screen_margin_m=None` sizes it from the geometry as
+`max(angles) * max(z_g)`, and `_screen_draw_n` rounds the side up to a multiple
+of 32 px (`SCREEN_DRAW_ALIGN`). The pixel pitch does not change, so the wider
+screen holds the same physics over a wider patch of sky. A margin of 0 gives the
+screen of record back, bit for bit. A window that falls off the drawn screen
+raises, and the message names the shift.
+
+**The two passes and the sign convention.** Each trial runs the BEACON pass on
+the unshifted window and ONE uplink pass for each angle on the shifted window.
+The ground stack senses the BEACON only: on a space link it fits the summed
+screen phase of the beacon window, exactly as the uncorrected route of the
+subsection above does. The SAME Noll coefficients then go on the
+uplink-direction field.
+
+That sign follows from the corrected overlap that already exists. The
+uncorrected reciprocity route reads `eta_turb = |SUM E_rx conj(psi_tx)|^2 /
+o_vac`. The perfect-AO route applies `exp(-i phi_fit)` to the receive-direction
+field `E_rx` before that sum, and by Shapiro reciprocity
+(DOI 10.1364/JOSA.61.000492) that product IS the pre-distorted launch: the beam
+leaves the ground with the conjugate wavefront. With the point ahead the
+launched beam does not change, because the terminal still senses the beacon; the
+PATH changes. So the same coefficients go on the uplink-direction field
+`F_pa[i]`:
+
+    eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx)|^2
+                     / o_vac
+
+with `coeffs_beacon` the coefficients of the beacon estimate and `o_vac` the one
+vacuum baseline of `space_vacuum_baseline`. The beacon column of a record whose
+angle list holds 0.0 equals the plain `eta_turb`, bit for bit, which is the
+control case of the record.
+
+**The stored record.** `TurbTrial.eta_turb_pa` holds one overlap for each angle,
+in the record angle order, next to the unchanged beacon `eta_turb`.
+`TurbWaveResult` gains `point_ahead_rad` (the resolved angles),
+`screen_margin_m`, `screen_n` (the drawn screen side), `fields_pa` (the stored
+UNCORRECTED uplink-direction field of each angle at the patch pixels) and
+`screen_phase_pa`. A `Campaign` writes the three new arrays into each block
+file and it names the angles and the margin in its manifest. The fingerprint
+tail is append-only, so an unset option adds no line and every earlier campaign
+key stays valid.
+
+**The two post-hoc routes.** A stored campaign answers a new question with no
+new run:
+
+- `point_ahead_overlap` (and `Campaign.recouple_point_ahead`) corrects the
+  STORED planes with the beacon estimate of ANY stack and takes the overlap
+  again. It makes NO propagation, and it answers the STORED angles.
+- `point_ahead_regenerate` (and `Campaign.point_ahead`) rebuilds the screens of
+  each trial from the stored seeds and propagates again, so it answers ANY angle
+  whose window fits inside the drawn margin. It costs one draw set and one split
+  step for each trial and angle. On the backend that computed the campaign it
+  gives a stored column back bit for bit.
+
+**The laser-guide-star hook.** `SensingGeometry` and `sensing_geometry` give the
+lateral shift, the transverse cone scale and the screen mask of one sensing
+direction. A downlink beacon is a source at infinity, so its cone scale is 1.0
+at every screen and the window only moves. A laser guide star at the altitude
+`H` reads the cone scale `1 - z_g/H` and it reads no screen above `H`. The
+runner supports the beacon form only: a guide-star geometry raises
+`NotImplementedError`, because a scaled window needs a RESAMPLED screen, not an
+integer-pixel shift. Backlog 0-P1.
+
+**The limits. Read them before you quote a point-ahead number.**
+
+- **PLANE-PARALLEL SCREENS.** The offset is `theta * z_g`, with no Earth
+  curvature. At 20 deg and 58 km of slant path the error is under 1 percent of
+  the offset.
+- **INTEGER PIXELS.** The run measures the ROUNDED angle. At 512 px on a 3.5 m
+  grid the pixel is 6.9 mm, which is 0.21 arcsec at a 32 km screen.
+- **SNAPSHOT.** One atmosphere for each trial. The record gives the fade DEPTH,
+  not the fade rate and not the fade duration.
+- **PERFECT AO.** The correction is still the ideal modal fit of the subsection
+  above: no wavefront-sensor noise, no servo lag, no aliasing and no branch
+  point. So the point-ahead penalty is the CLEANEST possible one, and a real
+  terminal pays more.
+- **SPACE ONLY, AND THE "olb" GENERATOR ONLY.** A terrestrial scenario raises,
+  and the `olb-lean` and `aotools` generators raise, because neither one splits
+  the draw the oversize window needs.
+- **THE MODEL OF RECORD DOES NOT MOVE.** Whether this Term becomes the model of
+  record for a pre-compensated uplink is an open OWNER decision. Fidelity 1
+  (FAST) stays the model of record. Section 9n holds the evidence.
+
+The measured validity is in Section 9n.
 
 ### Two numerical gotchas
 
@@ -2144,6 +2302,12 @@ run log, a memory note or a backlog aside is not documented.
   the low-frequency band. The mode sets are matched: the FAST modal mask keeps
   the piston and the tilts, so its analytic partner is the Stone band with NO
   mode removed, not the production `piston_tilt` form.
+  THE PRODUCTION MODE SET MOVED ON 2026-09-11. `uplink_point_ahead_term` now
+  defaults to `remove="piston"`, so it KEEPS the tilt. The production pairing of
+  FAST against Stone therefore differs by the PISTON only, and the piston
+  changes no overlap integral. The prose of this study, and the 3.5x production
+  reading below, were both built on the old `piston_tilt` default, so they are
+  STALE. A re-read is owner-gated; see the backlog.
 - **Measured (2026-09-02, FULL run: grid 1024 x 0.01 m, 3000 draws).**
   - The mode-matched ratio reads 1.044 to 1.055 across the whole sweep
     (point-ahead 0.25x to 2x nominal, ZMAX 1 to 66, elevation 30 to 90 deg);
@@ -2152,7 +2316,9 @@ run log, a memory note or a backlog aside is not documented.
     (FAST band integral 0.3334 rad^2 against Noll 0.3354 rad^2 at 55 modes).
   - The production pairing reads 3.5x at the production point, and the whole
     factor is the mode set: 2.08 rad^2 of piston plus 0.41 rad^2 of tilt
-    decorrelation that `uplink_point_ahead_term` removes by design.
+    decorrelation that `uplink_point_ahead_term` removed by design AT THE TIME.
+    That Term keeps the tilt from 2026-09-11, so this 3.5x is a reading of the
+    old default and it does not describe the shipped Term.
   - Two FAST cautions. The shipped `sim.aniso_servo_error` leaks
     `mask (1 - mask)` of the uncorrected band (0.061 rad^2 at a ZERO
     point-ahead angle, where the truth is 0). And the FAST grid misses 29 to
@@ -2368,9 +2534,12 @@ run log, a memory note or a backlog aside is not documented.
   arriving tilt by about two and its correction can read worse than no
   correction, and the runner is right to sense the slopes there. The
   standing caveats do NOT depend on the measurement: the fit is PERFECT (no
-  sensor noise, no servo, no aliasing, no branch points), it is a SNAPSHOT,
-  and the pre-compensated uplink route carries NO point-ahead decorrelation
-  (backlog 2-P4). So a corrected fidelity-2 Term is an UPPER BOUND, and the
+  sensor noise, no servo, no aliasing, no branch points), and it is a SNAPSHOT.
+  The uncorrected-direction caveat MOVED on 2026-09-11: the pre-compensated
+  uplink route now models the point-ahead decorrelation when the record names an
+  angle (backlog 2-P4, Section 9n). The numbers of this study carry NO
+  point-ahead angle, so they read the BEACON direction, which is the
+  zero-angle limit. A corrected fidelity-2 Term is still an UPPER BOUND, and the
   model of record for a real pre-compensated uplink stays fidelity 1.
 - **Script.** `validation/waveoptics_ao/`; the write-up is
   [validation/waveoptics_ao/README.md](../validation/waveoptics_ao/README.md).
@@ -2465,6 +2634,98 @@ run log, a memory note or a backlog aside is not documented.
   [validation/fibre_fade_models/README.md](../validation/fibre_fade_models/README.md).
   See backlog 1-9, 1-8, 0-W7 and C-01.
 
+### 9n. Does the fidelity-2 point-ahead pre-compensation pay the anisoplanatism it should?
+
+- **Question.** The fidelity-2 uplink now reads the screens through laterally
+  shifted windows (Section 7, the point-ahead subsection). Four questions
+  follow. Does the record hold together? How large is the penalty, and do the
+  three rungs (the field, FAST, Stone) agree? What does the point ahead do to
+  the FADE, not only to the mean? Is the penalty converged in the screen count?
+  And, one level below: does the production screen plan carry the Stone
+  variance, and does a screen read through two integer-pixel windows give that
+  variance back? Backlog 2-P4.
+- **Model under test.** Two layers. (1) PHASE ONLY, no propagation: the
+  delta-layer Stone sum over a screen plan, and the summed difference of two
+  shifted windows of the production `ScreenFactory`. (2) THE WHOLE fidelity-2
+  chain: `propagate_turbulent_scenario` through `Campaign` with
+  `point_ahead_rad`, on the hero uplink (1550 nm, a 700 mm ground terminal with
+  a full-aperture 0.35 m waist launch, a 100 mm space terminal at 500 km, HV5/7
+  with `cn2_ground = 1.7e-14`, `L0 = 25 m`, preset `standard`, seed 20260907,
+  single precision, the cupy backend). The angles are 0 (the beacon control),
+  the geometry angle (5.24 arcsec at 30 deg, 3.58 arcsec at 20 deg), 2, 5 and
+  10 arcsec. The stacks are `base` (no correction), `tiptilt` (3 Noll modes),
+  `ao10` and `ao21`; only `base` is computed, and the other three come from it
+  through `Campaign.recouple_point_ahead`.
+- **Reference.** The continuous Stone integral
+  (`anisoplanatic_phase_variance`, DOI 10.1364/JOSAA.11.000347) for the phase
+  layer, at the same outer scale. The fidelity-1 FAST Term
+  (`uplink_fast_term`, DOI 10.1364/OE.458659) for the propagated layer, with
+  the angle passed as `fast_params={"DTHETA": [arcsec, 0]}`. The fidelity-0
+  Stone Term (`uplink_point_ahead_term`, `remove="piston"`, `L0_m=25`) is a
+  REPORT, not a gate: its extended-Marechal mapping saturates past
+  `sigma^2 = 1 rad^2` (T. S. Ross, DOI 10.1364/AO.48.001812). THE MODE SET IS
+  MATCHED: all three rungs keep the tilt, and only the piston differs.
+- **Measured (2026-09-11).**
+  - **The screen plan (phase only).** Over the 135 owner-regime cells (D at
+    most 1 m, angle at most 10 arcsec, elevation at least 20 deg) the
+    production nine-screen plan reads 0.987 to 0.995 of the continuous Stone
+    sum, at `L0 = infinity` AND at `L0 = 25 m`. The equal-anisoplanatic-weight
+    cuts are WORSE (the worst owner cell of that family is 3.25 at 5 screens),
+    and the ground split moves nothing: the lowest screen holds 2.2 percent of
+    the variance at an offset of one pixel. The tilt multiplies the variance by
+    2.4 (0.703 to 1.708 rad^2 at 30 deg, D = 0.7 m, 10 arcsec), and the 25 m
+    outer scale removes 1.6 percent of the piston-removed variance.
+  - **The window rule (phase only).** 52 of 54 cells sit inside the 0.95 to
+    1.05 band or inside their own 2-sigma bar, at both outer scales; the whole
+    range is 0.959 to 1.055. Between the two outer scales the measured variance
+    and the von Karman Stone reference both fall by the SAME 1.7 percent, so
+    the ratio moves by 0.001. That VALIDATES the von Karman kernel of
+    Section 5g.
+  - **p0, the identities of the record.** All three pass on both elevations.
+    The stored zero-angle column equals the beacon overlap bit for bit. The
+    post-hoc AO(10) read of the uncorrected planes matches an in-run AO(10)
+    campaign to 9.0e-07 at 30 deg and 6.6e-07 at 20 deg. The regeneration route
+    gives a stored column back BIT IDENTICALLY on the backend that computed the
+    campaign.
+  - **p1, the penalty against FAST.** At 30 deg the field and FAST agree inside
+    0.5 dB at every AO cell, except two that read 0.50 to 0.58 dB, which is the
+    FAST run-to-run spread of 0.2 to 0.3 dB at 1000 draws. At 20 deg FAST reads
+    0.7 to 1.5 dB ABOVE the field at the geometry angle and at every larger
+    angle. The uncorrected (`base`) row is a NULL in both models, inside
+    0.25 dB of zero. The Stone column overstates everywhere, and it reads 8.3
+    to 12.3 dB at 20 deg against a field penalty of 2.1 to 6.5 dB.
+  - **p2, the fade.** At the geometry angle the p5 loss rises by 8.2 dB
+    (AO(10)) and 8.9 dB (AO(21)) at 30 deg, against 2.7 and 3.1 dB on the mean;
+    tip-tilt pays 2.4 dB of p5 and the uncorrected stack pays zero inside its
+    bar. At 20 deg the same p5 penalties are 10.9 and 11.8 dB, and they grow to
+    16.5 and 18.7 dB at 10 arcsec. The point ahead does not shift the
+    distribution, it grows its TAIL.
+  - **p3, the screen count.** 24 of 24 readings are flat from 5 screens up
+    against the 25-screen plan, inside the 2-sigma band, at 5 and 10 arcsec, on
+    the mean penalty and on the p5 penalty. The ground-split plan changes
+    nothing.
+  - **The cost.** 4400 trials in under 30 minutes of GPU wall time, 5.0 GB of
+    stored planes, 0.28 s for each trial of six passes.
+- **VERDICT.** MATCH, and the model of record does NOT move. The record holds
+  together, the window rule reproduces Stone inside 5 percent, and the
+  production nine-screen plan needs no change. At 30 deg the field and the
+  fidelity-1 FAST Term agree inside 0.5 dB at every AO cell. At 20 deg FAST
+  reads 0.7 to 1.5 dB ABOVE the field, which is the CONSERVATIVE direction and
+  which a weak-fluctuation model must do: FAST propagates no field, so it holds
+  no saturation, while the field rung does saturate. So fidelity 1 (FAST) STAYS
+  the model of record for a pre-compensated uplink. Whether the fidelity-2
+  point-ahead Term ever takes that role is an open OWNER decision, and these
+  numbers are the input to it. The p2 result is the operational message: a link
+  that is sized on the MEAN point-ahead cost is under-sized, because the p5 cost
+  is three to four times larger.
+- **Script.** `validation/anisoplanatism_screens/` (the two phase-only studies)
+  and `validation/waveoptics_pointahead/` (the campaign study); the write-ups
+  are
+  [validation/anisoplanatism_screens/README.md](../validation/anisoplanatism_screens/README.md)
+  and
+  [validation/waveoptics_pointahead/README.md](../validation/waveoptics_pointahead/README.md).
+  See backlog 2-P4.
+
 ---
 
 ## Source summary
@@ -2477,7 +2738,8 @@ run log, a memory note or a backlog aside is not documented.
 - Churnside, Applied Optics 30 (1991) 1982: strong-turbulence aperture averaging
   (5b).
 - Stone, Hu, Mills and Ma, J. Opt. Soc. Am. A 11(1), 347-357 (1994), DOI
-  10.1364/JOSAA.11.000347: angular anisoplanatism (5g).
+  10.1364/JOSAA.11.000347: angular anisoplanatism (5g), and the reference of the
+  fidelity-2 point-ahead pass (7, 9n).
 - Noll, J. Opt. Soc. Am. 66(3), 207-211 (1976): AO and tip-tilt residual (5f, 6a),
   the Zernike mode count (5g), and the mode order, the mode rasters and the
   residual law of the fidelity-2 perfect-AO correction (7).

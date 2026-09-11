@@ -80,7 +80,13 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   Gaussian-beam scintillation, on and off axis; the uplink model),
   `anisoplanatism.py` (Stone 1994 angular
   anisoplanatic phase variance, with the finite adaptive-optics band and
-  `max_radial_order`), `uplink_flux.py` (the LEO-uplink coupled-flux Monte
+  `max_radial_order`; from 2026-09-11 `anisoplanatic_phase_variance` takes an
+  outer scale `L0`, which puts the von Karman kernel `u (u^2 + u0^2)^(-11/6)`,
+  `u0 = 2 pi R / L0`, in Eq. (36) (Andrews and Phillips Ch. 3 Eq. (20),
+  DOI 10.1117/3.626196); `L0 = inf` is bit-identical to Stone, and
+  `isoplanatic_angle` stays KOLMOGOROV and raises on a finite `L0`, because the
+  von Karman form breaks the power law that defines theta0),
+  `uplink_flux.py` (the LEO-uplink coupled-flux Monte
   Carlo wrapper),
   `angle_of_arrival.py` (the received tip-tilt of a Gaussian beam: the
   beam-wander arrival tilt is the working model; the aperture angle-of-arrival
@@ -150,12 +156,27 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   Monte-Carlo Term (`uplink_fast_term`) with the point-ahead decorrelation and a
   real fade; `fidelity=0` is the analytic pair = fitting error (Noll) +
   point-ahead anisoplanatism (Stone), PHASE-ONLY and MEAN-ONLY: no scintillation
-  and no fade; `fidelity=2` OPENS from 2026-09-07 with a CORRECTED wave record
+  and no fade (that Stone Term KEEPS THE TILT from 2026-09-11, `remove="piston"`,
+  and it reads the site outer scale `L0_m=None`, so every fidelity-0
+  pre-compensated number MOVED: the self-check case goes 2.44 to 4.12 dB, +1.77
+  dB of tilt and -0.09 dB of outer scale. WHY: the terminal senses the DOWNLINK
+  beacon tilt and the steering mirror adds the point-ahead offset geometrically,
+  so there is no uplink tilt reference; the old `piston_tilt` convention assumed
+  a tilt loop that does not exist. The Term flags TILT INCLUDED or TILT
+  REMOVED); `fidelity=2` OPENS from 2026-09-07 with a CORRECTED wave record
   (`run_fidelity2(compensation="terminal")`): the ground stack corrects the
   ground-plane field before the Shapiro overlap, so the launched beam carries the
-  conjugate wavefront. It flags PERFECT AO and NO ANISOPLANATISM (no point-ahead
-  decorrelation, backlog 2-P4), so it is OPTIMISTIC and the model of record stays
-  fidelity 1; an UNCORRECTED record raises. An
+  conjugate wavefront. It flags PERFECT AO. THE POINT AHEAD IS PAID from
+  2026-09-11 (backlog 2-P4): with a record from
+  `run_fidelity2(..., point_ahead_rad="geometry")` the budget selects the record
+  angle that matches `geometry.point_ahead_rad` (it raises otherwise, and the
+  message names `point_ahead_rad="geometry"`), it builds the Term from
+  `eta_turb_pa`, its meta gains the angle, the index, the margin and the screen
+  size, and it flags POINT-AHEAD ANISOPLANATISM MODELLED. The NO ANISOPLANATISM
+  flag is CONDITIONAL: it fires only on a record with no point-ahead angle or
+  with a zero angle. The rung is still PERFECT AO and SNAPSHOT, so the model of
+  record stays fidelity 1 (an open OWNER decision); an UNCORRECTED record
+  raises. An
   UNCORRECTED uplink: `fidelity=1` (default) = coupled flux; `fidelity=0` raises
   (no analytic mean-only); `fidelity=2` = the two wave-optics Terms. That
   mean-only limit is a DECISION (2026-08-27): no trustworthy analytic form exists
@@ -373,7 +394,35 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   needs `store_screen_phase=True`. `TurbWaveResult` gained `compensation`,
   `n_modes_corrected` and `screen_phase`. A compensated or screen-storing cupy
   trial falls back to the HOST tail (one download per trial); a device-side
-  projection is a later step), `campaign.py` (`Campaign`, the
+  projection is a later step.
+  THE POINT AHEAD is two more runner options (2026-09-11, backlog 2-P4, an
+  OPT-IN, DEFAULT OFF, so a run with no angle is BIT-IDENTICAL):
+  `point_ahead_rad=None|"geometry"|float|sequence` and `screen_margin_m`. A
+  point-ahead trial draws each screen ONE time on an oversize grid (`screen_n`,
+  a multiple of 32 px wide enough for the widest shift), propagates the BEACON
+  on the unshifted window and ONE UPLINK pass for each angle on the window
+  shifted by `round(theta * z_ground / dx)` px (PLANE-PARALLEL screens, INTEGER
+  pixels, no interpolation; the propagation grid does not grow). The ground
+  stack senses the BEACON, and the SAME coefficients go on the
+  uplink-direction field, which IS the pre-distorted launch: `eta_turb_pa[i] =
+  |sum(apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx))|^2 / o_vac` (Shapiro
+  DOI 10.1364/JOSA.61.000492; Stone DOI 10.1364/JOSAA.11.000347; Noll
+  DOI 10.1364/JOSA.66.000207). `TurbTrial.eta_turb_pa` holds one overlap for
+  each angle next to the UNCHANGED beacon `eta_turb`, and `TurbWaveResult`
+  gained `point_ahead_rad`, `screen_margin_m`, `screen_n`, `fields_pa` and
+  `screen_phase_pa`; the campaign blocks and the manifest carry them, and the
+  fingerprint tail is APPEND-ONLY (an unset option adds no line, so every stored
+  key stays valid). It needs a SPACE scenario and the `olb` generator: the lean
+  and the aotools generators REFUSE a point-ahead run. `worker_memory_bytes`
+  counts the kept noise. TWO POST-HOC ROUTES: `point_ahead_overlap` /
+  `Campaign.recouple_point_ahead` (any stack from the stored planes, NO
+  propagation, the STORED angles) and `point_ahead_regenerate` /
+  `Campaign.point_ahead` (ANY angle inside the drawn margin; it regenerates the
+  screens from the seed and re-propagates, one split step per trial per angle,
+  and it is bit-identical to a stored column on the same backend).
+  `SensingGeometry` / `sensing_geometry` is the LASER-GUIDE-STAR HOOK (a
+  per-screen shift and a cone scale; the cone raises NotImplementedError,
+  backlog 0-P1)), `campaign.py` (`Campaign`, the
   on-disk campaign of thousands of trials: npz blocks that are bit-identical
   slices of one seeded run through `start_index`, a manifest that rebuilds
   the grid and the plan so a resume never re-sizes,
@@ -611,10 +660,10 @@ Open items:
   conjugate wavefront; an UNCORRECTED record raises and the message names
   `run_fidelity2(compensation="terminal")`. THREE FLAGS: PERFECT AO (an ideal
   modal fit: no WFS noise, no servo, no aliasing, no branch points, snapshot
-  only, so it is the UPPER BOUND of the AO benefit), NO ANISOPLANATISM (the
-  pre-compensated uplink corrects the SAME screens it reads back, so there is no
-  point-ahead decorrelation, backlog 2-P4; the model of record stays fidelity 1
-  FAST), and UNCORRECTED (`flag_uncorrected_compensation`, on all three
+  only, so it is the UPPER BOUND of the AO benefit), NO ANISOPLANATISM (now
+  CONDITIONAL, see the point-ahead item below: it fires only on a record with no
+  point-ahead angle, where the pre-compensated uplink corrects the SAME screens
+  it reads back; the model of record stays fidelity 1 FAST), and UNCORRECTED (`flag_uncorrected_compensation`, on all three
   fidelity-2 budgets, when a terminal declares a stack the record did not use).
   NUMBERS from the self-checks, SMALL GRIDS: downlink 30 deg D=0.4 m SMF eta
   0.105 uncorrected -> 0.399 TipTilt -> 0.602 AO(10); uplink eta_turb 0.354 ->
@@ -649,12 +698,46 @@ Open items:
   7.3 dB. A wrong sensing source is worse than none. So the runner's family
   rule stands: screens on a space link, slopes on a terrestrial link.
   `Campaign.load(fields=False)` KEEPS `screen_phase` from 2026-09-07 (it
-  dropped it before). NOT BUILT (phase 2): the point-ahead shift
-  of the sensing source (2-P4; the hinge is the source/target split of
-  `ApertureModes.estimate` against `.apply`), the LaserGuideStar, a WFS-limited
+  dropped it before). THE POINT-AHEAD SHIFT IS BUILT (2026-09-11, 2-P4, the
+  item below). NOT BUILT (phase 2): the LaserGuideStar (the
+  `sensing_geometry` HOOK exists and its cone raises), a WFS-limited
   AO knob, the device-side projection (a compensated cupy trial falls back to
   the host tail), and the temporal axis. Whether a corrected record ever becomes
   a DEFAULT is an OWNER decision.
+- **The fidelity-2 POINT-AHEAD anisoplanatism is BUILT (2026-09-11, branch
+  `waveoptics-pointahead`, backlog 2-P4).** An OPT-IN, DEFAULT OFF, so every
+  earlier fidelity-2 number is unchanged. The runner options, the record fields,
+  the two post-hoc routes and the LGS hook are in the `run.py` architecture
+  bullet; the budget selection rule and the conditional NO ANISOPLANATISM flag
+  are in the `uplink.py` bullet. TWO SUPPORTING CHANGES: the analytic Stone Term
+  `uplink_point_ahead_term` now KEEPS THE TILT and reads the site outer scale (a
+  fidelity-0 NUMBER MOVE, 2.44 to 4.12 dB on the self-check case), and
+  `uplink_fast_term` ACCEPTS an empty stack (NOAO) and a TipTilt stack (TT); the
+  old refusal was an olb guard, not a FAST limit. THE VERDICTS
+  (`validation/anisoplanatism_screens/`, phase only, and
+  `validation/waveoptics_pointahead/`, 9 campaigns, 4400 trials, under 30 min of
+  GPU wall, 5 GB; `docs/physics.md` Section 9n): the production nine-screen plan
+  reads 0.987 to 0.995 of the continuous Stone sum over the 135 owner-regime
+  cells at BOTH outer scales, so NO PLANNER CHANGE, and the
+  equal-anisoplanatic-weight cuts are WORSE; the shifted-window rule reproduces
+  Stone inside 5 percent (52 of 54 cells), which VALIDATES the von Karman
+  kernel; the tilt multiplies the variance by 2.4 and the 25 m outer scale
+  removes 1.6 percent; all three record identities pass (the zero angle equals
+  the beacon bit for bit, the post-hoc read matches an in-run campaign to 9e-07,
+  the regeneration is bit-identical on the campaign backend); at 30 deg the
+  field and FAST agree inside 0.5 dB at every AO cell (the FAST run-to-run
+  spread is 0.2 to 0.3 dB at 1000 draws) and at 20 deg FAST reads 0.7 to 1.5 dB
+  ABOVE the field, which is EXPECTED and CONSERVATIVE, because FAST propagates
+  no field and holds no saturation; the Stone column overstates everywhere (the
+  extended Marechal saturates past 1 rad^2) and it is a REPORT, not a gate; the
+  p5 fade penalty at the geometry angle is 8 to 9 dB at 30 deg and 11 to 12 dB
+  at 20 deg for AO(10)/AO(21) against 2.7 to 3.9 dB on the MEAN (tip-tilt
+  2.4 dB, uncorrected zero), so a link sized on the mean is UNDER-SIZED; 24 of
+  24 screen-count readings are flat from 5 screens up. STILL OPEN, an OWNER
+  decision: whether the fidelity-2 point-ahead Term becomes the MODEL OF RECORD
+  for a pre-compensated uplink. Today FIDELITY 1 (FAST) STAYS the model of
+  record. The SMALL-WAIST (0.175 m) launch is a SEPARATE study (backlog 2-P4a):
+  the overlap reads the transmit mode, so no post-hoc route answers it.
 - **The turbulent screen-count floor `min_screens` is RESOLVED (work package
   7).** In `olb/waveoptics/turbulence/sampling.py`, `_merge_layers` now clamps a
   weak path UP to EXACTLY `min_screens` contiguous Cn2-weighted groups, through
@@ -828,9 +911,10 @@ Open items:
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
   `screens` extra). Deliberately deferred: the temporal frozen-flow axis,
   a co-moving (spherical) screen, and the folded/retro double pass (correlated
-  screens). `examples/waveoptics/` demonstrates the layer with eleven scripts
+  screens). `examples/waveoptics/` demonstrates the layer with twelve scripts
   (three vacuum, three turbulent, the budget-wiring demo, two multimode-fibre
-  demos, the camera demo, and the campaign demo). Every script that runs a Monte
+  demos, the camera demo, the campaign demo, and the point-ahead demo
+  `uplink_point_ahead.py`). Every script that runs a Monte
   Carlo keeps its trials in a `Campaign` under
   `examples/waveoptics/_campaigns/` (git-ignored), so a second run computes no
   trial.

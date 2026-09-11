@@ -395,6 +395,62 @@ See [waveoptics_ao/README.md](waveoptics_ao/README.md).
 | --- | --- |
 | [waveoptics_ao/waveoptics_ao.py](waveoptics_ao/waveoptics_ao.py) | The study. It runs (or reopens) the AO campaigns and answers the five questions: is the summed screen phase a valid space sensing source (V0); does the modal chain obey Noll's residual law (V2); does the correction move the SMF fade in the safe direction and how far is it from the tracked FAST Term (V1); does the wrapped-gradient slope source agree with the summed-screen source (V3), survive a terrestrial link (V4), and which source is right on a terrestrial path and by how much (V5). |
 
+## anisoplanatism_screens/
+
+The screen plan against the point-ahead anisoplanatism (backlog 2-P4, the
+gates). Two PHASE-ONLY studies, on a laptop CPU, with no campaign and no
+propagation. Study 1 asks whether the production screen plan reproduces the
+continuous Stone variance (Stone and others, DOI 10.1364/JOSAA.11.000347), and
+whether a plan cut by the anisoplanatic weight does better. Study 2 asks whether
+one screen drawn once and read through two integer-pixel windows gives that
+variance back. THE CONVENTION: the TILT STAYS IN (`remove="piston"`, owner
+decision 2026-09-11), because the terminal senses the downlink beacon tilt and
+the steering mirror adds the point-ahead offset geometrically. VERDICTS: NO
+PLANNER CHANGE — the production nine-screen plan reads 0.987 to 0.995 of the
+continuous Stone sum over the 135 owner-regime cells at `L0 = inf` AND at
+`L0 = 25 m`, and the equal-anisoplanatic-weight families are worse; THE WINDOW
+RULE HOLDS at both outer scales — 52 of 54 cells sit inside the 0.95 to 1.05
+band or inside their own 2-sigma bar; THE OUTER-SCALE KERNEL IS VALIDATED — the
+measured variance and the von Karman Stone reference both fall by the SAME 1.7
+percent between the two scales. The tilt multiplies the variance by 2.4, and the
+25 m outer scale removes 1.6 percent. See
+[anisoplanatism_screens/README.md](anisoplanatism_screens/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [anisoplanatism_screens/common.py](anisoplanatism_screens/common.py) | The shared case. It holds the hero uplink scenario, the plan builders (the production plan, the equal-Rytov override, the ground split, and the two equal-anisoplanatic-weight families) and the log helpers. |
+| [anisoplanatism_screens/anisoplanatism_screens.py](anisoplanatism_screens/anisoplanatism_screens.py) | Study 1. It evaluates the delta-layer Stone sum on each screen plan and compares it with the continuous integral, over elevations, apertures, angles and corrected orders. It takes `--remove` and `--L0`, and it writes the log, the results JSON, `production_table[_L0<m>].md` and `figures/discrete_vs_continuous[_L0<m>].png`. |
+| [anisoplanatism_screens/phase_only_shift.py](anisoplanatism_screens/phase_only_shift.py) | Study 2. It draws each screen one time on an oversize grid with the production `ScreenFactory`, reads the beacon window and the shifted uplink window, sums the difference over the plan, and fits the Noll bands over many apertures. It takes `--L0`, and it writes the log, the results JSON and `figures/phase_only_shift[_L0<m>].png`. |
+
+## waveoptics_pointahead/
+
+The point-ahead validation of the fidelity-2 uplink (backlog 2-P4). The runner
+makes one more propagation pass for each point-ahead angle, through a laterally
+shifted window of the SAME screens, so the drop of the reciprocity overlap
+between the beacon direction and the point-ahead direction IS the point-ahead
+anisoplanatism. Nine campaigns of the hero 0.7 m uplink, 4400 trials, on the
+cupy backend, `L0 = 25 m`, 2026-09-11; physics.md Section 9n. VERDICTS: p0, the
+record holds together — the stored zero angle equals the beacon overlap bit for
+bit, the post-hoc read of the stored planes matches an in-run campaign to
+9.0e-07, and the regeneration route is BIT IDENTICAL on the campaign backend;
+p1, at 30 deg the field and the fidelity-1 FAST Term agree inside 0.5 dB at
+every AO cell (the FAST run-to-run spread is 0.2 to 0.3 dB at 1000 draws), and
+at 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field, which is EXPECTED, because
+FAST propagates no field and holds no saturation; the Stone column overstates
+everywhere (the extended Marechal saturates past 1 rad^2) and it is a REPORT,
+not a gate; p2, the p5 fade penalty at the geometry angle is 8 to 9 dB at 30 deg
+and 11 to 12 dB at 20 deg for AO(10)/AO(21), against 2.7 to 3.9 dB on the mean
+(tip-tilt 2.4 dB, uncorrected zero), so a link sized on the MEAN is under-sized;
+p3, 24 of 24 screen-count readings are flat from 5 screens up. THE MODEL OF
+RECORD STAYS FIDELITY 1 (FAST); whether the fidelity-2 Term takes that role is
+an open owner decision. The run takes under 30 minutes of GPU wall time and it
+writes 5 GB. See
+[waveoptics_pointahead/README.md](waveoptics_pointahead/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [waveoptics_pointahead/waveoptics_pointahead.py](waveoptics_pointahead/waveoptics_pointahead.py) | The driver. `--study p0 p1 p2 p3` runs (or reopens) the point-ahead campaigns and answers the four questions: do the record identities hold (p0); how large is the penalty against FAST and against Stone (p1); what does the point ahead do to the fade, not only to the mean (p2); is the penalty converged in the screen count (p3). It derives the three corrected stacks from the uncorrected campaign through `Campaign.recouple_point_ahead`, and it writes a log, a results JSON and two figures. |
+
 ## gtilt_sensing/
 
 The G-tilt against wrapped-slopes tilt-sensing study. For a terrestrial

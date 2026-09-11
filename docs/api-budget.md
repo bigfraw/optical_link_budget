@@ -371,13 +371,14 @@ aperture (`TipTilt` gives 3, `AO(n)` gives `n`; R. J. Noll, J. Opt. Soc. Am. 66,
 that `olb.turbulence.ao` uses, so the two ladders count the same modes. See
 [api-waveoptics.md](api-waveoptics.md) Sections 9d, 9h and 11a.
 
-Three flags report the state on the Term:
+Four flags report the state on the Term:
 
 | Flag | When it fires | What it means |
 |---|---|---|
 | `PERFECT AO` | The record carries a correction. | The fit is IDEAL: no wavefront-sensor noise, no servo lag, no aliasing, no branch points, and it is a snapshot. So the Term is the UPPER BOUND of the AO benefit, not a realistic corrector. |
 | `UNCORRECTED` | The clip terminal declares a stack, and the record carries no correction. | The budget ignores the declared hardware, so the fade is too deep. Run again with `compensation="terminal"`. |
-| `NO ANISOPLANATISM` | A PRE-COMPENSATED uplink at fidelity 2. | The ground stack corrects the SAME screens the uplink reads back by reciprocity, so nothing decorrelates over the point-ahead angle (backlog 2-P4). It is OPTIMISTIC. |
+| `NO ANISOPLANATISM` | A PRE-COMPENSATED uplink at fidelity 2, on a record with NO point-ahead angle, or with a zero angle. | The ground stack corrects the SAME screens the uplink reads back by reciprocity, so nothing decorrelates over the point-ahead angle. It is OPTIMISTIC. Run again with `point_ahead_rad="geometry"` (backlog 2-P4). |
+| `POINT-AHEAD ANISOPLANATISM MODELLED` | A PRE-COMPENSATED uplink at fidelity 2, on a record that names a NON-ZERO angle for this geometry. | The ground stack senses the beacon direction, and the uplink reads the screens through windows shifted by `round(theta z / dx)` pixels. The limits are plane-parallel screens, integer-pixel offsets, no Earth curvature and a snapshot, and the correction stays PERFECT AO. Stone and others, DOI 10.1364/JOSAA.11.000347. |
 
 The correction is a phase factor, so it never changes the collected power. It is
 OFF by default, and an uncorrected fidelity-2 budget gives the numbers it always
@@ -515,13 +516,34 @@ PRE-COMPENSATED (`DownlinkBeacon` with an `AO` stage):
   perfect-AO correction applies the GROUND stack to the ground-plane field
   BEFORE the Shapiro reciprocity overlap (DOI 10.1364/JOSA.61.000492), so the
   launched beam carries the conjugate wavefront. That IS a pre-compensation. It
-  is an IDEAL reference: the ground stack corrects the SAME screens the uplink
-  reads back, so there is NO point-ahead decorrelation (backlog 2-P4), no
-  wavefront-sensor noise and no servo lag. The Term carries the `PERFECT AO`
-  and the `NO ANISOPLANATISM` flags, and it is OPTIMISTIC. The model of record
-  for a real pre-compensated uplink stays `fidelity=1` (FAST). An UNCORRECTED
-  record raises `ValueError`, and the message names
+  is an IDEAL reference: no wavefront-sensor noise and no servo lag, so the Term
+  carries the `PERFECT AO` flag and it is OPTIMISTIC. An UNCORRECTED record
+  raises `ValueError`, and the message names
   `run_fidelity2(..., compensation='terminal')`.
+
+  **THE POINT-AHEAD RECORD (2026-09-11, backlog 2-P4).** A record from
+  `run_fidelity2(..., compensation="terminal", point_ahead_rad="geometry")` (or
+  a sequence of angles) also propagates each point-ahead direction through the
+  SAME atmosphere and reports one overlap for each angle in
+  `TurbTrial.eta_turb_pa`. THE SELECTION RULE: the budget models ONE line of
+  sight, so it reads the record angle that matches `geometry.point_ahead_rad`,
+  inside the tolerance `POINT_AHEAD_ATOL_RAD + POINT_AHEAD_RTOL * theta`
+  (`1e-9` rad plus `1e-6` relative). A record that holds no such angle raises
+  `ValueError`, the message lists the angles it holds, and it names
+  `point_ahead_rad="geometry"` as the fix. THE FLAGS: the Term then carries
+  `POINT-AHEAD ANISOPLANATISM MODELLED` in place of `NO ANISOPLANATISM`, next to
+  `PERFECT AO`. A record with no point-ahead angle, or with a zero angle, keeps
+  the old behaviour and the `NO ANISOPLANATISM` flag. THE META: the Term `meta`
+  gains `point_ahead_rad`, `point_ahead_arcsec`, `point_ahead_index`,
+  `screen_margin_m` and `screen_n`, and the note names the angle.
+
+  THE MODEL OF RECORD DOES NOT MOVE. `fidelity=1` (FAST) stays the model of
+  record for a real pre-compensated uplink. The evidence is
+  `docs/physics.md` Section 9n: at 30 deg the field and FAST agree inside 0.5 dB
+  at every AO cell, and at 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field,
+  which is the conservative direction, because FAST is weak-fluctuation only and
+  it holds no saturation. Whether the fidelity-2 point-ahead Term ever takes the
+  role is an open OWNER decision.
 
 `LaserGuideStar`: not modelled yet. `uplink_budget` raises `NotImplementedError`.
 
@@ -549,15 +571,34 @@ The budget-building Terms:
   the transmit waist, the divergence, the wavelength, and the site Cn2. The
   divergence enters the beam broadening and the scintillation index.
 - `uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
-  max_order="auto")` builds the point-ahead anisoplanatism Term. It is the
-  decorrelation residual of the corrected Zernike orders across the point-ahead
-  angle (see `physics.md` section 5g). `max_order="auto"` reads the AO order
-  from the transmit terminal: an `AO(n_modes)` stage sets the highest corrected
-  radial order; no AO stage gives the infinite-order upper bound. The phase
-  variance becomes a loss with the extended Marechal approximation. The Term is
-  mean-only. It flags a residual past the Marechal limit (sigma2 > 1 rad^2,
-  T. S. Ross, DOI 10.1364/AO.48.001812), where the exponential form overstates
-  the loss.
+  max_order="auto", remove="piston", L0_m=None)` builds the point-ahead
+  anisoplanatism Term. It is the decorrelation residual of the corrected Zernike
+  orders across the point-ahead angle (see `physics.md` section 5g).
+  `max_order="auto"` reads the AO order from the transmit terminal: an
+  `AO(n_modes)` stage sets the highest corrected radial order; no AO stage gives
+  the infinite-order upper bound. The phase variance becomes a loss with the
+  extended Marechal approximation. The Term is mean-only. It flags a residual
+  past the Marechal limit (sigma2 > 1 rad^2, T. S. Ross,
+  DOI 10.1364/AO.48.001812), where the exponential form overstates the loss.
+
+  **TWO DEFAULTS MOVED ON 2026-09-11, so this Term's number moved for every
+  pre-compensated uplink.**
+  (1) `remove="piston"` is the new default, so THE TILT STAYS IN. The terminal
+  senses the DOWNLINK beacon tilt, and the steering mirror adds the point-ahead
+  offset geometrically, so the terminal holds no uplink tilt reference and the
+  uplink pays the FULL tilt anisoplanatism. The old default `"piston_tilt"`
+  assumed a separate uplink tilt loop, and that loop does not exist in this
+  design. Pass `remove="piston_tilt"` only with such a reference; the Term flags
+  which convention it used (`TILT INCLUDED` or `TILT REMOVED`). The new default
+  also matches the mode set of the fidelity-1 FAST Term and of the fidelity-2
+  runner, except the piston, which changes no overlap integral.
+  (2) `L0_m=None` reads the site outer scale `Site.outer_scale_m` (25 m), so the
+  Stone kernel carries the von Karman spectrum (Andrews and Phillips,
+  DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed p. 68). Pass `L0_m=np.inf` for
+  the Kolmogorov limit of the Stone paper. The `meta` holds `remove` and
+  `L0_m`, and the declared spectrum follows `L0_m`.
+  THE MEASURED MOVE, on the self-check case: 2.44 dB to 4.12 dB. The tilt adds
+  1.77 dB and the outer scale removes 0.09 dB. This partly closes backlog 0-W4.
 - `uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None)` builds the
   AO fitting-error Term. It is the Noll residual of the uncorrected high orders
   (see `physics.md` section 5f). An empty compensation stack gives the total
@@ -571,8 +612,12 @@ The budget-building Terms:
   uplink on-axis flux at the satellite. The Term is the pure turbulence
   penalty (no static loss) with an empirical mean, quantile, and sampler.
   Scalar elevation only. Needs `fast-aosim`. It requires a `Transmitter`
-  waist and an `AO` stage on the ground terminal, and it refuses a
-  non-uplink scenario.
+  waist on the ground terminal, and it refuses a non-uplink scenario. IT NO
+  LONGER NEEDS AN `AO` STAGE (owner decision, 2026-09-11): an EMPTY stack is
+  the uncorrected (`NOAO`) launch and a `TipTilt`-only stack is the `TT`
+  launch, the same map as the downlink Term. The old refusal was an olb guard,
+  not a FAST limit, and the point-ahead study needs those two rungs next to the
+  AO rungs on the SAME FAST grid.
 
 Examples: `examples/uplink_sim.py`, `examples/build_a_link.py`,
 `validation/coupling_checks/uplink_divergence.py`.

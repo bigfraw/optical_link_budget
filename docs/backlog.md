@@ -127,9 +127,19 @@ are from 2026-08-26 and can drift.
   remaining half of this item. It MATTERS: the SMF fade tail pays a MEASURED
   2.49 dB at p5 for `inf` against `25 m` (2026-09-05, 3.0 sigma,
   `validation/outer_scale_tail/`), and the terrestrial fibre tilt of 1-9 is
-  the aperture angle of arrival reduced by the site `L0`. The Andrews branches
-  that take an `L0` exist; no Term passes them. No Term passes an inner or
-  outer scale. No Term reads the
+  the aperture angle of arrival reduced by the site `L0`. ONE ANALYTIC TERM IS
+  NOW CLOSED (2026-09-11, 2-P4): `olb.links.uplink.uplink_point_ahead_term`
+  reads the site outer scale (`L0_m=None` takes `Site.outer_scale_m`), and
+  `olb.turbulence.anisoplanatism.anisoplanatic_phase_variance` takes an `L0`
+  that puts the von Karman spectrum in the Stone kernel (Andrews and Phillips,
+  DOI 10.1117/3.626196, Ch. 3, Eq. (20), printed p. 68);
+  `isoplanatic_angle` stays Kolmogorov and it raises on a finite `L0`, because
+  the von Karman form breaks the power law that defines `theta0`. The effect on
+  that Term is small (-0.09 dB on the self-check case), because the
+  anisoplanatic variance is a DIFFERENCE of two wavefronts. The remaining
+  analytic consumers are the tilt and wander Terms. The Andrews branches
+  that take an `L0` exist; those Terms do not pass them. No Term passes an
+  inner scale. No Term reads the
   Greenwood frequency, tau0, the fade rate, or the fade duration
   (andrews/temporal.py). The roadmap wants a tracking-bandwidth / servo-lag
   Term (README node NT7; also the deferred TODO at
@@ -188,7 +198,17 @@ are from 2026-08-26 and can drift.
 - **0-P1. Laser guide star: focal (cone) anisoplanatism.** `LaserGuideStar`
   is a placeholder; `uplink_budget` raises (olb/links/uplink.py:648,
   olb/scenario.py:82). Its cone anisoplanatism differs from the point-ahead
-  angular form.
+  angular form. THE FIDELITY-2 HOOK EXISTS (2026-09-11, 2-P4):
+  `olb.waveoptics.turbulence.run.sensing_geometry(plan, source, theta)` gives
+  the `SensingGeometry` of one sensing direction, which holds the lateral
+  shift, the transverse cone scale and the screen mask. A downlink beacon is a
+  source at infinity, so its cone scale is 1.0 at every screen and the runner
+  supports it. A guide star at the altitude `H` gives the cone scale
+  `1 - z_g/H` and no screen above `H`, and the function then raises
+  `NotImplementedError`. THE CONE GOES THERE: the work is a RESAMPLED screen
+  window (a scaled window is not an integer-pixel shift) plus the
+  beacon-sensed tilt, which a guide star cannot give. The function reads the
+  CLASS NAME of the source, so the turbulence layer still imports no scenario.
 - **0-P2. The short terrestrial retro link has no module.**
   `retro_space_budget` assumes a long slant range and independent legs. The
   book also gives a backscatter amplification and a coupled double passage
@@ -423,6 +443,25 @@ The path forward for each is a second reference or a derivation.
   3.79 dB). Sweep the point-ahead angle and the corrected order before the
   FAST Term is trusted at other operating points. (No validation script for this
   comparison exists in `validation/` yet.)
+- **1-5a. NEW (2026-09-11). The prose of `validation/fast_stone_pointahead/` is
+  STALE.** That README, and the 1-5 entry above, say that the production Term
+  `uplink_point_ahead_term` removes the piston AND the tilt, and the whole
+  "production pairing reads 3.5x" reading was built on that mismatch. The Term
+  now defaults to `remove="piston"` (2-P4): the TILT STAYS IN, so the production
+  pairing of FAST against Stone differs by the PISTON only, and a piston changes
+  no overlap integral. The MATCHED-MODE-SET verdict of 1-5 does NOT move (it
+  already used `remove='none'`), so the physics conclusion stands; only the
+  production-pairing prose is wrong. A re-read of the README, and a rerun of the
+  production-pairing arm at the new default, are OWNER-GATED. physics.md
+  Section 9j carries the same warning.
+- **1-5b. NEW (2026-09-11). The FAST uplink Term guard is LIFTED.**
+  `olb.models.fast.uplink_fast_term` used to refuse a ground terminal with no
+  `AO` stage. That was an olb guard, not a FAST limit. It now ACCEPTS an EMPTY
+  stack (the uncorrected `NOAO` launch) and a `TipTilt`-only stack (the `TT`
+  launch), the same `AO_MODE` map as the downlink Term. A `None` stack still
+  raises. WHY: the 2-P4 study needs the uncorrected and the tip-tilt rungs next
+  to the AO rungs on the SAME FAST grid. The self-check asserts the ladder
+  `NOAO > TT > AO(60)` on the loss.
 - **1-4. The Dios duplicate (ponytail DEBT).** The analytic
   beam_wave_scintillation path and the coupled-flux MC duplicate the same
   equations; the jitter correction sits in the MC path only (the `ponytail: DEBT`
@@ -744,17 +783,17 @@ The path forward for each is a second reference or a derivation.
   fidelity-2 self-check number is unchanged).
 
   WHAT IS NOT BUILT (phase 2, each an owner-gated step):
-  - The POINT-AHEAD shift of the sensing source, so a pre-compensated uplink
-    pays the anisoplanatism it pays in the real system (2-P4). The hinge exists:
-    `ApertureModes.estimate` and `ApertureModes.apply` are separate calls, so a
-    sensing source at one direction and a target at another is a wiring step,
-    not a rewrite.
   - A WFS-LIMITED AO knob (sensor noise, a finite subaperture, aliasing, a servo
     lag), so the layer can bracket the benefit instead of bounding it.
   - The DEVICE-SIDE projection. A compensated or screen-storing `"cupy"` trial
     falls back to the HOST tail today, which costs one full field download for
     each trial (about 8 MB at 1024 px).
-  - The LaserGuideStar source, and the temporal axis.
+  - The LaserGuideStar source, and the temporal axis. THE LGS HOOK EXISTS
+    (2026-09-11): `olb.waveoptics.turbulence.run.sensing_geometry` gives the
+    lateral shift, the cone scale and the screen mask of one sensing direction,
+    and a guide-star geometry raises `NotImplementedError`. See 0-P1.
+  THE POINT-AHEAD SHIFT IS DONE (2026-09-11, 2-P4), so a pre-compensated uplink
+  at fidelity 2 now pays the anisoplanatism when the record names an angle.
   NOTE (2026-09-02, still true): `olb/waveoptics/camera.py` `spot_metrics`
   MEASURES the spot centroid, but it is diagnostic only. The correction reads
   the wavefront, not that centroid. Pairs with 2-P4 and with the reference-model
@@ -1178,22 +1217,64 @@ The path forward for each is a second reference or a derivation.
   1024 px (a 4x to 16x cost cut on the long paths), independent of the
   receiver-cone clip (route (b), tested in `validation/receiver_cone_clip/`)
   and of the full co-moving chain (2-P3). Not built; not tested.
-- **2-P4. The reciprocity route carries no point-ahead anisoplanatism**
-  (the uplink and downlink read the same screens). UPDATED 2026-09-07: the
-  fidelity-2 PRE-COMPENSATION route now EXISTS (2-AO), so this item is the
-  ONE missing piece of it. The ground stack corrects the same screens the
-  uplink reads back, so the corrected uplink Term is OPTIMISTIC and it carries
-  a loud `NO ANISOPLANATISM` flag. THE HINGE is the source/target split of
-  `ApertureModes.estimate` against `ApertureModes.apply`
-  (`olb/waveoptics/compensation/modal.py`): the projector takes an ARBITRARY
-  sensing phase and it does not assume that the phase comes from the field it
-  corrects. So the work is to sense at the BEACON direction and apply at the
-  POINT-AHEAD direction, which needs a laterally shifted sensing source (a
-  screen-plane shift by `theta_pa * h` for each screen height `h` is the
-  cheapest form; the Stone analytic model of physics.md Section 5g gives the
-  cross-check). Until then the model of record for a real pre-compensated
-  uplink stays fidelity 1 (`uplink_fast_term`), which DOES carry the
-  point-ahead decorrelation.
+- **2-P4. BUILT (2026-09-11, branch `waveoptics-pointahead`). The fidelity-2
+  reciprocity route now carries the point-ahead anisoplanatism.** An OPT-IN,
+  default OFF, so every earlier fidelity-2 number is unchanged.
+
+  WHAT IT DOES. `propagate_turbulent_scenario` (and `propagate_turbulent_field`,
+  `Campaign`, `run_waveoptics`, `run_fidelity2`) take `point_ahead_rad`
+  (`None` | `"geometry"` | a float | a sequence) and `screen_margin_m`. A
+  point-ahead trial draws each screen ONE time on an oversize grid
+  (`screen_n`), propagates the BEACON on the unshifted window, and runs ONE
+  uplink pass for each angle on the window shifted by `round(theta z_g / dx)`
+  pixels (plane-parallel screens, integer pixels, no interpolation; the
+  propagation grid does not grow). The ground stack senses the BEACON, and the
+  SAME coefficients go on the uplink-direction field, which IS the
+  pre-distorted launch (Shapiro, DOI 10.1364/JOSA.61.000492; Stone and others,
+  DOI 10.1364/JOSAA.11.000347; Noll, DOI 10.1364/JOSA.66.000207).
+  `TurbTrial.eta_turb_pa` holds one overlap for each angle, next to the
+  unchanged beacon `eta_turb`; `TurbWaveResult` gains `point_ahead_rad`,
+  `screen_margin_m`, `screen_n`, `fields_pa` and `screen_phase_pa`; the
+  campaign blocks and manifest carry them, and the fingerprint tail is
+  append-only, so every stored key stays valid.
+  `uplink_budget(fidelity=2)` selects the record angle that matches
+  `geometry.point_ahead_rad`, builds the Term from `eta_turb_pa`, and swaps the
+  `NO ANISOPLANATISM` flag for `POINT-AHEAD ANISOPLANATISM MODELLED`.
+  TWO POST-HOC ROUTES on a stored campaign: `recouple_point_ahead` (any stack,
+  from the stored planes, NO propagation) and `point_ahead` (any angle inside
+  the drawn margin; it regenerates the screens from the seed and propagates
+  again, and it gives a stored column back bit for bit on the same backend).
+  Two supporting changes: the Stone Term
+  `uplink_point_ahead_term` now keeps the TILT (`remove="piston"`) and reads
+  the site outer scale (see 0-W4), and `uplink_fast_term` accepts an empty and
+  a tip-tilt stack.
+
+  THE VERDICTS (`validation/anisoplanatism_screens/`,
+  `validation/waveoptics_pointahead/`; physics.md Section 9n). The production
+  nine-screen plan reads 0.987 to 0.995 of the continuous Stone sum over the
+  135 owner-regime cells at both outer scales, so NO planner change. The
+  shifted-window rule reproduces Stone inside 5 percent (52 of 54 cells). The
+  record identities all pass. At 30 deg the field and FAST agree inside 0.5 dB
+  at every AO cell; at 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field, which a
+  weak-fluctuation model with no saturation must do. The p5 fade penalty at the
+  geometry angle is 8 to 9 dB at 30 deg and 11 to 12 dB at 20 deg for
+  AO(10)/AO(21), against 2.7 to 3.9 dB on the mean, so a link sized on the MEAN
+  is under-sized. The penalty is flat from 5 screens up (24 of 24 readings).
+
+  STILL OPEN, an OWNER decision: whether the fidelity-2 point-ahead Term becomes
+  the MODEL OF RECORD for a pre-compensated uplink. Today fidelity 1 (FAST)
+  stays the model of record, and the numbers above are the input to that
+  decision. The LGS sensing geometry stays the hook of 0-P1, and the temporal
+  axis, the WFS-limited knob and the device-side projection stay in 2-AO.
+- **2-P4a. NEW (2026-09-11). The SMALL-WAIST pre-compensated uplink is a
+  SEPARATE study.** The 2-P4 campaigns launch from the FULL 0.7 m aperture
+  (`Transmitter(waist_m=0.35)`), which is the hero of
+  `validation/waveoptics_ao/` turned around. The owner also wants the
+  point-ahead penalty of a SMALL launch waist (0.175 m, a beam that fills a
+  quarter of the aperture area). That is a DIFFERENT transmit mode `psi_tx`,
+  and the reciprocity overlap reads `psi_tx`, so no post-hoc route answers it:
+  it needs its OWN campaign set. The runner and the analysis driver need no
+  change; only the scenario and the store root move. Not run.
 - **2-N2. Known numerical readings to keep in view:** the Fourier screen
   structure function reads up to 15 % low over r/r0 0.3–1.6 (ratios only);
   MEASURED AGAIN on the production 1024 px grid (2026-09-04,
