@@ -1057,15 +1057,23 @@ def plot_p1(out):
                              squeeze=False)
     for ax, key in zip(axes[0], els):
         cell = out["elevations"][key]
+        # The record keeps the angles in the run order (the geometry angle
+        # sits after 0), so the lines are drawn in ANGLE order.
         x = np.asarray(cell["angles_rad"], dtype=float) / ARCSEC
+        o = np.argsort(x)
+        x = x[o]
+
+        def _y(v):
+            return np.asarray(v, dtype=float)[o]
+
         for name in STACK_ORDER:
-            ax.plot(x, cell["field"][name]["penalty_db"], "o-",
+            ax.plot(x, _y(cell["field"][name]["penalty_db"]), "o-",
                     label=f"field {name}")
             if name in cell["fast"]:
-                ax.plot(x, cell["fast"][name]["penalty_db"], "s--",
+                ax.plot(x, _y(cell["fast"][name]["penalty_db"]), "s--",
                         label=f"FAST {name}")
             if name in cell["stone"]:
-                ax.plot(x, cell["stone"][name]["penalty_db"], ":",
+                ax.plot(x, _y(cell["stone"][name]["penalty_db"]), ":",
                         label=f"Stone {name}")
         ax.set_xlabel("point-ahead angle [arcsec]")
         ax.set_ylabel("anisoplanatic penalty [dB]")
@@ -1090,8 +1098,11 @@ def plot_p2(out):
     for ax, key in zip(axes[0], els):
         cell = out["elevations"][key]
         x = np.asarray(cell["angles_rad"], dtype=float) / ARCSEC
+        o = np.argsort(x)               # angle order, not run order
+        x = x[o]
         for name in STACK_ORDER:
-            ax.plot(x, cell["stacks"][name]["p5_db"], "o-", label=name)
+            ax.plot(x, np.asarray(cell["stacks"][name]["p5_db"],
+                                  dtype=float)[o], "o-", label=name)
         ax.set_xlabel("point-ahead angle [arcsec]")
         ax.set_ylabel("p5 loss [dB]")
         ax.set_title(f"{float(key):.0f} deg")
