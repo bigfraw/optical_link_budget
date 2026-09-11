@@ -479,12 +479,17 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
 
 ## Working preferences
 
-- Delegate substantial code writing to Opus 5 subagents, guided by the ponytail
-  skill (the laziest solution that works; borrow the shared kernels, do not
-  duplicate them; no speculative abstraction). Keep the thin interface
-  consistent across the models.
+- The ponytail ruleset governs how you and every subagent write code: the
+  laziest solution that works, borrow the shared kernels instead of copying
+  them, no speculative abstraction. Keep the thin Term and Budget interface
+  consistent across the models. A subagent loads this CLAUDE.md, so the import
+  at the end of this section carries the full ruleset to it. For a dedicated
+  Opus code writer, spawn the `opus-ponytail` subagent
+  (`.claude/agents/opus-ponytail.md`); it preloads the same skill.
 - Every subagent prompt that writes code or documentation must include the
   ASD-STE100 rule.
+
+@.claude/skills/ponytail/SKILL.md
 
 ## Current state
 
