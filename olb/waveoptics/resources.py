@@ -83,7 +83,7 @@ def free_memory_bytes():
 
 
 def worker_memory_bytes(n, precision="single", block_size=1, patch_pixels=0,
-                        n_hops=None):
+                        n_hops=None, screen_n=None, n_screens=0):
     """Estimate the peak memory of ONE pool worker of a turbulent run.
 
     The estimate counts the arrays that a trial holds at its peak, on an
@@ -100,6 +100,11 @@ def worker_memory_bytes(n, precision="single", block_size=1, patch_pixels=0,
       `n_hops` is the screen count plus one), capped at the cache bound;
     - the stored field patch of the block, two times (the block array and
       its pickled copy on the way back to the parent);
+    - the KEPT SCREEN NOISE of a POINT-AHEAD trial: that trial keeps the white
+      noise of every screen, so each pass rebuilds the same oversize screen on
+      its own window. The term is `n_screens * screen_n^2` complex128 values
+      (the draw is always double, see ScreenFactory.draw). It is 0 by default,
+      so a run with no point-ahead pass reads the number it always read;
     - the base of the interpreter with numpy, scipy and olb.
 
     The whole is scaled by WORKER_SAFETY. The estimate sits above the measured
@@ -113,6 +118,10 @@ def worker_memory_bytes(n, precision="single", block_size=1, patch_pixels=0,
         patch_pixels: the pixel count of the stored patch, 0 for none.
         n_hops:       the distinct hop lengths of the plan. None takes the
                       full cache bound.
+        screen_n:     the pixel count of one drawn screen side. None (the
+                      default) takes `n`, the screen of record.
+        n_screens:    the screens whose noise a POINT-AHEAD trial keeps. 0 (the
+                      default) keeps the old estimate.
 
     Returns:
         An int, in bytes.
@@ -126,7 +135,11 @@ def worker_memory_bytes(n, precision="single", block_size=1, patch_pixels=0,
     if n_hops is not None:
         cache_bytes = min(cache_bytes, int(n_hops) * n2 * c)
     patch = 2 * int(block_size) * int(patch_pixels) * 8      # complex64.
-    total = WORKER_BASE_BYTES + arrays + int(cache_bytes) + patch
+    # The kept noise of one POINT-AHEAD trial, in complex128 (ScreenFactory
+    # draws in double). It is 0 when no trial keeps it.
+    side = int(n if screen_n is None else screen_n)
+    noise = int(n_screens) * side * side * 16
+    total = WORKER_BASE_BYTES + arrays + int(cache_bytes) + patch + noise
     return int(np.ceil(total * WORKER_SAFETY))
 
 
@@ -192,4 +205,10 @@ if __name__ == "__main__":
     assert auto_workers(2 ** 20, free_bytes=None, cores=8) == (7, "cpu")
     assert worker_memory_bytes(1024, "single") < worker_memory_bytes(
         1024, "double")
+    # The POINT-AHEAD noise term is OPT-IN: the default reads the old number,
+    # and a kept stack of oversize screens raises it.
+    assert worker_memory_bytes(512, "single") == worker_memory_bytes(
+        512, "single", n_screens=0), "the default must not move"
+    assert worker_memory_bytes(512, "single", screen_n=576, n_screens=9) > \
+        worker_memory_bytes(512, "single")
     print("resources self-check ok")

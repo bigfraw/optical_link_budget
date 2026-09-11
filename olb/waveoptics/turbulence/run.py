@@ -91,7 +91,7 @@ SLOPE_STEP_WARN_RAD = 2.8
 RUN_OPTIONS = (
     "preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m", "subharmonics",
     "screen_generator", "precision", "fft_backend", "compensation",
-    "store_screen_phase",
+    "store_screen_phase", "point_ahead_rad", "screen_margin_m",
 )
 
 # The subset that the grid sizer (sampling.turbulent_grid) reads. A wrapper
@@ -576,6 +576,11 @@ def _apply_compensation(F_rx, comp_modes, comp_source, n_modes, summed_phase,
         warned:       a one-element list that holds the slope-step warning
                       state across trials, so the warning fires one time.
         where:        the caller name, for the slope-step warning message.
+
+    Returns:
+        The Noll coefficients that the call removed, a float array. A
+        POINT-AHEAD pass applies these SAME coefficients to its own field: the
+        beacon senses one time, and the uplink pays what that estimate misses.
     """
     if comp_source == "screens":
         coeffs = comp_modes.estimate(summed_phase.ravel()[comp_modes.indices])
@@ -597,6 +602,7 @@ def _apply_compensation(F_rx, comp_modes, comp_source, n_modes, summed_phase,
         # coefficients go to zero. See SLOPE_MIN_MODES.
         coeffs[n_modes:] = 0.0
     F_rx.field = comp_modes.apply(F_rx.field, coeffs, sign=-1)
+    return coeffs
 
 
 @dataclass(frozen=True)
@@ -627,6 +633,12 @@ class TurbTrial:
                          `detectors` argument, in that order. It is None when
                          the caller gives no `detectors`. A Camera arm holds
                          None, because a Camera has no coupling model.
+        eta_turb_pa:     the reciprocity overlap ratio of the uplink at each
+                         POINT-AHEAD angle, in the `point_ahead_rad` order. The
+                         beacon senses the correction, and the uplink pays what
+                         that estimate misses at its own angle. It is None when
+                         the caller asks for no point-ahead pass, and for a
+                         case that has no eta_turb (see above).
     """
 
     collected_power: float
@@ -636,6 +648,7 @@ class TurbTrial:
     wall_time_s: float
     mmf_eta: float = None
     detector_etas: tuple = None
+    eta_turb_pa: tuple = None
 
 
 @dataclass(frozen=True)
@@ -810,6 +823,20 @@ class TurbWaveResult:
         screen_phase: the summed screen phase at the patch pixels, a float32
                       array of the shape (n_trials, n_patch), or None. The
                       runner fills it with store_screen_phase=True.
+        point_ahead_rad: the RESOLVED point-ahead angles of the run, a tuple of
+                      floats, or None. See _resolve_point_ahead.
+        screen_margin_m: the extra screen width that the widest point-ahead
+                      window needed, in m. It is 0.0 for a run with no
+                      point-ahead pass.
+        screen_n:     the pixel count of one drawn screen side. It equals
+                      grid.n when the run makes no point-ahead pass.
+        fields_pa:    the stored UPLINK-direction field of each point-ahead
+                      angle at the patch pixels, a complex64 array of the shape
+                      (n_angles, n_trials, n_patch), or None. The field is
+                      UNCORRECTED, exactly like `fields`.
+        screen_phase_pa: the summed screen phase of each point-ahead window at
+                      the patch pixels, a float32 array of the shape
+                      (n_angles, n_trials, n_patch), or None.
     """
 
     trials: list
@@ -824,6 +851,11 @@ class TurbWaveResult:
     compensation: tuple = None
     n_modes_corrected: int = 0
     screen_phase: np.ndarray = None
+    point_ahead_rad: tuple = None
+    screen_margin_m: float = 0.0
+    screen_n: int = None
+    fields_pa: np.ndarray = None
+    screen_phase_pa: np.ndarray = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -859,8 +891,247 @@ def _screen_seed(entropy, trial, screen):
     return int(ss.generate_state(1)[0])
 
 
+# ---- the point ahead: one atmosphere, two lateral windows (backlog 2-P4) ----
+#
+# THE PHYSICS. A ground station senses the DOWNLINK beacon and it launches the
+# uplink beam THETA ahead of that beacon (the point-ahead angle,
+# olb.geometry.CircularOrbit.point_ahead_rad). In the plane-parallel screen
+# model the uplink ray crosses screen j at the lateral distance
+# d_j = theta * z_g_j, with z_g_j the distance of that screen from the GROUND
+# plane. So the beacon and the uplink read the SAME screens through DIFFERENT
+# lateral windows, and the correction that the beacon senses does not fit the
+# uplink path. That is the point-ahead anisoplanatism. Sources: Shapiro,
+# DOI 10.1364/JOSA.61.000492 (the reciprocity overlap); Stone, Hu, Mills and
+# Ma, DOI 10.1364/JOSAA.11.000347 (the angular anisoplanatism); Noll 1976,
+# DOI 10.1364/JOSA.66.000207 (the modal basis of the correction).
+#
+# THE DRAW IS ONE DRAW. Each pass takes its own window of the SAME oversize
+# screen, so the two passes see one atmosphere. The runner keeps the white
+# noise of each screen and it builds that screen one time for each pass (see
+# ScreenFactory.draw and make_from_noise).
+
+# The oversize screen side rounds UP to this multiple of pixels. A power-of-two
+# factor keeps the FFT of the wider draw efficient.
+SCREEN_DRAW_ALIGN = 32
+
+
+def _resolve_point_ahead(point_ahead_rad, geometry):
+    """Give the point-ahead angles of a run, as a tuple of floats, or None.
+
+    The rule of `point_ahead_rad`:
+      - None:         no point-ahead pass. The run does not change.
+      - "geometry":   the one angle of the geometry (point_ahead_rad).
+      - a float:      that one angle, in rad.
+      - a sequence:   those angles, in rad, in the caller order. A 0.0 angle is
+                      valid: it repeats the beacon path, and it is the control
+                      case of a study.
+
+    Args:
+        point_ahead_rad: None, "geometry", a float, or a sequence of floats.
+        geometry:        the link geometry. "geometry" reads its
+                         point_ahead_rad attribute.
+
+    Returns:
+        A tuple of floats, or None.
+
+    Raises:
+        ValueError: the string is not "geometry", the sequence is empty, an
+                    angle is negative, or the geometry gives no point-ahead
+                    angle.
+    """
+    if point_ahead_rad is None:
+        return None
+    if isinstance(point_ahead_rad, str):
+        if point_ahead_rad != "geometry":
+            raise ValueError(
+                "point_ahead_rad must be None, the string 'geometry', a float, "
+                f"or a sequence of floats, not {point_ahead_rad!r}.")
+        theta = getattr(geometry, "point_ahead_rad", None)
+        if theta is None:
+            raise ValueError(
+                "point_ahead_rad='geometry' needs a geometry with a "
+                f"point_ahead_rad attribute. {type(geometry).__name__} has "
+                "none. Pass the angle as a float.")
+        angles = (float(np.asarray(theta, dtype=float).ravel()[0]),)
+    elif np.ndim(point_ahead_rad) == 0:
+        angles = (float(point_ahead_rad),)
+    else:
+        angles = tuple(float(a) for a in point_ahead_rad)
+    if not angles:
+        raise ValueError(
+            "point_ahead_rad is an empty sequence. Pass None for no "
+            "point-ahead pass, or give at least one angle.")
+    if min(angles) < 0.0:
+        raise ValueError(
+            f"point_ahead_rad holds a negative angle {min(angles)!r}. The "
+            "window moves along +x, so every angle must be 0 or more.")
+    return angles
+
+
+def _ground_distance(plan):
+    """Give the distance of each screen from the GROUND plane, in m.
+
+    A SPACE plan propagates DOWN the atmosphere, so its z_m counts from the TOP
+    of the slab and the ground distance is z_total_m - z_m. A terrestrial plan
+    counts from the transmit plane, so its z_m IS that distance.
+
+    Args:
+        plan: the ScreenPlan.
+
+    Returns:
+        A float array, one value for each screen.
+    """
+    z = np.asarray(plan.z_m, dtype=float)
+    if plan.direction == "down":
+        return float(plan.z_total_m) - z
+    return z
+
+
+@dataclass(frozen=True)
+class SensingGeometry:
+    """How one sensing direction reads the screens of a plan.
+
+    THE HOOK FOR A LASER GUIDE STAR. A downlink beacon is a source at infinity,
+    so it reads each screen through a window that MOVES with the angle and
+    keeps its scale. A laser guide star sits at a finite altitude H, so its
+    cone reads each screen at the SCALE (1 - z_g/H) and it reads no screen
+    above H. `cone_scale` and `include` carry those two facts, and
+    `sensing_geometry` fills them. The runner supports the beacon form only
+    (`cone_scale` is 1 everywhere); a guide-star geometry raises, because a
+    scaled window needs a RESAMPLED screen, not an integer pixel shift.
+
+    Attributes:
+        shift_m:    the lateral displacement of the window at each screen, in m.
+        cone_scale: the transverse scale factor at each screen. It is 1.0 for a
+                    source at infinity.
+        include:    True where the sensing beam crosses that screen.
+    """
+
+    shift_m: np.ndarray
+    cone_scale: np.ndarray
+    include: np.ndarray
+
+
+def sensing_geometry(plan, source, theta):
+    """Give the SensingGeometry of one direction through one screen plan.
+
+    A DOWNLINK BEACON (or None, the plain point-ahead case) is a source at
+    infinity: the window moves by theta * z_g at each screen, the scale stays
+    1.0, and every screen counts. A LASER GUIDE STAR at the altitude H reads
+    the cone scale 1 - z_g/H and it reads no screen above H. See
+    olb.scenario.DownlinkBeacon and olb.scenario.LaserGuideStar.
+
+    The function reads the CLASS NAME of the source, so this module does not
+    import olb.scenario (the one-way dependency of the turbulence layer).
+
+    Args:
+        plan:   the ScreenPlan.
+        source: None, a DownlinkBeacon, or a LaserGuideStar.
+        theta:  the sensing angle off the beacon direction, in rad.
+
+    Returns:
+        A SensingGeometry.
+
+    Raises:
+        NotImplementedError: the source is a laser guide star.
+    """
+    z_g = _ground_distance(plan)
+    cone = np.ones_like(z_g)
+    include = np.ones(z_g.shape, dtype=bool)
+    shift = float(theta) * z_g
+    if type(source).__name__ == "LaserGuideStar":
+        altitude = float(getattr(source, "altitude_m"))
+        cone = 1.0 - z_g / altitude
+        include = z_g < altitude
+        shift = np.zeros_like(z_g)
+    got = SensingGeometry(shift_m=shift, cone_scale=cone, include=include)
+    if np.any(got.cone_scale != 1.0):
+        raise NotImplementedError(
+            "the laser-guide-star cone needs a resampled screen window and "
+            "the beacon-sensed tilt; backlog 0-P1")
+    return got
+
+
+def _screen_windows(plan, n, dx, n_draw, geometries):
+    """Give the integer column offset of each (angle, screen) window.
+
+    The window of one pass is `screen[0:n, s:s + n]` of the oversize draw, so
+    the offset is the lateral displacement in whole pixels. The shift is an
+    INTEGER number of pixels: no interpolation, so the screen statistics do not
+    change. The beacon window is `screen[0:n, 0:n]`.
+
+    Args:
+        plan:       the ScreenPlan.
+        n:          the pixel count of one propagation grid side.
+        dx:         the pixel pitch, in m.
+        n_draw:     the pixel count of one oversize screen side.
+        geometries: one SensingGeometry for each angle.
+
+    Returns:
+        An int array of the shape (n_angles, n_screens).
+
+    Raises:
+        ValueError: a window falls off the oversize screen.
+    """
+    shifts = np.array([np.rint(np.asarray(g.shift_m) / float(dx))
+                       for g in geometries], dtype=int)
+    shifts = shifts.reshape(len(geometries), int(np.asarray(plan.z_m).size))
+    largest = int(shifts.max()) if shifts.size else 0
+    if largest + int(n) > int(n_draw):
+        raise ValueError(
+            f"_screen_windows: the widest window ends at "
+            f"{largest + int(n)} px and the oversize screen holds "
+            f"{int(n_draw)} px. The largest lateral shift is "
+            f"{largest * float(dx):.4g} m. Raise screen_margin_m, or lower "
+            "the point-ahead angle.")
+    return shifts
+
+
+def _screen_draw_n(n, margin_m, dx):
+    """Give the pixel count of one oversize screen side.
+
+    A margin of 0 gives back `n`, so a run with no point-ahead draws exactly
+    the screen it always drew, bit for bit.
+
+    Args:
+        n:        the pixel count of one propagation grid side.
+        margin_m: the extra width the widest window needs, in m.
+        dx:       the pixel pitch, in m.
+
+    Returns:
+        An int, a multiple of SCREEN_DRAW_ALIGN when it is above n.
+    """
+    if float(margin_m) <= 0.0:
+        return int(n)
+    wanted = int(n) + int(np.ceil(float(margin_m) / float(dx)))
+    align = SCREEN_DRAW_ALIGN
+    return int(align * int(np.ceil(wanted / align)))
+
+
+def _resolve_screen_margin(screen_margin_m, pa_angles, plan):
+    """Give the extra screen width of a run, in m.
+
+    None reads the geometry: the widest window is the window of the largest
+    angle at the screen that sits highest above the ground, so the margin is
+    max(angles) * max(z_g).
+
+    Args:
+        screen_margin_m: a float, or None for the automatic value.
+        pa_angles:       the resolved point-ahead angles, or None.
+        plan:            the ScreenPlan.
+
+    Returns:
+        A float, in m. It is 0.0 when the run makes no point-ahead pass.
+    """
+    if pa_angles is None:
+        return 0.0
+    if screen_margin_m is not None:
+        return float(screen_margin_m)
+    return float(max(pa_angles) * _ground_distance(plan).max())
+
+
 def _screen_builder(screen_generator, grid, L0_m, subharmonics,
-                    dtype=np.complex128):
+                    dtype=np.complex128, n_draw=None):
     """Give a function build(seed_int, r0_m) -> phase screen.
 
     The two generators give DIFFERENT random draws for the same integer seed.
@@ -885,6 +1156,12 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
         dtype:            the complex type of the field. numpy.complex64 makes
                           float32 screens, so the screen and the field carry
                           the same number of bytes.
+        n_draw:           the pixel count of one screen side. None (the
+                          default) draws the grid side, which is the screen of
+                          record. A LARGER value draws an OVERSIZE screen for
+                          the point-ahead windows (see _screen_windows); the
+                          pixel pitch does not change, so the wider screen
+                          holds the same physics over a wider patch of sky.
 
     Returns:
         A callable build(seed_int, r0_m) that gives one n x n phase screen.
@@ -897,15 +1174,16 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
         ValueError: the generator name is unknown.
     """
     single = dtype == np.complex64
+    n_side = int(grid.n if n_draw is None else n_draw)
     if screen_generator == "aotools":
         def build(seed_int, r0_m):
-            scr = phase_screen(r0_m, grid.n, grid.pixel_m, L0_m=L0_m,
+            scr = phase_screen(r0_m, n_side, grid.pixel_m, L0_m=L0_m,
                                seed=seed_int, subharmonics=subharmonics)
             return scr.astype(np.float32) if single else scr
         build.factory = None
         return build
     if screen_generator in ("olb", "olb-lean"):
-        factory = ScreenFactory(grid.n, grid.pixel_m, L0_m=L0_m,
+        factory = ScreenFactory(n_side, grid.pixel_m, L0_m=L0_m,
                                 subharmonics=subharmonics,
                                 dtype=np.float32 if single else np.float64,
                                 lean=(screen_generator == "olb-lean"))
@@ -1009,7 +1287,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  detectors=None, start_index=0,
                                  patch_radius_m=None, precision="single",
                                  fft_backend="numpy", compensation=None,
-                                 store_screen_phase=False, boost=True):
+                                 store_screen_phase=False,
+                                 point_ahead_rad=None, screen_margin_m=None,
+                                 boost=True):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -1060,6 +1340,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     THE STORED PATCH HOLDS THE UNCORRECTED FIELD. Each trial writes its patch
     row BEFORE the correction. So a post-hoc call corrects the stored field
     with ANY stack (see recouple_compensated).
+
+    THE POINT AHEAD (an OPT-IN, default OFF). `point_ahead_rad` adds one more
+    pass of each trial through a LATERALLY SHIFTED window of the SAME screens,
+    so the uplink reads the atmosphere of the direction it launches into, and
+    the beacon correction no longer fits it. One draw feeds every pass, so the
+    two directions share one atmosphere. See _resolve_point_ahead and
+    _screen_windows, and Stone, Hu, Mills and Ma, DOI 10.1364/JOSAA.11.000347.
 
     Args:
         scenario:     a SpaceScenario or a TerrestrialScenario.
@@ -1173,6 +1460,24 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       terrestrial run may store it too, but its post-hoc
                       correction reads the field slopes. The default False
                       stores nothing.
+        point_ahead_rad: None (the default, NO point-ahead pass), the string
+                      "geometry" (the one angle of the geometry), a float, or a
+                      sequence of angles in rad. Each angle adds ONE more
+                      propagation of the SAME atmosphere through a LATERALLY
+                      SHIFTED window of each screen, and it reports the uplink
+                      reciprocity overlap of that direction as
+                      TurbTrial.eta_turb_pa. The correction (compensation)
+                      still senses the BEACON field, so the shifted pass pays
+                      the point-ahead anisoplanatism. It needs a SPACE
+                      scenario and the "olb" screen generator. The default
+                      keeps a run bit-identical.
+        screen_margin_m: the extra screen width that the shifted windows need,
+                      in m. None (the default) reads the geometry:
+                      max(angles) * max(ground distance of a screen). The
+                      runner then draws ONE oversize screen for each screen of
+                      the plan, and each pass takes its own window. A run with
+                      no point-ahead angle draws the screen of record, bit for
+                      bit.
         boost:        True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS) one time at entry. A windowless run
@@ -1190,8 +1495,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                             of grid and plan is given, the patch radius does
                             not fit on the grid, the precision name is
                             unknown, a threader comes with the "cupy"
-                            backend, the compensation request is unknown, or
-                            store_screen_phase comes with no patch radius.
+                            backend, the compensation request is unknown,
+                            store_screen_phase comes with no patch radius, the
+                            point-ahead request is unknown, a point-ahead angle
+                            comes with a terrestrial scenario or with another
+                            screen generator, or a point-ahead window falls off
+                            the oversize screen.
         NotImplementedError: the scenario direction is "retro".
     """
     if boost:
@@ -1214,6 +1523,22 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         raise ValueError("propagate_turbulent_scenario: give grid AND plan "
                          "together, or give neither.")
 
+    # ---- the point ahead (an OPT-IN, default OFF) ----
+    pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
+    if pa_angles is not None:
+        if not is_space:
+            raise ValueError(
+                "propagate_turbulent_scenario: point_ahead_rad needs a SPACE "
+                "scenario. A terrestrial path has no point-ahead angle: both "
+                "terminals stand still.")
+        if screen_generator != "olb":
+            raise ValueError(
+                "propagate_turbulent_scenario: point_ahead_rad needs "
+                f"screen_generator='olb', not {screen_generator!r}. The two "
+                "passes share ONE draw through ScreenFactory.draw and "
+                "make_from_noise, and the 'olb-lean' and 'aotools' generators "
+                "have no such split.")
+
     range_m = np.asarray(geometry.slant_range_m, dtype=float)
     if range_m.size != 1:
         raise ValueError(
@@ -1230,6 +1555,17 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         grid, plan, report = turbulent_grid(
             scenario, geometry, preset=p, cn2=cn2, hs=hs,
             cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
+
+    # THE OVERSIZE DRAW. The margin and the window offsets read the finished
+    # plan, so they resolve here. With no point-ahead angle the margin is 0.0
+    # and n_draw is grid.n, so the draw does not move.
+    margin_m = _resolve_screen_margin(screen_margin_m, pa_angles, plan)
+    n_draw = _screen_draw_n(grid.n, margin_m, grid.pixel_m)
+    pa_shifts = None
+    if pa_angles is not None:
+        pa_shifts = _screen_windows(
+            plan, grid.n, grid.pixel_m, n_draw,
+            [sensing_geometry(plan, None, a) for a in pa_angles])
 
     lam = scenario.tx_terminal.wavelength_m
     rx = clip_terminal(scenario)
@@ -1357,7 +1693,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 "threads give no speed-up and they hide a mistake. Pass "
                 "threader=None with fft_backend='cupy'.")
         build_screen = _screen_builder(screen_generator, grid, L0_m,
-                                       subharmonics, dtype=cdtype)
+                                       subharmonics, dtype=cdtype,
+                                       n_draw=n_draw)
 
         # THE START FIELD GOES UP ONE TIME. Every trial starts from the same
         # array, and split_step copies its input, so one upload serves the
@@ -1380,6 +1717,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         if store_screen_phase:
             screen_phase = np.empty((int(n_trials), patch.indices.size),
                                     dtype=np.float32)
+        # The point-ahead stores. One plane for each angle, in the angle order.
+        fields_pa = screen_phase_pa = None
+        if pa_angles is not None and patch is not None:
+            shape_pa = (len(pa_angles), int(n_trials), patch.indices.size)
+            fields_pa = np.empty(shape_pa, dtype=np.complex64)
+            if store_screen_phase:
+                screen_phase_pa = np.empty(shape_pa, dtype=np.float32)
 
         # THE DEVICE TAIL (2026-09-07). The clip, the power and the fibre
         # coupling do not depend on the atmosphere, so the CUDA route runs
@@ -1393,8 +1737,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # on the host, so a trial that asks for one takes the ONE download of
         # before, and the correction is host numpy. A device-side projection
         # is a later step. The download is about 8 MB at 1024 px.
+        #
+        # A POINT-AHEAD TRIAL KEEPS THE HOST TAIL TOO (phase 1). Its extra
+        # passes read the receive field on the host, so the trial takes the ONE
+        # download of before.
         tail = patch_idx = psi_conj = None
-        if device and not need_sum and comp_modes is None:
+        if device and not need_sum and comp_modes is None and pa_angles is None:
             wanted = [rx.detector] + list(detectors or ())
             if all(_DeviceTail.handles(d) for d in wanted):
                 tail = _DeviceTail(grid, rx.aperture_m, rx.obscuration_ratio,
@@ -1404,12 +1752,32 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 if psi_tx is not None:
                     psi_conj = xp().asarray(np.conj(psi_tx))
 
+        factory = getattr(build_screen, "factory", None)
+
+        def windowed(noise, angle_index):
+            """Yield the screens of one pass, one at a time, on its window.
+
+            The screen is built from the noise the trial already drew, so every
+            pass of the trial reads the SAME atmosphere. `angle_index` None
+            takes the beacon window (the offset 0); an integer takes the window
+            of that point-ahead angle. See _screen_windows.
+            """
+            for j in range(n_screens):
+                scr = factory.make_from_noise(plan.r0_m[j], noise[j])
+                s = 0 if angle_index is None else int(pa_shifts[angle_index][j])
+                yield scr[0:grid.n, s:s + grid.n]
+
         def run_one(k, stack=None):
             """Run trial k. It touches only its own state and read-only setup.
 
             `stack` is the screen stack of the trial. None (the default) builds
             it here, one screen at a time. The CUDA route gives a stack that
             the draw threads already fed.
+
+            A POINT-AHEAD trial keeps the white noise of every screen, so each
+            pass rebuilds the SAME screen on its own window. The noise is
+            n_screens * n_draw^2 complex values, which is the one memory cost
+            of the option.
             """
             t0 = time.perf_counter()
             # A GENERATOR, not a list: split_step takes the screens one at a
@@ -1418,7 +1786,16 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # FFT and it caches the spare, so the peak is two screens, not one.
             # The seed of screen j does not depend on the order, so the values
             # do not change.
-            if stack is None:
+            noise = None
+            if stack is None and pa_angles is not None:
+                # ONE DRAW FEEDS EVERY PASS. draw(rng) makes exactly the random
+                # numbers that make(r0, rng) makes, in the same order, so the
+                # beacon pass is the pass of record.
+                noise = [factory.draw(np.random.default_rng(
+                    _screen_seed(seed_entropy, k, j)))
+                    for j in range(n_screens)]
+                stack = windowed(noise, None)
+            elif stack is None:
                 stack = (build_screen(_screen_seed(seed_entropy, k, j),
                                       plan.r0_m[j])
                          for j in range(n_screens))
@@ -1473,14 +1850,16 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             acc = _host_array(sum_box[0]) if need_sum else None
             if screen_phase is not None:
                 screen_phase[k - start_index] = acc.ravel()[patch.indices]
+            coeffs = None
             if comp_modes is not None:
                 # The clip, the coupling and the reciprocity overlap below all
                 # read the CORRECTED wavefront. See _apply_compensation (the
                 # one home of the correction; the stored patch row above keeps
-                # the UNCORRECTED field).
-                _apply_compensation(F_rx, comp_modes, comp_source, n_modes, acc,
-                                    slope_step_warned,
-                                    "propagate_turbulent_scenario")
+                # the UNCORRECTED field). The coefficients come back, because a
+                # POINT-AHEAD pass applies the SAME beacon estimate.
+                coeffs = _apply_compensation(
+                    F_rx, comp_modes, comp_source, n_modes, acc,
+                    slope_step_warned, "propagate_turbulent_scenario")
 
             collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
             collected_power = float(Power(collected) / p_reference)
@@ -1505,15 +1884,47 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 # modelled: the uplink and the downlink read the same screens.
                 o = float(np.abs((F_rx.field * np.conj(psi_tx)).sum()) ** 2)
                 eta_turb = o / o_vac
+            eta_turb_pa = None
+            if pa_angles is not None:
+                # ONE EXTRA PASS FOR EACH ANGLE. The same start field and the
+                # same boundary mask go through the SAME screens on a shifted
+                # window, and the beacon estimate above corrects the result. So
+                # the drop against eta_turb IS the point-ahead anisoplanatism.
+                got = []
+                for i in range(len(pa_angles)):
+                    box_i = [None]
+                    st = windowed(noise, i)
+                    if need_sum:
+                        st = _summing(st, box_i)
+                    F_pa = to_host(split_step(F_start, plan.z_m, st,
+                                              plan.z_total_m, boundary=mask))
+                    if fields_pa is not None:
+                        # The UNCORRECTED shifted field, exactly like `fields`.
+                        fields_pa[i, k - start_index] = (
+                            F_pa.field.ravel()[patch.indices]
+                            .astype(np.complex64))
+                    if screen_phase_pa is not None:
+                        screen_phase_pa[i, k - start_index] = (
+                            _host_array(box_i[0]).ravel()[patch.indices])
+                    if eta_turb is not None:
+                        E = F_pa.field
+                        if coeffs is not None:
+                            E = comp_modes.apply(E, coeffs, sign=-1)
+                        got.append(
+                            float(np.abs((E * np.conj(psi_tx)).sum()) ** 2)
+                            / o_vac)
+                eta_turb_pa = tuple(got) if got else None
             return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
                              eta_turb=eta_turb, seed_key=(seed_entropy, k),
                              wall_time_s=time.perf_counter() - t0,
-                             mmf_eta=mmf_eta, detector_etas=detector_etas)
+                             mmf_eta=mmf_eta, detector_etas=detector_etas,
+                             eta_turb_pa=eta_turb_pa)
 
         bar = _progress_bar(progress, n_trials, "turbulent trials")
         ks = list(range(int(start_index), int(start_index) + int(n_trials)))
-        factory = getattr(build_screen, "factory", None)
-        if device and factory is not None:
+        # A POINT-AHEAD trial draws its own noise inside run_one, because every
+        # pass reads it. So it takes the plain loop, not the pipelined branch.
+        if device and factory is not None and pa_angles is None:
             # THE PIPELINED HOST DRAW (the plan of record, 2026-09-06). The
             # white noise stays a numpy PCG64 draw on the host, seeded by
             # _screen_seed exactly as the host route seeds it, so the device
@@ -1566,7 +1977,11 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                           fields=fields, patch=patch,
                           fft_backend=fft_backend, compensation=comp_stack,
                           n_modes_corrected=n_modes,
-                          screen_phase=screen_phase)
+                          screen_phase=screen_phase,
+                          point_ahead_rad=pa_angles,
+                          screen_margin_m=margin_m, screen_n=int(n_draw),
+                          fields_pa=fields_pa,
+                          screen_phase_pa=screen_phase_pa)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -1575,7 +1990,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               h_top_m=None, L0_m=None,
                               subharmonics=True, screen_generator="olb",
                               precision="single", fft_backend="numpy",
-                              compensation=None):
+                              compensation=None, point_ahead_rad=None,
+                              screen_margin_m=None):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -1634,15 +2050,30 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                       one. The default returns the uncorrected field, bit for
                       bit as before. See _apply_compensation and
                       olb.waveoptics.compensation.
+        point_ahead_rad: None (the default), the string "geometry", a float, or
+                      a ONE-element sequence. This diagnostic shows ONE field,
+                      so it takes ONE angle; a longer sequence raises. With an
+                      angle the function returns the UPLINK-DIRECTION snapshot:
+                      the same atmosphere read through the LATERALLY SHIFTED
+                      window of each screen (see _screen_windows). A
+                      compensation then still senses the BEACON field, so the
+                      returned field shows the point-ahead residual. The
+                      default returns the beacon field, bit for bit as before.
+        screen_margin_m: the extra screen width of the shifted window, in m.
+                      None (the default) reads the geometry. See
+                      propagate_turbulent_scenario.
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field, corrected
-        when `compensation` asks for it.
+        when `compensation` asks for it, and read through the point-ahead
+        window when `point_ahead_rad` asks for it.
 
     Raises:
         ValueError:          the geometry gives more than one range, only one
-                             of grid and plan is given, or the precision name
-                             is unknown.
+                             of grid and plan is given, the precision name
+                             is unknown, or the point-ahead request is unknown,
+                             gives more than one angle, or comes with a
+                             terrestrial scenario or another screen generator.
         NotImplementedError: the scenario direction is "retro".
     """
     cdtype = field_dtype(precision)
@@ -1659,6 +2090,23 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         raise ValueError(
             f"propagate_turbulent_field: the geometry gives {range_m.size} "
             "ranges. Give one range.")
+    pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
+    if pa_angles is not None:
+        if len(pa_angles) != 1:
+            raise ValueError(
+                f"propagate_turbulent_field: point_ahead_rad gives "
+                f"{len(pa_angles)} angles, and this diagnostic shows ONE "
+                "field. Give one angle, or use "
+                "propagate_turbulent_scenario.")
+        if not is_space:
+            raise ValueError(
+                "propagate_turbulent_field: point_ahead_rad needs a SPACE "
+                "scenario. A terrestrial path has no point-ahead angle.")
+        if screen_generator != "olb":
+            raise ValueError(
+                "propagate_turbulent_field: point_ahead_rad needs "
+                f"screen_generator='olb', not {screen_generator!r}. See "
+                "propagate_turbulent_scenario.")
 
     # L0_m=None reads the site outer scale (25 m); see
     # propagate_turbulent_scenario and sampling.resolve_outer_scale.
@@ -1692,31 +2140,78 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                                             np.zeros((grid.n - 1, grid.n)))
     need_sum = comp_modes is not None and comp_source == "screens"
 
+    # THE OVERSIZE DRAW of the point-ahead window. With no angle the margin is
+    # 0.0 and the draw is the draw of record. See propagate_turbulent_scenario.
+    margin_m = _resolve_screen_margin(screen_margin_m, pa_angles, plan)
+    n_draw = _screen_draw_n(grid.n, margin_m, grid.pixel_m)
+    n_screens = int(plan.z_m.size)
+    shift = None
+    if pa_angles is not None:
+        shift = _screen_windows(plan, grid.n, grid.pixel_m, n_draw,
+                                [sensing_geometry(plan, None, pa_angles[0])])[0]
+
     # THE BACKEND COMES BEFORE THE SCREEN FACTORY, because the factory reads
     # the array module of the backend in __init__. The finally restores it.
     previous_backend = set_fft_backend(fft_backend)
     try:
         build_screen = _screen_builder(screen_generator, grid, L0_m,
-                                       subharmonics, dtype=cdtype)
-        # A GENERATOR, not a list. See run_one in
-        # propagate_turbulent_scenario: split_step takes the screens one at a
-        # time, so the memory holds two screens (ScreenFactory caches the
-        # spare of each FFT), not the stack.
-        stack = (build_screen(_screen_seed(entropy, trial, j), plan.r0_m[j])
-                 for j in range(int(plan.z_m.size)))
-        sum_box = [None]
-        if need_sum:
-            stack = _summing(stack, sum_box)
+                                       subharmonics, dtype=cdtype,
+                                       n_draw=n_draw)
+        seeds = [_screen_seed(entropy, trial, j) for j in range(n_screens)]
         F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
-        # The field comes back on the host, so a picture reads it as before.
-        F_rx = to_host(split_step(F_start, plan.z_m, stack, plan.z_total_m,
-                                  boundary=mask))
+
+        def run_pass(offsets, box):
+            """Propagate one pass, and give the host receive Field back.
+
+            `offsets` is None for the beacon window, or the column offset of
+            each screen for the point-ahead window.
+            """
+            if offsets is None and pa_angles is None:
+                # A GENERATOR, not a list. See run_one in
+                # propagate_turbulent_scenario: split_step takes the screens
+                # one at a time, so the memory holds two screens
+                # (ScreenFactory caches the spare of each FFT), not the stack.
+                stack = (build_screen(seeds[j], plan.r0_m[j])
+                         for j in range(n_screens))
+            else:
+                # ONE DRAW FEEDS BOTH PASSES. draw makes the numbers that make
+                # makes, in the same order, so the beacon pass does not move.
+                factory = build_screen.factory
+
+                def windows():
+                    """Yield each screen of this pass, on its own window."""
+                    for j in range(n_screens):
+                        scr = factory.make_from_noise(
+                            plan.r0_m[j],
+                            factory.draw(np.random.default_rng(seeds[j])))
+                        s = 0 if offsets is None else int(offsets[j])
+                        yield scr[0:grid.n, s:s + grid.n]
+
+                stack = windows()
+            if box is not None:
+                stack = _summing(stack, box)
+            # The field comes back on the host, so a picture reads it as before.
+            return to_host(split_step(F_start, plan.z_m, stack,
+                                      plan.z_total_m, boundary=mask))
+
+        # THE BEACON PASS SENSES. It runs whenever the correction needs a
+        # sensing source, or whenever it IS the returned field.
+        sum_box = [None]
+        beacon_box = sum_box if need_sum else None
+        F_beacon = (run_pass(None, beacon_box)
+                    if pa_angles is None or comp_modes is not None else None)
+        F_rx = (F_beacon if pa_angles is None
+                else run_pass(shift, None))
     finally:
         set_fft_backend(previous_backend)
     if comp_modes is not None:
         acc = _host_array(sum_box[0]) if need_sum else None
-        _apply_compensation(F_rx, comp_modes, comp_source, n_modes, acc,
-                            [False], "propagate_turbulent_field")
+        coeffs = _apply_compensation(F_beacon, comp_modes, comp_source, n_modes,
+                                     acc, [False], "propagate_turbulent_field")
+        if F_rx is not F_beacon:
+            # The BEACON estimate on the POINT-AHEAD field: the returned
+            # snapshot then shows the anisoplanatic residual.
+            F_rx.field = comp_modes.apply(F_rx.field, coeffs, sign=-1)
     return F_rx, grid, plan
 
 
@@ -2892,6 +3387,168 @@ if __name__ == '__main__':
     assert terr_eta_on.mean() > terr_eta_off.mean(), \
         (terr_eta_on, terr_eta_off)
 
+    # ---- 7f. the point ahead (an OPT-IN, default OFF) ----
+    theta30 = float(np.asarray(orbit30.point_ahead_rad).ravel()[0])
+    pa_kw = dict(n_trials=6, seed=17, preset="rapid")
+
+    # The resolver. Every accepted form gives a tuple of floats.
+    assert _resolve_point_ahead(None, orbit30) is None
+    assert _resolve_point_ahead("geometry", orbit30) == (theta30,)
+    assert _resolve_point_ahead(theta30, orbit30) == (theta30,)
+    assert _resolve_point_ahead([0.0, theta30], orbit30) == (0.0, theta30)
+
+    # THE DEFAULT DOES NOT MOVE. An explicit default is the None run, bit for
+    # bit, and the record then names no angle.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_none = propagate_turbulent_scenario(up_scn, orbit30, **pa_kw)
+        pa_explicit = propagate_turbulent_scenario(
+            up_scn, orbit30, point_ahead_rad=None, screen_margin_m=None,
+            **pa_kw)
+    assert pa_none.point_ahead_rad is None
+    assert pa_none.screen_margin_m == 0.0
+    assert pa_none.screen_n == pa_none.grid.n, (pa_none.screen_n,
+                                                pa_none.grid.n)
+    assert pa_none.fields_pa is None and pa_none.screen_phase_pa is None
+    assert all(t.eta_turb_pa is None for t in pa_none.trials)
+    for a, b in zip(pa_none.trials, pa_explicit.trials):
+        assert a.eta_turb == b.eta_turb, (a.eta_turb, b.eta_turb)
+        assert a.collected_power == b.collected_power, (a, b)
+
+    # A ZERO ANGLE WITH NO MARGIN IS THE BEACON PATH. The draw does not grow,
+    # the extra pass reads the same window, and its overlap is the overlap of
+    # the beacon, bit for bit.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_zero = propagate_turbulent_scenario(
+            up_scn, orbit30, point_ahead_rad=(0.0,), screen_margin_m=0.0,
+            **pa_kw)
+    assert pa_zero.screen_n == pa_zero.grid.n, pa_zero.screen_n
+    assert pa_zero.point_ahead_rad == (0.0,)
+    for a, b in zip(pa_zero.trials, pa_none.trials):
+        assert a.eta_turb == b.eta_turb, (a.eta_turb, b.eta_turb)
+        assert a.eta_turb_pa == (a.eta_turb,), (a.eta_turb_pa, a.eta_turb)
+
+    # TWO ANGLES ON THE AUTOMATIC MARGIN. The oversize screen grows, the zero
+    # angle still repeats the beacon, and the point-ahead angle does not.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_two = propagate_turbulent_scenario(
+            up_scn, orbit30, point_ahead_rad=(0.0, theta30), **pa_kw)
+    assert pa_two.screen_margin_m > 0.0, pa_two.screen_margin_m
+    assert pa_two.screen_n > pa_two.grid.n, (pa_two.screen_n, pa_two.grid.n)
+    assert pa_two.screen_n % SCREEN_DRAW_ALIGN == 0, pa_two.screen_n
+    for t in pa_two.trials:
+        assert t.eta_turb_pa[0] == t.eta_turb, (t.eta_turb_pa, t.eta_turb)
+        assert t.eta_turb_pa[1] != t.eta_turb, t.eta_turb_pa
+
+    # THE ANISOPLANATISM COSTS. A corrected run senses the BEACON, so the
+    # point-ahead direction keeps a residual: its mean overlap sits BELOW the
+    # corrected beacon overlap and ABOVE the uncorrected one. The two means sit
+    # a few percent apart on this small grid, so the check takes 12 trials.
+    pa_ao_kw = dict(pa_kw, n_trials=12)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_ao = propagate_turbulent_scenario(
+            up_ao, orbit30, point_ahead_rad=(0.0, theta30),
+            compensation=[AO(n_modes=10)], **pa_ao_kw)
+        pa_raw = propagate_turbulent_scenario(
+            up_ao, orbit30, point_ahead_rad=(0.0, theta30), **pa_ao_kw)
+    pa_ao_beacon = np.array([t.eta_turb for t in pa_ao.trials])
+    pa_ao_ahead = np.array([t.eta_turb_pa[1] for t in pa_ao.trials])
+    pa_raw_ahead = np.array([t.eta_turb_pa[1] for t in pa_raw.trials])
+    assert pa_ao.n_modes_corrected == 10, pa_ao.n_modes_corrected
+    assert pa_ao_ahead.mean() < pa_ao_beacon.mean(), \
+        (pa_ao_ahead.mean(), pa_ao_beacon.mean())
+    assert pa_ao_ahead.mean() > pa_raw_ahead.mean(), \
+        (pa_ao_ahead.mean(), pa_raw_ahead.mean())
+
+    # THE STORED POINT-AHEAD PLANES. One plane for each angle, and the screen
+    # phase only when the run stores it.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_store = propagate_turbulent_scenario(
+            up_ao, orbit30, point_ahead_rad=(0.0, theta30),
+            patch_radius_m=0.6 * ground_smf.aperture_m,
+            store_screen_phase=True, **pa_kw)
+    _n_pa, _n_px = 2, pa_store.patch.indices.size
+    assert pa_store.fields_pa.shape == (_n_pa, 6, _n_px), pa_store.fields_pa.shape
+    assert pa_store.fields_pa.dtype == np.complex64
+    assert pa_store.screen_phase_pa.shape == (_n_pa, 6, _n_px)
+    assert pa_store.screen_phase_pa.dtype == np.float32
+    # The ZERO-angle plane IS the beacon plane, and the shifted one is not.
+    assert np.array_equal(pa_store.fields_pa[0], pa_store.fields)
+    assert not np.array_equal(pa_store.fields_pa[1], pa_store.fields)
+    assert np.array_equal(pa_store.screen_phase_pa[0], pa_store.screen_phase)
+    assert pa_two.fields_pa is None, "no patch means no stored plane"
+
+    # The single-snapshot diagnostic takes ONE angle, and it gives the
+    # point-ahead field, which is NOT the beacon field.
+    F_beacon, _, _ = propagate_turbulent_field(up_scn, orbit30, seed=17,
+                                               trial=0, preset="rapid")
+    F_ahead, _, _ = propagate_turbulent_field(up_scn, orbit30, seed=17,
+                                              trial=0, preset="rapid",
+                                              point_ahead_rad="geometry")
+    F_pa_zero, _, _ = propagate_turbulent_field(up_scn, orbit30, seed=17,
+                                                trial=0, preset="rapid",
+                                                point_ahead_rad=0.0,
+                                                screen_margin_m=0.0)
+    assert not np.array_equal(F_ahead.field, F_beacon.field)
+    assert np.array_equal(F_pa_zero.field, F_beacon.field), \
+        "a zero angle with no margin must repeat the beacon snapshot"
+
+    # ---- the point-ahead failure modes ----
+    for bad, text in (("ahead", "geometry"), ((), "empty"),
+                      ((-1e-6,), "negative")):
+        try:
+            _resolve_point_ahead(bad, orbit30)
+            raise AssertionError(f"{bad!r} must raise ValueError")
+        except ValueError as exc:
+            assert text in str(exc), str(exc)
+    # A window past the oversize screen raises, and it names the numbers.
+    try:
+        propagate_turbulent_scenario(up_scn, orbit30, n_trials=1,
+                                     preset="rapid",
+                                     point_ahead_rad=(1e-3,),
+                                     screen_margin_m=0.0)
+        raise AssertionError("a window past the screen must raise ValueError")
+    except ValueError as exc:
+        assert "oversize screen" in str(exc), str(exc)
+    # A terrestrial scenario has no point-ahead angle.
+    try:
+        propagate_turbulent_scenario(terr_scn, path, n_trials=1,
+                                     preset="rapid", point_ahead_rad=1e-6)
+        raise AssertionError("a terrestrial point ahead must raise")
+    except ValueError as exc:
+        assert "SPACE scenario" in str(exc), str(exc)
+    # The two other generators have no split draw.
+    for gen in ("olb-lean", "aotools"):
+        try:
+            propagate_turbulent_scenario(
+                up_scn, orbit30, n_trials=1, preset="rapid",
+                point_ahead_rad=(0.0,), screen_generator=gen)
+            raise AssertionError(f"{gen} with a point ahead must raise")
+        except ValueError as exc:
+            assert "screen_generator='olb'" in str(exc), str(exc)
+    # The diagnostic takes ONE angle only.
+    try:
+        propagate_turbulent_field(up_scn, orbit30, preset="rapid",
+                                  point_ahead_rad=(0.0, theta30))
+        raise AssertionError("two angles must raise for the snapshot")
+    except ValueError as exc:
+        assert "ONE" in str(exc), str(exc)
+    # A LASER GUIDE STAR is the documented hook, and it is NOT built.
+    from ...scenario import DownlinkBeacon, LaserGuideStar
+    _beacon = sensing_geometry(pa_two.plan, DownlinkBeacon(), theta30)
+    assert np.all(_beacon.cone_scale == 1.0) and np.all(_beacon.include)
+    assert np.allclose(_beacon.shift_m,
+                       theta30 * _ground_distance(pa_two.plan))
+    try:
+        sensing_geometry(pa_two.plan, LaserGuideStar(), theta30)
+        raise AssertionError("a laser guide star must raise")
+    except NotImplementedError as exc:
+        assert "laser-guide-star" in str(exc), str(exc)
+
     # ---- 8. the precision switch ----
     # The default is "single" (owner decision 2026-09-05), so every result
     # above ran in single precision. A "double" run of the same seed gives the
@@ -3026,6 +3683,16 @@ if __name__ == '__main__':
     print(f"  V3 slope/screen gain    {v3_gain:11.5f}")
     print(f"  terrestrial SMF eta     {terr_eta_off.mean():11.6f} -> "
           f"{terr_eta_on.mean():.6f}")
+    print("")
+    print("the point ahead, uplink 30 deg, 12 trials, AO(10) on the ground:")
+    print(f"  angle                   {theta30 * 1e6:11.3f} urad "
+          f"({np.degrees(theta30) * 3600:.2f} arcsec)")
+    print(f"  screen margin           {pa_two.screen_margin_m:11.3f} m")
+    print(f"  screen side             {pa_two.grid.n:11d} -> "
+          f"{pa_two.screen_n} px")
+    print(f"  eta_turb, ahead, off    {pa_raw_ahead.mean():11.6f}")
+    print(f"  eta_turb, beacon, AO    {pa_ao_beacon.mean():11.6f}")
+    print(f"  eta_turb, ahead, AO     {pa_ao_ahead.mean():11.6f}")
     print("")
     print("single against double precision, 6 downlink trials:")
     print(f"  max relative difference {d_power.max():11.2e}")
