@@ -32,7 +32,7 @@ from olb.terminal import MMF, SMF, Terminal, Transmitter
 from olb.waveoptics.turbulence import Campaign
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                    "_campaign_demo2")
+                    "_campaigns", "campaign_demo")
 
 
 def main():

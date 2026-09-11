@@ -450,19 +450,22 @@ The campaign script:
   fidelity-2 BUDGET. It builds 1000 downlink snapshots (600 km, 30 deg, rapid
   preset) as ten blocks of 100, with `workers=4` (ONE warm process pool, and
   each block runs serially inside its process), into
-  `examples/waveoptics/_campaign_demo2/`. A second run of the script computes
-  NOTHING: the blocks sit on disk. The script then shows the canonical flow: ONE
-  scenario and ONE orbit serve the campaign AND the budgets, and the campaign
-  goes straight into the `wave` slot. `downlink_budget(scenario, orbit,
-  fidelity=2, wave=campaign)` gives 45.60 dB (extinction 0.43 dB + geometric
-  spreading 31.48 dB + wave-optics turbulence 13.68 dB, with no pointing
-  jitter), and `multi_detector_budgets(scenario, orbit, arms, fidelity=2,
-  wave=campaign)` gives 47.15 dB for the `SMF` arm (splitter 1.55 dB) and
-  37.23 dB for the `MMF` light-bucket arm (splitter 5.23 dB). The last section
-  is DIAGNOSTIC, outside the budget flow: `campaign.recouple(SMF(),
-  aperture_m=0.20)` couples the SAME stored fields into a smaller receive
-  aperture with no new propagation (mean eta 0.27681). The first run takes about
-  50 s, the second about 18 s.
+  `examples/waveoptics/_campaigns/campaign_demo/` (the store convention of
+  every campaign script). A second run of the script computes NOTHING: the
+  blocks sit on disk. The script then shows the canonical flow: ONE scenario
+  and ONE orbit serve the campaign AND the budgets, and the campaign goes
+  straight into the `wave` slot. `downlink_budget(scenario, orbit, fidelity=2,
+  wave=campaign)` gives 44.80 dB (extinction 0.43 dB + geometric spreading
+  31.48 dB + wave-optics turbulence 12.89 dB, with no pointing jitter), and
+  `multi_detector_budgets(scenario, orbit, arms, fidelity=2, wave=campaign)`
+  gives 46.35 dB for the `SMF` arm (splitter 1.55 dB) and 37.24 dB for the
+  `MMF` light-bucket arm (splitter 5.23 dB). The last section is DIAGNOSTIC,
+  outside the budget flow: `campaign.recouple(SMF(), aperture_m=0.20)` couples
+  the SAME stored fields into a smaller receive aperture with no new
+  propagation (mean eta 0.29665). The numbers are the single-precision default
+  of 2026-09-05 with the 25 m site outer scale of 2026-09-09 (measured
+  2026-09-11). The first run takes about 22 s of trials on four processes, the
+  second computes no trial.
   - API: `Campaign(scenario, geometry, root, seed=..., preset=...,
     block_size=..., sizing_aperture_m=...)`, then `campaign.run(1000, workers=4)`
     and `wave=campaign` on a budget. `campaign.recouple(detector,
