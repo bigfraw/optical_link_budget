@@ -435,8 +435,14 @@ bit, the post-hoc read of the stored planes matches an in-run campaign to
 9.0e-07, and the regeneration route is BIT IDENTICAL on the campaign backend;
 p1, at 30 deg the field and the fidelity-1 FAST Term agree inside 0.5 dB at
 every AO cell (the FAST run-to-run spread is 0.2 to 0.3 dB at 1000 draws), and
-at 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field, which is EXPECTED, because
-FAST propagates no field and holds no saturation; the Stone column overstates
+at 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field; the gaps hold THREE effects
+— the known `mask (1 - mask)` FAST servo-error leak (0.02 to 0.48 dB, every
+row), a +0.3 dB tip-tilt offset at 30 deg only, and a +0.4 to +1.3 dB growth
+with the airmass and the angle on the AO rows at 20 deg only — and the tilt
+diagnostic shows that ALL THREE RUNGS AGREE ON THE ANISOPLANATIC PHASE mode by
+mode (field/Stone 0.98 to 1.07, FAST/Stone 1.035 to 1.047), so every dB gap is
+a FLUX-MAP difference and the field, which alone carries the diffraction, is
+the reference for the map; the Stone column overstates
 everywhere (the extended Marechal saturates past 1 rad^2) and it is a REPORT,
 not a gate; p2, the p5 fade penalty at the geometry angle is 8 to 9 dB at 30 deg
 and 11 to 12 dB at 20 deg for AO(10)/AO(21), against 2.7 to 3.9 dB on the mean
@@ -450,6 +456,7 @@ writes 5 GB. See
 | File | Purpose |
 | --- | --- |
 | [waveoptics_pointahead/waveoptics_pointahead.py](waveoptics_pointahead/waveoptics_pointahead.py) | The driver. `--study p0 p1 p2 p3` runs (or reopens) the point-ahead campaigns and answers the four questions: do the record identities hold (p0); how large is the penalty against FAST and against Stone (p1); what does the point ahead do to the fade, not only to the mean (p2); is the penalty converged in the screen count (p3). It derives the three corrected stacks from the uncorrected campaign through `Campaign.recouple_point_ahead`, and it writes a log, a results JSON and two figures. |
+| [waveoptics_pointahead/tilt_anisoplanatism.py](waveoptics_pointahead/tilt_anisoplanatism.py) | The tilt diagnostic of p1. It propagates nothing: it reads the stored planes of the `base` campaigns and it gives the TILT decorrelation in rad^2, with NO extended-Marechal map, so the phase and the flux map are separated. It fits 21 Noll modes over the aperture mask, and it puts five routes next to each other — the summed-screen difference (the Stone quantity), the wrapped slopes and the G-tilt centroid of the propagated fields, the delta-layer Stone sum on the campaign's own plan with the pixel-rounded shifts, the continuous Stone integral at `L0 = 25 m` and at `L0 = infinity`, and the FAST tilt band (`ZMAX` 3 minus `ZMAX` 1, servo off, on an explicit 1024 px / 0.05 m grid). It writes `tilt_anisoplanatism.log`, `tilt_anisoplanatism_results.json` and `figures/tilt_anisoplanatism.png`. |
 
 ## gtilt_sensing/
 

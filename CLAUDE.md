@@ -727,8 +727,18 @@ Open items:
   the regeneration is bit-identical on the campaign backend); at 30 deg the
   field and FAST agree inside 0.5 dB at every AO cell (the FAST run-to-run
   spread is 0.2 to 0.3 dB at 1000 draws) and at 20 deg FAST reads 0.7 to 1.5 dB
-  ABOVE the field, which is EXPECTED and CONSERVATIVE, because FAST propagates
-  no field and holds no saturation; the Stone column overstates everywhere (the
+  ABOVE the field on the AO stacks; the TILT DIAGNOSTIC
+  (`validation/waveoptics_pointahead/tilt_anisoplanatism.py`, which reads the
+  stored planes with NO Marechal map) shows that ALL THREE RUNGS AGREE ON THE
+  ANISOPLANATIC PHASE mode by mode (the field tilt band is 1.02 to 1.07 of the
+  continuous von Karman Stone band at 30 deg and 0.98 to 1.04 at 20 deg, FAST is
+  1.035 to 1.047 of it, every Noll band is inside 7.4 percent), so the gaps are
+  a FLUX-MAP difference in THREE parts — the known `mask (1 - mask)` FAST
+  servo-error leak (0.02 to 0.48 dB, every row, both elevations), a +0.3 dB
+  tip-tilt map offset at 30 deg only, and a +0.4 to +1.3 dB growth with the
+  airmass and the angle on the AO rows at 20 deg only — and only the field
+  carries the diffraction, so THE FIELD IS THE REFERENCE FOR THE MAP; the Stone
+  column overstates everywhere (the
   extended Marechal saturates past 1 rad^2) and it is a REPORT, not a gate; the
   p5 fade penalty at the geometry angle is 8 to 9 dB at 30 deg and 11 to 12 dB
   at 20 deg for AO(10)/AO(21) against 2.7 to 3.9 dB on the MEAN (tip-tilt

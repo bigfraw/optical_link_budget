@@ -2689,9 +2689,48 @@ run log, a memory note or a backlog aside is not documented.
     0.5 dB at every AO cell, except two that read 0.50 to 0.58 dB, which is the
     FAST run-to-run spread of 0.2 to 0.3 dB at 1000 draws. At 20 deg FAST reads
     0.7 to 1.5 dB ABOVE the field at the geometry angle and at every larger
-    angle. The uncorrected (`base`) row is a NULL in both models, inside
-    0.25 dB of zero. The Stone column overstates everywhere, and it reads 8.3
-    to 12.3 dB at 20 deg against a field penalty of 2.1 to 6.5 dB.
+    angle. The FIELD puts the uncorrected (`base`) penalty at exactly zero by
+    construction; FAST does not, and its `base` row reads 0.02 to 0.48 dB,
+    which is the known `mask (1 - mask)` servo-error leakage of
+    `sim.aniso_servo_error` (Section 9j, caution 1). AFTER that leak is taken
+    away angle by angle, the gaps separate into THREE effects: (i) the leak
+    itself, in every row and at both elevations; (ii) a TIP-TILT offset of
+    about +0.3 dB at 30 deg (net +0.26 to +0.38 dB, one sign at all four
+    angles), which is ABSENT at 20 deg (net -0.23 to +0.17 dB); (iii) a growth
+    with the airmass and with the angle on the AO rows at 20 deg ONLY (net
+    +0.44 to +1.29 dB at the geometry angle and above, against -0.29 to
+    +0.33 dB on the same rows at 30 deg). The Stone column overstates
+    everywhere, and it reads 8.3 to 12.3 dB at 20 deg against a field penalty
+    of 2.1 to 6.5 dB.
+  - **The tilt diagnostic (`tilt_anisoplanatism.py`, 1000 trials of the stored
+    planes, no propagation).** It takes the extended-Marechal map away and it
+    reads the TILT decorrelation in rad^2. ALL THREE RUNGS AGREE ON THE
+    ANISOPLANATIC PHASE, mode by mode. The fitted tilt band of the summed-screen
+    difference reads 1.02 to 1.07 of the continuous von Karman Stone tilt band
+    at `L0 = 25 m` at 30 deg and 0.98 to 1.04 at 20 deg, against a 6 to 7
+    percent bootstrap 2-sigma bar. The wrapped-slope tilt of the PROPAGATED
+    field reads the screen route to 0.5 to 2.0 percent at the geometry angle
+    and above (3.9 percent at the smallest 2 arcsec angle, 20 deg). The
+    delta-layer sum on the campaign's own nine-screen plan, with the
+    pixel-rounded shifts, reads 0.986 to 0.999 of the continuous integral. The
+    FAST tilt band reads 1.035 to 1.047 of it, the same known mode-matched
+    excess of about 4.7 percent that Section 9j reads as 1.044 to 1.055 on its
+    own sweep. Every Noll band at the geometry angle
+    sits inside 7.4 percent of Stone per order (30 deg: tilt 0.597 against
+    0.556, order 2 0.189 against 0.194, order 3 0.092 against 0.088, orders 4-5
+    0.084 against 0.083, total 1.112 against 1.065 rad^2; 20 deg: 0.808 against
+    0.813, 0.286 against 0.283, 0.129 against 0.129, 0.120 against 0.122, total
+    1.529 against 1.556 — inside 2 percent on every 20 deg band). SO THE dB
+    GAPS LIVE IN THE MAP from a decorrelated phase to a coupled flux, NOT in
+    the phase: the Marechal map of the tilt variance alone reads 1.7 to 2.5
+    times (30 deg) and 2.4 to 4.0 times (20 deg) the measured field tip-tilt
+    penalty, because a decorrelated tilt STEERS the beam and the on-axis flux
+    falls more slowly than `exp(-sigma^2)`. FAST sits between the two maps: a
+    residual phase screen on the pupil overlapped with the launch mode, plus a
+    lognormal amplitude, and no propagation. The G-tilt (centroid) route
+    differs from the Z-tilt routes by 10 to 61 percent with no one sign, which
+    is the expected estimator difference under scintillation (Tyler,
+    DOI 10.1364/JOSAA.11.000358); note it, do not build on it.
   - **p2, the fade.** At the geometry angle the p5 loss rises by 8.2 dB
     (AO(10)) and 8.9 dB (AO(21)) at 30 deg, against 2.7 and 3.1 dB on the mean;
     tip-tilt pays 2.4 dB of p5 and the uncorrected stack pays zero inside its
@@ -2706,19 +2745,23 @@ run log, a memory note or a backlog aside is not documented.
     stored planes, 0.28 s for each trial of six passes.
 - **VERDICT.** MATCH, and the model of record does NOT move. The record holds
   together, the window rule reproduces Stone inside 5 percent, and the
-  production nine-screen plan needs no change. At 30 deg the field and the
-  fidelity-1 FAST Term agree inside 0.5 dB at every AO cell. At 20 deg FAST
-  reads 0.7 to 1.5 dB ABOVE the field, which is the CONSERVATIVE direction and
-  which a weak-fluctuation model must do: FAST propagates no field, so it holds
-  no saturation, while the field rung does saturate. So fidelity 1 (FAST) STAYS
-  the model of record for a pre-compensated uplink. Whether the fidelity-2
-  point-ahead Term ever takes that role is an open OWNER decision, and these
-  numbers are the input to it. The p2 result is the operational message: a link
-  that is sized on the MEAN point-ahead cost is under-sized, because the p5 cost
-  is three to four times larger.
+  production nine-screen plan needs no change. THE FIELD AND FAST AGREE ON THE
+  ANISOPLANATIC PHASE to better than 8 percent per Noll band, and to 5 percent
+  on every band but the 30 deg tilt. On the MEAN coupled flux they agree inside
+  0.5 dB at 30 deg after the known FAST servo-error leak, and FAST reads 0.5 to
+  1.3 dB more pessimistic at 20 deg on the AO stacks. EVERY dB gap is a
+  FLUX-MAP difference, not a phase difference: only the field rung carries the
+  diffraction, so THE FIELD IS THE REFERENCE FOR THE MAP. So fidelity 1 (FAST)
+  STAYS the model of record for a pre-compensated uplink, and it stays the
+  CONSERVATIVE rung at a low elevation. Whether the fidelity-2 point-ahead Term
+  ever takes that role is an open OWNER decision, and these numbers are the
+  input to it. The p2 result is the operational message: a link that is sized on
+  the MEAN point-ahead cost is under-sized, because the p5 cost is three to four
+  times larger.
 - **Script.** `validation/anisoplanatism_screens/` (the two phase-only studies)
-  and `validation/waveoptics_pointahead/` (the campaign study); the write-ups
-  are
+  and `validation/waveoptics_pointahead/` (the campaign study, the driver
+  `waveoptics_pointahead.py` and the tilt diagnostic
+  `tilt_anisoplanatism.py`); the write-ups are
   [validation/anisoplanatism_screens/README.md](../validation/anisoplanatism_screens/README.md)
   and
   [validation/waveoptics_pointahead/README.md](../validation/waveoptics_pointahead/README.md).

@@ -209,80 +209,113 @@ column IS the 2-AO perfect pre-compensation loss:
 
 The geometry angle is 5.24 arcsec at 30 deg and 3.58 arcsec at 20 deg.
 
+THE LEAK COLUMN. The FIELD puts the uncorrected (`base`) penalty at exactly
+zero by construction: with no corrected mode there is nothing to decorrelate.
+FAST does not. Its `base` row reads 0.02 to 0.48 dB, which is the known
+`mask (1 - mask)` servo-error leakage of `sim.aniso_servo_error` (measured in
+`validation/fast_stone_pointahead/`, caution 1: at a ZERO angle the shipped
+call reads 0.061 rad^2 where the true residual is exactly 0). That leak is in
+EVERY FAST row of the same elevation and angle, so the `net` column below takes
+it away: `net = gap - (FAST base penalty at the same angle)`.
+
 30 deg, 1000 trials, the anisoplanatic penalty in dB:
 
-| stack | angle | field | +- | FAST | gap | band | Stone |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| base | geom 5.24" | -0.051 | 0.135 | 0.198 | 0.249 | PASS | - |
-| base | 2" | -0.040 | 0.097 | 0.019 | 0.059 | PASS | - |
-| base | 5" | -0.080 | 0.136 | 0.247 | 0.327 | PASS | - |
-| base | 10" | 0.098 | 0.163 | 0.115 | 0.017 | PASS | - |
-| tiptilt | geom 5.24" | 1.227 | 0.075 | 1.733 | 0.505 | OVER | 2.453 |
-| tiptilt | 2" | 0.383 | 0.055 | 0.778 | 0.395 | PASS | 0.612 |
-| tiptilt | 5" | 1.180 | 0.075 | 1.740 | 0.560 | OVER | 2.332 |
-| tiptilt | 10" | 1.765 | 0.102 | 2.137 | 0.373 | PASS | 4.351 |
-| ao10 | geom 5.24" | 2.739 | 0.060 | 3.237 | 0.497 | PASS | 3.714 |
-| ao10 | 2" | 0.951 | 0.027 | 0.965 | 0.013 | PASS | 1.185 |
-| ao10 | 5" | 2.635 | 0.059 | 3.216 | 0.581 | OVER | 3.561 |
-| ao10 | 10" | 3.879 | 0.085 | 3.978 | 0.099 | PASS | 6.117 |
-| ao21 | geom 5.24" | 3.137 | 0.062 | 3.331 | 0.193 | PASS | 4.090 |
-| ao21 | 2" | 1.148 | 0.026 | 1.078 | -0.070 | PASS | 1.429 |
-| ao21 | 5" | 3.025 | 0.061 | 3.383 | 0.358 | PASS | 3.929 |
-| ao21 | 10" | 4.429 | 0.087 | 4.256 | -0.173 | PASS | 6.639 |
+| stack | angle | field | +- | FAST | gap | net | band | Stone |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base | geom 5.24" | -0.051 | 0.135 | 0.198 | 0.249 | 0.051 | PASS | - |
+| base | 2" | -0.040 | 0.097 | 0.019 | 0.059 | 0.040 | PASS | - |
+| base | 5" | -0.080 | 0.136 | 0.247 | 0.327 | 0.080 | PASS | - |
+| base | 10" | 0.098 | 0.163 | 0.115 | 0.017 | -0.098 | PASS | - |
+| tiptilt | geom 5.24" | 1.227 | 0.075 | 1.733 | 0.505 | 0.308 | OVER | 2.453 |
+| tiptilt | 2" | 0.383 | 0.055 | 0.778 | 0.395 | 0.376 | PASS | 0.612 |
+| tiptilt | 5" | 1.180 | 0.075 | 1.740 | 0.560 | 0.313 | OVER | 2.332 |
+| tiptilt | 10" | 1.765 | 0.102 | 2.137 | 0.373 | 0.258 | PASS | 4.351 |
+| ao10 | geom 5.24" | 2.739 | 0.060 | 3.237 | 0.497 | 0.300 | PASS | 3.714 |
+| ao10 | 2" | 0.951 | 0.027 | 0.965 | 0.013 | -0.005 | PASS | 1.185 |
+| ao10 | 5" | 2.635 | 0.059 | 3.216 | 0.581 | 0.334 | OVER | 3.561 |
+| ao10 | 10" | 3.879 | 0.085 | 3.978 | 0.099 | -0.016 | PASS | 6.117 |
+| ao21 | geom 5.24" | 3.137 | 0.062 | 3.331 | 0.193 | -0.004 | PASS | 4.090 |
+| ao21 | 2" | 1.148 | 0.026 | 1.078 | -0.070 | -0.088 | PASS | 1.429 |
+| ao21 | 5" | 3.025 | 0.061 | 3.383 | 0.358 | 0.111 | PASS | 3.929 |
+| ao21 | 10" | 4.429 | 0.087 | 4.256 | -0.173 | -0.287 | PASS | 6.639 |
 
 20 deg, 1000 trials:
 
-| stack | angle | field | +- | FAST | gap | band | Stone |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| base | geom 3.58" | 0.256 | 0.153 | 0.316 | 0.059 | PASS | - |
-| base | 2" | 0.232 | 0.132 | 0.265 | 0.033 | PASS | - |
-| base | 5" | 0.100 | 0.171 | 0.482 | 0.381 | PASS | - |
-| base | 10" | 0.032 | 0.181 | 0.189 | 0.157 | PASS | - |
-| tiptilt | geom 3.58" | 1.178 | 0.127 | 1.664 | 0.486 | PASS | 3.587 |
-| tiptilt | 2" | 0.696 | 0.106 | 0.833 | 0.137 | PASS | 1.672 |
-| tiptilt | 5" | 1.479 | 0.133 | 1.730 | 0.251 | PASS | 4.937 |
-| tiptilt | 10" | 2.102 | 0.142 | 2.300 | 0.197 | PASS | 8.317 |
-| ao10 | geom 3.58" | 3.466 | 0.078 | 4.433 | 0.967 | OVER | 5.429 |
-| ao10 | 2" | 2.094 | 0.057 | 2.523 | 0.429 | PASS | 2.945 |
-| ao10 | 5" | 4.093 | 0.094 | 5.030 | 0.937 | OVER | 7.129 |
-| ao10 | 10" | 5.707 | 0.116 | 6.778 | 1.070 | OVER | 11.448 |
-| ao21 | geom 3.58" | 3.940 | 0.079 | 4.781 | 0.841 | OVER | 5.979 |
-| ao21 | 2" | 2.392 | 0.054 | 2.780 | 0.388 | PASS | 3.360 |
-| ao21 | 5" | 4.733 | 0.091 | 5.654 | 0.921 | OVER | 7.785 |
-| ao21 | 10" | 6.534 | 0.117 | 8.015 | 1.481 | OVER | 12.349 |
+| stack | angle | field | +- | FAST | gap | net | band | Stone |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base | geom 3.58" | 0.256 | 0.153 | 0.316 | 0.059 | -0.256 | PASS | - |
+| base | 2" | 0.232 | 0.132 | 0.265 | 0.033 | -0.232 | PASS | - |
+| base | 5" | 0.100 | 0.171 | 0.482 | 0.381 | -0.100 | PASS | - |
+| base | 10" | 0.032 | 0.181 | 0.189 | 0.157 | -0.032 | PASS | - |
+| tiptilt | geom 3.58" | 1.178 | 0.127 | 1.664 | 0.486 | 0.170 | PASS | 3.587 |
+| tiptilt | 2" | 0.696 | 0.106 | 0.833 | 0.137 | -0.129 | PASS | 1.672 |
+| tiptilt | 5" | 1.479 | 0.133 | 1.730 | 0.251 | -0.231 | PASS | 4.937 |
+| tiptilt | 10" | 2.102 | 0.142 | 2.300 | 0.197 | 0.009 | PASS | 8.317 |
+| ao10 | geom 3.58" | 3.466 | 0.078 | 4.433 | 0.967 | 0.651 | OVER | 5.429 |
+| ao10 | 2" | 2.094 | 0.057 | 2.523 | 0.429 | 0.164 | PASS | 2.945 |
+| ao10 | 5" | 4.093 | 0.094 | 5.030 | 0.937 | 0.456 | OVER | 7.129 |
+| ao10 | 10" | 5.707 | 0.116 | 6.778 | 1.070 | 0.882 | OVER | 11.448 |
+| ao21 | geom 3.58" | 3.940 | 0.079 | 4.781 | 0.841 | 0.526 | OVER | 5.979 |
+| ao21 | 2" | 2.392 | 0.054 | 2.780 | 0.388 | 0.123 | PASS | 3.360 |
+| ao21 | 5" | 4.733 | 0.091 | 5.654 | 0.921 | 0.440 | OVER | 7.785 |
+| ao21 | 10" | 6.534 | 0.117 | 8.015 | 1.481 | 1.292 | OVER | 12.349 |
 
 `gap` is FAST minus the field. A POSITIVE gap means the field reads LESS
-penalty. The band column reads PASS while `|gap| <= 0.5` dB. Stone has no `base`
-row: with no corrected mode there is no decorrelation residual, so the penalty
-is zero by definition.
+penalty. `net` is that gap after the FAST `base` leak of the same angle is
+taken away. The band column reads PASS while `|gap| <= 0.5` dB, on the RAW gap.
+Stone has no `base` row: with no corrected mode there is no decorrelation
+residual, so the penalty is zero by definition. On the `base` stack the net
+column is the FIELD null with the sign turned around, because the leak IS the
+whole FAST base row.
 
-VERDICT: **the field and FAST agree at 30 deg, and FAST reads high at 20 deg,
-which is what a weak-fluctuation model must do.** THE MODE SET IS MATCHED
-across the three rungs: the tilt stays in the error of all three, and only the
-piston differs (Stone takes `remove='piston'`, FAST and the field keep it, and
-no overlap integral can see a piston).
+VERDICT: **the field and FAST agree inside 0.5 dB at 30 deg, and FAST reads 0.5
+to 1.3 dB more pessimistic at 20 deg on the AO stacks. THREE SEPARATE EFFECTS
+make the gaps, and NONE of them is a difference of anisoplanatic phase.** THE
+MODE SET IS MATCHED across the three rungs: the tilt stays in the error of all
+three, and only the piston differs (Stone takes `remove='piston'`, FAST and the
+field keep it, and no overlap integral can see a piston).
 
-At 30 deg the field and FAST agree inside the 0.5 dB band at every AO(10) and
-AO(21) cell, except two that read 0.50 to 0.58 dB. That is FAST's own Monte
-Carlo spread, not a bias: FAST at 1000 draws moves 0.2 to 0.3 dB between runs,
-and the first pass of this analysis read those same two cells at 0.28 and
-0.36 dB. The UNCORRECTED (`base`) row is a NULL in both models: every reading
-sits inside 0.25 dB of zero, which is correct, because an uncorrected beam has
-no correction to decorrelate. The tip-tilt row reads FAST about 0.4 to 0.6 dB
-above the field at 30 deg.
+THE THREE EFFECTS, read from the `net` column:
 
-At 20 deg FAST reads 0.7 to 1.5 dB ABOVE the field at the geometry angle and at
-every larger angle. THIS IS EXPECTED. FAST propagates no field. It is a
-weak-fluctuation model (a phase screen plus a lognormal amplitude), so it holds
-no saturation. The field rung does saturate, and the overshoot of FAST grows
-with the angle and with the airmass. That is why the OVER cells sit at 20 deg
-and not at 30 deg.
+1. **The FAST servo-error leak**, in every row and at both elevations. FAST
+   charges 0.02 to 0.48 dB of penalty where the field charges zero. This is a
+   FAST implementation effect, not physics, and the `net` column removes it.
+2. **A tip-tilt offset of about +0.3 dB at 30 deg.** The four `tiptilt` cells
+   read a net of +0.26, +0.31, +0.31 and +0.38 dB: one sign at every angle, so
+   it is an offset and not noise. At 20 deg that offset is GONE (net -0.23 to
+   +0.17 dB, which straddles zero).
+3. **A growth with the airmass and with the angle on the AO rows, at 20 deg
+   only.** The `ao10` and `ao21` cells read a net of +0.44 to +1.29 dB at the
+   geometry angle and above (and only +0.12 to +0.16 dB at 2 arcsec, the
+   smallest angle). At 30 deg the same rows read -0.29 to +0.33 dB, inside the
+   FAST run-to-run spread.
+
+THE TILT DIAGNOSTIC SETTLES WHERE THE MODELS DIFFER (the section below,
+`tilt_anisoplanatism.py`). ALL THREE RUNGS AGREE ON THE ANISOPLANATIC PHASE,
+mode by mode: the field tilt band reads 1.02 to 1.07 of the continuous von
+Karman Stone tilt band at 30 deg and 0.98 to 1.04 at 20 deg, against a 6 to 7
+percent bootstrap bar, and the FAST tilt band reads 1.035 to 1.047 of the same
+reference, its known mode-matched excess (physics.md Section 9j). So the dB
+differences live in the MAP from a decorrelated phase to a coupled flux, and
+NOT in the phase. Effect 2 is that map on the TILT, and effect 3 is the same map
+on the HIGHER ORDERS, where the residual phase is larger.
+
+THE UNCORRECTED (`base`) row is a NULL in the field: every field reading sits
+inside 0.26 dB of zero, which is correct, because an uncorrected beam has no
+correction to decorrelate.
 
 THE STONE COLUMN IS A REPORT, not a gate. It is the extended-Marechal mapping
 `(10 / ln 10) sigma^2`, which saturates past sigma^2 = 1 rad^2 (T. S. Ross,
 DOI 10.1364/AO.48.001812). So it overstates the penalty everywhere, and more at
 20 deg, where it reads 8.3 to 12.3 dB against a field penalty of 2.1 to
-6.5 dB.
+6.5 dB. The saturation reading applies to the Stone column and to effect 3; it
+is NOT the single cause of the 20 deg gaps.
+
+THE REFERENCE. Only the field rung carries the diffraction, so the field is the
+reference for the flux map. FAST puts a residual phase screen on the pupil,
+overlaps it with the launch mode and multiplies by a lognormal amplitude; it
+propagates no field. Fidelity 1 (FAST) STAYS the model of record until the owner
+decides.
 
 ![the penalty against the angle](figures/p1_penalty_vs_angle.png)
 
@@ -486,26 +519,107 @@ split of `ZMAX = 1` (the piston alone). The grid rule is the rule of
 THE SCRIPT PROPAGATES NOTHING. It reads the stored planes only. Run it from
 the repository root as a module of `validation.waveoptics_pointahead`.
 
-PLACEHOLDER. The table below is NOT MEASURED. Fill it from
-`tilt_anisoplanatism_results.json` after the run on the stored 1000-trial
-campaigns.
+THE TILT ANISOPLANATIC VARIANCE, in rad^2, 1000 trials of the stored `base`
+campaigns (`tilt_anisoplanatism.log`, `tilt_anisoplanatism_results.json`). The
+band-sum closure holds to 1.5e-15 at 30 deg and 3.6e-15 at 20 deg, against a
+1e-06 gate:
 
 | el [deg] | angle | screen tilt [rad^2] | +-2 sigma | slopes | G-tilt | Stone px | Stone 25 m | Stone inf | FAST | field/Stone | FAST/Stone |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| 30 | geom | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 30 | 2 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 30 | 5 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 30 | 10 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 20 | geom | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 20 | 2 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 20 | 5 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| 20 | 10 arcsec | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| 30 | geom 5.24" | 0.5966 | 0.0384 | 0.5938 | 0.5274 | 0.5551 | 0.5559 | 0.5652 | 0.5818 | 1.073 | 1.047 |
+| 30 | 2 arcsec | 0.1482 | 0.0110 | 0.1447 | 0.1963 | 0.1421 | 0.1434 | 0.1450 | 0.1485 | 1.033 | 1.035 |
+| 30 | 5 arcsec | 0.5679 | 0.0371 | 0.5652 | 0.5061 | 0.5266 | 0.5288 | 0.5373 | 0.5534 | 1.074 | 1.047 |
+| 30 | 10 arcsec | 0.9944 | 0.0618 | 0.9925 | 0.8890 | 0.9696 | 0.9777 | 1.0041 | 1.0227 | 1.017 | 1.046 |
+| 20 | geom 3.58" | 0.8078 | 0.0525 | 0.7920 | 0.8874 | 0.8056 | 0.8127 | 0.8262 | 0.8505 | 0.994 | 1.047 |
+| 20 | 2 arcsec | 0.3805 | 0.0246 | 0.3655 | 0.6115 | 0.3819 | 0.3867 | 0.3915 | 0.4019 | 0.984 | 1.039 |
+| 20 | 5 arcsec | 1.1286 | 0.0725 | 1.1103 | 1.1668 | 1.1123 | 1.1140 | 1.1375 | 1.1648 | 1.013 | 1.046 |
+| 20 | 10 arcsec | 1.9377 | 0.1238 | 1.9178 | 1.7659 | 1.8362 | 1.8621 | 1.9297 | 1.9480 | 1.041 | 1.046 |
+
+`screen` is the fitted tilt band of the summed-screen difference, which IS the
+Stone quantity. `slopes` and `G-tilt` read the PROPAGATED fields. `Stone px` is
+the delta-layer sum on the campaign's OWN plan with the pixel-rounded shifts.
+`field/Stone` and `FAST/Stone` divide by the continuous Stone integral at
+`L0 = 25 m`.
+
+THE NOLL BANDS of the summed-screen difference at the geometry angle, in rad^2:
+
+| band | 30 deg field | 30 deg Stone 25 m | 30 deg share | 20 deg field | 20 deg Stone 25 m | 20 deg share |
+|---|---|---|---|---|---|---|
+| tilt | 0.5966 | 0.5559 | 53.66% | 0.8078 | 0.8127 | 52.84% |
+| order 2 | 0.1888 | 0.1938 | 16.99% | 0.2864 | 0.2832 | 18.74% |
+| order 3 | 0.0922 | 0.0884 | 8.29% | 0.1289 | 0.1293 | 8.43% |
+| orders 4-5 | 0.0840 | 0.0835 | 7.56% | 0.1196 | 0.1220 | 7.82% |
+| remainder | 0.1500 | 0.1431 | 13.50% | 0.1860 | 0.2092 | 12.17% |
+| TOTAL | 1.1117 | 1.0646 | 100.00% | 1.5288 | 1.5564 | 100.00% |
+
+TOTAL is the mask variance of the PISTON-REMOVED difference; the remainder is
+what the 21-mode fit leaves. The piston row carries no Stone value, because
+`remove='piston'` takes the piston out of the Stone integral by definition (the
+measured piston of the difference is 2.183 rad^2 at 30 deg and 3.169 rad^2 at
+20 deg, and no overlap integral can see it).
+
+THE dB CONTEXT. The extended-Marechal map `(10 / ln 10) sigma^2` of the TILT
+variance ALONE, next to the MEASURED p1 tip-tilt penalty of the same angle:
+
+| el [deg] | angle | tilt [rad^2] | Marechal [dB] | p1 field [dB] | ratio |
+|---|---|---|---|---|---|
+| 30 | geom 5.24" | 0.5966 | 2.591 | 1.227 | 2.11 |
+| 30 | 2 arcsec | 0.1482 | 0.644 | 0.383 | 1.68 |
+| 30 | 5 arcsec | 0.5679 | 2.467 | 1.180 | 2.09 |
+| 30 | 10 arcsec | 0.9944 | 4.319 | 1.765 | 2.45 |
+| 20 | geom 3.58" | 0.8078 | 3.508 | 1.178 | 2.98 |
+| 20 | 2 arcsec | 0.3805 | 1.653 | 0.696 | 2.37 |
+| 20 | 5 arcsec | 1.1286 | 4.902 | 1.479 | 3.31 |
+| 20 | 10 arcsec | 1.9377 | 8.415 | 2.102 | 4.00 |
+
+VERDICT: **the three rungs agree on the anisoplanatic PHASE, mode by mode. The
+dB differences of p1 are a difference of the FLUX MAP, not of the phase.**
+
+1. THE FIELD MATCHES STONE. The fitted tilt band of the summed-screen
+   difference reads 1.02 to 1.07 of the continuous von Karman Stone tilt band
+   at 30 deg and 0.98 to 1.04 at 20 deg, against a 6 to 7 percent bootstrap
+   2-sigma bar. So the measurement and the analytic reference are the same
+   number inside the noise.
+2. THE PROPAGATED FIELD MATCHES THE SCREENS. The wrapped-slope tilt of the
+   propagated point-ahead field reads 0.5 to 2.0 percent of the screen route at
+   the geometry angle and above, and 2.4 percent (30 deg) to 3.9 percent
+   (20 deg) at the smallest 2 arcsec angle. So the propagation adds no tilt of
+   its own.
+3. THE PLAN CARRIES THE INTEGRAL. The delta-layer sum on the campaign's own
+   nine-screen plan, with the pixel-rounded shifts, reads 0.986 to 0.999 of the
+   continuous integral. This repeats the phase-only reading of
+   `validation/anisoplanatism_screens/` on the campaign's own screens.
+4. FAST MATCHES TOO. The FAST tilt band reads 1.035 to 1.047 of the same
+   reference at every angle, which is the same known mode-matched excess of
+   about 4.7 percent that `docs/physics.md` Section 9j reads as 1.044 to 1.055
+   on its own sweep.
+5. EVERY NOLL BAND MATCHES. At the geometry angle each band of the
+   summed-screen difference sits inside 7.4 percent of the Stone value per
+   order, and inside 4.3 percent on every band but the 30 deg tilt. The 20 deg
+   bands all sit inside 2 percent.
+
+SO THE MAP CARRIES THE dB GAPS. The extended-Marechal map of the tilt variance
+alone reads 1.7 to 2.5 times (30 deg) and 2.4 to 4.0 times (20 deg) the
+MEASURED field tip-tilt penalty. A decorrelated tilt STEERS the beam, and the
+on-axis flux falls more slowly than `exp(-sigma^2)`, so the Marechal map is the
+PESSIMISTIC edge and the field is the true map. FAST sits between the two: it
+puts a residual phase screen on the pupil, overlaps it with the launch mode and
+multiplies by a lognormal amplitude, but it propagates no field. That is p1
+effect 2 on the tilt and p1 effect 3 on the higher orders, where the residual
+phase is larger.
+
+THE G-TILT IS AN ESTIMATOR DIFFERENCE, not a result. The intensity-centroid
+(G-tilt) route reads 11 to 32 percent from the Z-tilt routes at 30 deg and 10
+to 61 percent at 20 deg, with no one sign. That is the expected difference of
+two tilt estimators under scintillation (Tyler, DOI 10.1364/JOSAA.11.000358, and
+`validation/gtilt_sensing/`). Note it; do not build on it.
 
 THE SMOKE TEST (2026-09-11, this laptop, 8 trials, `preset="rapid"`, two
-angles, 256 px, 5 screens) says only that the machinery runs: the band-sum
-closure held to 3e-16, and FAST read 1.047 of the continuous Stone tilt band
-at both angles. The field column of an 8-trial rapid store carries a +-2 sigma
-bar of 0.15 rad^2 on a 0.24 rad^2 value, so it is NOT a result.
+angles, 256 px, 5 screens) said only that the machinery runs. The production
+read above is 1000 trials of the stored 30 deg and 20 deg `base` campaigns; it
+propagates nothing and it took 383 s.
+
+![the tilt anisoplanatic variance](figures/tilt_anisoplanatism.png)
 
 ## The files
 
@@ -535,4 +649,7 @@ bar of 0.15 rad^2 on a 0.24 rad^2 value, so it is NOT a result.
   Media, 2nd ed. (2005), DOI 10.1117/3.626196.
 - T. S. Ross, "Limitations and applicability of the Marechal approximation,"
   Appl. Opt. 48(10), 1812 (2009), DOI 10.1364/AO.48.001812.
+- G. A. Tyler, "Bandwidth considerations for tracking through turbulence,"
+  J. Opt. Soc. Am. A 11(1), 358-367 (1994), DOI 10.1364/JOSAA.11.000358: the
+  G-tilt (the intensity-weighted mean phase gradient).
 - D. L. Fried, J. Opt. Soc. Am. 56, 1372 (1966), DOI 10.1364/JOSA.56.001372.
