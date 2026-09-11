@@ -566,7 +566,10 @@ def plot(rows):
     panels = (("n", "equal Rytov weight (production shape)"),
               ("aniso", "equal anisoplanatic weight, Cn2 centroid"),
               ("anisoc", "equal anisoplanatic weight, matched centroid"))
-    fig, axes = plt.subplots(1, len(panels), figsize=(13.0, 4.4), sharey=True)
+    # Each panel keeps its OWN axis. The two equal-anisoplanatic families read
+    # up to 4, and a shared axis would flatten the production panel, whose
+    # whole spread sits inside 0.85 to 1.02.
+    fig, axes = plt.subplots(1, len(panels), figsize=(13.0, 4.4), sharey=False)
     for ax, (family, title) in zip(axes, panels):
         for el in sorted({r["elevation_deg"] for r in rows}):
             xs, ys = [], []
@@ -587,6 +590,7 @@ def plot(rows):
         ax.set_title(title, fontsize=9)
         ax.grid(alpha=0.3)
     axes[0].set_ylabel("discrete sum / continuous Stone integral")
+    axes[0].set_ylim(0.85, 1.02)
     axes[0].legend(fontsize=8)
     fig.suptitle("Point-ahead anisoplanatism of the screen plan: "
                  "D = 0.7 m, 10 arcsec, max_order None", fontsize=10)
