@@ -426,9 +426,9 @@ def fast_penalties(elevation_deg, stack_name, angles, n_samples, say):
     NPXLS_TOL dB of the largest one. It copies the guard of
     `validation/waveoptics_ao/`.
 
-    FAST NEEDS AN ADAPTIVE-OPTICS STAGE. `uplink_fast_term` models a
-    PRE-COMPENSATED uplink, so it raises for the `base` and the `tiptilt`
-    stacks. The caller reports that as a skipped row.
+    EVERY STACK HAS A FAST ROW. An empty stack is the NOAO launch and a
+    tip-tilt stack is the TT launch (`olb.models.fast._ao_params`), so the
+    `base` and the `tiptilt` rungs sit next to the AO rungs on the same grid.
 
     Source: O. J. D. Farley and others, DOI 10.1364/OE.458659.
 
@@ -808,8 +808,6 @@ def run_p1(args):
             except ImportError as exc:
                 say(f"    fast-aosim is not available: {exc}")
                 args.no_fast = True
-            except ValueError as exc:
-                say(f"    FAST skips {name}: {exc}")
             except Exception as exc:            # noqa: BLE001
                 say(f"    FAST failed for {name}: "
                     f"{type(exc).__name__}: {exc}")
@@ -849,8 +847,6 @@ def run_p1(args):
             f"|gap| <= {FAST_PASS_DB:g} dB.")
         say("  Stone has no `base` row: with no corrected mode there is no "
             "decorrelation residual, so the penalty is zero by definition.")
-        say("  FAST has no `base` and no `tiptilt` row: uplink_fast_term "
-            "models a pre-compensated uplink and it needs an AO stage.")
         say()
 
         out["elevations"][str(el)] = {

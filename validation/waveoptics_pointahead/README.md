@@ -164,9 +164,10 @@ The angle goes in through `fast_params={"DTHETA": [arcsec, 0]}`, which the
 Term merges LAST, so it overrides the angle that the Term reads from the
 geometry. An NPXLS grid guard runs first at DTHETA = 0 and it pins the
 smallest grid within 0.15 dB of the largest, the guard of
-`validation/waveoptics_vs_fast/`. FAST models a PRE-COMPENSATED uplink, so it
-needs an `AO(n)` stage: the `base` and the `tiptilt` rows are skipped and the
-log says so.
+`validation/waveoptics_vs_fast/`. Every stack has a FAST row: an empty stack
+is the NOAO launch and a tip-tilt stack is the TT launch, the same map as the
+downlink Term (the old refusal of an uplink without an AO stage was an olb
+guard, lifted 2026-09-11).
 
 THE STONE PENALTY is `olb.links.uplink.uplink_point_ahead_term` with
 `remove='piston'` and `L0_m=25.0`, reported as

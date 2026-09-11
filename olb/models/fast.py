@@ -415,8 +415,10 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             If fast-aosim is not installed.
         ValueError
             If the scenario is not an uplink, if the elevation is not scalar, if
-            the ground terminal has no Transmitter waist, or if the ground
-            terminal has no adaptive-optics stage.
+            or if the ground terminal has no Transmitter waist. An EMPTY
+            compensation stack is accepted: it is the uncorrected (NOAO)
+            launch, and a TipTilt-only stack is the TT launch, the same map
+            as the downlink Term (owner decision, 2026-09-11).
     '''
     fast = _load_fast()
 
@@ -440,14 +442,18 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "uplink_fast_term needs a launch beam. Give the ground terminal a "
             "Transmitter with waist_m."
         )
-    if not any(isinstance(c, AO) for c in tx.compensation):
+    # THE STACK MAY BE EMPTY (owner decision, 2026-09-11). An empty stack maps
+    # to AO_MODE="NOAO" and a tip-tilt stack to AO_MODE="TT" (see _ao_params),
+    # exactly as the downlink Term does. FAST models both: the residual phase
+    # is then the full (or the tilt-removed) turbulence, and the reciprocity
+    # overlap still gives the uplink on-axis flux. The old refusal ("FAST does
+    # not model an uncorrected uplink") was an olb guard, not a FAST limit,
+    # and the point-ahead study needs the uncorrected and the tip-tilt rungs
+    # next to the AO rungs on the SAME FAST grid.
+    if tx.compensation is None:
         raise ValueError(
-            "uplink_fast_term models a PRE-COMPENSATED uplink, so the ground "
-            "terminal must have an AO(n_modes) stage in its compensation "
-            "stack. With no adaptive optics the FAST run degenerates to an "
-            "uncorrected beam that FAST does not model correctly for an "
-            "uplink. Use olb.links.uplink.uplink_turbulence_term (the "
-            "coupled-flux Monte Carlo) for the uncorrected route."
+            "uplink_fast_term needs a compensation stack on the ground "
+            "terminal; an empty list is the uncorrected (NOAO) launch."
         )
 
     # Bistatic override (see olb.terminal.Transmitter): the Transmitter values
@@ -789,12 +795,15 @@ if __name__ == '__main__':
     except ValueError:
         pass
 
-    # A ground terminal with no AO stage is refused.
-    try:
-        uplink_fast_term(_uplink([TipTilt()]), up_geom, n_samples=100)
-        raise AssertionError("no AO stage must raise")
-    except ValueError:
-        pass
+    # A ground terminal with no AO stage is ACCEPTED (2026-09-11): the empty
+    # stack is the NOAO launch and a TipTilt stack is the TT launch. More
+    # correction gives less loss: NOAO > TT > AO(60).
+    u_noao = up_term(_uplink([]), n=200)
+    u_tt = up_term(_uplink([TipTilt()]), n=200)
+    assert u_noao.meta["ao_mode"] == "NOAO" and u_noao.meta["zmax"] is None
+    assert u_tt.meta["ao_mode"] == "TT" and u_tt.meta["zmax"] is None
+    assert u_noao.mean_db > u_tt.mean_db > u60.mean_db, \
+        (u_noao.mean_db, u_tt.mean_db, u60.mean_db)
 
     print(f"FAST pre-compensated uplink (1.5 m, 60 deg, "
           f"{u60.meta['dtheta_arcsec']:.2f} arcsec point-ahead): "
