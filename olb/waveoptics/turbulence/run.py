@@ -1255,6 +1255,51 @@ def _ground_transmit_mode(ground, grid, dtype=np.complex128):
     return psi / np.sqrt((np.abs(psi) ** 2).sum())
 
 
+def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
+                          device_route=False):
+    """Give the VACUUM slab field and the free-space overlap baseline.
+
+    THE BASELINE IS THE SAME PATH WITH FLAT SCREENS. A space slab starts from a
+    unit plane wave that fills the grid, so the absorbing mask acts as a soft
+    aperture. Over a 40 km slab that soft edge makes strong Fresnel rings on
+    the axis. Those rings are a property of the GRID, not of the atmosphere. So
+    the reference is the SAME plane wave along the SAME hops through the SAME
+    mask, with FLAT screens. Then the vacuum limit of a turbulent output is
+    exactly 1.0, and every number is a pure turbulence penalty. The flat
+    screens share one array, because Screen() does not change its input.
+
+    THE RUNNER AND THE POST-HOC READERS CALL THIS ONE FUNCTION, so the
+    denominator of an in-run eta_turb and the denominator of a post-hoc
+    point-ahead overlap agree bit for bit. See point_ahead_overlap.
+
+    Args:
+        grid:         the GridSpec.
+        plan:         the ScreenPlan.
+        lam:          the wavelength, in m.
+        mask:         the absorbing boundary mask.
+        cdtype:       the complex type of the field.
+        psi_tx:       the normalised ground transmit mode, or None. It is the
+                      uplink reciprocity mode of Shapiro,
+                      DOI 10.1364/JOSA.61.000492.
+        device_route: True makes the flat screen on the CUDA device.
+
+    Returns:
+        The pair (F_vac, o_vac). F_vac is the HOST vacuum receive Field, and
+        o_vac is |sum(F_vac conj(psi_tx))|^2, or None with no psi_tx.
+    """
+    F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
+    # The flat screen goes up ONE time on the device route. A host route keeps
+    # the numpy array it always made.
+    flat = (xp().zeros((grid.n, grid.n)) if device_route
+            else np.zeros((grid.n, grid.n)))
+    F_vac = to_host(split_step(F_plane, plan.z_m,
+                               [flat] * int(plan.z_m.size),
+                               plan.z_total_m, boundary=mask))
+    o_vac = (None if psi_tx is None else
+             float(np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2))
+    return F_vac, o_vac
+
+
 def clip_terminal(scenario):
     '''
     Give the terminal whose aperture clips the propagated field.
@@ -1642,28 +1687,19 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # vacuum limit of each output below is exactly 1.0, and every
             # number is a pure turbulence penalty. The flat screens share one
             # array, because Screen() does not change its input.
-            F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
-            # The flat screen goes up ONE time on the device route. A host
-            # route keeps the numpy array it always made.
-            flat = (xp().zeros((grid.n, grid.n)) if device_route
-                    else np.zeros((grid.n, grid.n)))
-            # The receive field comes back to the host, so the clip, the power
-            # and the overlap below are the host code of old, under every
-            # backend.
-            F_vac = to_host(split_step(F_plane, plan.z_m,
-                                       [flat] * int(plan.z_m.size),
-                                       plan.z_total_m, boundary=mask))
-            p_reference = Power(_clip(F_vac, rx.aperture_m,
-                                      rx.obscuration_ratio))
-            psi_tx = o_vac = None
+            psi_tx = None
             if scenario.direction == "uplink":
                 psi_tx = _ground_transmit_mode(scenario.ground, grid,
                                                dtype=cdtype)
-                # The free-space baseline. It puts eta_turb on the same
-                # reference as the (w_free/w_st)^2 rescale of
-                # olb.turbulence.uplink_flux.
-                o_vac = float(
-                    np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2)
+            # The receive field comes back to the host, so the clip, the power
+            # and the overlap are the host code of old, under every backend.
+            # The free-space baseline o_vac puts eta_turb on the same reference
+            # as the (w_free/w_st)^2 rescale of olb.turbulence.uplink_flux.
+            F_vac, o_vac = space_vacuum_baseline(
+                grid, plan, lam, mask, cdtype, psi_tx=psi_tx,
+                device_route=device_route)
+            p_reference = Power(_clip(F_vac, rx.aperture_m,
+                                      rx.obscuration_ratio))
         else:
             F_in = _start_field(scenario, grid, lam, is_space=False,
                                 dtype=cdtype)
@@ -2587,16 +2623,21 @@ class _PostCorrector:
             n_fit, self.side,
             circle(self.side, aperture_m / patch.pixel_m, obscuration_ratio))
 
-    def correct(self, array, screen_phase=None):
-        """Remove the sensed modes from the field of one trial.
+    def coefficients(self, array, screen_phase=None):
+        """Fit the Noll coefficients that this corrector removes.
+
+        THE SENSING STEP AND THE APPLY STEP ARE APART. `correct` senses one
+        field and it corrects THAT field. A POINT-AHEAD read senses the BEACON
+        field and it corrects the field of ANOTHER direction, so it calls this
+        method and then `modes.apply`. See point_ahead_overlap.
 
         Args:
-            array:        the rebuilt field of one trial.
+            array:        the rebuilt field that the sensor reads.
             screen_phase: the stored summed screen phase of that trial, at the
                           patch pixels. source="screens" needs it.
 
         Returns:
-            The corrected field, an array of the same shape.
+            The Noll coefficients, a float array.
 
         Raises:
             ValueError: source="screens" and the caller gives no phase.
@@ -2625,7 +2666,25 @@ class _PostCorrector:
             sx, sy = wrapped_gradient(array, mask=self.modes.mask)
             coeffs = self.modes.estimate_from_slopes(sx, sy)
             coeffs[self.n_modes:] = 0.0
-        return self.modes.apply(array, coeffs, sign=-1)
+        return coeffs
+
+    def correct(self, array, screen_phase=None):
+        """Remove the sensed modes from the field of one trial.
+
+        Args:
+            array:        the rebuilt field of one trial.
+            screen_phase: the stored summed screen phase of that trial, at the
+                          patch pixels. source="screens" needs it.
+
+        Returns:
+            The corrected field, an array of the same shape.
+
+        Raises:
+            ValueError: source="screens" and the caller gives no phase.
+        """
+        return self.modes.apply(array,
+                                self.coefficients(array, screen_phase),
+                                sign=-1)
 
 
 def recouple(result, detector, aperture_m, obscuration_ratio, lam, *,
@@ -2789,6 +2848,480 @@ def recollect(result, aperture_m, obscuration_ratio, *, trials=None,
                                     compact=compact):
         out.append(tail.power(array))
     return np.array(out, dtype=float)
+
+
+# ---- the point-ahead post-hoc reads (backlog 2-P4) -------------------------
+#
+# THE OVERLAP CONVENTION of a pre-compensated uplink. Both readers below use
+# the convention of the runner:
+#
+#     eta = |sum(apply(F, coeffs, -1) * conj(psi_tx))|^2 / o_vac
+#
+# `coeffs` is the BEACON estimate, and F is the field of the POINT-AHEAD
+# direction. So the beacon senses one time, and the uplink pays what that
+# estimate misses at its own angle. Sources: Shapiro,
+# DOI 10.1364/JOSA.61.000492 (the reciprocity overlap); Stone, Hu, Mills and
+# Ma, DOI 10.1364/JOSAA.11.000347 (the angular anisoplanatism); Noll 1976,
+# DOI 10.1364/JOSA.66.000207 (the modal basis of the correction).
+#
+# THE TWO READERS. `point_ahead_overlap` reads the STORED planes, so it makes
+# no propagation and it answers ONLY the stored angles.
+# `point_ahead_regenerate` rebuilds the screens of a trial and it propagates,
+# so it answers ANY angle inside the drawn screen margin.
+
+
+def _uplink_ground(scenario, where):
+    """Give the ground terminal of a space scenario, or raise.
+
+    The overlap is the UPLINK reading of the stored downlink slab, so the
+    ground terminal must carry a Transmitter. The scenario DIRECTION is not
+    read: the field is the same slab in both directions (see clip_terminal).
+
+    Args:
+        scenario: a SpaceScenario.
+        where:    the caller name, for the error message.
+
+    Returns:
+        The ground Terminal.
+
+    Raises:
+        ValueError: the scenario is terrestrial, or the ground terminal has no
+                    transmitter.
+    """
+    if not hasattr(scenario, "ground"):
+        raise ValueError(
+            f"{where}: the point ahead needs a SPACE scenario. A terrestrial "
+            "path has no point-ahead angle: both terminals stand still.")
+    ground = scenario.ground
+    if ground.transmitter is None:
+        raise ValueError(
+            f"{where}: the reciprocity overlap needs the ground TRANSMIT "
+            "mode, and the ground terminal carries no Transmitter. See "
+            "olb.terminal.Transmitter.")
+    return ground
+
+
+def _transmit_mode_crop(ground, grid, patch, cdtype, compact=True):
+    """Give the ground transmit mode at the pixels of a stored read.
+
+    The mode is built on the FULL grid, exactly as the runner builds it, and
+    the crop route then keeps the crop pixels of it. The mode is ZERO outside
+    the launch aperture, and the launch aperture sits inside the stored patch,
+    so the crop holds every pixel that carries power. The overlap is a plain
+    inner product, so the crop and the full grid give the same value.
+
+    Args:
+        ground:  the ground Terminal.
+        grid:    the GridSpec of the record.
+        patch:   the FieldPatch of the record.
+        cdtype:  the complex type of the field.
+        compact: True gives the crop. False gives the full grid.
+
+    Returns:
+        A square complex array.
+
+    Raises:
+        ValueError: the launch aperture is larger than the stored patch.
+    """
+    aperture_m, _obscuration = _launch_aperture(ground)
+    if aperture_m / 2.0 > patch.radius_m:
+        raise ValueError(
+            f"the launch aperture radius ({aperture_m / 2.0:.4g} m) is larger "
+            f"than the stored patch radius ({patch.radius_m:.4g} m). The "
+            "ground transmit mode must sit inside the patch, or the overlap "
+            "loses power. Store a wider patch.")
+    psi = _ground_transmit_mode(ground, grid, dtype=cdtype)
+    if not compact:
+        return psi
+    crop = patch.crop()
+    o, s = crop.offset, crop.side
+    return psi[o:o + s, o:o + s]
+
+
+def point_ahead_overlap(result, compensation, scenario, *, source="screens",
+                        trials=None, compact=True, precision=None):
+    """Give the point-ahead uplink overlap of the STORED planes.
+
+    THE ROUTE MAKES NO PROPAGATION. It reads the stored point-ahead field of
+    each trial (`TurbWaveResult.fields_pa`), it corrects that field with the
+    BEACON estimate of the given stack, and it takes the reciprocity overlap
+    with the ground transmit mode. So a stored campaign gives the point-ahead
+    fade of ANY compensation stack, with no new trial. The answered angles are
+    the STORED angles (`TurbWaveResult.point_ahead_rad`); for another angle use
+    `point_ahead_regenerate`.
+
+    THE SENSING SOURCE. source="screens" reads the stored summed screen phase
+    of the BEACON window (`store_screen_phase=True`), which is the SPACE
+    source. source="slopes" reads the wrapped-gradient slopes of the stored
+    BEACON field. Both fit over the CLIP aperture, exactly as the runner does.
+
+    THE CROP RULE. The correction and the overlap are PUPIL-plane quantities,
+    so the default read works on the square crop of the stored patch.
+    compact=False reads on the full grid, which is the comparison route.
+
+    Args:
+        result:       a TurbWaveResult with stored point-ahead planes.
+        compensation: None (NO correction), the string "terminal", or a list of
+                      TipTilt and AO stages.
+        scenario:     the SpaceScenario of the record. Its GROUND terminal
+                      gives the transmit mode and the clip aperture.
+        source:       "screens" (the default), "slopes", or "gtilt".
+        trials:       an optional sequence of trial row indices. None takes
+                      every stored trial.
+        compact:      True reads on the crop (the default). False reads on the
+                      full grid.
+        precision:    "single" (the runner default), "double", or None for the
+                      runner default. It sets the type of the vacuum baseline
+                      and of the transmit mode, so it must match the run.
+
+    Returns:
+        A float array of the shape (n_trials_selected, n_angles). The column
+        order is the order of `result.point_ahead_rad`.
+
+    Raises:
+        ValueError: the record holds no point-ahead plane, the scenario is not
+                    a space scenario with a ground transmitter, the launch
+                    aperture is larger than the stored patch, the source name
+                    is unknown, or source="screens" and the record holds no
+                    stored screen phase.
+    """
+    if result.fields_pa is None or result.patch is None:
+        raise ValueError(
+            "point_ahead_overlap: this record holds no point-ahead field. Run "
+            "the campaign with point_ahead_rad AND patch_radius_m.")
+    ground = _uplink_ground(scenario, "point_ahead_overlap")
+    cdtype = field_dtype("single" if precision is None else precision)
+    patch = result.patch
+    psi_full = _transmit_mode_crop(ground, result.grid, patch, cdtype,
+                                   compact=False)
+    psi = _transmit_mode_crop(ground, result.grid, patch, cdtype,
+                              compact=compact)
+    # THE ONE VACUUM BASELINE OF THE CALL. It is the baseline of the runner,
+    # through the same function, so the two denominators agree bit for bit.
+    mask = super_gaussian_boundary(result.grid.n,
+                                   PRESETS[result.preset].boundary_width_frac)
+    _F_vac, o_vac = space_vacuum_baseline(
+        result.grid, result.plan, ground.wavelength_m, mask, cdtype,
+        psi_tx=psi_full)
+
+    rx = clip_terminal(scenario)
+    _stack, n_modes = _resolve_compensation(scenario, compensation)
+    corrector = None
+    if n_modes > 0:
+        corrector = _PostCorrector(patch, _stack, rx.aperture_m,
+                                   rx.obscuration_ratio, source,
+                                   compact=compact)
+        if source == "screens" and result.screen_phase is None:
+            raise ValueError(
+                "point_ahead_overlap: source='screens' needs the stored "
+                "summed screen phase of the BEACON window, and this record "
+                "holds none. Run the campaign with store_screen_phase=True, "
+                "or use source='slopes'.")
+    conj_psi = np.conj(psi)
+    rows = (list(range(result.fields_pa.shape[1])) if trials is None
+            else [int(r) for r in trials])
+    n_angles = int(result.fields_pa.shape[0])
+    out = np.empty((len(rows), n_angles), dtype=float)
+    for m, row in enumerate(rows):
+        coeffs = None
+        if corrector is not None:
+            beacon = _crop_array(patch, result.fields[row], compact=compact)
+            phase = (None if result.screen_phase is None
+                     else result.screen_phase[row])
+            coeffs = corrector.coefficients(beacon, phase)
+        for i in range(n_angles):
+            E = _crop_array(patch, result.fields_pa[i, row], compact=compact)
+            if coeffs is not None:
+                E = corrector.modes.apply(E, coeffs, sign=-1)
+            out[m, i] = float(np.abs((E * conj_psi).sum()) ** 2) / o_vac
+    return out
+
+
+class _PointAheadRunner:
+    """The screens, the grid and the baseline of a REGENERATED point-ahead read.
+
+    WHY IT EXISTS. `point_ahead_regenerate` answers ANY angle inside the drawn
+    screen margin, so it must rebuild the screens of a trial and propagate them
+    again. The screen factory, the boundary mask, the modal basis, the transmit
+    mode and the vacuum baseline do NOT change from trial to trial, so this
+    class builds them ONE time and each trial reads them.
+
+    THE ATMOSPHERE IS THE ATMOSPHERE OF THE RECORD. The noise of screen j of
+    trial k comes from `_screen_seed(entropy, k, j)`, which is the seed the
+    runner used, and the screen comes from `ScreenFactory.make_from_noise`,
+    which is the call the runner made. So a regenerated trial at a STORED angle
+    reproduces the stored value bit for bit on the same backend.
+
+    THE COST of one trial is ONE draw set of the screens, plus ONE split step
+    for each angle, plus ONE more split step when source="slopes" (the beacon
+    field is not stored on this route).
+    """
+
+    def __init__(self, result, angles, compensation, scenario, geometry, *,
+                 source="screens", fft_backend="numpy", precision=None,
+                 L0_m=None, subharmonics=True, screen_generator="olb"):
+        """Build the fixed parts of a regenerated read.
+
+        Args:
+            result:       the TurbWaveResult (or a Campaign load) of the run.
+            angles:       the point-ahead angles, as _resolve_point_ahead
+                          takes them.
+            compensation: None, "terminal", or a list of stages.
+            scenario:     the SpaceScenario of the record.
+            geometry:     the link geometry, for angles="geometry".
+            source:       "screens" (the default) or "slopes".
+            fft_backend:  "numpy" (the default), "scipy" or "cupy".
+            precision:    "single", "double", or None for the runner default.
+            L0_m:         the outer scale of the screens, in m. None reads the
+                          site value, which is the runner default.
+            subharmonics: True adds the three subharmonic levels.
+            screen_generator: "olb". The two other generators have no split
+                          draw, so they cannot repeat one atmosphere.
+
+        Raises:
+            ValueError: the record made no oversize draw and an angle is not
+                        0, a window falls off the oversize screen, the source
+                        name is unknown, or an option is unknown.
+        """
+        if source not in ("screens", "slopes"):
+            raise ValueError(
+                "point_ahead_regenerate: source must be 'screens' or "
+                f"'slopes', not {source!r}.")
+        if screen_generator != "olb":
+            raise ValueError(
+                "point_ahead_regenerate: the read needs "
+                f"screen_generator='olb', not {screen_generator!r}. The pass "
+                "rebuilds one atmosphere through ScreenFactory.draw and "
+                "make_from_noise, and the other generators have no such "
+                "split.")
+        self.ground = _uplink_ground(scenario, "point_ahead_regenerate")
+        self.grid = result.grid
+        self.plan = result.plan
+        self.lam = self.ground.wavelength_m
+        self.entropy = int(result.seed_entropy)
+        self.source = source
+        self.fft_backend = fft_backend
+        self.cdtype = field_dtype("single" if precision is None else precision)
+        self.n_screens = int(self.plan.z_m.size)
+        self.angles = _resolve_point_ahead(angles, geometry)
+        if self.angles is None:
+            raise ValueError(
+                "point_ahead_regenerate: give at least one angle. Pass 0.0 "
+                "for the beacon direction.")
+        n_draw = int(self.grid.n if result.screen_n is None
+                     else result.screen_n)
+        if n_draw <= int(self.grid.n) and max(self.angles) > 0.0:
+            raise ValueError(
+                f"point_ahead_regenerate: this record drew a {n_draw} px "
+                f"screen on a {int(self.grid.n)} px grid, so it holds NO "
+                "oversize margin and it answers the angle 0.0 only. Run the "
+                "campaign with point_ahead_rad (or screen_margin_m) to draw "
+                "the margin.")
+        self.n_draw = n_draw
+        self.shifts = _screen_windows(
+            self.plan, self.grid.n, self.grid.pixel_m, n_draw,
+            [sensing_geometry(self.plan, None, a) for a in self.angles])
+        self.mask = super_gaussian_boundary(
+            self.grid.n, PRESETS[result.preset].boundary_width_frac)
+        rx = clip_terminal(scenario)
+        self.stack, self.n_modes = _resolve_compensation(scenario,
+                                                         compensation)
+        previous = set_fft_backend(fft_backend)
+        try:
+            # L0_m=None reads the site outer scale, the runner default.
+            build = _screen_builder(screen_generator, self.grid,
+                                    resolve_outer_scale(L0_m, scenario),
+                                    subharmonics, dtype=self.cdtype,
+                                    n_draw=n_draw)
+            self.factory = build.factory
+            self.psi_tx = _ground_transmit_mode(self.ground, self.grid,
+                                                dtype=self.cdtype)
+            _F_vac, self.o_vac = space_vacuum_baseline(
+                self.grid, self.plan, self.lam, self.mask, self.cdtype,
+                psi_tx=self.psi_tx)
+        finally:
+            set_fft_backend(previous)
+        self.conj_psi = np.conj(self.psi_tx)
+        self.modes = None
+        if self.n_modes > 0:
+            # The SLOPE route fits more modes than it corrects and it zeros the
+            # extra, exactly as the runner does. See SLOPE_MIN_MODES.
+            n_fit = (self.n_modes if source == "screens"
+                     else max(self.n_modes, SLOPE_MIN_MODES))
+            self.modes = ApertureModes(
+                n_fit, self.grid.n,
+                circle(self.grid.n, rx.aperture_m / self.grid.pixel_m,
+                       rx.obscuration_ratio))
+            if source == "slopes":
+                self.modes.estimate_from_slopes(
+                    np.zeros((self.grid.n, self.grid.n - 1)),
+                    np.zeros((self.grid.n - 1, self.grid.n)))
+
+    def _screens(self, noise, angle_index):
+        """Yield the screens of one pass, one at a time, on its window."""
+        for j in range(self.n_screens):
+            scr = self.factory.make_from_noise(self.plan.r0_m[j], noise[j])
+            s = 0 if angle_index is None else int(self.shifts[angle_index][j])
+            yield scr[0:self.grid.n, s:s + self.grid.n]
+
+    def _propagate(self, noise, angle_index, box=None):
+        """Propagate one pass, and give the HOST receive Field back."""
+        stack = self._screens(noise, angle_index)
+        if box is not None:
+            stack = _summing(stack, box)
+        F_start = Begin(self.grid.size_m, self.lam, self.grid.n,
+                        dtype=self.cdtype)
+        return to_host(split_step(F_start, self.plan.z_m, stack,
+                                  self.plan.z_total_m, boundary=self.mask))
+
+    def trial(self, k, stored_phase=None, patch=None):
+        """Give the overlap of trial k at each angle.
+
+        Args:
+            k:            the TRUE trial index (the seed key), from 0.
+            stored_phase: the stored summed screen phase of the BEACON window
+                          of that trial, at the patch pixels, or None. The
+                          call checks it against the regenerated sum.
+            patch:        the FieldPatch of the stored phase, or None.
+
+        Returns:
+            A float array of one value for each angle.
+        """
+        previous = set_fft_backend(self.fft_backend)
+        try:
+            noise = [self.factory.draw(np.random.default_rng(
+                _screen_seed(self.entropy, int(k), j)))
+                for j in range(self.n_screens)]
+            coeffs = None
+            if self.modes is not None:
+                if self.source == "screens":
+                    # THE BEACON SUM IS FREE. The screens are regenerated
+                    # already, so the sum costs no propagation. _summing gives
+                    # the accumulation order of the runner.
+                    box = [None]
+                    for _scr in _summing(self._screens(noise, None), box):
+                        pass
+                    acc = _host_array(box[0])
+                    if stored_phase is not None and patch is not None:
+                        _check_screen_sum(acc, stored_phase, patch)
+                    coeffs = self.modes.estimate(
+                        acc.ravel()[self.modes.indices])
+                else:
+                    F_beacon = self._propagate(noise, None)
+                    sx, sy = wrapped_gradient(F_beacon.field)
+                    coeffs = self.modes.estimate_from_slopes(sx, sy)
+                    coeffs[self.n_modes:] = 0.0
+            out = np.empty(len(self.angles), dtype=float)
+            for i in range(len(self.angles)):
+                E = self._propagate(noise, i).field
+                if coeffs is not None:
+                    E = self.modes.apply(E, coeffs, sign=-1)
+                out[i] = (float(np.abs((E * self.conj_psi).sum()) ** 2)
+                          / self.o_vac)
+            return out
+        finally:
+            set_fft_backend(previous)
+
+
+def _check_screen_sum(acc, stored_phase, patch, tol=1e-6):
+    """Warn when a regenerated screen sum does not match the stored one.
+
+    The regenerated sum and the stored sum come from the same seeds, so they
+    must agree. A difference says the record and the read disagree on the
+    outer scale, the subharmonics, the generator or the precision.
+
+    Args:
+        acc:          the regenerated summed screen phase, a 2-D array.
+        stored_phase: the stored phase at the patch pixels.
+        patch:        the FieldPatch of the stored phase.
+        tol:          the largest accepted relative difference.
+
+    Raises:
+        ValueError: the two sums differ by more than `tol`.
+    """
+    got = np.asarray(acc).ravel()[patch.indices]
+    scale = float(np.abs(stored_phase).max())
+    if scale == 0.0:
+        return
+    err = float(np.abs(got - stored_phase).max() / scale)
+    if err > tol:
+        raise ValueError(
+            f"point_ahead_regenerate: the regenerated screen sum differs from "
+            f"the stored one by {err:.2e} (relative). The record and this "
+            "read do not share one atmosphere. Check L0_m, subharmonics, "
+            "screen_generator and precision against the campaign manifest.")
+
+
+def point_ahead_regenerate(result, angles, compensation, scenario, geometry, *,
+                           source="screens", trials=None, fft_backend="numpy",
+                           precision=None, L0_m=None, subharmonics=True,
+                           screen_generator="olb"):
+    """Give the uplink overlap at ANY angle inside the drawn screen margin.
+
+    THE ROUTE REGENERATES THE ATMOSPHERE. It rebuilds the screens of each trial
+    from the seeds of the record, it crops them at the window of each asked
+    angle, and it propagates. So it answers an angle the run never stored, and
+    a whole angle SWEEP comes from one stored campaign. The window must fit on
+    the oversize screen the record drew (`TurbWaveResult.screen_n`), and a
+    wider window raises with the numbers.
+
+    THE COST, per trial: ONE draw set of the screens, and ONE split step for
+    each angle. source="slopes" adds ONE more split step for the beacon field.
+    The stored-plane route `point_ahead_overlap` costs no propagation at all,
+    so use it whenever the angle is a stored angle.
+
+    THE RECORD DOES NOT CARRY THE FACTORY OPTIONS. `TurbWaveResult` holds the
+    grid, the plan, the screen side and the seed, but not the outer scale, the
+    subharmonics, the generator or the precision. So this function takes them,
+    with the runner defaults. A Campaign passes them from its manifest (see
+    Campaign.point_ahead). source="screens" checks the regenerated screen sum
+    against the stored one, when the record holds one, and it raises on a
+    disagreement.
+
+    Args:
+        result:       a TurbWaveResult of a run that drew the screen margin.
+        angles:       the point-ahead angles: the string "geometry", a float,
+                      or a sequence of floats, in rad.
+        compensation: None (NO correction), "terminal", or a list of stages.
+        scenario:     the SpaceScenario of the record.
+        geometry:     the link geometry, for angles="geometry".
+        source:       "screens" (the default) or "slopes".
+        trials:       an optional sequence of trial row indices. None takes
+                      every trial of the record.
+        fft_backend:  "numpy" (the default), "scipy" or "cupy".
+        precision:    "single", "double", or None for the runner default. It
+                      must match the run.
+        L0_m:         the outer scale of the screens, in m. None reads the site
+                      value, the runner default.
+        subharmonics: True adds the three subharmonic levels.
+        screen_generator: "olb". The other generators have no split draw.
+
+    Returns:
+        A float array of the shape (n_trials_selected, n_angles).
+
+    Raises:
+        ValueError: the record made no oversize draw and an angle is not 0, a
+                    window falls off the oversize screen, the scenario is not a
+                    space scenario with a ground transmitter, an option is
+                    unknown, or the regenerated screen sum does not match the
+                    stored one.
+    """
+    runner = _PointAheadRunner(
+        result, angles, compensation, scenario, geometry, source=source,
+        fft_backend=fft_backend, precision=precision, L0_m=L0_m,
+        subharmonics=subharmonics, screen_generator=screen_generator)
+    rows = (range(len(result.trials)) if trials is None
+            else [int(r) for r in trials])
+    out = []
+    for row in rows:
+        # The seed key holds the TRUE trial index, which is the index the seed
+        # reads. A block of a campaign starts at start_index, so the row and
+        # the trial index are not always the same number.
+        k = result.trials[row].seed_key[1]
+        phase = (None if result.screen_phase is None
+                 else result.screen_phase[row])
+        out.append(runner.trial(k, stored_phase=phase, patch=result.patch))
+    return np.asarray(out, dtype=float)
 
 
 if __name__ == '__main__':
@@ -3549,6 +4082,96 @@ if __name__ == '__main__':
     except NotImplementedError as exc:
         assert "laser-guide-star" in str(exc), str(exc)
 
+    # ---- 7g. the point-ahead POST-HOC reads (D1 and D2) ----
+    # THE STORED-PLANE ROUTE. A corrected run of the same seed gives the
+    # reference numbers, and point_ahead_overlap must reproduce them from the
+    # UNCORRECTED stored planes of pa_store.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        pa_store_ao = propagate_turbulent_scenario(
+            up_ao, orbit30, point_ahead_rad=(0.0, theta30),
+            patch_radius_m=0.6 * ground_smf.aperture_m,
+            store_screen_phase=True, compensation=[AO(n_modes=10)], **pa_kw)
+    pa_run_ao = np.array([t.eta_turb_pa for t in pa_store_ao.trials])
+    pa_run_raw = np.array([t.eta_turb_pa for t in pa_store.trials])
+
+    post_pa = point_ahead_overlap(pa_store, [AO(n_modes=10)], up_ao,
+                                  source="screens")
+    d_post_pa = float(np.abs(post_pa / pa_run_ao - 1.0).max())
+    assert post_pa.shape == pa_run_ao.shape, post_pa.shape
+    assert d_post_pa < 1e-5, (post_pa[0], pa_run_ao[0], d_post_pa)
+    # An UNCORRECTED read of an uncorrected record is the stored number.
+    post_pa_none = point_ahead_overlap(pa_store, None, up_ao)
+    d_none_pa = float(np.abs(post_pa_none / pa_run_raw - 1.0).max())
+    assert d_none_pa < 1e-5, (post_pa_none[0], pa_run_raw[0], d_none_pa)
+    # A DIFFERENT stack gives a different number.
+    post_pa_tt = point_ahead_overlap(pa_store, [TipTilt()], up_ao)
+    assert np.all(post_pa_tt != post_pa), (post_pa_tt[0], post_pa[0])
+    # The CROP route and the full-grid route agree.
+    post_pa_full = point_ahead_overlap(pa_store, [AO(n_modes=10)], up_ao,
+                                       source="screens", compact=False)
+    d_crop_pa = float(np.abs(post_pa / post_pa_full - 1.0).max())
+    assert d_crop_pa < 1e-12, (post_pa[0], post_pa_full[0], d_crop_pa)
+    # The SLOPE source reads the stored BEACON field, so it needs no phase.
+    post_pa_slopes = point_ahead_overlap(pa_store, [AO(n_modes=10)], up_ao,
+                                         source="slopes")
+    assert np.all(np.isfinite(post_pa_slopes) & (post_pa_slopes > 0.0))
+    # A subset of the trials reads back the same rows.
+    _sub = point_ahead_overlap(pa_store, None, up_ao, trials=[1, 3])
+    assert np.array_equal(_sub, post_pa_none[[1, 3]]), _sub
+
+    # THE REGENERATION ROUTE. At the STORED angles it must reproduce the
+    # in-run numbers BIT FOR BIT: the same seeds, the same screens, the same
+    # windows and the same overlap.
+    t_pa = time.perf_counter()
+    regen = point_ahead_regenerate(pa_store_ao, (0.0, theta30),
+                                   [AO(n_modes=10)], up_ao, orbit30)
+    pa_regen_s = (time.perf_counter() - t_pa) / (6 * 2)
+    assert np.array_equal(regen, pa_run_ao), (regen[0], pa_run_ao[0])
+    # A NEW angle inside the margin is finite, and it is not a stored value.
+    _mid = 0.5 * theta30
+    regen_mid = point_ahead_regenerate(pa_store_ao, [_mid], [AO(n_modes=10)],
+                                       up_ao, orbit30, trials=[0, 1])
+    assert regen_mid.shape == (2, 1), regen_mid.shape
+    assert np.all(np.isfinite(regen_mid) & (regen_mid > 0.0)), regen_mid
+    assert np.all(regen_mid[:, 0] != regen[:2, 1]), (regen_mid, regen[:2, 1])
+    # An UNCORRECTED regeneration of an uncorrected record repeats it.
+    regen_raw = point_ahead_regenerate(pa_store, (0.0, theta30), None, up_ao,
+                                       orbit30, trials=[0])
+    assert np.array_equal(regen_raw[0], pa_run_raw[0]), (regen_raw,
+                                                         pa_run_raw[0])
+
+    # ---- the post-hoc failure modes ----
+    try:
+        point_ahead_overlap(pa_two, None, up_ao)
+        raise AssertionError("a record with no stored plane must raise")
+    except ValueError as exc:
+        assert "point-ahead field" in str(exc), str(exc)
+    try:
+        point_ahead_overlap(pa_store, [AO(n_modes=10)], terr_scn)
+        raise AssertionError("a terrestrial scenario must raise")
+    except ValueError as exc:
+        assert "SPACE scenario" in str(exc), str(exc)
+    # A record with NO oversize draw answers the angle 0.0 only.
+    try:
+        point_ahead_regenerate(pa_zero, [theta30], None, up_scn, orbit30)
+        raise AssertionError("no margin with an angle must raise")
+    except ValueError as exc:
+        assert "oversize margin" in str(exc), str(exc)
+    # A window past the drawn screen names the numbers.
+    try:
+        point_ahead_regenerate(pa_store_ao, [1e-3], None, up_ao, orbit30)
+        raise AssertionError("a window past the screen must raise")
+    except ValueError as exc:
+        assert "oversize screen" in str(exc), str(exc)
+    # A screen sum that does not match the record raises.
+    try:
+        point_ahead_regenerate(pa_store_ao, [0.0], [AO(n_modes=10)], up_ao,
+                               orbit30, trials=[0], L0_m=3.0)
+        raise AssertionError("a different outer scale must raise")
+    except ValueError as exc:
+        assert "one atmosphere" in str(exc), str(exc)
+
     # ---- 8. the precision switch ----
     # The default is "single" (owner decision 2026-09-05), so every result
     # above ran in single precision. A "double" run of the same seed gives the
@@ -3693,6 +4316,11 @@ if __name__ == '__main__':
     print(f"  eta_turb, ahead, off    {pa_raw_ahead.mean():11.6f}")
     print(f"  eta_turb, beacon, AO    {pa_ao_beacon.mean():11.6f}")
     print(f"  eta_turb, ahead, AO     {pa_ao_ahead.mean():11.6f}")
+    print(f"  post-hoc planes, err    {d_post_pa:11.2e}")
+    print(f"  post-hoc uncorrected    {d_none_pa:11.2e}")
+    print(f"  post-hoc crop/full      {d_crop_pa:11.2e}")
+    print(f"  regenerated, stored ang  bit-identical")
+    print(f"  regenerated, s per angle {pa_regen_s:10.3f} s")
     print("")
     print("single against double precision, 6 downlink trials:")
     print(f"  max relative difference {d_power.max():11.2e}")

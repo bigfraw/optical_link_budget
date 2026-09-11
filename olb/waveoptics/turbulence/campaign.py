@@ -69,17 +69,22 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from ..field import field_dtype
 from ..grid import GridSpec
 from ..priority import boost_process_priority
 from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
-                  _crop_array, _field_patch, _patch_field, _PostCorrector,
+                  _crop_array, _field_patch, _patch_field, _PointAheadRunner,
+                  _PostCorrector,
                   _PostTail, _resolve_compensation, _resolve_point_ahead,
-                  _resolve_screen_margin, _screen_draw_n, clip_terminal,
-                  _resolve_seed, propagate_turbulent_scenario)
-from .sampling import ScreenPlan, resolve_outer_scale, turbulent_grid
+                  _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
+                  _uplink_ground, clip_terminal,
+                  _resolve_seed, propagate_turbulent_scenario,
+                  space_vacuum_baseline)
+from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
+from .splitstep import super_gaussian_boundary
 
 # The manifest name and the block name. A block file holds one block only, so a
 # stopped campaign keeps every finished block.
@@ -466,6 +471,115 @@ class _CompensateTrials(_CoupleTrials):
         eta = self._tail(rec).eta(
             corrector.correct(rec.array, rec.screen_phase))
         return np.nan if eta is None else float(eta)
+
+
+class _PointAheadTrials:
+    """The per-trial callable of `Campaign.recouple_point_ahead`.
+
+    It reads the STORED point-ahead planes of a trial, it corrects each one
+    with the BEACON estimate, and it gives the uplink reciprocity overlap of
+    each angle. So it makes no propagation. See
+    olb.waveoptics.turbulence.run.point_ahead_overlap.
+
+    The modal basis is the large cost of the read, so the callable builds it
+    ONE time for each block, in the record context. The transmit mode and the
+    vacuum baseline come from the parent, so no block computes them again.
+    """
+
+    def __init__(self, compensation, aperture_m, obscuration_ratio, psi,
+                 o_vac, source, compact=True):
+        """Hold the fixed parts of one read.
+
+        Args:
+            compensation:      the RESOLVED stack, or None for no correction.
+            aperture_m:        the clip aperture diameter, in m.
+            obscuration_ratio: the central obscuration of that aperture.
+            psi:               the ground transmit mode, on the same pixels as
+                               the trial arrays.
+            o_vac:             the free-space overlap baseline.
+            source:            "screens", "slopes", or "gtilt".
+            compact:           True works on the crop.
+        """
+        self.compensation = compensation
+        self.aperture_m = float(aperture_m)
+        self.obscuration_ratio = float(obscuration_ratio)
+        self.conj_psi = np.conj(psi)
+        self.o_vac = float(o_vac)
+        self.source = source
+        self.compact = bool(compact)
+
+    def __call__(self, rec):
+        if rec.arrays_pa is None:
+            raise ValueError(
+                "Campaign.recouple_point_ahead: this campaign stores no "
+                "point-ahead field. Make it with point_ahead_rad AND "
+                "patch_radius_m, and run it again.")
+        coeffs = None
+        if self.compensation is not None:
+            corrector = rec.context.get("pa_corrector")
+            if corrector is None:
+                corrector = _PostCorrector(rec.patch, self.compensation,
+                                           self.aperture_m,
+                                           self.obscuration_ratio, self.source,
+                                           compact=self.compact)
+                rec.context["pa_corrector"] = corrector
+            if self.source == "screens" and rec.screen_phase is None:
+                raise ValueError(
+                    "Campaign.recouple_point_ahead: source='screens' needs "
+                    "the stored summed screen phase, and this campaign holds "
+                    "none. Make it with store_screen_phase=True, or use "
+                    "source='slopes'.")
+            coeffs = corrector.coefficients(rec.array, rec.screen_phase)
+        out = []
+        for E in rec.arrays_pa:
+            if coeffs is not None:
+                E = corrector.modes.apply(E, coeffs, sign=-1)
+            out.append(float(np.abs((E * self.conj_psi).sum()) ** 2)
+                       / self.o_vac)
+        return np.asarray(out, dtype=float)
+
+
+class _RegeneratePointAhead:
+    """The per-trial callable of `Campaign.point_ahead`.
+
+    It REBUILDS the screens of a trial from the seeds of the campaign and it
+    propagates them at each asked angle. So it answers an angle the campaign
+    never stored. The screen factory, the boundary mask, the modal basis and
+    the vacuum baseline build ONE time for each block, in the record context.
+    See olb.waveoptics.turbulence.run.point_ahead_regenerate.
+    """
+
+    def __init__(self, record, angles, compensation, scenario, geometry,
+                 **options):
+        """Hold the fixed parts of one read.
+
+        Args:
+            record:   a small TurbWaveResult that names the grid, the plan,
+                      the preset, the seed entropy and the screen side.
+            angles:   the point-ahead angles, in rad.
+            compensation: None, "terminal", or a list of stages.
+            scenario: the SpaceScenario of the campaign.
+            geometry: the link geometry.
+            options:  the runner options of _PointAheadRunner.
+        """
+        self.record = record
+        self.angles = angles
+        self.compensation = compensation
+        self.scenario = scenario
+        self.geometry = geometry
+        self.options = dict(options)
+
+    def __call__(self, rec):
+        runner = rec.context.get("pa_runner")
+        if runner is None:
+            runner = _PointAheadRunner(self.record, self.angles,
+                                       self.compensation, self.scenario,
+                                       self.geometry, **self.options)
+            rec.context["pa_runner"] = runner
+        # THE ROW IS THE TRIAL INDEX. A campaign runs block b from the
+        # start_index b * block_size, so the campaign row IS the seed index.
+        return runner.trial(rec.row, stored_phase=rec.screen_phase,
+                            patch=rec.patch)
 
 
 class Campaign:
@@ -1330,6 +1444,148 @@ class Campaign:
                                screen_phase=(source == "screens"),
                                compact=compact)
 
+    def _point_ahead_ground(self, where):
+        """Give the ground terminal of a point-ahead read, or raise.
+
+        Args:
+            where: the caller name, for the error message.
+
+        Returns:
+            The ground Terminal.
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, or the scenario
+                        is not a space scenario with a ground transmitter.
+        """
+        if self.point_ahead_rad is None:
+            raise ValueError(
+                f"{where}: this campaign made no point-ahead pass. Make it "
+                "with point_ahead_rad, and run it again.")
+        return _uplink_ground(self.scenario, where)
+
+    def recouple_point_ahead(self, compensation, *, source=None, n_trials=None,
+                             workers=None, compact=True):
+        """Give the point-ahead uplink overlap of the STORED planes.
+
+        This is the campaign-level twin of
+        `olb.waveoptics.turbulence.run.point_ahead_overlap`. It corrects the
+        stored point-ahead field of each trial with the BEACON estimate of the
+        given stack, and it takes the reciprocity overlap with the ground
+        transmit mode. So a stored campaign gives the point-ahead fade of ANY
+        compensation stack, with NO new propagation. The answered angles are
+        the STORED angles (`Campaign.point_ahead_rad`); for another angle use
+        `Campaign.point_ahead`.
+
+        The transmit mode and the vacuum baseline are computed ONE time here,
+        and the modal basis builds one time for each block. See
+        `_PointAheadTrials`.
+
+        Args:
+            compensation: None (NO correction), the string "terminal", or a
+                          list of TipTilt and AO stages.
+            source:       "screens", "slopes", "gtilt", or None. None follows
+                          the channel family, so a space campaign senses the
+                          stored summed screen phase.
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs in this process. An int or "auto" opens a
+                          process pool (see `map_trials`).
+            compact:      True reads on the crop (the default). False reads on
+                          the full grid.
+
+        Returns:
+            A float array of the shape (n_trials, n_angles). The column order
+            is the order of `Campaign.point_ahead_rad`.
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, it stores no
+                        field, the scenario has no ground transmitter, or
+                        source="screens" and the campaign stored no screen
+                        phase.
+        """
+        where = "Campaign.recouple_point_ahead"
+        ground = self._point_ahead_ground(where)
+        if self.patch is None:
+            raise ValueError(
+                f"{where}: this campaign stores no field. Make it with a "
+                "patch_radius_m, and run it again.")
+        cdtype = field_dtype(self.precision)
+        psi_full = _transmit_mode_crop(ground, self.grid, self.patch, cdtype,
+                                       compact=False)
+        psi = _transmit_mode_crop(ground, self.grid, self.patch, cdtype,
+                                  compact=compact)
+        mask = super_gaussian_boundary(
+            self.grid.n, PRESETS[self.preset].boundary_width_frac)
+        _F_vac, o_vac = space_vacuum_baseline(
+            self.grid, self.plan, ground.wavelength_m, mask, cdtype,
+            psi_tx=psi_full)
+        if source is None:
+            source = ("screens" if hasattr(self.scenario, "ground")
+                      else "slopes")
+        stack, n_modes = _resolve_compensation(self.scenario, compensation)
+        rx = clip_terminal(self.scenario)
+        fn = _PointAheadTrials(stack if n_modes > 0 else None, rx.aperture_m,
+                               rx.obscuration_ratio, psi, o_vac, source,
+                               compact=compact)
+        return self.map_trials(
+            fn, n_trials=n_trials, workers=workers,
+            screen_phase=(source == "screens" and n_modes > 0),
+            compact=compact)
+
+    def point_ahead(self, angles, compensation, *, source=None, n_trials=None,
+                    workers=None, fft_backend="numpy"):
+        """Give the uplink overlap at ANY angle inside the drawn margin.
+
+        This is the campaign-level twin of
+        `olb.waveoptics.turbulence.run.point_ahead_regenerate`. It rebuilds the
+        screens of each stored trial from the seeds of the campaign, it crops
+        them at the window of each asked angle, and it propagates. So one
+        stored campaign answers a whole angle SWEEP. The factory options (the
+        outer scale, the subharmonics, the generator and the precision) come
+        from the MANIFEST, so the regenerated atmosphere is the stored one.
+
+        THE COST, per trial: ONE draw set of the screens, and ONE split step
+        for each angle. `recouple_point_ahead` costs no propagation, so use it
+        whenever the angle is a stored angle.
+
+        Args:
+            angles:       the point-ahead angles: the string "geometry", a
+                          float, or a sequence of floats, in rad.
+            compensation: None (NO correction), "terminal", or a list of
+                          stages.
+            source:       "screens" (the space source), "slopes", or None for
+                          the family rule.
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs in this process. An int or "auto" opens a
+                          process pool (see `map_trials`).
+            fft_backend:  "numpy" (the default), "scipy" or "cupy".
+
+        Returns:
+            A float array of the shape (n_trials, n_angles).
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, a window falls
+                        off the drawn screen, or an option is unknown.
+        """
+        self._point_ahead_ground("Campaign.point_ahead")
+        if source is None:
+            source = ("screens" if hasattr(self.scenario, "ground")
+                      else "slopes")
+        record = TurbWaveResult(
+            trials=[], grid=self.grid, plan=self.plan, report=None,
+            preset=self.preset, seed_entropy=_resolve_seed(self.seed),
+            screen_n=self.screen_n, screen_margin_m=self.screen_margin_m,
+            point_ahead_rad=self.point_ahead_rad)
+        fn = _RegeneratePointAhead(
+            record, angles, compensation, self.scenario, self.geometry,
+            source=source, fft_backend=fft_backend, precision=self.precision,
+            L0_m=self.L0_m, subharmonics=self.subharmonics,
+            screen_generator=self.screen_generator)
+        # The read needs NO stored field: it makes its own. The stored screen
+        # phase still comes through, because the screens route checks the
+        # regenerated sum against it.
+        return self.map_trials(fn, n_trials=n_trials, workers=workers,
+                               fields=False)
+
     def recollect(self, aperture_m=None, obscuration_ratio=None,
                   n_trials=None, workers=None, compact=True):
         """Give the collected power of each STORED trial, in grid units.
@@ -1412,6 +1668,7 @@ if __name__ == '__main__':
     root7 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck7_")
     root8 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck8_")
     root9 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck9_")
+    root10 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck10_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -1686,6 +1943,32 @@ if __name__ == '__main__':
                 return float(np.abs(rec.arrays_pa[1]).sum())
             assert np.all(camp8.map_trials(_shapes) > 0.0)
 
+            # ---- 11a. the point-ahead POST-HOC reads ----
+            # THE STORED-PLANE ROUTE. A CORRECTED campaign of the same seed
+            # gives the reference numbers, and recouple_point_ahead must
+            # reproduce them from the UNCORRECTED planes of camp8.
+            from ...terminal import AO
+            camp10 = Campaign(up_scn, orbit, root10,
+                              point_ahead_rad=(0.0, theta),
+                              store_screen_phase=True,
+                              compensation=[AO(n_modes=10)], **common)
+            assert camp10.run(8) == 8
+            pa_run = np.array([t.eta_turb_pa
+                               for t in camp10.load(8).trials])
+            pa_post = camp8.recouple_point_ahead([AO(n_modes=10)])
+            d_pa_post = float(np.abs(pa_post / pa_run - 1.0).max())
+            assert pa_post.shape == pa_run.shape, pa_post.shape
+            assert d_pa_post < 1e-5, (pa_post[0], pa_run[0], d_pa_post)
+            # An UNCORRECTED read gives the stored numbers back.
+            pa_stored = np.array([t.eta_turb_pa for t in got8.trials])
+            pa_none = camp8.recouple_point_ahead(None)
+            d_pa_none = float(np.abs(pa_none / pa_stored - 1.0).max())
+            assert d_pa_none < 1e-5, (pa_none[0], pa_stored[0], d_pa_none)
+            # THE REGENERATION ROUTE at a STORED angle is bit-identical.
+            pa_regen = camp8.point_ahead([theta], None, n_trials=4)
+            assert np.array_equal(pa_regen[:, 0], pa_stored[:4, 1]), \
+                (pa_regen[:, 0], pa_stored[:4, 1])
+
             # ---- 11b. an OLD block and an OLD manifest still read ----
             # Delete the three point-ahead keys of block 0 and of the manifest,
             # and the store must open and load as a campaign with no point
@@ -1744,10 +2027,14 @@ if __name__ == '__main__':
         print(f"  eta_turb, beacon        {got8.trials[0].eta_turb:11.6f}")
         print(f"  eta_turb, ahead         "
               f"{got8.trials[0].eta_turb_pa[1]:11.6f}")
+        print(f"  ahead AO(10), post hoc  {pa_post[0, 1]:11.6f} "
+              f"(worst relative error {d_pa_post:.1e})")
+        print(f"  ahead, regenerated       bit-identical "
+              f"({d_pa_none:.1e} on the stored read)")
         print("")
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
         for d in (root, root2, root3, root4, root5, root6, root7, root8,
-                  root9, rootN):
+                  root9, root10, rootN):
             shutil.rmtree(d, ignore_errors=True)

@@ -23,7 +23,8 @@ Sources:
 from .campaign import Campaign
 from .run import (RUN_OPTIONS, SensingGeometry, TurbTrial, TurbWaveResult,
                   check_run_option_coverage, clip_terminal, folded_terrestrial,
-                  grid_options, propagate_turbulent_field,
+                  grid_options, point_ahead_overlap,
+                  point_ahead_regenerate, propagate_turbulent_field,
                   propagate_turbulent_scenario, sensing_geometry,
                   split_run_options)
 from .sampling import (PRESETS, QualityPreset, SamplingReport, ScreenPlan,
@@ -49,6 +50,8 @@ __all__ = [
     'folded_terrestrial',
     'grid_options',
     'phase_screen',
+    'point_ahead_overlap',
+    'point_ahead_regenerate',
     'propagate_turbulent_field',
     'propagate_turbulent_scenario',
     'screen_r0',
