@@ -1182,17 +1182,29 @@ The path forward for each is a second reference or a derivation.
   would keep the box thin. MEASURED (bigfraw, 2026-09-13, pure crosswind
   `wind_dir_deg = 90`, 30 deg hero, `validation/temporal_screens/` scratch):
   the strips are a DISK cache, built on the HOST (scipy) one layer at a time,
-  then memory-mapped, so the peak build RAM is ONE box (about 2.2 GiB for the
-  biggest crosswind layer) and the SAVING is on the disk cache and the host
-  build FFT: the bounding-box cache is 12.2 GiB over 9 layers, the rotated
-  strips 6.7 GiB (0.55x). The GPU never FFTs a box. The COMPUTE is NOT the
-  blocker: a GPU bilinear crop is 0.071 ms per 512 px frame (0.28 s per layer
-  per 4000-frame record) and cubic 0.390 ms (1.56 s), against about 40 s of
-  propagation per record. The saving
-  is MODEST and MIS-ALIGNED (the rotation helps LEAST on the fast top layers,
-  where the box is biggest and the resultant angle is smallest, B/A = 0.66, and
-  MOST on the slow mid layers, B/A = 0.44), and the along-track default (the
-  usual case) gets NO benefit. THE REAL QUESTION is FIDELITY, not speed:
+  then memory-mapped. THE GENERATION of a crosswind box is the real cost, not
+  the memory or the per-frame crop: the whole along-track (thin) 9-layer plan
+  builds in 22.7 s and 0.52 GiB, but ONE perpendicular box layer (11897 x
+  43744) took 170 s and about 2.2 GiB stored, and it ballooned host RAM before
+  it reached layer 1, so the full 9-box crosswind build is roughly 25 min plus
+  the blow-up. The box FFT is 23x the area of the thin strip, and the
+  `ScreenFactory` filter builds float64 `meshgrid` arrays of the full 2-D size
+  (about 3.9 GiB each at that shape), so the box thrashes memory too. The
+  bounding-box disk cache is 12.2 GiB over 9 layers, the rotated strips 6.7 GiB
+  (0.55x). THE PER-FRAME ROTATION is cheap (a GPU bilinear crop is 0.071 ms per
+  512 px frame, 0.28 s per layer per 4000-frame record; cubic 0.390 ms, 1.56 s;
+  against about 40 s of propagation per record), so the rotation route wins on
+  GENERATION time and RAM, which is a strong case for a crosswind. TWO ROUTES:
+  (a) FFT the thin strip then rotate it ONCE onto a big axis-aligned grid and
+  slice as now (saves the big FFT, keeps the big memory, one interpolation
+  pass); (b) hold the thin strip and rotate each frame's crop (saves the FFT
+  AND the memory, one interpolation per crop). Either route needs a
+  ROTATION-CORNER PAD: a grid-aligned n x n crop rotated by theta has a strip
+  footprint of n(|cos theta| + |sin theta|), so the SHORT axis needs
+  n(cos theta + sin theta) + seam pad, an extra about 0.41 n at 45 deg and
+  negligible at the small angles of the fast layers. The along-track default
+  (the usual case) needs NONE of this, because its box IS the thin strip. THE
+  REAL QUESTION is FIDELITY, not speed:
   interpolating a phase screen smooths its high-frequency (Fresnel-scale)
   structure, the same reason the coarse screen died in P2
   (`validation/waveoptics_speed/`), so any rotated route needs a D(r) and a
