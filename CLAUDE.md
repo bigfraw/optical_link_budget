@@ -680,7 +680,8 @@ Open items:
   2 frames long, so dt = 0.5 ms only just resolves the duration, and no
   reference model checks these first temporal fade numbers (backlog 0-N6).
   NOT BUILT: a Fourier sub-pixel shift, temporal plus point-ahead, terrestrial
-  frozen flow, device-resident strips, and a variable dt (see backlog 2-P1b).
+  frozen flow, and a variable dt (see backlog 2-P1b; the device-resident strips
+  ARE built, see the rotated item below).
   THE CROSSWIND BOX FITS THE HOST (2026-09-13): the `ScreenFactory` noise
   draw and transform chain hold one grid at a time (bit-identical), and
   `table_dtype=np.float32` (an OPT-IN on `ScreenFactory` and `build_strips`)
@@ -739,7 +740,12 @@ Open items:
   PESSIMISTIC, the safe direction. The two misses are the SMF index (0.889
   +/- 0.099) and the SMF p1 (-1.252 +/- 2.312 dB), both inside about one
   bootstrap standard error. The pooled record holds 352 independent tilt
-  times for the fibre against about 75 for one 2 s record.
+  times for the fibre against about 75 for one 2 s record. SEVEN OPEN ENDS
+  STAY, and backlog 2-P1b lists them in order: the integer-pixel stutter of the
+  slow layers, the 5 to 7 percent low tilt of a thin strip, the under-sampled
+  fade tail, the single validated geometry, the missing temporal fade reference
+  model, the time step against the fade duration, and five documented limits
+  (point-ahead, terrestrial, a variable dt, one wind direction, no boiling).
 - **Several detectors, the master turbulence switch, and the Camera are BUILT
   (2026-09-02).** A `Terminal` still holds ONE detector: about twenty detector
   dispatch sites read that one field, so a receive path that feeds more than one

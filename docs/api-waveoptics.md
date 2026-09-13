@@ -702,7 +702,13 @@ wind profile; it does not import the runner, so the seed rule has no cycle.
   `aotools` path. It draws a DIFFERENT random atmosphere from `aotools` for the
   same seed. The broad validity pass shows the two agree in the mean collected
   power, the aperture `sigma2_I`, and the fade tail; see
-  `validation/waveoptics_speed/generator_validation.py`.
+  `validation/waveoptics_speed/generator_validation.py`. `table_dtype=np.float32`
+  (an OPT-IN, 2026-09-13) builds the FILTER TABLES in single precision. It
+  halves the peak memory of the build, which a large crosswind strip needs, and
+  it moves the screen at the rounding level only (max 1.1e-5 rad, `D(r)`
+  identical to six digits). None (the default) keeps the float64 tables of
+  record, so every screen stays bit-identical. The subharmonic tables are small
+  and they stay float64.
 
 **A STRIP: `nx=` (2026-09-13).** `nx` makes a RECTANGULAR screen of `n` rows and
 `nx` columns at one pitch. The frozen-flow time axis of Section 9i needs it: one
@@ -1100,8 +1106,10 @@ frames of one record.
   are built ONE time before the trial loop, and a frame then draws NO random
   number. It needs a SPACE (downlink slab) plan; a terrestrial plan raises
   `NotImplementedError`, and so does `temporal` with `point_ahead_rad`. The
-  CUDA route keeps the strips on the host and uploads each crop, so it takes
-  the plain loop and not the pipelined host draw. `TurbWaveResult.temporal`
+  CUDA route takes the plain loop and not the pipelined host draw. It uploads
+  each crop on the ALONG-TRACK route, and it holds the whole strip on the
+  device on the ROTATED route (`open_strips(..., on_device=True)`), so a
+  rotated frame uploads nothing. `TurbWaveResult.temporal`
   holds the spec. See Section 9i.
 - `h_gl` is the sequence of forced GROUND heights of the screen plan, in m.
   `None` (the default) keeps the plain equal-Rytov cut. It reaches the SIZER
@@ -2187,8 +2195,10 @@ t = camp.t_s()                       # the derived time axis, in s.
   default) keeps the plain call, which the validation scripts use as the
   control.
 
-THE ROTATED STRIP IS AN OPT-IN (2026-09-13, backlog 2-P1b item 10), and the
-runner and `Campaign` do NOT read it yet. A CROSSWIND turns the walk of a
+THE ROTATED STRIP IS THE CROSSWIND DEFAULT (2026-09-13, backlog 2-P1b item 10),
+and the runner and `Campaign` read it: a `TemporalSpec` threads through
+`propagate_turbulent_scenario` and `Campaign` as it is, and the runner picks the
+route from `strip_plan`. A CROSSWIND turns the walk of a
 layer away from the x axis, so the axis-aligned box grows its SHORT axis: the
 30 deg hero at `wind_dir_deg = 90` asks for a 11897 x 43744 box (520 Mpx) for
 one jet-level layer. The rotated thin strip of the same layer is 1080 x 44576

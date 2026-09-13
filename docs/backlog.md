@@ -1157,8 +1157,12 @@ The path forward for each is a second reference or a derivation.
   a frame takes a window that MOVES, so the two windows on one strip need their
   own design; the runner raises; (3) TERRESTRIAL frozen flow — a horizontal
   path has no slew and no Bufton profile, so it needs its own velocity model;
-  the runner raises on a non-downlink plan; (4) DEVICE-RESIDENT strips — a cupy
-  run uploads each crop, about 9 MiB per frame at 1024 px; (5) a VARIABLE `dt`
+  the runner raises on a non-downlink plan; (4) DEVICE-RESIDENT strips — DONE
+  (2026-09-13, step 4 (c) of item (10)): `open_strips(paths, on_device=True)`
+  uploads the strips one time and the runner does that for the ROTATED route
+  under the `"cupy"` backend, so a rotated frame uploads nothing. The
+  along-track route keeps the memory map, because its frame is a plain slice;
+  (5) a VARIABLE `dt`
   — `Campaign.t_s` derives the time as `row * dt_s`; (6) a FINER `dt` — the
   median SMF fade event of gate (e) lasts 2 frames at `dt = 0.5 ms`, so the
   duration is only just resolved; (7) a TEMPORAL FADE REFERENCE MODEL — gate
@@ -1175,7 +1179,8 @@ The path forward for each is a second reference or a derivation.
   Not started; the owner does not want it yet; (9) a one-layer record
   against the Tyler tilt spectrum (DOI 10.1364/JOSAA.11.000358) as the
   real corner test that gate (d) lacks; (10) the ROTATED THIN STRIP for a
-  CROSSWIND, MEDIUM URGENCY (owner, 2026-09-13). The strip is an axis-aligned
+  CROSSWIND — DONE through step 5 (2026-09-13): the rotated route is the
+  crosswind DEFAULT. The history of the five steps follows. The strip is an axis-aligned
   bounding box of the diagonal walk `v = v_slew (+x) + v_buf (wind_dir_deg)`,
   so a crosswind grows the SHORT axis and the box balloons. A thin strip
   rotated to each layer's resultant velocity, with a per-frame rotated crop,
@@ -1355,6 +1360,56 @@ The path forward for each is a second reference or a derivation.
   each record) against about 75 for the single 2 s record, 1539 for the
   bucket and 4567 for the point. See `validation/temporal_screens/README.md`,
   the step 5 section, for the full table.
+
+  OPEN ENDS after the crosswind work (2026-09-13). Seven items stay open. They
+  are ordered by priority.
+
+  1. HIGH. THE SLOW LAYERS STUTTER. `frame_offsets` rounds the walk to INTEGER
+     pixels. At `dx = 6.86 mm` and `dt = 0.5 ms` the ground layer at 11 m/s
+     moves 5.5 mm in one frame, which is under one pixel, so it advances in
+     jumps of 0 or 1 px. The 137 m/s top layer moves 20 px in the same frame.
+     This bites the low-frequency end of the temporal spectrum and the tilt of
+     the layer that holds 73 percent of the `Cn2`. The rotated route already
+     shears in the Fourier domain, and a shear makes a sub-pixel shift a plain
+     phase ramp, so an exact sub-pixel walk is a small build (it is item (1)
+     above, the Fourier sub-pixel shift). GATE: the tilt temporal PSD of the
+     ground layer ALONE against the Tyler spectrum (DOI 10.1364/JOSAA.11.000358).
+  2. HIGH. THE THIN STRIP READS THE TILT LOW. Both thin routes, along track and
+     rotated, carry 5 to 7 percent LESS Zernike tilt variance than the exact
+     box (0.2 to 0.3 dB of tilt power, 2 SE 0.08). The along-track strip also
+     reads `D(r)` 5 to 9 percent low along its LONG axis at 0.18 to 0.70 m
+     (`validation/temporal_screens/route_equivalence.py`). That is a bias of
+     the route of record. Find out whether it comes from the BAND rule of the
+     `fy = 0` row or from the short axis. The fibre fade is tilt-driven, so
+     this bias goes straight into the fibre numbers.
+  3. MEDIUM. THE FADE TAIL IS UNDER-SAMPLED. At 10 s of pooled atmosphere the
+     SMF p1 carries a 2.3 dB bar and the SMF scintillation index misses by
+     1.1 SE, so neither is resolved. The p1 line holds about 3.5 samples for
+     each realisation, which is under the ten-sample rule of
+     `EmpiricalSampler`. This needs more RECORDS, not a new method: run
+     `rotated_record_parity.py --records N` at a larger `N`.
+  4. MEDIUM. ONE GEOMETRY IS VALIDATED. Every parity number comes from 30 deg
+     elevation, a 90 deg wind, one `Cn2` profile and `L0 = 25 m` (the per-layer
+     angles did span 7 to 87 deg). NOT RUN: 20 deg, a headwind or a tailwind,
+     and a stronger ground layer. The taper gate of `rotation_taper.py` reads
+     an ABSOLUTE ring error in radians, and the seam step scales with the phase
+     rms, so a strong path needs its own taper check.
+  5. MEDIUM. NO REFERENCE MODEL CHECKS THE TEMPORAL FADE NUMBERS. The fade rate
+     and the mean fade duration of gate (e) have no external check (this is
+     item (7) above and backlog 0-N6). `olb/turbulence/andrews/temporal.py`
+     holds the Greenwood frequency, `tau0`, the fade rate and the fade duration
+     (DOI 10.1117/3.626196, Ch. 11), and no Term consumes them. A comparison
+     script is the cheap anchor.
+  6. LOW. THE TIME STEP AGAINST THE FADE DURATION. The median SMF event lasts
+     2 frames at `dt = 0.5 ms`, so the step only just resolves a duration. The
+     2 ms pooled run was a STATISTICS test, not a duration test. A duration
+     study needs the fine step AND long records together, which costs more than
+     either one alone.
+  7. LOW. FIVE DOCUMENTED LIMITS, none of them bounded by a measurement:
+     temporal plus point-ahead (item (2) above), terrestrial frozen flow (item
+     (3)), a variable `dt` (item (5)), ONE wind direction for every layer, and
+     NO boiling (the model is pure Taylor frozen flow, DOI
+     10.1098/rspa.1938.0032).
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.

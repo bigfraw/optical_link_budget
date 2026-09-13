@@ -6,8 +6,9 @@ stack: each layer gets ONE oversized RECTANGULAR screen, a STRIP, and a frame
 is a crop of the strip at an integer pixel offset (Taylor frozen flow,
 DOI 10.1098/rspa.1938.0032).
 
-These five scripts are gates (a) to (e) of that build. Run each from the
-repository root.
+The first five scripts are gates (a) to (e) of that build. The others measure
+the memory of a strip build, the ROTATED thin strip of a crosswind, and the
+pictures of one record. Run each from the repository root.
 
 | script | gate | what it measures |
 |---|---|---|
@@ -16,6 +17,7 @@ repository root.
 | `frame0_parity.py` | (c) | frame 0 of a record against a drawn snapshot: the aperture scintillation index and the mean fibre coupling |
 | `tilt_spectrum.py` | (d) | the Z-tilt spectrum of one record: the -2/3 law and the corner, against the Greenwood frequency |
 | `hero_temporal.py` | (e) | the fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. SMOKE DONE 2026-09-13 (3.6 s); the FULL run DONE 2026-09-13 on the bigfraw GPU (727 s) |
+| `table_precision.py` | — | the MEMORY of one strip build: the new noise draw and transform chain, and the `table_dtype=np.float32` opt-in of `ScreenFactory` and `build_strips` |
 | `rotated_strip_gate.py` | — | the ROTATED thin strip of a crosswind against the axis-aligned box and against the unrotated cut of the same crop (backlog 2-P1b item 10) |
 | `route_equivalence.py` | — | are the THREE strip routes (along track, box, rotated) the SAME screen? D(r), the tilt, the piston-free and the raw variance, and the power spectrum in radial bands, over 64 seeds |
 | `rotation_taper.py` | — | six cures for the seam ringing of the three shears, against the rotation of the full periodic screen. It picks the per-shear taper (V4) and the roll-off rule of `TemporalSpec.rot_margin` |
@@ -32,7 +34,31 @@ python -m validation.temporal_screens.hero_temporal --smoke
 python -m validation.temporal_screens.record_plots
 python -m validation.temporal_screens.record_ao_plots
 python -m validation.temporal_screens.record_ao_plots --source screens
+python -m validation.temporal_screens.table_precision
+python -m validation.temporal_screens.rotation_taper
 ```
+
+The run lines of the four crosswind scripts (`rotated_strip_gate.py`,
+`route_equivalence.py`, `rotated_record_parity.py` and `table_precision.py`)
+are also in their own sections below.
+
+## The figures
+
+Every figure below is tracked. The other outputs (`data/*.csv`, `data/*.json`,
+`data/*.log` and the strips) are not.
+
+| figure | script |
+|---|---|
+| `rect_dphi.png` | `rect_factory.py` — the structure function against the analytic law |
+| `strip_taylor.png` | `strip_taylor.py` — Taylor and the temporal spectrum |
+| `frame0_parity.png` | `frame0_parity.py` — the two distributions, as CDFs |
+| `tilt_spectrum.png` | `tilt_spectrum.py` — the tilt spectrum with its two fits |
+| `hero_temporal_30.png`, `hero_temporal_20.png` | `hero_temporal.py` — the power against time and the duration histogram |
+| `record_timeseries_30.png`, `record_field_30.gif` | `record_plots.py` — record 0 over 2 s, and the 0.1 s animation around the deepest fade |
+| `record_ao_timeseries_30.png`, `record_ao_field_30.gif` | `record_ao_plots.py` — the same record under four perfect-AO stacks |
+| `rotated_strip_dphi.png` | `rotated_strip_gate.py` — the structure function of the two routes |
+| `rotation_taper_profiles.png`, `rotation_taper_maps.png` | `rotation_taper.py` — the six taper variants |
+| `strip_band.png` | the low-frequency band of a strip; see the last section |
 
 ## Gate (e), the run lines
 
@@ -357,8 +383,10 @@ At 4000 frames that is 240 s of rotation, which is 6x the propagation of one
 512 px frame. A margin rule by ANGLE (0.25 n holds at the small angles of the
 fast layers) and a per-layer crop side would cut it.
 
-NOT DONE: the runner and `Campaign` do not read `rotated` yet. The gate drives
-`strip_plan`, `build_strips` and `frame_stack` directly.
+NOTE (step 3 and later): the gate drives `strip_plan`, `build_strips` and
+`frame_stack` directly. The RUNNER and `Campaign` do read the route: a
+`TemporalSpec` threads through as it is, and from step 5 a crosswind takes the
+rotated route by default.
 
 ```
 python -m validation.temporal_screens.rotated_strip_gate

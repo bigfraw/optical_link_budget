@@ -1768,7 +1768,9 @@ time.
 **The shift is an integer number of pixels**, and it comes from the ABSOLUTE
 position `v*k*dt`, never from a sum of steps. So the rounding error stays under
 half a pixel for every frame of the record, and no interpolation touches the
-screen statistics.
+screen statistics. THE SLOW LAYERS STUTTER, though: a layer that moves less than
+one pixel in one step advances in jumps of 0 or 1 px. See backlog 2-P1b, open
+end 1.
 
 **The seam.** A Fourier screen is periodic, so the far end of a strip joins its
 near end. The strip therefore carries a pad of two outer scales past the travel.
@@ -1841,6 +1843,43 @@ The strips are a deletable cache: the seed rebuilds them.
 at each named ground height and cuts the rest of the path equal-Rytov, with the
 turbulence conserved. The hero plan does not need it: its lowest screen already
 sits at 80 m with 73 percent of the `Cn2` (`r0 = 15.4 cm`) at 11.3 m/s.
+
+**A CROSSWIND takes a ROTATED thin strip (the default from 2026-09-13).** The
+walk of a layer is a VECTOR. A wind across the track turns that walk off the x
+axis, so an axis-aligned box must hold the perpendicular travel too, and its
+SHORT axis grows: the 30 deg hero at `wind_dir_deg = 90` asks for a 520 Mpx box
+for one jet-level layer against 48 Mpx for a thin strip. So the code holds ONE
+THIN strip for each layer ALONG that layer's resultant velocity, and it turns
+each frame back onto the lab axes. `TemporalSpec.rotated = None` is AUTO: a wind
+direction that is not a multiple of 180 deg takes the rotated route, and a wind
+along the track keeps the box, bit for bit.
+
+THE ROTATION IS EXACT. It is the three-shear rotation
+`R(a) = Sx(-tan(a/2)) Sy(sin a) Sx(-tan(a/2))` of Unser, Thevenaz and
+Yaroslavsky, DOI 10.1109/83.469963, and each shear translates one line by a
+phase ramp on its 1-D transform (the Fourier shift theorem, Schmidt,
+DOI 10.1117/3.866274, Ch. 2). So it does NOT smooth the Fresnel-scale
+structure. A real-space bilinear control loses 15 to 18 percent of `D(1 px)`,
+which is why interpolation is not the tool.
+
+TWO EDGE EFFECTS STAY. First, a grid-aligned `n` by `n` frame rotated by `t`
+reads a footprint of `n(|cos t| + |sin t|)`, so the crop of a layer must carry
+that corner margin. Second, a shear reads each line as PERIODIC, so the step
+between the two ends of a crop rings inward. A 1-D raised-cosine taper on the
+ends of every line, applied BEFORE EACH of the three shears, cures the second:
+the edge ring falls from about 1.8e-2 rad to about 5e-3 rad. A single 2-D window
+does NOT work, because the two later shears undo it. What is left is the
+CORNER-MODE loss: the modes in the corners of the frequency square leave the
+square under a rotation, which costs 1.5 percent of the outer Nyquist ring at
+45 deg and nothing measurable at 6.5 deg.
+
+THE VERDICT. The three routes (along track, exact box, rotated) are the SAME
+screen inside a few percent on every quantity a receiver sees, and a POOLED
+rotated record (10 s of atmosphere) matches independent snapshots on the bucket
+and on the point receiver at every band, and on the SMF mean and the SMF p5.
+The tables are in `validation/temporal_screens/README.md`, sections "Are the
+three routes the same screen?", "Step 4" and "Step 5". The open ends are
+backlog 2-P1b.
 
 ### Two numerical gotchas
 
