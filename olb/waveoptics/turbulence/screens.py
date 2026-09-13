@@ -188,7 +188,11 @@ def _phase_psd_unit(f, L0_m, l0_m):
     Returns:
         The phase PSD at r0 = 1 m, in rad^2 m^2.
     """
-    f = np.asarray(f, dtype=float)
+    # A float32 input STAYS float32 (the table_dtype of `ScreenFactory`);
+    # every other input is float64, as before.
+    f = np.asarray(f)
+    if f.dtype != np.float32:
+        f = f.astype(float, copy=False)
     fm = np.inf if l0_m <= 0.0 else 5.92 / (2.0 * np.pi * float(l0_m))
     f0 = 0.0 if not np.isfinite(L0_m) else 1.0 / float(L0_m)
     denom = (f * f + f0 * f0) ** (11.0 / 6.0)
@@ -303,7 +307,8 @@ class ScreenFactory:
     _EXPONENT = -5.0 / 6.0                 # r0 enters the screen as r0^(-5/6).
 
     def __init__(self, n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-                 n_sub_levels=3, dtype=np.float64, lean=False, nx=None):
+                 n_sub_levels=3, dtype=np.float64, lean=False, nx=None,
+                 table_dtype=None):
         """Build the cached filter and the subharmonic basis for one grid.
 
         Args:
@@ -339,6 +344,16 @@ class ScreenFactory:
                           frozen-flow time axis: the crop window scrolls along
                           the long axis (see
                           olb.waveoptics.turbulence.temporal).
+            table_dtype:  the floating type of the FILTER BUILD (the
+                          frequency grid and the PSD of win 1). None (the
+                          default) builds in float64 and casts the finished
+                          filter to `dtype`, as before, so every screen of
+                          record is bit-identical. numpy.float32 builds the
+                          tables in single precision: the peak memory of the
+                          build falls by half and a large strip builds
+                          faster, at a rounding-level change of the filter
+                          (see validation/temporal_screens/table_precision.py).
+                          The subharmonic tables are small and stay float64.
 
         Raises:
             ValueError:          the screen is rectangular and the outer scale
@@ -385,6 +400,7 @@ class ScreenFactory:
         self._rdtype = np.float32 if dtype == np.float32 else np.float64
         self._cdtype = (np.complex64 if dtype == np.float32
                         else np.complex128)
+        self._tdtype = np.float32 if table_dtype == np.float32 else np.float64
         self.lean = bool(lean)
         # The array module of the FFT backend, read ONE time. numpy for the
         # host backends, cupy for the "cupy" backend.
@@ -419,8 +435,13 @@ class ScreenFactory:
         df = dfy if dfy == dfx else np.sqrt(dfy * dfx)
         fy = (np.arange(n) - n // 2) * dfy
         fx = (np.arange(nxc) - nxc // 2) * dfx
-        FX, FY = np.meshgrid(fx, fy)
-        psd = _phase_psd_unit(np.hypot(FX, FY), self.L0_m, self.l0_m)
+        # ONE full-size table, not a meshgrid pair: the two axis vectors
+        # broadcast into the radial frequency. In float64 the values equal
+        # the meshgrid route bit for bit; float32 is the `table_dtype` opt-in.
+        f_rad = np.hypot(fx.astype(self._tdtype)[None, :],
+                         fy.astype(self._tdtype)[:, None])
+        psd = _phase_psd_unit(f_rad, self.L0_m, self.l0_m)
+        del f_rad
         psd[n // 2, nxc // 2] = 0.0           # Listing 9.2, line 16, p. 167.
         # THE fy = 0 ROW OF A STRIP GOES TO THE BAND. The whole row carries
         # the power of the frequencies |fy| < dfy/2, and the main grid gives
@@ -445,7 +466,7 @@ class ScreenFactory:
             # ifftshift(c))) = S * ifft2(S * c), where S is the alternating
             # sign pattern (-1)^(i+j) (the identity the LightPipes Forvard
             # uses). So the filter carries S, and the output factor carries
-            # S * n^2 (the Eq. (2.9) scale of `_ift_series`). Neither one
+            # S * n^2 (the Eq. (2.9) scale of `_base_pair_from`). Neither one
             # costs a pass at run time.
             if n % 2:
                 raise ValueError("ScreenFactory(lean=True) needs an even n")
@@ -552,20 +573,6 @@ class ScreenFactory:
         out = xpm.real(self._band_E @ rows.astype(self._cdtype))
         return (out - out.mean()).astype(self._rdtype)
 
-    def _ift_series(self, cn):
-        """Give the bare Fourier-series sum of the coefficient grid cn.
-
-        It is `ift2(cn, 1.0)` of Schmidt, DOI 10.1117/3.866274, Ch. 2,
-        Eq. (2.9), printed p. 17, with df = 1: the centred inverse transform
-        times n^2. The result is Eq. (9.78), printed p. 167.
-
-        The transform runs on the array module of the backend, so it stays
-        where the coefficient grid is.
-        """
-        xpm = self._xp
-        shifted = xpm.fft.fftshift(xpm.fft.ifft2(xpm.fft.ifftshift(cn)))
-        return (shifted * (self.n * self.nx)).astype(self._cdtype)
-
     def _subharmonic(self, r0_m, rng):
         """Give the low-frequency subharmonic screen for one r0 and one rng.
 
@@ -641,16 +648,43 @@ class ScreenFactory:
         is the expensive half of the draw at a large grid.
         """
         shape = (int(m), int(m if mx is None else mx))
-        g = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
-        return g.astype(self._cdtype)
+        # Write the two float64 draws STRAIGHT into the real and the
+        # imaginary part. The value of each part is the same round-to-nearest
+        # cast as `(a + 1j*b).astype(cdtype)`, so the screen does not move by
+        # one bit, and the peak of the draw is one float64 grid plus the
+        # complex grid, not the two float64 grids plus two complex128 grids
+        # (2026-09-13; a 5e8 px crosswind box drew 25 GB here).
+        g = np.empty(shape, dtype=self._cdtype)
+        g.real = rng.standard_normal(shape)
+        g.imag = rng.standard_normal(shape)
+        return g
 
     def _base_pair_from(self, g):
-        """The body of `_base_pair`, on noise the caller already drew."""
+        """The body of `_base_pair`, on noise the caller already drew.
+
+        The transform is `ift2(cn, 1.0)` of Schmidt, DOI 10.1117/3.866274,
+        Ch. 2, Eq. (2.9), printed p. 17, with df = 1: the centred inverse
+        transform times n^2. The result is Eq. (9.78), printed p. 167. It
+        runs on the array module of the backend, so it stays where the
+        coefficient grid is.
+
+        ONE GRID DIES AS THE NEXT IS BORN. Each step rebinds the one name, so
+        the noise, the coefficient grid and the shifted copies are not alive
+        together: the peak of a build is the transform's own two grids plus
+        its input, not four grids (2026-09-13, the crosswind box). The
+        operations and their order are unchanged, so the screen is
+        bit-identical.
+        """
         xpm = self._xp
         if self._device:
             g = xpm.asarray(g)
         cn = g * self._filt
-        full = self._ift_series(cn)
+        del g
+        cn = xpm.fft.ifftshift(cn)
+        cn = xpm.fft.ifft2(cn)
+        cn = xpm.fft.fftshift(cn)
+        full = (cn * (self.n * self.nx)).astype(self._cdtype)
+        del cn
         return xpm.real(full), xpm.imag(full)
 
     def draw(self, rng):
@@ -712,6 +746,7 @@ class ScreenFactory:
         it = iter(noise)
         base, _ = self._base_pair_from(next(it))
         hi = (float(r0_m) ** self._EXPONENT) * base
+        del base                      # frees the complex grid it views.
         return (hi + self._subharmonic_from(r0_m, it)).astype(self._rdtype)
 
     def make(self, r0_m, rng):
@@ -734,6 +769,7 @@ class ScreenFactory:
             return self._make_lean(r0_m, rng)
         base, _ = self._base_pair(rng)
         hi = (float(r0_m) ** self._EXPONENT) * base
+        del base                      # frees the complex grid it views.
         return (hi + self._subharmonic(r0_m, rng)).astype(self._rdtype)
 
     def _make_lean(self, r0_m, rng):
