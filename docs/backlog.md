@@ -1174,7 +1174,27 @@ The path forward for each is a second reference or a derivation.
   `ApertureModes.estimate` / `.apply` split, and sweep `d` in frames.
   Not started; the owner does not want it yet; (9) a one-layer record
   against the Tyler tilt spectrum (DOI 10.1364/JOSAA.11.000358) as the
-  real corner test that gate (d) lacks.
+  real corner test that gate (d) lacks; (10) the ROTATED THIN STRIP for a
+  CROSSWIND, MEDIUM URGENCY (owner, 2026-09-13). The strip is an axis-aligned
+  bounding box of the diagonal walk `v = v_slew (+x) + v_buf (wind_dir_deg)`,
+  so a crosswind grows the SHORT axis and the box balloons. A thin strip
+  rotated to each layer's resultant velocity, with a per-frame rotated crop,
+  would keep the box thin. MEASURED (bigfraw GPU, 2026-09-13, pure crosswind
+  `wind_dir_deg = 90`, 30 deg hero, `validation/temporal_screens/` scratch):
+  the bounding box is 12.2 GiB over 9 layers, the rotated strips 6.7 GiB
+  (0.55x); the biggest box (18k x 33k) OOMs an 8 GiB GPU FFT, so the box needs
+  the host build there. The COMPUTE is NOT the blocker: a GPU bilinear crop is
+  0.071 ms per 512 px frame (0.28 s per layer per 4000-frame record) and cubic
+  0.390 ms (1.56 s), against about 40 s of propagation per record. The saving
+  is MODEST and MIS-ALIGNED (the rotation helps LEAST on the fast top layers,
+  where the box is biggest and the resultant angle is smallest, B/A = 0.66, and
+  MOST on the slow mid layers, B/A = 0.44), and the along-track default (the
+  usual case) gets NO benefit. THE REAL QUESTION is FIDELITY, not speed:
+  interpolating a phase screen smooths its high-frequency (Fresnel-scale)
+  structure, the same reason the coarse screen died in P2
+  (`validation/waveoptics_speed/`), so any rotated route needs a D(r) and a
+  sigma2_I gate against the bounding-box strip, and bilinear likely fails it.
+  Not started.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
