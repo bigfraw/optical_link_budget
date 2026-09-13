@@ -154,7 +154,8 @@ def campaign_of(elevation_deg, record, args):
         return Campaign(scn, geom, root, seed=SEED, preset=args.preset,
                         block_size=int(args.block_size),
                         patch_radius_m=PATCH_RADIUS_M, precision=PRECISION,
-                        fft_backend=args.fft_backend, temporal=spec)
+                        fft_backend=args.fft_backend, temporal=spec,
+                        store_screen_phase=bool(args.store_screen_phase))
 
 
 def ensure_trials(camp, n_frames, args):
@@ -534,6 +535,13 @@ def main():
                              'CUDA backend: one device runs one stream.')
     parser.add_argument('--analyse', action='store_true',
                         help='read what is stored and compute no frame.')
+    parser.add_argument('--store-screen-phase', action='store_true',
+                        help='keep the summed screen phase of every frame. '
+                             'The perfect-AO read of a SPACE link senses that '
+                             'phase (record_ao_plots.py). It adds one float32 '
+                             'array of the patch pixels to each frame, and it '
+                             'enters the campaign fingerprint, so a record '
+                             'that holds it is a NEW campaign.')
     parser.add_argument('--keep-strips', action='store_true',
                         help='keep the strips of a complete record.')
     parser.add_argument('--no-figures', dest='figures', action='store_false',

@@ -17,6 +17,7 @@ repository root.
 | `tilt_spectrum.py` | (d) | the Z-tilt spectrum of one record: the -2/3 law and the corner, against the Greenwood frequency |
 | `hero_temporal.py` | (e) | the fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. SMOKE DONE 2026-09-13 (3.6 s); the FULL run DONE 2026-09-13 on the bigfraw GPU (727 s) |
 | `record_plots.py` | — | the PICTURES of record 0 at 30 deg: the power against time over 2 s, and a 0.1 s animation of the phase, the aperture intensity, the fibre tip and the fibre power around the deepest fade. It only READS the record. DONE 2026-09-13 (55 s): the deepest fibre fade is 40.3 dB under the median at t = 96.5 ms |
+| `record_ao_plots.py` | — | the SAME record under four PERFECT-AO stacks (none, TipTilt, AO(10), AO(50)): the four fibre power series over 2 s, and the same 0.1 s animation with one ROW for each stack. It only READS the record and it corrects each stored field post hoc. DONE 2026-09-13 (113 s, the SLOPES fallback) |
 
 ```
 python -m validation.temporal_screens.rect_factory
@@ -25,6 +26,8 @@ python -m validation.temporal_screens.frame0_parity
 python -m validation.temporal_screens.tilt_spectrum
 python -m validation.temporal_screens.hero_temporal --smoke
 python -m validation.temporal_screens.record_plots
+python -m validation.temporal_screens.record_ao_plots
+python -m validation.temporal_screens.record_ao_plots --source screens
 ```
 
 ## Gate (e), the run lines
@@ -53,6 +56,11 @@ launch the long run through WMI so it outlives the ssh session
 $cmd = 'cmd /c "cd /d D:\repos\optical_link_budget && C:\Users\alexf\olb-gpu-venv\Scripts\python.exe -u -m validation.temporal_screens.hero_temporal > validation\temporal_screens\hero_temporal.log 2>&1"'
 Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$cmd}
 ```
+
+`--store-screen-phase` keeps the summed screen phase of every frame. The
+perfect-AO read of a SPACE link senses that phase (`record_ao_plots.py`). It is
+OFF by default, and the flag enters the campaign fingerprint, so a record that
+holds the phase is a NEW campaign and the default run stays byte-identical.
 
 The defaults ARE the production settings: `--elevations 30 20`, `--records 8`,
 `--frames 4000`, `--dt 5e-4`, `--preset standard`, `--block-size 500`,
@@ -159,6 +167,49 @@ TWO CAUTIONS.
    model checks them. `olb/turbulence/andrews/temporal.py` holds an analytic
    fade rate and fade duration that have no external check (backlog 0-N6), so a
    temporal fade reference model is the other next study.
+
+## The perfect-AO pictures, 2026-09-13
+
+`record_ao_plots.py` reads record 0 at 30 deg and it corrects every stored
+field four ways: no correction, TipTilt (3 Noll modes), AO(10) and AO(50). The
+correction is the post-hoc perfect-AO read of the package
+(`Campaign.recouple_compensated`), so it is an ideal modal fit of one snapshot
+with no sensor noise, no servo lag and no anisoplanatism. Every corrected
+number is therefore an UPPER BOUND. Source: Noll,
+DOI 10.1364/JOSA.66.000207 (the mode order and the count).
+
+THE SENSING SOURCE. A SPACE link senses the SUMMED SCREEN PHASE. Record 0 was
+run BEFORE the `--store-screen-phase` flag existed, so it holds none, and the
+run below took the SLOPES fallback. The slope route reads a high-order
+correction 4 to 6 percent LOW on a space link, so the table below is
+INDICATIVE. Run one record with `--store-screen-phase` and read it with
+`--source screens` for the route of record.
+
+The run took **113 s** on the laptop (4000 frames, 3 corrected passes of 3.0 to
+4.4 s each, then a 200-frame animation). The columns are dB over the
+UNCORRECTED median. A fade event is a maximal run of frames under a level. The
+"shared" columns use the UNCORRECTED 5 percent level, so every stack counts the
+SAME fades; the "own" columns use the 5 percent level of that stack.
+
+| stack | Noll modes | mean eta | median [dB] | 5 percent [dB] | shared N | shared mean [ms] | own N | own mean [ms] |
+|---|---|---|---|---|---|---|---|---|
+| none | 0 | 0.0413 | 0.00 | -11.72 | 77 | 1.299 | 77 | 1.299 |
+| TipTilt | 3 | 0.1445 | +6.98 | -2.10 | 6 | 1.250 | 33 | 3.030 |
+| AO(10) | 10 | 0.4029 | +11.89 | +9.78 | 0 | — | 28 | 3.571 |
+| AO(50) | 50 | 0.6502 | +13.91 | +13.31 | 0 | — | 53 | 1.887 |
+
+THE DEEP FADES GO FIRST. The tip-tilt corrector removes 71 of the 77 deep
+fades of the record, and both AO stacks remove all 77. The 5 percent level
+rises by 9.6 dB (TipTilt), 21.5 dB (AO(10)) and 25.0 dB (AO(50)), which is much
+more than the median gain, so the correction cuts the TAIL harder than the
+bulk. That matches the campaign result of `validation/waveoptics_ao/` (9.4 /
+22.1 / 24.3 dB of p5 at 30 deg), and the two agree although this record senses
+the slopes and that campaign senses the screens.
+
+The figures are `figures/record_ao_timeseries_30.png` (0.25 MB) and
+`figures/record_ao_field_30.gif` (14.7 MB, 200 frames at 20 fps, dpi 60). The
+animation rows share the colour scale of each column, so the phase flattens and
+the fibre-tip spot sharpens down the rows.
 
 ## What the two structure gates found
 

@@ -92,6 +92,7 @@ class _Args:
     block_size = 500
     fft_backend = 'cupy'
     smoke = False
+    store_screen_phase = False
 
 
 def db_rel(power, reference):
@@ -144,6 +145,29 @@ def fibre_focal_length(scenario):
                                    scenario.ground.wavelength_m))
 
 
+def pupil_cut(field, aperture_m):
+    '''Give the square cut of the receive aperture out of a full grid.
+
+    The cut is the same for every frame of a record, so a caller builds it ONE
+    time and reuses it. `record_ao_plots.py` uses the same cut, so the two
+    scripts draw the same pupil panels.
+
+    Args:
+        field:      one frame, as a Field on the full grid.
+        aperture_m: the receive aperture DIAMETER, in m.
+
+    Returns:
+        The tuple (slice, mask, half_width_m): the slice of both axes, the bool
+        aperture mask of the cut, and the half-width of the cut, in m.
+    '''
+    n = field.field.shape[0]
+    half = int(np.ceil(0.5 * aperture_m / field.dx)) + 1
+    sl = slice(n // 2 - half, n // 2 + half + 1)
+    axis = (np.arange(sl.start, sl.stop) - n // 2) * field.dx
+    xx, yy = np.meshgrid(axis, axis)
+    return sl, (xx ** 2 + yy ** 2) <= (0.5 * aperture_m) ** 2, half * field.dx
+
+
 def read_panels(camp, rows, aperture_m, focal_length_m, half_px):
     '''Read the panel arrays of every frame of the animation window.
 
@@ -169,14 +193,9 @@ def read_panels(camp, rows, aperture_m, focal_length_m, half_px):
     for row in rows:
         field = camp.field(int(row), compact=False)
         E = field.field
-        n = E.shape[0]
         if mask is None:
-            half = int(np.ceil(0.5 * aperture_m / field.dx)) + 1
-            lo, hi = n // 2 - half, n // 2 + half + 1
-            axis = (np.arange(lo, hi) - n // 2) * field.dx
-            xx, yy = np.meshgrid(axis, axis)
-            mask = (xx ** 2 + yy ** 2) <= (0.5 * aperture_m) ** 2
-        cut = E[lo:hi, lo:hi]
+            sl, mask, extent_m = pupil_cut(field, aperture_m)
+        cut = E[sl, sl]
         phases.append(np.where(mask, np.angle(cut), np.nan))
         pupils.append(np.where(mask, np.abs(cut) ** 2, np.nan))
         image, dx_focal = focal_intensity(field, focal_length_m)
@@ -185,7 +204,7 @@ def read_panels(camp, rows, aperture_m, focal_length_m, half_px):
                             mid - half_px:mid + half_px])
     return {'phase': np.array(phases), 'pupil': np.array(pupils),
             'focal': np.array(focals), 'dx_pupil': field.dx,
-            'dx_focal': dx_focal, 'extent_m': half * field.dx}
+            'dx_focal': dx_focal, 'extent_m': extent_m}
 
 
 def draw_timeseries(t_s, bucket, fibre, level, deep, path):
