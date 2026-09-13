@@ -120,7 +120,14 @@ are from 2026-08-26 and can drift.
   tilt of ao.py; the two are not added.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
   consumer. THE OUTER SCALE: the FIELD half is DONE (2026-09-09), the
-  ANALYTIC half remains.** The fidelity-2 screens now read an explicit site
+  ANALYTIC half remains. THE TEMPORAL FACES NOW HAVE A CROSS-CHECK, not a
+  consumer (2026-09-13, 2-P1): the frozen-flow time axis measures a fade rate
+  and a fade duration at fidelity 2, and gate (d) of
+  `validation/temporal_screens/` reads `andrews.temporal.greenwood_frequency`
+  against the measured tilt spectrum. No Term reads the temporal faces yet.
+  The gate also gives the RULE for that comparison: feed the function the
+  per-layer velocity array of the record, because its default Bufton profile
+  carries its own slew term and then reads 1.7x high.** The fidelity-2 screens now read an explicit site
   outer scale (`Site.outer_scale_m`, default 25 m; see 2-P5). The ANALYTIC
   tilt and wander Terms (fidelity 0/1) still do NOT read it, so fidelity 0/1
   and fidelity 2 are not yet at parity on the outer scale — that is the
@@ -1119,10 +1126,34 @@ The path forward for each is a second reference or a derivation.
   operating choice (owner, 2026-09-05) removes the grid dependence. Steps (1) an
   explicit site L0 and (3) 0-W4 (the analytic tilt Terms) still stand. Pairs with
   gap S-27 and 2-N2.
-- **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
-  raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
-  snapshots only — no fade rate, no fade duration. The design note lives in
-  the class docstring.
+- **2-P1. The temporal (frozen-flow) axis — DONE (2026-09-13, branch
+  `waveoptics-temporal`).** THE ROUTE is per-layer oversized Fourier STRIP
+  screens with an integer-pixel crop window, and the aotools EXTRUSION is
+  RETIRED. It over-correlates its own axis at a frame side of 0.1 to 0.35 `L0`,
+  the production regime (`validation/screens/FINDINGS.md` Q5 point 4, Q6, Q8),
+  and it is slow (measured 2026-09-13: `add_row` 0.93 ms per row at 512 px and
+  2.38 ms at 1024 px, with EVERY intermediate row mandatory, against 12 to
+  26 us for one strip column, and a frame is a slice). It wins only under about
+  1 GiB of spare memory; that case is recorded in the module docstring, not
+  built. `olb/waveoptics/turbulence/temporal.py` now holds `TemporalSpec`,
+  `strip_plan`, `build_strips`, `open_strips` and `frame_stack`;
+  `ScreenFactory(nx=...)` draws the strip, with the BAND redraw of the `fy = 0`
+  row in place of the 3x3 subharmonics. The runner and `Campaign` take
+  `temporal=`, an OPT-IN whose default None keeps every snapshot run bit for
+  bit and every stored campaign key valid (`3f4624d389fb81ee` unchanged). The
+  gates are `validation/temporal_screens/` (a) to (d). See `docs/physics.md`
+  Section 7 and `docs/api-waveoptics.md` Section 9i. Deferred pieces: 2-P1b.
+- **2-P1b. The frozen-flow pieces that are NOT built.** Each one is a
+  deliberate deferral of 2-P1, and each has its own ceiling in the module
+  docstring: (1) a FOURIER SUB-PIXEL shift — the integer shift costs at most
+  half a pixel and it breaks only when `v_min * dt < 0.2 dx`; (2) TEMPORAL plus
+  POINT-AHEAD (2-P4) — a point-ahead pass takes a laterally SHIFTED window and
+  a frame takes a window that MOVES, so the two windows on one strip need their
+  own design; the runner raises; (3) TERRESTRIAL frozen flow — a horizontal
+  path has no slew and no Bufton profile, so it needs its own velocity model;
+  the runner raises on a non-downlink plan; (4) DEVICE-RESIDENT strips — a cupy
+  run uploads each crop, about 9 MiB per frame at 1024 px; (5) a VARIABLE `dt`
+  — `Campaign.t_s` derives the time as `row * dt_s`.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
@@ -1337,16 +1368,16 @@ The path forward for each is a second reference or a derivation.
   2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
   screen placement). See `turbulent_grid` in
   olb/waveoptics/turbulence/sampling.py.
-- **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — STILL
-  OPEN.** A frozen-flow time axis (2-P1, still a stub) needs the screen arrays
-  in a fixed order, so a naive whole-sim parallel split breaks the time
-  correlation. Two ways out: (a) build the screen arrays BEFORE the parallel
-  fan-out, then hand each worker its ready arrays; or (b) the leaning choice —
-  simulate about 1 second of link time for each worker (this holds MANY
-  coherence times), and still multiprocess across the 1-second blocks. Decide
-  the block length from the coherence time and the wind, and record the choice.
-  Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
-  needs the temporal axis (2-P1) first.
+- **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — DONE by
+  way (a) (2026-09-13, with 2-P1).** The STRIPS are the pre-built screen
+  arrays: `Campaign.run` builds them ONE time in the parent, before the pool
+  opens, and each worker only OPENS them as read-only memory maps. So Windows
+  spawn is cheap, the page cache is shared (a strip costs no private worker
+  memory, and `resources.worker_memory_bytes` says so), and a frame draws no
+  random number. The time correlation is safe because a frame is addressed by
+  its ABSOLUTE position, so a block is a bit-identical slice of the record,
+  exactly as `start_index` makes a block of snapshots. Way (b), the 1-second
+  worker block, is not needed.
 - **2-N7. The memory cut and the two speed opt-ins — DONE (2026-09-06,
   `validation/memory_cut/`).** The fidelity-2 Monte Carlo was throttled by
   memory: by the BANDWIDTH in steady state (12 workers of 32 at 512 px on

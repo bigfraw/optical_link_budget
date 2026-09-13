@@ -289,7 +289,11 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   `phase_screen`, `Screen`, and TWO generators — the DEFAULT `ScreenFactory`, a
   fast self-contained generator (cached sqrt-PSD filter, separable
   outer-product subharmonics, two screens per FFT; numpy and scipy only), and
-  the opt-in `aotools` wrapper as the reference path, a lazy LGPL import),
+  the opt-in `aotools` wrapper as the reference path, a lazy LGPL import;
+  `ScreenFactory(nx=...)` (2026-09-13) makes a RECTANGULAR STRIP for the
+  frozen-flow time axis, and a strip takes the BAND redraw of the `fy = 0` row
+  in place of the 3x3 subharmonics, needs a FINITE `L0`, and has no lean route;
+  a square call stays bit-identical),
   `splitstep.py` (`super_gaussian_boundary`, `split_step`), `sampling.py` (the
   turbulent grid sizer and screen planner: `QualityPreset`, `PRESETS`
   reference/standard/rapid, `ScreenPlan`, `SamplingReport`, `turbulent_grid`.
@@ -442,8 +446,13 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   the documented one-scenario, one-budget flow; `recouple` is diagnostic),
   `fingerprint.py` (`cache_key`, the SHA-256 content key that names one
   campaign; it came from the retired P4 `cache.py`), and `temporal.py` (the
-  `TemporalScreens` NotImplementedError stub). It gives SNAPSHOTS: one atmosphere per seed, no time
-  axis. The trials are independent, so `propagate_turbulent_scenario` takes an
+  frozen-flow time axis: `TemporalSpec`, `StripPlan`, `strip_plan`,
+  `strip_paths`, `build_strips`, `open_strips`, `frame_offsets`,
+  `frame_stack`). It gives SNAPSHOTS by default: one atmosphere per seed, no
+  time axis. An OPT-IN `temporal=TemporalSpec(...)` turns the trials into the
+  FRAMES of one frozen-flow RECORD (see the Current-state paragraph). The
+  default run draws independent snapshots, bit for bit.
+  The trials are independent, so `propagate_turbulent_scenario` takes an
   optional `threader` (`olb.waveoptics.Threader`, a general thread pool in
   `threader.py`, default `min(16, cores)` workers) that runs them across threads;
   the FFT releases the GIL, so the threads give a real speed-up. Threads stay
@@ -620,6 +629,52 @@ Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
 
 Open items:
 
+- **The fidelity-2 FROZEN-FLOW TIME AXIS is BUILT (2026-09-13, branch
+  `waveoptics-temporal`, backlog 2-P1).** It is an OPT-IN and the DEFAULT is
+  OFF, so every snapshot number is unchanged and the campaign key
+  `3f4624d389fb81ee` is unchanged. THE ROUTE is per-layer oversized Fourier
+  STRIP screens with an integer-pixel crop window; the aotools EXTRUSION is
+  RETIRED. Two reasons: it OVER-CORRELATES its own axis at a frame side of 0.1
+  to 0.35 `L0`, which IS the production regime (`validation/screens/FINDINGS.md`
+  Q5 point 4, Q6, Q8), and it is slow (measured 2026-09-13: `add_row` 0.93
+  ms/row at 512 px and 2.38 ms at 1024 px, and EVERY intermediate row is
+  mandatory, against 12 to 26 us for one strip column, and a frame is a slice).
+  The extrusion wins only under about 1 GiB of spare memory; that is RECORDED,
+  not built. THE STRIP NEEDS ITS OWN LOW-FREQUENCY RULE: the `fy = 0` row takes
+  a BAND redraw (2P+1 sub-rows in y at the fine x sampling), because per-axis
+  3x3 subharmonics read D(r) 8 to 23 percent low along y and a square-spaced
+  box makes a 34.6 m comb along x. THE VELOCITY of a layer is
+  `deg2rad(CircularOrbit.slew_deg_s) * altitude` (the rate is
+  altitude-referenced, NOT a bug; see `olb/geometry.py`) plus the Bufton
+  `v_wind(h, ws=0, Vg)` at `wind_dir_deg`; the shifts are INTEGER pixels taken
+  from the ABSOLUTE position (error <= dx/2); the seam pad is 2 `L0` (the von
+  Karman covariance there is about 4e-6 of the variance, Assemat and Wilson
+  DOI 10.1364/OE.14.000988 Eq. (5)). The strips are a deletable,
+  seed-rebuildable cache under the campaign root; `Campaign` builds them ONE
+  time in the parent and each worker opens a memory map, so the pool shares one
+  page cache. The frames ARE the trials, so `start_index` addresses them, and
+  `t_s` is DERIVED (`row * dt_s`), never a stored column. `temporal=` and
+  `h_gl=` enter the fingerprint tail only when non-default. GUARDS: temporal
+  plus `point_ahead_rad` raises, and a non-downlink plan raises. THE GATES
+  (`validation/temporal_screens/`): (a) the strip D(r) is 0.95 to 1.00 of the
+  law on BOTH axes, 14 of 14 bands; (b) D(tau)/D(v tau) is 0.98 to 1.02 and the
+  temporal PSD exponent is -2.643 +/- 0.054 against -8/3, 9 of 9 bands; (c)
+  frame 0 against a drawn snapshot sits inside 2 SE (index ratio 0.939 +/-
+  0.251, SMF eta ratio 1.039 +/- 0.215, 256 trials, rapid), which is THE gate
+  that proves the route; (d) the tilt PSD low band reads -0.56 against -2/3
+  (PASS) and the corner sits at 38 Hz, between the 0.3 V/D pupil corners of the
+  layers (5 to 56 Hz) — the Greenwood frequency (642 Hz) is the WRONG reference
+  for a pupil tilt corner (Tyler DOI 10.1364/JOSAA.11.000358). THE NEW PLANNER
+  KNOB `h_gl` (default None, byte-identical) forces a screen at each named
+  ground height and cuts the rest equal-Rytov; the hero plan does not need it,
+  because its lowest screen already sits at 80 m with 73 percent of the Cn2
+  (r0 = 15.4 cm) at 11.3 m/s. The Fresnel pixel rule now skips a screen at zero distance to the
+  receiver, which only an `h_gl=[0]` plan makes. SIZING at 30 deg, standard:
+  n = 512, dx 6.86 mm, 9 screens, layer speeds 11 to 137 m/s, about 0.6 GB of
+  float32 strips for a 2 s record. THE FIRST CAMPAIGN is 8 records of 2 s at
+  dt = 0.5 ms for each elevation (30 and 20 deg), and it is PENDING on bigfraw.
+  NOT BUILT: a Fourier sub-pixel shift, temporal plus point-ahead, terrestrial
+  frozen flow, device-resident strips, and a variable dt (see backlog 2-P1b).
 - **Several detectors, the master turbulence switch, and the Camera are BUILT
   (2026-09-02).** A `Terminal` still holds ONE detector: about twenty detector
   dispatch sites read that one field, so a receive path that feeds more than one
@@ -921,10 +976,11 @@ Open items:
   old numbers once parity (L0, correction) is matched. OWNER FOLLOW-UP
   (2026-08-28): an AUTOMATIC fidelity selector, the way `model="auto"` picks a
   distribution.
-  The turbulent layer is SNAPSHOT-only (`temporal.py` is a NotImplementedError
-  stub). Its DEFAULT screen generator is self-contained (numpy and scipy only);
+  The turbulent layer is SNAPSHOT-only by DEFAULT; the frozen-flow time axis is
+  an OPT-IN (2026-09-13, see the Current-state paragraph). Its DEFAULT screen
+  generator is self-contained (numpy and scipy only);
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
-  `screens` extra). Deliberately deferred: the temporal frozen-flow axis,
+  `screens` extra). Deliberately deferred:
   a co-moving (spherical) screen, and the folded/retro double pass (correlated
   screens). `examples/waveoptics/` demonstrates the layer with twelve scripts
   (three vacuum, three turbulent, the budget-wiring demo, two multimode-fibre

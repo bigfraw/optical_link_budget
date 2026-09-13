@@ -145,7 +145,25 @@ The comparison is cost per frame and memory per layer at the production grid
 (1024 px, dx from `GridSpec`), for the same pass bands. That is the owner's
 decision. The plan does not build `temporal.py`.
 
-### Phase 4. The speed evaluation of the time axis (added 2026-09-08, after the sweep)
+### Phase 4. The speed evaluation of the time axis (added 2026-09-08) — ANSWERED 2026-09-13, NOT NEEDED
+
+A short benchmark answered the question, so the experiment below was never run.
+MEASURED on 2026-09-13: the aotools `add_row` costs 0.93 ms per row at 512 px
+and 2.38 ms at 1024 px, and the extrusion must make EVERY intermediate row of
+the travel; one column of a Fourier strip costs 12 to 26 us, and a frame is a
+slice of an open memory map. So route (b) is about 75 to 90 times cheaper for
+each pixel of travel, and route (a) still carries the axis excess that Q6 and Q8
+measured in the production regime. Route (c), the down-sampled extrusion, was
+not needed once route (b) won on both accuracy and speed. The extrusion wins
+only on memory, and only under about 1 GiB of spare memory; that case is
+recorded in the docstring of `olb/waveoptics/turbulence/temporal.py`, not built.
+
+THE ROUTE OF RECORD is route (b) in its per-layer form: one oversized Fourier
+STRIP for each layer, at the propagation pitch, with an integer-pixel crop
+window. It is BUILT (backlog 2-P1); the gates are in
+`validation/temporal_screens/`. The plan below is kept for the record.
+
+
 
 THE QUESTION. Which screen route gives the cheapest CORRECT frozen-flow time
 axis for a tracked LEO pass? The routes are (a) the extruded screen at the
@@ -238,8 +256,7 @@ and cannot die, it can only cost too much.
   owner's call.
 - `docs/schmidt-crosscheck.md` rows S-27 and the forward map: the FINDINGS
   side finding still asks the owner to correct them.
-- Phase 4 (not started): `validation/screens/temporal_speed.py`, its tables
-  under `data/temporal_*.csv`, its figures under `figures/temporal_*.png`,
-  and a "Q7 - the time axis" section in FINDINGS. Its verdict feeds the
-  design of `olb/waveoptics/turbulence/temporal.py`, which stays a stub
-  until the owner decides.
+- Phase 4 (ANSWERED 2026-09-13 by the benchmark above, not run):
+  `validation/screens/temporal_speed.py` was never written. The design of
+  `olb/waveoptics/turbulence/temporal.py` is BUILT on the strip route, and its
+  gates live in `validation/temporal_screens/`.

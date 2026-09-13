@@ -81,7 +81,7 @@ tables are in `screens/data/`.
 | [screens/n_columns_sweep.py](screens/n_columns_sweep.py) | Arm 4 (2026-09-08): what `n_columns` buys on the fixed float64 aotools kernel. It sweeps `n_columns` 2 to 32 at L0 2.56 and 25 m, N 128 and 512, 8 seeds, plus a record-length study. See FINDINGS Q6. |
 | [screens/subharmonic_start.py](screens/subharmonic_start.py) | Arm 5 (2026-09-08): a SUBHARMONIC initial frame against the stock plain start. It removes the optical spin-up at row 0 (the piston-removed variance 0.90 to 1.03 and the 1 m Z-tilt 1.04 to 1.08 of theory, against 0.32 and 0.71 for the plain start). See FINDINGS Q7. |
 | [screens/kept_start.py](screens/kept_start.py) | Arm 6 (2026-09-08, 32 seeds, 2 SE): is the subharmonic start KEPT on a 0.2 L0 frame? No, and it is not carried either: the plain and the subharmonic start read the SAME extrusion-axis excess (+0.19 to +0.27 at 0.5 L0, 2 SE 0.08, the Q6 value), so the recursion imposes its own axis statistics whatever the first frame held. The subharmonic start buys the first frame only. See FINDINGS Q8. |
-| [screens/PLAN_n_columns.md](screens/PLAN_n_columns.md) | The plan of arm 4, the aotools code review (PR 111, issues 107 and 109), and the parked Phase 4 (the time-axis speed evaluation, NOT started). |
+| [screens/PLAN_n_columns.md](screens/PLAN_n_columns.md) | The plan of arm 4, the aotools code review (PR 111, issues 107 and 109), and Phase 4, the time-axis speed evaluation, which a benchmark ANSWERED on 2026-09-13 and which was never run. |
 
 **The extrusion in the LEO point-ahead regime (2026-09-08).** The regime of
 record: a point-ahead angle of at most 10 arcsec, so the uplink and the
@@ -110,6 +110,31 @@ scale:
 Not measured yet: the absolute D(1 m) on both axes at L0 20 and 50 m (the
 sweep stored correlation coefficients for the 25 m cell). That one read closes
 the PAA question with a number.
+
+## temporal_screens/
+
+The gates of the frozen-flow time axis (backlog 2-P1, built 2026-09-13). The
+route is per-layer oversized Fourier STRIP screens with an integer-pixel crop
+window, and the aotools extrusion is retired: it over-correlates its own axis in
+the production regime (see `screens/FINDINGS.md` Q5 point 4, Q6 and Q8) and it
+must make every intermediate row of the travel.
+
+See [temporal_screens/README.md](temporal_screens/README.md) for the measured
+tables. In short: gate (a) holds 14 of 14 structure bands on BOTH strip axes;
+gate (b) holds 9 of 9 Taylor and spectrum bands, with a temporal PSD exponent of
+-2.643 +/- 0.054 against -8/3; gate (c) puts frame 0 inside 2 SE of a drawn
+snapshot, which is the gate that proves the route; gate (d) holds the -2/3 tilt
+law and finds the corner at 38 Hz, where the `0.3 V/D` pupil corners of the
+layers sit, NOT at the Greenwood frequency. Gate (e), the hero record campaign
+(8 records of 2 s at `dt = 0.5 ms` for each of 30 and 20 deg), is PENDING on
+bigfraw.
+
+| File | Purpose |
+| --- | --- |
+| [temporal_screens/rect_factory.py](temporal_screens/rect_factory.py) | Gate (a). `ScreenFactory(nx=...)`: `nx = n` is bit-identical to the square factory, and a (512, 4096) strip holds the structure function and the 1 m Z-tilt of a square screen. |
+| [temporal_screens/strip_taylor.py](temporal_screens/strip_taylor.py) | Gate (b). One pixel of the moving frame: the temporal `D(tau)` against the spatial `D(v tau)`, the temporal spectrum slope, and the seam correlation. |
+| [temporal_screens/frame0_parity.py](temporal_screens/frame0_parity.py) | Gate (c). Frame 0 of a record against a drawn snapshot: the aperture `sigma2_I` and the mean fibre coupling. |
+| [temporal_screens/tilt_spectrum.py](temporal_screens/tilt_spectrum.py) | Gate (d). The Z-tilt spectrum of one record against the -2/3 law, the Greenwood frequency and the Tyler `V/D` corner. |
 
 ## lognormal_certification/
 
