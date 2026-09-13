@@ -495,6 +495,10 @@ def _uploaded(screens):
     must copy it up. The view is not contiguous, and the upload needs a
     contiguous buffer.
 
+    A ROTATED frame is ALREADY on the device: `frame_stack` runs the three
+    shears on the array module of the FFT backend. So a device array passes
+    through, because numpy refuses to read one.
+
     # ponytail: the strips stay on the host, so a device run pays one upload
     # for each screen of each frame (about 9 MiB per frame at 1024 px). Hold
     # the strips on the device when that cost matters.
@@ -505,8 +509,10 @@ def _uploaded(screens):
     Yields:
         One device array for each input array.
     """
+    xpm = xp()
     for scr in screens:
-        yield xp().asarray(np.ascontiguousarray(scr))
+        yield (scr if isinstance(scr, xpm.ndarray)
+               else xpm.asarray(np.ascontiguousarray(scr)))
 
 
 def _summing(screens, box):
@@ -1795,7 +1801,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                           for j in range(n_screens)],
                          dtype=(np.float32 if cdtype == np.complex64
                                 else np.float64))
-            strips = open_strips(paths)
+            # THE ROTATED ROUTE ON THE DEVICE holds the strips on the device,
+            # so a frame crops and turns them where the field is and it
+            # uploads nothing. `open_strips` falls back to the memory map,
+            # with a warning, when the strips do not fit.
+            strips = open_strips(paths, on_device=(device_route
+                                                   and sp.m_crop is not None))
 
         # THE BACKEND COMES BEFORE THE SCREEN FACTORY. ScreenFactory reads the
         # array module of the backend ONE time, in __init__, so a factory that
