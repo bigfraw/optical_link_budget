@@ -166,7 +166,9 @@ def case_plans(theta_deg, margin, n_frames=N_FRAMES, travel_m=TRAVEL_M):
     common = dict(dt_s=dt, n_frames=n_frames, strip_dir='unused',
                   wind_ground_m_s=VG, wind_dir_deg=90.0,
                   pad_outer_scales=PAD_OS)
-    spec_box = TemporalSpec(**common)
+    # `rotated=False` is EXPLICIT: a crosswind now takes the rotated route by
+    # default, and this arm IS the axis-aligned box.
+    spec_box = TemporalSpec(rotated=False, **common)
     spec_rot = TemporalSpec(rotated=True, rot_margin=margin, **common)
     return (spec_box, strip_plan(plan, grid, spec_box, geometry, L0),
             spec_rot, strip_plan(plan, grid, spec_rot, geometry, L0),

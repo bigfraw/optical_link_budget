@@ -193,7 +193,9 @@ def route_plans(theta_deg, n_frames=N_FRAMES, travel_m=TRAVEL_M):
     common = dict(dt_s=dt, n_frames=int(n_frames), strip_dir='unused',
                   wind_ground_m_s=VG, pad_outer_scales=PAD_OS)
     trk = TemporalSpec(wind_dir_deg=0.0, **common)
-    box = TemporalSpec(wind_dir_deg=90.0, **common)
+    # `rotated=False` is EXPLICIT here: a crosswind now takes the rotated
+    # route by default, and route B IS the axis-aligned box.
+    box = TemporalSpec(wind_dir_deg=90.0, rotated=False, **common)
     rot = TemporalSpec(wind_dir_deg=90.0, rotated=True,
                        rot_margin=ROT_MARGIN, **common)
     routes = {

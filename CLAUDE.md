@@ -688,13 +688,18 @@ Open items:
   the 520 Mpx box of a 90 deg crosswind builds in 137 s at 15.6 GiB, no swap.
   The speed-only crosswind mapping is REJECTED (the phase field in time
   depends on each layer's velocity direction).
-  THE ROTATED THIN STRIP IS BUILT AS AN OPT-IN (2026-09-13, backlog 2-P1b item
-  10): `TemporalSpec(rotated=True)` holds one thin strip per
+  THE ROTATED THIN STRIP IS THE CROSSWIND DEFAULT (2026-09-13, backlog 2-P1b
+  item 10): `TemporalSpec(rotated=True)` holds one thin strip per
   layer along that layer's RESULTANT velocity, and `rotate_fourier` turns each
   padded crop back with the exact Fourier three-shear rotation (Unser,
-  Thevenaz and Yaroslavsky, DOI 10.1109/83.469963). The default is OFF and the
-  along-track route is bit-identical (the two options enter
-  `TemporalSpec.key()` only when `rotated` is True). The gate
+  Thevenaz and Yaroslavsky, DOI 10.1109/83.469963). `rotated=None` (the
+  DEFAULT) is AUTO: `TemporalSpec.resolve_rotated()` takes the rotated route
+  when the wind has a CROSSWIND part (`wind_dir_deg` not a multiple of
+  180 deg) and the axis-aligned box otherwise; an explicit True or False
+  overrides. THE ALONG-TRACK ROUTE IS BIT-IDENTICAL, and its KEY IS
+  UNCHANGED: the two options enter `TemporalSpec.key()` only when the
+  RESOLVED route is the rotated one, and the key holds the RESOLVED value, so
+  auto and explicit True name the same record. The gate
   (`validation/temporal_screens/rotated_strip_gate.py`) passes 19 of 20 bands:
   D(r) and D(tau) move by 1 to 3 percent and the propagated point index,
   aperture index and SMF coupling by under 2 percent, a 0.25 n margin FAILS at
@@ -721,8 +726,20 @@ Open items:
   0.5) so EACH LAYER gets its own crop side `n(|cos t| + |sin t| +
   2 rot_margin)`, and `open_strips(..., on_device=True)` holds the strips on
   the CUDA device so a rotated frame uploads nothing. The hero record then
-  holds 9 of 12 parity bands, not 8. Whether `rotated` becomes the DEFAULT
-  for a crosswind is an OWNER decision (backlog 2-P1b item 10).
+  holds 9 of 12 parity bands, not 8. THE DEFAULT SWITCH IS DONE (step 5,
+  2026-09-13, an OWNER decision), and the POOLED parity backs it:
+  `rotated_record_parity.py --records N` pools N records (each with its own
+  strips and its own atmosphere) against N x frames independent snapshots,
+  with the block bootstrap drawn WITHIN a record. Five records of 1000 frames
+  at dt = 2 ms (10.0 s of atmosphere, the bigfraw GPU) hold 10 OF 12 BANDS at
+  0.0489 s for each frame, 21.9 s of strip build and 642 MB of strips for
+  each record. THE SMF MEAN AND p5 NOW PASS: 0.011 +/- 0.383 dB and
+  -0.295 +/- 0.878 dB, where 2 s of record read 0.913 and 0.449 dB; the
+  record p5 fade is 12.91 dB against 12.62 dB for snapshots, so it is
+  PESSIMISTIC, the safe direction. The two misses are the SMF index (0.889
+  +/- 0.099) and the SMF p1 (-1.252 +/- 2.312 dB), both inside about one
+  bootstrap standard error. The pooled record holds 352 independent tilt
+  times for the fibre against about 75 for one 2 s record.
 - **Several detectors, the master turbulence switch, and the Camera are BUILT
   (2026-09-02).** A `Terminal` still holds ONE detector: about twenty detector
   dispatch sites read that one field, so a receive path that feeds more than one

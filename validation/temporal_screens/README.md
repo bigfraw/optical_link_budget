@@ -19,7 +19,7 @@ repository root.
 | `rotated_strip_gate.py` | — | the ROTATED thin strip of a crosswind against the axis-aligned box and against the unrotated cut of the same crop (backlog 2-P1b item 10) |
 | `route_equivalence.py` | — | are the THREE strip routes (along track, box, rotated) the SAME screen? D(r), the tilt, the piston-free and the raw variance, and the power spectrum in radial bands, over 64 seeds |
 | `rotation_taper.py` | — | six cures for the seam ringing of the three shears, against the rotation of the full periodic screen. It picks the per-shear taper (V4) and the roll-off rule of `TemporalSpec.rot_margin` |
-| `rotated_record_parity.py` | — | one 4000-frame ROTATED record against 4000 independent snapshots: the scintillation index, the mean power and the 5 and 1 percent fade of three receivers |
+| `rotated_record_parity.py` | — | `--records N` ROTATED records of `--frames` frames, POOLED, against `N * frames` independent snapshots: the scintillation index, the mean power and the 5 and 1 percent fade of three receivers |
 | `record_plots.py` | — | the PICTURES of record 0 at 30 deg: the power against time over 2 s, and a 0.1 s animation of the phase, the aperture intensity, the fibre tip and the fibre power around the deepest fade. It only READS the record. DONE 2026-09-13 (55 s): the deepest fibre fade is 40.3 dB under the median at t = 96.5 ms |
 | `record_ao_plots.py` | — | the SAME record under four PERFECT-AO stacks (none, TipTilt, AO(10), AO(50)): the four fibre power series over 2 s, and the same 0.1 s animation with one ROW for each stack. It only READS the record and it corrects each stored field post hoc. DONE 2026-09-13 (113 s, the SLOPES fallback) |
 
@@ -631,6 +631,111 @@ record holds only about 75 independent atmospheres at the tilt time scale, and
 the index of a heavy-tailed fibre series is a fourth-moment estimator. Its
 mean moved 0.91 dB, which sits inside its own bootstrap bar.
 
+## Step 5: the rotated route is the crosswind DEFAULT, 2026-09-13
+
+THE OWNER DECIDED YES. `TemporalSpec.rotated` is now `Optional[bool] = None`
+= AUTO, and `TemporalSpec.resolve_rotated()` takes the ROTATED route when the
+wind has a CROSSWIND part (`wind_dir_deg` not a multiple of 180 deg) and the
+axis-aligned box otherwise. An explicit True or False still overrides.
+
+THE TEST READS THE WIND DIRECTION, NOT THE PLAN. The crosswind part of a layer
+is `V(h) sin(wind_dir)`, and the Bufton `V(h)` carries a 30 m/s jet term, so
+`V(h)` is never 0. "Any layer has `v_y != 0`" and "`sin(wind_dir) != 0`" are
+therefore the SAME test, and the direction one needs no plan. So the rule sits
+on the spec and `key()` stays a pure function of the spec.
+
+TWO THINGS DO NOT MOVE. The ALONG-TRACK route is bit-identical, and its KEY is
+unchanged: `rotated` and `rot_margin` enter `key()` only when the RESOLVED
+route is the rotated one, and the key holds the RESOLVED value, so auto and
+explicit True name the SAME record. `hero_temporal.py` keeps
+`wind_dir_deg = 0`, so it keeps the along-track route.
+
+### The 2 ms POOLED parity, 5 records of 1000 frames
+
+`rotated_record_parity.py` gained `--records N`: N records of `--frames`
+frames, each with its OWN index, its OWN strips and its OWN atmosphere, POOLED
+and compared with `N * frames` independent snapshots. The block bootstrap
+draws its 20 ms blocks WITHIN each record, never across a join.
+
+WHY. Step 4 left three SMF misses, and the doubt was SAMPLING: 2 s of record
+holds only about 75 independent TILT times, and the fibre statistics read the
+tilt. Five records of 2 s hold about five times as many at the same strip cost
+for each record.
+
+THE RUN (bigfraw GPU, cupy, 512 px, 9 layers, 30 deg, `wind_dir_deg = 90`,
+`standard`, single precision, seed 20260913, `dt = 2 ms`, 5 x 1000 frames =
+10.0 s of atmosphere, against 5000 independent snapshots). The route resolved
+to `rotated (auto)`: no `rotated=True` was passed.
+
+| item | value |
+|---|---|
+| frames | 5 records x 1000 at 2 ms = 10.0 s |
+| record wall | 244.4 s, **0.0489 s/frame** |
+| strip build | **21.9 s for each record** (31.7 s cold, 19.4 to 19.5 s warm) |
+| strips on disk | 642 MB for each record, 3212 MB for the five |
+| snapshot wall | 19.1 s for the 1000 new trials, 0.0191 s/trial |
+| peak working set | 2.26 GiB |
+| pass bands | **10 of 12** (step 4: 9 of 12) |
+
+The frame cost and the strip cost do NOT move with `dt`: the walk of a record
+is 1000 x 2 ms = 2 s, the same strip length as the 4000 x 0.5 ms record of
+step 4, and the per-frame cost is the same 0.049 s.
+
+INDEPENDENT TILT TIMES, from `effective_n` (the initial positive sequence of
+Geyer, DOI 10.1214/ss/1177011137):
+
+| receiver | for each record | POOLED | of 5000 frames |
+|---|---|---|---|
+| point (3 cm) | 913 | 4567 | the point series is almost white at 2 ms |
+| bucket (0.7 m) | 308 | 1539 | |
+| SMF | 70 | **352** | against about 75 for ONE 2 s record |
+
+So the pooled record holds about 4.7x the independent fibre realisations of
+the single 2 s record of step 4, and the SMF bars fall by about that square
+root.
+
+THE TABLE. `data/rotated_record_parity.csv` holds every row.
+
+| receiver | statistic | record | snapshot | comparison | 2 SE | verdict |
+|---|---|---|---|---|---|---|
+| point (3 cm) | sigma2_I | 0.17954 | 0.18750 | 0.9575 | 0.0620 | PASS |
+| point | mean [dB] | -32.163 | -32.138 | -0.025 | 0.075 | PASS |
+| point | p5 [dB] | -3.166 | -3.251 | +0.085 | 0.178 | PASS |
+| point | p1 [dB] | -4.731 | -4.703 | -0.028 | 0.355 | PASS |
+| bucket (0.7 m) | sigma2_I | 0.00460 | 0.00452 | 1.0171 | 0.0680 | PASS |
+| bucket | mean [dB] | +0.001 | +0.003 | -0.002 | 0.016 | PASS |
+| bucket | p5 [dB] | -0.498 | -0.493 | -0.005 | 0.031 | PASS |
+| bucket | p1 [dB] | -0.713 | -0.719 | +0.006 | 0.041 | PASS |
+| SMF | sigma2_I | 1.3698 | 1.5418 | 0.8885 | 0.0994 | FAIL, about 1.1 SE |
+| SMF | mean [dB] | -14.051 | -14.039 | **-0.011** | 0.383 | **PASS** |
+| SMF | p5 [dB] | -12.912 | -12.617 | **-0.295** | 0.878 | **PASS** |
+| SMF | p1 [dB] | -21.166 | -19.914 | -1.252 | 2.312 | FAIL, inside 1 SE |
+
+THE SMF FADE DEPTHS ARE THE POINT, and they hold. The SMF MEAN moved 0.913 dB
+at 2 s and moves **0.011 dB** pooled, and the SMF p5 moved 0.449 dB at 2 s and
+moves **-0.295 dB** pooled, inside the 0.3 dB band. The record reads a p5 fade
+of 12.91 dB against 12.62 dB for independent snapshots, so the record is
+0.29 dB PESSIMISTIC, which is the safe direction.
+
+THE TWO MISSES ARE BOTH INSIDE THEIR OWN BAR. The SMF INDEX reads 0.889 of the
+snapshot value, about 1.1 SE low; it is a FOURTH-moment estimator of a
+heavy-tailed series, so it is the last statistic to converge. The SMF p1 reads
+1.25 dB deeper, well inside its 2.31 dB bar: 352 independent tilt times give
+about 3.5 samples past the 1 percent line for each realisation, which is at
+the `EmpiricalSampler` tail limit. Neither miss moves in a direction that
+would make a link budget optimistic.
+
+VERDICT: a pooled ROTATED crosswind record is the same atmosphere as
+independent snapshots for every statistic that a budget reads. The remaining
+cost of the time axis is 2.6x an independent snapshot for each frame.
+
+```
+python -m validation.temporal_screens.rotated_record_parity --smoke
+python -m validation.temporal_screens.rotated_record_parity \
+    --dt 2e-3 --frames 1000 --records 5
+python -m validation.temporal_screens.rotated_record_parity --analyse
+```
+
 ## Sources
 
 - Taylor, DOI 10.1098/rspa.1938.0032. The frozen flow hypothesis.
@@ -651,6 +756,9 @@ mean moved 0.91 dB, which sits inside its own bootstrap bar.
 - Kunsch, Ann. Statist. 17(3), pp. 1217 to 1241 (1989),
   DOI 10.1214/aos/1176347265. The moving block bootstrap of a correlated
   series, which `rotated_record_parity.py` uses on the record arm.
+- Geyer, Practical Markov chain Monte Carlo, Statist. Sci. 7(4), pp. 473 to
+  483 (1992), DOI 10.1214/ss/1177011137. The initial positive sequence that
+  `effective_n` cuts the autocorrelation sum at.
 - Andrews and Phillips, DOI 10.1117/3.626196, Ch. 14, Eq. (38), printed p. 622.
   The Greenwood frequency of a slant path, which `greenwood_frequency` gives.
 

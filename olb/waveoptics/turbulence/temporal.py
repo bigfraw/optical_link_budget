@@ -44,7 +44,8 @@ THE VELOCITY OF A LAYER has two parts, and it is a 2-D vector:
      its slant distance: omega_true * z_slant = (v sin(el)/h_sat) * h. It goes
      along x, the long axis of the strip.
 
-THE ROTATED STRIP (an OPT-IN, 2026-09-13, backlog 2-P1b item 10). A CROSSWIND
+THE ROTATED STRIP (the CROSSWIND DEFAULT from 2026-09-13, backlog 2-P1b item
+10). A CROSSWIND
 turns the walk of a layer away from the x axis. The axis-aligned box that holds
 that walk grows its SHORT axis, and the 30 deg hero at `wind_dir_deg = 90` asks
 for a 11897 x 43744 box (520 Mpx) for one jet-level layer. `TemporalSpec.
@@ -52,8 +53,9 @@ rotated=True` holds ONE THIN strip per layer whose long axis runs along the
 RESULTANT velocity of that layer. The walk is then purely along the strip x, as
 it is for a wind along track. Each frame takes a PADDED crop of the strip and
 turns it back by the layer angle with `rotate_fourier`, then it cuts the
-central n by n. The default is False, so the along-track route does not move
-by one bit.
+central n by n. `rotated=None` (the DEFAULT) is AUTO: a crosswind takes this
+route and a wind along track keeps the axis-aligned box, bit for bit. See
+`TemporalSpec.resolve_rotated`.
 
 THE ROTATION IS EXACT. A Fourier screen is band-limited to its own grid, so the
 three-shear rotation of Unser, Thevenaz and Yaroslavsky,
@@ -314,8 +316,33 @@ class TemporalSpec:
     wind_dir_deg: float = 0.0
     slew_rad_s: float = None
     pad_outer_scales: float = 2.0
-    rotated: bool = False
+    rotated: bool = None
     rot_margin: float = 0.07
+
+    def resolve_rotated(self):
+        """Give the route of this spec: True rotated, False along track.
+
+        THE AUTO RULE (the DEFAULT from 2026-09-13). `rotated=None` reads the
+        WIND DIRECTION: a CROSSWIND takes the rotated route, and a wind along
+        the track (0 or 180 deg) takes the axis-aligned box. An explicit True
+        or False overrides.
+
+        WHY THE DIRECTION AND NOT THE PLAN. A layer has a crosswind part
+        v_y = V(h) sin(wind_dir), and the Bufton profile V(h) of Andrews and
+        Phillips, DOI 10.1117/3.626196, Ch. 12, Eq. (3), printed p. 481,
+        carries a 30 m/s jet term, so V(h) is never 0. So "any layer has
+        v_y != 0" and "sin(wind_dir) != 0" are the SAME test, and the
+        direction one needs no plan. So `key()` stays a pure function of the
+        spec.
+
+        Returns:
+            A bool.
+        """
+        if self.rotated is not None:
+            return bool(self.rotated)
+        # The test is on the DEGREES, not on the sine, because sin(pi) is
+        # 1.2e-16 in floating point and not 0.
+        return float(self.wind_dir_deg) % 180.0 != 0.0
 
     def key(self):
         """Give a stable string of the spec, WITHOUT `strip_dir`.
@@ -324,14 +351,19 @@ class TemporalSpec:
         that a seed rebuilds, so WHERE they sit must not name the campaign.
 
         THE ROTATED TAIL. `rotated` and `rot_margin` enter the key ONLY when
-        `rotated` is True. That is the append-only rule of `precision` and of
-        `fft_backend`, and it keeps every key of an older record valid.
+        the RESOLVED route (`resolve_rotated`) is the rotated one. That is the
+        append-only rule of `precision` and of `fft_backend`, and it keeps
+        every key of an older ALONG-TRACK record valid. The key holds the
+        RESOLVED value, so `rotated=None` (auto) and `rotated=True` name the
+        SAME record.
 
         Returns:
             A string.
         """
-        tail = () if self.rotated else ("rotated", "rot_margin")
-        parts = [f"{f.name}={getattr(self, f.name)!r}"
+        rotated = self.resolve_rotated()
+        tail = () if rotated else ("rotated", "rot_margin")
+        values = dict(rotated=rotated)
+        parts = [f"{f.name}={values.get(f.name, getattr(self, f.name))!r}"
                  for f in fields(self)
                  if f.name != "strip_dir" and f.name not in tail]
         return ",".join(parts)
@@ -426,7 +458,7 @@ def strip_plan(plan, grid, spec, geometry, L0_m):
     total_s = (int(spec.n_frames) - 1) * float(spec.dt_s)
     pad = int(np.ceil(float(spec.pad_outer_scales) * float(L0_m) / dx))
 
-    if getattr(spec, "rotated", False):
+    if spec.resolve_rotated():
         # THE ROTATED ROUTE. The long axis of each strip runs along the
         # resultant velocity, so the walk is purely along x at the speed
         # |v|. The window is the PADDED crop that `rotate_fourier` needs: it
@@ -726,7 +758,7 @@ if __name__ == '__main__':
 
     # ---- 4. a diagonal wind pads the y axis too ----
     spec_diag = TemporalSpec(dt_s=1e-3, n_frames=11, strip_dir="unused",
-                             wind_dir_deg=90.0, slew_rad_s=0.0)
+                             wind_dir_deg=90.0, slew_rad_s=0.0, rotated=False)
     sp_diag = strip_plan(plan, grid, spec_diag, geometry, L0)
     assert np.all(sp_diag.v_y_m_s > 0.0), sp_diag.v_y_m_s
     assert all(ny > 64 + pad_hand - 1 for ny, _ in sp_diag.shape), sp_diag.shape
@@ -801,6 +833,28 @@ if __name__ == '__main__':
     assert TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
                         rot_margin=9.0).key() == k1
     assert sp.theta is None and sp.m_crop is None
+    # THE AUTO RULE. A crosswind resolves to the rotated route, a wind along
+    # track to the box, and the along-track key is the OLD key string.
+    assert TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
+                        wind_dir_deg=90.0).resolve_rotated()
+    assert not TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
+                            wind_dir_deg=180.0).resolve_rotated()
+    assert k1 == ("dt_s=0.001,n_frames=4,record=0,wind_ground_m_s=10.0,"
+                  "wind_dir_deg=0.0,slew_rad_s=None,pad_outer_scales=2.0"), k1
+    # An explicit False still overrides a crosswind, and an explicit True
+    # still overrides a wind along track.
+    assert not TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
+                            wind_dir_deg=90.0,
+                            rotated=False).resolve_rotated()
+    assert strip_plan(plan, grid,
+                      TemporalSpec(dt_s=1e-3, n_frames=11, strip_dir="unused",
+                                   rotated=True),
+                      geometry, L0).m_crop is not None
+    # Auto and explicit True name the SAME record.
+    assert (TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
+                         wind_dir_deg=90.0).key()
+            == TemporalSpec(dt_s=1e-3, n_frames=4, strip_dir="/a",
+                            wind_dir_deg=90.0, rotated=True).key())
 
     # 8b. THE GEOMETRY. out(p) = in(R(a) p), so a point at q moves to the
     # pixel R(-a) q. A point source is the sharpest test of the angle, of the
@@ -841,7 +895,7 @@ if __name__ == '__main__':
                             wind_dir_deg=90.0, rotated=True, rot_margin=0.5)
     sp_rot = strip_plan(plan, grid, spec_rot, geometry, L0)
     spec_box = TemporalSpec(dt_s=1e-3, n_frames=11, strip_dir="unused",
-                            wind_dir_deg=90.0)
+                            wind_dir_deg=90.0, rotated=False)
     sp_box = strip_plan(plan, grid, spec_box, geometry, L0)
     # ONE crop side for EACH layer: 64*(foot_j + 2*0.5).
     assert len(sp_rot.m_crop) == len(sp_rot.shape), sp_rot.m_crop

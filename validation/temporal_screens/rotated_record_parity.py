@@ -12,11 +12,20 @@ Yaroslavsky, DOI 10.1109/83.469963.
 THE TWO ARMS, both on the hero downlink at 30 deg (a 0.7 m ground telescope
 with a single-mode fibre; `validation/waveoptics_ao/`):
 
-  R. ONE rotated record of `--frames` frames at `--dt`, with a CROSSWIND
-     (`wind_dir_deg = 90`), `rotated=True` and the default taper
-     roll-off `rot_margin = 0.07`.
-  S. The SAME number of independent snapshot trials, on the SAME grid, the
-     same screen plan, the same preset and the same seed stream.
+  R. `--records N` rotated records of `--frames` frames at `--dt`, POOLED.
+     Each record has its OWN index, so it has its OWN strips and its OWN
+     atmosphere. The wind is a CROSSWIND (`wind_dir_deg = 90`), so the spec
+     resolves to the ROTATED route on its own (the default from 2026-09-13),
+     with the default taper roll-off `rot_margin = 0.07`.
+  S. `N * --frames` independent snapshot trials, on the SAME grid, the same
+     screen plan, the same preset and the same seed stream.
+
+WHY SEVERAL RECORDS. One record of 2 s holds only about 75 independent
+realisations of the TILT, because the tilt decorrelates in tens of
+milliseconds. The fade quantiles of the fibre read that tilt, so their bar
+falls only as the number of INDEPENDENT tilt times, not as the number of
+frames. N records multiply that count by N at the same strip cost per record.
+The script measures the count: see `effective_n`.
 
 WHAT IT COMPARES, for the two receivers of gate (e) (the single-mode fibre and
 the bucket) and for a near-POINT aperture:
@@ -29,7 +38,8 @@ the bucket) and for a near-POINT aperture:
 THE ERROR BAR IS A BOOTSTRAP of 400 resamples. The frames of a record are
 CORRELATED in time, so arm R takes a moving BLOCK bootstrap of about 20 ms
 blocks (Kunsch, Ann. Statist. 17(3), pp. 1217 to 1241 (1989),
-DOI 10.1214/aos/1176347265). Arm S takes the ordinary bootstrap.
+DOI 10.1214/aos/1176347265), and it draws the blocks WITHIN each record, never
+across two records. Arm S takes the ordinary bootstrap.
 
 THE BANDS. 5 percent on a scintillation index, and 0.3 dB on a mean or a fade
 quantile. The script prints every number whatever the verdict.
@@ -44,6 +54,8 @@ Run from the repository root. The smoke run takes the host backend:
 
     python -m validation.temporal_screens.rotated_record_parity --smoke
     python -m validation.temporal_screens.rotated_record_parity
+    python -m validation.temporal_screens.rotated_record_parity \
+        --dt 2e-3 --frames 1000 --records 5
     python -m validation.temporal_screens.rotated_record_parity --analyse
 
 Sources:
@@ -81,6 +93,7 @@ ENV_ROOT = 'OLB_TEMPORAL_ROOT'
 ELEVATION_DEG = 30.0
 DT_S = 5e-4                  # the sample step, in s (gate (e)).
 N_FRAMES = 4000              # 2.0 s of record.
+N_RECORDS = 1                # the records that the analysis POOLS.
 PRESET = 'standard'
 PRECISION = 'single'
 SEED = 20260913
@@ -118,30 +131,54 @@ def campaigns_root(args):
     return os.path.join(root, name)
 
 
-def campaign_of(arm, args):
-    '''Build (or reopen) the campaign of one arm.
+def record_spec(args, record):
+    '''Give the TemporalSpec of one record.
+
+    `rotated` stays out: the crosswind resolves the ROTATED route on its own
+    (`TemporalSpec.resolve_rotated`, the default from 2026-09-13).
 
     Args:
-        arm:  'record' for the rotated frozen-flow record, or 'snapshot' for
-              the set of independent trials.
-        args: the parsed command line.
+        args:   the parsed command line.
+        record: the record index, from 0. It gives each record its OWN strips.
+
+    Returns:
+        A TemporalSpec.
+    '''
+    return TemporalSpec(dt_s=float(args.dt), n_frames=int(args.frames),
+                        strip_dir='unused', record=int(record),
+                        wind_dir_deg=WIND_DIR_DEG, rot_margin=ROT_MARGIN)
+
+
+def campaign_of(arm, args, record=0):
+    '''Build (or reopen) the campaign of one arm.
+
+    The record arms hold the time step in their directory name, because two
+    steps are two different atmospheres of the same scenario and a campaign
+    directory holds ONE manifest. The snapshot arm has no time axis, so its
+    directory is shared by every step and a longer run only adds trials.
+
+    Args:
+        arm:    'record' for a rotated frozen-flow record, or 'snapshot' for
+                the set of independent trials.
+        args:   the parsed command line.
+        record: the record index, for the record arm.
 
     Returns:
         A Campaign.
     '''
     scn, geom = hero_scenario(ELEVATION_DEG)
     spec = None
+    name = arm
     if arm == 'record':
-        spec = TemporalSpec(dt_s=float(args.dt), n_frames=int(args.frames),
-                            strip_dir='unused', record=0,
-                            wind_dir_deg=WIND_DIR_DEG, rotated=True,
-                            rot_margin=ROT_MARGIN)
+        spec = record_spec(args, record)
+        name = f'record{int(record):02d}_dt{int(round(args.dt * 1e6))}us'
+    n_trials = int(args.frames) * (1 if arm == 'record' else int(args.records))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         # L0_m stays out: None reads the site outer scale of 25 m (2-P5).
-        return Campaign(scn, geom, os.path.join(campaigns_root(args), arm),
+        return Campaign(scn, geom, os.path.join(campaigns_root(args), name),
                         seed=SEED, preset=args.preset,
-                        block_size=int(args.block_size),
+                        block_size=min(int(args.block_size), n_trials),
                         patch_radius_m=PATCH_RADIUS_M, precision=PRECISION,
                         fft_backend=args.fft_backend, temporal=spec)
 
@@ -217,8 +254,8 @@ def statistics(power):
             'p1_db': float(10.0 * np.log10(np.quantile(p, 0.01) / median))}
 
 
-def bootstrap_se(power, block, rng, n_boot=N_BOOT):
-    '''Give the bootstrap standard error of every statistic of one series.
+def bootstrap_se(segments, block, rng, n_boot=N_BOOT):
+    '''Give the bootstrap standard error of every statistic of one arm.
 
     A BLOCK of one keeps the ordinary bootstrap, which is right for the
     independent snapshot arm. A block above one takes the MOVING BLOCK
@@ -226,26 +263,65 @@ def bootstrap_se(power, block, rng, n_boot=N_BOOT):
     consecutive frames, so the resample carries the time correlation of the
     record and the bar does not read too small.
 
+    THE BLOCKS STAY INSIDE ONE RECORD. Two records are two atmospheres, so a
+    block that crossed the join would join two unrelated frames. Each segment
+    is resampled to its own length and the pieces are then joined, so every
+    resample has the length of the pooled series.
+
     Args:
-        power:  the power of each trial.
-        block:  the block length, in trials.
-        rng:    the resampler.
-        n_boot: the number of resamples.
+        segments: a list of the power series, ONE for each record. The
+                  snapshot arm gives one segment.
+        block:    the block length, in trials.
+        rng:      the resampler.
+        n_boot:   the number of resamples.
 
     Returns:
         A dict of the standard error of each statistic.
     '''
-    p = np.asarray(power, dtype=float)
-    n, b = p.size, max(1, int(block))
+    segs = [np.asarray(s, dtype=float) for s in segments]
+    b = max(1, int(block))
     draws = []
     for _ in range(int(n_boot)):
-        if b == 1:
-            sample = p[rng.integers(0, n, n)]
-        else:
-            starts = rng.integers(0, n - b + 1, int(np.ceil(n / b)))
-            sample = np.concatenate([p[s:s + b] for s in starts])[:n]
-        draws.append(statistics(sample))
+        parts = []
+        for p in segs:
+            n = p.size
+            if b == 1 or n < 2 * b:
+                parts.append(p[rng.integers(0, n, n)])
+            else:
+                starts = rng.integers(0, n - b + 1, int(np.ceil(n / b)))
+                parts.append(
+                    np.concatenate([p[s:s + b] for s in starts])[:n])
+        draws.append(statistics(np.concatenate(parts)))
     return {k: float(np.std([d[k] for d in draws], ddof=1)) for k in draws[0]}
+
+
+def effective_n(x):
+    '''Give the number of INDEPENDENT samples that one time series holds.
+
+    N_eff = N / (1 + 2 sum_k rho_k), with rho the autocorrelation and the sum
+    cut at the first lag where rho goes below zero (the initial positive
+    sequence of Geyer, Statist. Sci. 7(4), pp. 473 to 483 (1992),
+    DOI 10.1214/ss/1177011137). For white noise rho is 0 and N_eff is N.
+
+    Args:
+        x: the series of one record.
+
+    Returns:
+        A float.
+    '''
+    p = np.asarray(x, dtype=float)
+    d = p - p.mean()
+    n = d.size
+    var = float(d @ d)
+    if var <= 0.0:
+        return float(n)
+    # The autocorrelation through the FFT: it is the same sum, and it costs
+    # n log n instead of n^2 (Schmidt, DOI 10.1117/3.866274, Ch. 2).
+    f = np.fft.rfft(d, 2 * n)
+    rho = np.fft.irfft(f * np.conj(f), 2 * n)[:n] / var
+    cut = np.flatnonzero(rho[1:] <= 0.0)
+    k = int(cut[0]) if cut.size else n - 1
+    return float(n / (1.0 + 2.0 * float(rho[1:1 + k].sum())))
 
 
 # ---------------------------------------------------------------------------
@@ -266,19 +342,34 @@ def write_csv(rows):
     return path
 
 
-def compare(series_r, series_s, n_frames, dt_s):
-    '''Compare the two arms and print every table. Give the CSV rows back.'''
+def compare(segments_r, series_s, dt_s):
+    '''Compare the two arms and print every table. Give the CSV rows back.
+
+    Args:
+        segments_r: a list of the series dict of each record of arm R.
+        series_s:   the series dict of arm S.
+        dt_s:       the time step of a frame, in s.
+
+    Returns:
+        The CSV rows.
+    '''
     rng = np.random.default_rng(BOOT_SEED)
     block = max(1, int(round(BLOCK_MS * 1e-3 / float(dt_s))))
     print(f'  the moving block bootstrap holds {block} frames '
-          f'({block * dt_s * 1e3:.1f} ms), {N_BOOT} resamples')
+          f'({block * dt_s * 1e3:.1f} ms), {N_BOOT} resamples, drawn WITHIN '
+          f'each of the {len(segments_r)} records')
     rows = []
     for name in ('point', 'bucket', 'smf'):
-        stat_r = statistics(series_r[name])
+        segs_r = [s[name] for s in segments_r]
+        stat_r = statistics(np.concatenate(segs_r))
         stat_s = statistics(series_s[name])
-        se_r = bootstrap_se(series_r[name], block, rng)
-        se_s = bootstrap_se(series_s[name], 1, rng)
+        se_r = bootstrap_se(segs_r, block, rng)
+        se_s = bootstrap_se([series_s[name]], 1, rng)
+        n_eff = sum(effective_n(s) for s in segs_r)
         print('')
+        print(f'  independent tilt times in the pooled record: '
+              f'{n_eff:.0f} of {sum(s.size for s in segs_r)} frames '
+              f'({n_eff / len(segs_r):.0f} for each record)')
         print(f'  receiver: {name}')
         print(f'    {"statistic":12s}{"record":>12s}{"+/- 2 SE":>11s}'
               f'{"snapshot":>12s}{"+/- 2 SE":>11s}{"comparison":>20s}'
@@ -325,9 +416,18 @@ def _self_check():
     # The BLOCK bootstrap of a correlated series must give a WIDER bar than
     # the ordinary one. A repeated series is the extreme correlated case.
     corr = np.repeat(rng.standard_normal(200) ** 2, 20)
-    wide = bootstrap_se(corr, 20, np.random.default_rng(1), n_boot=60)
-    tight = bootstrap_se(corr, 1, np.random.default_rng(1), n_boot=60)
+    wide = bootstrap_se([corr], 20, np.random.default_rng(1), n_boot=60)
+    tight = bootstrap_se([corr], 1, np.random.default_rng(1), n_boot=60)
     assert wide['mean_db'] > tight['mean_db'], (wide, tight)
+    # Two segments give a resample of the POOLED length.
+    two = bootstrap_se([corr, corr], 20, np.random.default_rng(1), n_boot=8)
+    assert set(two) == set(wide), (two, wide)
+    # `effective_n` reads N for white noise and about N/20 for the series
+    # above, which repeats every value 20 times.
+    white = rng.standard_normal(20000)
+    assert 0.8 < effective_n(white) / white.size < 1.2, effective_n(white)
+    assert 0.5 < effective_n(corr) / (corr.size / 20.0) < 2.0, \
+        effective_n(corr)
 
 
 def main():
@@ -338,6 +438,9 @@ def main():
                              'snapshot arm.')
     parser.add_argument('--dt', type=float, default=DT_S,
                         help='the time step of one frame [s].')
+    parser.add_argument('--records', type=int, default=N_RECORDS,
+                        help='the number of records to POOL. Each one holds '
+                             'its own strips and its own atmosphere.')
     parser.add_argument('--preset', default=PRESET,
                         help='the sampling preset of both campaigns.')
     parser.add_argument('--block-size', type=int, default=500,
@@ -358,6 +461,7 @@ def main():
     args = parser.parse_args()
     if args.smoke:
         args.frames = 120
+        args.records = 2
         args.preset = 'rapid'
         args.fft_backend = 'numpy'
     if args.workers not in (None, 'auto'):
@@ -373,62 +477,85 @@ def main():
           f'downlink at {ELEVATION_DEG:.0f} deg')
     print(f'  {args.preset} preset, {PRECISION} precision, seed {SEED}, '
           f'backend {args.fft_backend}')
-    print(f'  {args.frames} frames at {args.dt * 1e3:.2f} ms, crosswind '
-          f'{WIND_DIR_DEG:.0f} deg, taper roll-off {ROT_MARGIN:.2f} n')
+    print(f'  {args.records} record(s) of {args.frames} frames at '
+          f'{args.dt * 1e3:.2f} ms = '
+          f'{args.records * args.frames * args.dt:.1f} s of atmosphere')
+    print(f'  crosswind {WIND_DIR_DEG:.0f} deg, taper roll-off '
+          f'{ROT_MARGIN:.2f} n, route '
+          f'{"rotated" if record_spec(args, 0).resolve_rotated() else "box"} '
+          f'(auto)')
     print(f'  campaigns under {campaigns_root(args)}')
     print('')
 
-    walls, camps = {}, {}
-    for arm in ('record', 'snapshot'):
-        camps[arm] = campaign_of(arm, args)
-        print(f'  arm {arm}: {camps[arm].root_dir}')
-        walls[arm] = (0.0 if args.analyse
-                      else ensure_trials(camps[arm], int(args.frames), args))
-    n_read = min(int(c.n_stored) for c in camps.values())
-    n_read = min(n_read, int(args.frames))
+    n_snap = int(args.frames) * int(args.records)
+    camps_r, walls_r, builds_r, strips_r = [], [], [], []
+    for r in range(int(args.records)):
+        camp = campaign_of('record', args, record=r)
+        camps_r.append(camp)
+        print(f'  arm record {r}: {camp.root_dir}')
+        if args.analyse:
+            walls_r.append(0.0)
+            builds_r.append(0.0)
+        else:
+            # The strip build is idempotent, so this call TIMES it and the
+            # runner then skips it.
+            t_b = time.perf_counter()
+            camp._build_strips()
+            builds_r.append(time.perf_counter() - t_b)
+            print(f'    strips built in {builds_r[-1]:.1f} s', flush=True)
+            walls_r.append(ensure_trials(camp, int(args.frames), args))
+        strips_r.append(strip_bytes(camp))
+    camp_s = campaign_of('snapshot', args)
+    print(f'  arm snapshot: {camp_s.root_dir}')
+    wall_s = (0.0 if args.analyse else ensure_trials(camp_s, n_snap, args))
+
+    n_read = min(int(c.n_stored) for c in camps_r)
+    n_read = min(n_read, int(args.frames),
+                 int(camp_s.n_stored) // int(args.records))
     if n_read == 0:
         print('  INFO  nothing is stored. There is nothing to analyse.')
         return
     if n_read < int(args.frames):
-        print(f'  INFO  only {n_read} of {args.frames} trials are on both '
-              f'arms. The analysis reads {n_read}.')
+        print(f'  INFO  only {n_read} of {args.frames} frames are on every '
+              f'arm. The analysis reads {n_read} for each record.')
 
-    grid = camps['record'].grid
+    grid = camps_r[0].grid
     print('')
     print(f'  grid                     {grid.n:9d} px, '
           f'{grid.pixel_m * 1e3:.2f} mm')
-    print(f'  screens                  {camps["record"].plan.z_m.size:9d}')
-    print(f'  outer scale              {camps["record"].L0_m:9.1f} m')
-    sp_rec = strip_plan(camps['record'].plan, grid,
-                        TemporalSpec(dt_s=float(args.dt),
-                                     n_frames=int(args.frames),
-                                     strip_dir='unused',
-                                     wind_dir_deg=WIND_DIR_DEG, rotated=True,
-                                     rot_margin=ROT_MARGIN),
-                        hero_scenario(ELEVATION_DEG)[1],
-                        camps['record'].L0_m)
+    print(f'  screens                  {camps_r[0].plan.z_m.size:9d}')
+    print(f'  outer scale              {camps_r[0].L0_m:9.1f} m')
+    sp_rec = strip_plan(camps_r[0].plan, grid, record_spec(args, 0),
+                        hero_scenario(ELEVATION_DEG)[1], camps_r[0].L0_m)
     print('  layer angles [deg]       '
           + ' '.join(f'{np.rad2deg(t):.0f}' for t in sp_rec.theta))
     print('  crop side of each layer  '
           + ' '.join(str(m) for m in sp_rec.m_crop) + ' px')
-    strips = strip_bytes(camps['record'])
-    print(f'  strips on disk           {strips / 2 ** 20:9.0f} MB')
-    print(f'  record wall              {walls["record"]:9.1f} s')
-    print(f'  snapshot wall            {walls["snapshot"]:9.1f} s')
+    print(f'  strips on disk           {sum(strips_r) / 2 ** 20:9.0f} MB '
+          f'({sum(strips_r) / 2 ** 20 / len(strips_r):.0f} MB for each '
+          f'record)')
+    print(f'  strip build              {np.mean(builds_r):9.1f} s for each '
+          f'record')
+    print(f'  record wall              {sum(walls_r):9.1f} s '
+          f'({sum(walls_r) / max(1, n_read * len(walls_r)):.4f} s/frame)')
+    print(f'  snapshot wall            {wall_s:9.1f} s '
+          f'({wall_s / max(1, n_snap):.4f} s/trial)')
     print(f'  peak working set         '
           f'{peak_working_set_bytes() / 2 ** 30:9.2f} GiB')
 
-    series_r = series_of(camps['record'], n_read)
-    series_s = series_of(camps['snapshot'], n_read)
-    rows = compare(series_r, series_s, n_read, float(args.dt))
+    segments_r = [series_of(c, n_read) for c in camps_r]
+    series_s = series_of(camp_s, n_read * int(args.records))
+    rows = compare(segments_r, series_s, float(args.dt))
 
     print('')
     print(f'  file saved: {write_csv(rows)}')
-    if not args.keep_strips and camps['record'].n_stored >= int(args.frames):
-        path = os.path.join(camps['record'].root_dir, 'strips')
-        shutil.rmtree(path, ignore_errors=True)
-        print(f'  strips deleted, {strips / 2 ** 20:.0f} MB freed (the seed '
-              f'rebuilds them).')
+    if not args.keep_strips:
+        for camp, size in zip(camps_r, strips_r):
+            if int(camp.n_stored) >= int(args.frames):
+                shutil.rmtree(os.path.join(camp.root_dir, 'strips'),
+                              ignore_errors=True)
+        print(f'  strips deleted, {sum(strips_r) / 2 ** 20:.0f} MB freed (the '
+              f'seed rebuilds them).')
 
     failed = [line for line in BANDS if 'FAIL' in line]
     print('')

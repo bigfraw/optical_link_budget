@@ -2107,19 +2107,31 @@ t = camp.t_s()                       # the derived time axis, in s.
 ```
 
 - `TemporalSpec(dt_s, n_frames, strip_dir, record=0, wind_ground_m_s=10.0,
-  wind_dir_deg=0.0, slew_rad_s=None, pad_outer_scales=2.0, rotated=False,
+  wind_dir_deg=0.0, slew_rad_s=None, pad_outer_scales=2.0, rotated=None,
   rot_margin=0.07)` — a frozen dataclass
   that names ONE record. `record` separates two records of one campaign: they
   hold different strips and the same statistics. `slew_rad_s=None` reads
-  `geometry.slew_deg_s`. `key()` gives the stable string that the fingerprint
-  reads, and it OMITS `strip_dir`, because the strips are a cache. It also
-  omits `rotated` and `rot_margin` while `rotated` is False (the append-only
-  tail rule of `precision` and `fft_backend`), so every key of an older
-  record stays valid.
+  `geometry.slew_deg_s`.
+- `TemporalSpec.resolve_rotated()` — the ROUTE of the spec, True rotated or
+  False along track. `rotated=None` (the DEFAULT from 2026-09-13) is AUTO: a
+  CROSSWIND (`wind_dir_deg` not a multiple of 180 deg) takes the ROTATED
+  route, and a wind along track keeps the axis-aligned box, bit for bit. An
+  explicit True or False overrides. The test reads the wind DIRECTION and not
+  the plan, because the crosswind part of a layer is `V(h) sin(wind_dir)` and
+  the Bufton `V(h)` is never 0, so the two tests are the same one and `key()`
+  stays a pure function of the spec.
+- `TemporalSpec.key()` gives the stable string that the fingerprint reads, and
+  it OMITS `strip_dir`, because the strips are a cache. It also omits
+  `rotated` and `rot_margin` while the RESOLVED route is the along-track one
+  (the append-only tail rule of `precision` and `fft_backend`), so every key
+  of an older along-track record stays valid. The key holds the RESOLVED
+  value, so `rotated=None` on a crosswind and `rotated=True` name the SAME
+  record.
 - `strip_plan(plan, grid, spec, geometry, L0_m)` — a `StripPlan`: the drift
   `v_x_m_s` and `v_y_m_s` of each layer, the `(ny, nx)` shape of each strip (the
   column count rounds up to a multiple of `STRIP_ALIGN = 32`), and the seam pad
-  in pixels. `L0_m` must be FINITE. With `spec.rotated` it gives the ROTATED
+  in pixels. `L0_m` must be FINITE. With `spec.resolve_rotated()` it gives the
+  ROTATED
   plan instead: one THIN strip for each layer along that layer's RESULTANT
   velocity, plus `theta` (the angle of each layer) and `m_crop` (the padded
   crop side of EACH layer, `n(|cos theta_j| + |sin theta_j| + 2 rot_margin)`,

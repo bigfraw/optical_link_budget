@@ -1317,13 +1317,44 @@ The path forward for each is a second reference or a derivation.
   the strip SHORT AXIS smaller (8.5 m to 4.2 to 5.4 m), which sits between
   the along-track route of record (3.5 m) and the 5.4 to 6.2 m that
   `route_equivalence.py` measured against the exact box.
-  THE OWNER DECISION that remains is whether `rotated=True` becomes the
-  DEFAULT for a crosswind. The RECOMMENDATION is YES, on these numbers: the
-  rotated route is the only route that fits a 90 deg crosswind record in
-  memory (643 MB against 12.5 GB), its parity is now as good as the
-  along-track route's, and it costs 2.7x an independent snapshot, which is
-  the price of the time axis itself. The remaining cost is the three shear
-  FFTs of each layer of each frame.
+  STEP 5, THE DEFAULT SWITCH AND THE POOLED PARITY (2026-09-13, an OWNER
+  DECISION). THE ROTATED ROUTE IS NOW THE CROSSWIND DEFAULT.
+  `TemporalSpec.rotated` is `Optional[bool] = None` = AUTO, and
+  `TemporalSpec.resolve_rotated()` takes the rotated route when
+  `wind_dir_deg` is not a multiple of 180 deg. The test reads the wind
+  DIRECTION and not the plan, because the crosswind part of a layer is
+  `V(h) sin(wind_dir)` and the Bufton `V(h)` is never 0, so the two tests are
+  the same one and `key()` stays a pure function of the spec. THE ALONG-TRACK
+  ROUTE IS BIT-IDENTICAL and its KEY IS UNCHANGED: the two options enter
+  `key()` only when the RESOLVED route is the rotated one, and the key holds
+  the RESOLVED value, so auto and explicit True name the same record. The
+  `temporal` self-check asserts the auto rule, the two overrides and the old
+  along-track key string.
+  THE PARITY WAS THEN REMEASURED ON A POOLED RECORD, to answer the one
+  remaining doubt of step 4 (the SMF index and mean, which read 2 s of record
+  = about 75 independent tilt times). `rotated_record_parity.py` gained
+  `--records N`: it runs N records of `--frames` frames, each with its OWN
+  strips and its OWN atmosphere, and it POOLS the frames against `N * frames`
+  independent snapshots. The block bootstrap draws its blocks WITHIN each
+  record, never across the join, and `effective_n` reports the independent
+  tilt times that the pooled record holds.
+  THE RUN (bigfraw GPU, cupy, 512 px, 9 layers, 30 deg, `wind_dir_deg = 90`,
+  `standard`, single precision, seed 20260913, dt = 2 ms, 5 x 1000 frames =
+  10.0 s, against 5000 independent snapshots; the route resolved to
+  `rotated (auto)`): 0.0489 s for each frame, 21.9 s of strip build and
+  642 MB of strips for each record, 2.26 GiB of peak working set, and 244.4 s
+  of record wall against 19.1 s for the 1000 new snapshots. THE PARITY IS
+  10 OF 12 BANDS, against 9. The point and the bucket hold all four each. THE
+  SMF MEAN AND THE SMF p5 NOW PASS: the mean moved 0.913 dB at 2 s and moves
+  0.011 +/- 0.383 dB pooled, and the p5 moved 0.449 dB at 2 s and moves
+  -0.295 +/- 0.878 dB pooled (a 12.91 dB record fade against 12.62 dB, so the
+  record is 0.29 dB PESSIMISTIC, the safe direction). The two misses are the
+  SMF index (0.889 +/- 0.099, about 1.1 SE low, a fourth-moment estimator of
+  a heavy-tailed series) and the SMF p1 (-1.252 +/- 2.312 dB, inside 1 SE).
+  The pooled record holds 352 independent tilt times for the fibre (70 for
+  each record) against about 75 for the single 2 s record, 1539 for the
+  bucket and 4567 for the point. See `validation/temporal_screens/README.md`,
+  the step 5 section, for the full table.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
