@@ -2212,6 +2212,17 @@ The path forward for each is a second reference or a derivation.
 
 ## Documentation debt
 
+- **DD-10. Split `docs/physics.md` into pure physics and olb computation
+  (owner, 2026-09-13).** The file now mixes the physics of a model with the
+  way olb computes it: the frozen-flow section carries the three-shear Fourier
+  rotation, its edge effects, the per-shear taper and the crop margins, and
+  other sections carry the split-step sampling rules, the grid sizers, the
+  screen generators and the campaign mechanics. Move the computation content
+  into its own document (a `docs/computation.md` or the existing
+  `docs/api-waveoptics.md` where it is an API fact), keep in `physics.md` only
+  the equations, their sources and the measured validity of each model, and
+  cross-reference the two. A reader of the physics must not need the code
+  tricks, and a reader of the tricks must not wade through the physics.
 - **DD-2. PARTLY DONE (verified 2026-09-04).** The README "Next / planned" graph
   dropped the two closed nodes NT5 (validate the diverged coupled-flux feed;
   measured and closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2),
