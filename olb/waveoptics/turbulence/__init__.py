@@ -13,7 +13,7 @@ The modules are:
     run         the trial runner: one snapshot for each seed.
     campaign    a large set of trials on disk, stored as blocks.
     fingerprint the content key that names one campaign.
-    temporal    the frozen-flow time axis. PLANNED, NOT BUILT.
+    temporal    the frozen-flow time axis: the strip screens.
 
 Sources:
 - Schmidt, Numerical Simulation of Optical Wave Propagation with Examples in
@@ -31,7 +31,8 @@ from .sampling import (PRESETS, QualityPreset, SamplingReport, ScreenPlan,
                        turbulent_grid)
 from .screens import Screen, phase_screen, screen_r0
 from .splitstep import split_step, super_gaussian_boundary
-from .temporal import TemporalScreens
+from .temporal import (StripPlan, TemporalSpec, build_strips, frame_offsets,
+                       frame_stack, open_strips, strip_paths, strip_plan)
 
 __all__ = [
     'Campaign',
@@ -42,13 +43,18 @@ __all__ = [
     'Screen',
     'SensingGeometry',
     'ScreenPlan',
-    'TemporalScreens',
+    'StripPlan',
+    'TemporalSpec',
     'TurbTrial',
     'TurbWaveResult',
+    'build_strips',
     'check_run_option_coverage',
     'clip_terminal',
     'folded_terrestrial',
+    'frame_offsets',
+    'frame_stack',
     'grid_options',
+    'open_strips',
     'phase_screen',
     'point_ahead_overlap',
     'point_ahead_regenerate',
@@ -58,6 +64,8 @@ __all__ = [
     'sensing_geometry',
     'split_run_options',
     'split_step',
+    'strip_paths',
+    'strip_plan',
     'super_gaussian_boundary',
     'turbulent_grid',
 ]

@@ -27,5 +27,9 @@ validation/terrestrial_screen_count/campaigns/
 validation/gpu_fft/_campaigns/
 validation/waveoptics_ao/campaigns/
 validation/posthoc_speed/campaigns/
+validation/temporal_screens/strips/
+validation/temporal_screens/strips_frame0/
+validation/temporal_screens/strips_tilt/
 validation/waveoptics_pointahead/campaigns/
 validation/waveoptics_pointahead/campaigns_smoke/
+validation/temporal_screens/campaigns/

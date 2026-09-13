@@ -81,10 +81,11 @@ from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
                   _PostTail, _resolve_compensation, _resolve_point_ahead,
                   _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
                   _uplink_ground, clip_terminal,
-                  _resolve_seed, propagate_turbulent_scenario,
+                  _resolve_seed, _screen_seed, propagate_turbulent_scenario,
                   space_vacuum_baseline)
 from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
 from .splitstep import super_gaussian_boundary
+from .temporal import build_strips, strip_paths, strip_plan
 
 # The manifest name and the block name. A block file holds one block only, so a
 # stopped campaign keeps every finished block.
@@ -237,6 +238,7 @@ def _run_block(b):
         store_screen_phase=_W["kwargs"]["store_screen_phase"],
         point_ahead_rad=_W["kwargs"]["point_ahead_rad"],
         screen_margin_m=_W["kwargs"]["screen_margin_m"],
+        temporal=_W["kwargs"]["temporal"], h_gl=_W["kwargs"]["h_gl"],
         boost=False)        # the worker boosted itself in _init_worker.
     return int(b), _columns_of(res)
 
@@ -334,7 +336,8 @@ class TrialRecord:
         return _patch_field(self.patch, array, self.lam)
 
 
-def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True):
+def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True,
+                 dt_s=None):
     """Run one callable over the trials of one block.
 
     The block shares ONE context dict, so a per-block build happens one time.
@@ -348,6 +351,10 @@ def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True):
         fields:   True rebuilds the field of each trial.
         compact:  True rebuilds on the crop (the default). False rebuilds on
                   the full grid.
+        dt_s:     the time step of a frozen-flow campaign, in s, or None. It
+                  adds the DERIVED scalar "t_s" = row * dt_s to each record. A
+                  block file holds a fixed column list, so the time is never a
+                  stored column.
 
     Returns:
         An array of the values, in trial order.
@@ -368,6 +375,8 @@ def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True):
         scalars = {c: cols[c][k] for c in _COLUMNS}
         if eta_pa is not None:
             scalars["eta_turb_pa"] = eta_pa[k]
+        if dt_s is not None:
+            scalars["t_s"] = (int(base_row) + k) * float(dt_s)
         out.append(fn(TrialRecord(
             row=int(base_row) + k, array=array, patch=patch, lam=float(lam),
             scalars=scalars,
@@ -394,7 +403,8 @@ def _map_block(b):
         cols["screen_phase_pa"] = None
     return int(b), _apply_block(m["fn"], cols, m["patch"], m["lam"],
                                 int(b) * int(m["block_size"]),
-                                fields=m["fields"], compact=m["compact"])
+                                fields=m["fields"], compact=m["compact"],
+                                dt_s=m["dt_s"])
 
 
 class _CoupleTrials:
@@ -606,6 +616,10 @@ class Campaign:
                         m. It is 0.0 for a campaign with no point-ahead pass.
         screen_n:       the pixel count of one drawn screen side. It equals
                         grid.n for a campaign with no point-ahead pass.
+        temporal:       the TemporalSpec of a frozen-flow record, or None. Its
+                        `strip_dir` sits under `root_dir`.
+        h_gl:           the forced ground heights of the screen plan, in m, as
+                        a tuple, or None.
     """
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
@@ -615,7 +629,7 @@ class Campaign:
                  subharmonics=True, screen_generator="olb",
                  precision="single", fft_backend="numpy", compensation=None,
                  store_screen_phase=False, point_ahead_rad=None,
-                 screen_margin_m=None):
+                 screen_margin_m=None, temporal=None, h_gl=None):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -717,6 +731,20 @@ class Campaign:
                            a REOPENED campaign reads the stored value from the
                            manifest, exactly like patch_radius_m. The RESOLVED
                            value enters the fingerprint.
+            temporal:      an optional TemporalSpec (an OPT-IN, default None).
+                           The trials of the campaign are then the FRAMES of one
+                           frozen-flow record, and trial k sits at the time
+                           k * dt_s. The campaign puts the strips under
+                           `root_dir/strips`, whatever `strip_dir` the caller
+                           set, and it builds them ONE time in this process
+                           before the pool opens. The strips are a deletable
+                           cache: the seed rebuilds them. The spec enters the
+                           fingerprint and the manifest. See
+                           olb.waveoptics.turbulence.temporal.
+            h_gl:          an optional sequence of GROUND heights, in m. Each
+                           named height gets a screen of its own. It enters the
+                           fingerprint and the manifest. See
+                           sampling.turbulent_grid.
 
         Raises:
             ValueError: the seed is not an integer, the precision name is
@@ -757,6 +785,16 @@ class Campaign:
         self.compensation, self.n_modes_corrected = _resolve_compensation(
             scenario, compensation)
         self.store_screen_phase = bool(store_screen_phase)
+        # THE STRIPS LIVE WITH THE CAMPAIGN. The spec of a caller may name any
+        # directory; the campaign moves it under its own root, so a deleted
+        # campaign takes its cache with it. `strip_dir` is not part of
+        # `TemporalSpec.key()`, so the move does not change the fingerprint.
+        self.temporal = (None if temporal is None else
+                         replace(temporal,
+                                 strip_dir=os.path.join(str(root_dir),
+                                                        "strips")))
+        self.h_gl = (None if h_gl is None else
+                     tuple(float(v) for v in np.ravel(np.asarray(h_gl))))
 
         # Load the manifest FIRST when this store exists, so a reopened campaign
         # reads its stored patch radius from the manifest, NOT from the None
@@ -800,7 +838,8 @@ class Campaign:
                 compensation=self.compensation,
                 store_screen_phase=self.store_screen_phase,
                 point_ahead_rad=self.point_ahead_rad,
-                screen_margin_m=self.screen_margin_m)
+                screen_margin_m=self.screen_margin_m,
+                temporal=self.temporal, h_gl=self.h_gl)
 
         if stored_manifest is not None:
             man = stored_manifest
@@ -830,7 +869,8 @@ class Campaign:
                               _sizing_scenario(scenario, self.sizing_aperture_m))
             sized_grid, sized_plan, _ = turbulent_grid(
                 sizer_scenario, geometry, preset=self.preset, cn2=cn2, hs=hs,
-                cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=self.L0_m)
+                cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=self.L0_m,
+                h_gl=self.h_gl)
             self.grid = sized_grid if grid is None else grid
             self.plan = sized_plan if plan is None else plan
             self._resolve_margin(screen_margin_m, None)
@@ -887,6 +927,10 @@ class Campaign:
                                     else list(self.point_ahead_rad)),
                 "screen_margin_m": self.screen_margin_m,
                 "screen_n": self.screen_n,
+                "temporal": (None if self.temporal is None
+                             else self.temporal.key()),
+                "dt_s": self.dt_s,
+                "h_gl": (None if self.h_gl is None else list(self.h_gl)),
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
@@ -898,7 +942,8 @@ class Campaign:
         defaults = {"precision": "double", "fft_backend": "numpy",
                     "compensation": repr(None), "store_screen_phase": False,
                     "point_ahead_rad": None, "screen_margin_m": 0.0,
-                    "screen_n": int(self.grid.n)}
+                    "screen_n": int(self.grid.n),
+                    "temporal": None, "dt_s": None, "h_gl": None}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -931,6 +976,10 @@ class Campaign:
                                 else list(self.point_ahead_rad)),
             "screen_margin_m": float(self.screen_margin_m),
             "screen_n": int(self.screen_n),
+            "temporal": (None if self.temporal is None
+                         else self.temporal.key()),
+            "dt_s": self.dt_s,
+            "h_gl": (None if self.h_gl is None else list(self.h_gl)),
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -986,6 +1035,53 @@ class Campaign:
             b += 1
         return b * self.block_size
 
+    @property
+    def dt_s(self):
+        """The time step of a frozen-flow campaign, in s, or None."""
+        return None if self.temporal is None else float(self.temporal.dt_s)
+
+    def t_s(self, rows=None):
+        """Give the time of one or more stored frames, in s.
+
+        THE TIME IS DERIVED, not stored. A block file holds a FIXED column
+        list, so a new column would break every older block. The frames sit on
+        a fixed step, so the time of frame k is simply k * dt_s.
+
+        Args:
+            rows: the trial indices, an int or an array. None takes every
+                  stored trial.
+
+        Returns:
+            A float array, in s.
+
+        Raises:
+            ValueError: this campaign is not a frozen-flow record.
+        """
+        if self.dt_s is None:
+            raise ValueError(
+                "Campaign.t_s: this campaign holds independent SNAPSHOTS, so "
+                "it has no time axis. Make it with a temporal=TemporalSpec(...).")
+        r = np.arange(self.n_stored) if rows is None else np.asarray(rows)
+        return r * self.dt_s
+
+    def _build_strips(self):
+        """Build the strips of a frozen-flow campaign, ONE time, in the parent.
+
+        A pool worker then only OPENS the memory maps, so the page cache is
+        shared and no worker draws a strip. The call is idempotent: a strip
+        that already sits on disk is skipped.
+        """
+        n_screens = int(self.plan.z_m.size)
+        sp = strip_plan(self.plan, self.grid, self.temporal, self.geometry,
+                        self.L0_m)
+        entropy = _resolve_seed(self.seed)
+        build_strips(
+            sp, self.plan.r0_m, strip_paths(self.temporal, n_screens),
+            self.L0_m, self.subharmonics,
+            [_screen_seed(entropy, self.temporal.record, j)
+             for j in range(n_screens)],
+            dtype=(np.float32 if self.precision == "single" else np.float64))
+
     def _runner_kwargs(self):
         """Give the keyword arguments that every block run shares."""
         return {"block_size": self.block_size, "seed": self.seed,
@@ -998,7 +1094,8 @@ class Campaign:
                 "compensation": self.compensation,
                 "store_screen_phase": self.store_screen_phase,
                 "point_ahead_rad": self.point_ahead_rad,
-                "screen_margin_m": self.screen_margin_m}
+                "screen_margin_m": self.screen_margin_m,
+                "temporal": self.temporal, "h_gl": self.h_gl}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
@@ -1103,6 +1200,10 @@ class Campaign:
                       f"{per:.0f} MiB per worker)")
         if boost:
             boost_process_priority()    # Threads inherit; workers boost themselves.
+        if self.temporal is not None:
+            # THE STRIPS BUILD HERE, before the pool opens. Then a worker only
+            # opens the memory maps. See _build_strips.
+            self._build_strips()
         t0 = time.time()
         if workers is None:
             # The CUDA route refuses a threader: one device, one stream.
@@ -1121,6 +1222,7 @@ class Campaign:
                     store_screen_phase=self.store_screen_phase,
                     point_ahead_rad=self.point_ahead_rad,
                     screen_margin_m=self.screen_margin_m,
+                    temporal=self.temporal, h_gl=self.h_gl,
                     boost=boost)
                 self._write_block(b, _columns_of(res))
                 if progress:
@@ -1227,7 +1329,8 @@ class Campaign:
             fields_pa=(np.concatenate(stack_pa, axis=1)[:, :n]
                        if stack_pa else None),
             screen_phase_pa=(np.concatenate(phase_pa, axis=1)[:, :n]
-                             if phase_pa else None))
+                             if phase_pa else None),
+            temporal=self.temporal)
 
     def field(self, row, *, compact=True):
         """Give one STORED trial back as a Field.
@@ -1339,13 +1442,13 @@ class Campaign:
                     cols["screen_phase_pa"] = None
                 out.append(_apply_block(fn, cols, self.patch, lam,
                                         b * self.block_size, fields=fields,
-                                        compact=compact))
+                                        compact=compact, dt_s=self.dt_s))
             return np.concatenate(out)[:n]
         from concurrent.futures import ProcessPoolExecutor
         payload = {"map": {"root_dir": self.root_dir, "fn": fn,
                            "patch": self.patch, "lam": lam,
                            "block_size": self.block_size, "fields": fields,
-                           "compact": compact,
+                           "compact": compact, "dt_s": self.dt_s,
                            "screen_phase": screen_phase},
                    "boost": bool(boost)}
         got = {}
@@ -1669,6 +1772,7 @@ if __name__ == '__main__':
     root8 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck8_")
     root9 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck9_")
     root10 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck10_")
+    root11 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck11_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -1996,6 +2100,50 @@ if __name__ == '__main__':
             assert all(t.eta_turb_pa is None for t in loaded_old.trials)
             assert loaded_old.fields_pa is None
 
+            # ---- 12. a frozen-flow campaign: strips, frames and t_s ----
+            # The frames ARE the trials, so the campaign must equal the direct
+            # runner run, trial for trial. The strips must sit under the
+            # campaign root, and the time must be the DERIVED row * dt_s.
+            from .temporal import TemporalSpec
+            spec = TemporalSpec(dt_s=5e-4, n_frames=8, strip_dir="unused",
+                                pad_outer_scales=0.02)
+            camp11 = Campaign(scn, orbit, root11, temporal=spec, **common)
+            assert camp11.fingerprint != camp.fingerprint, "a record must key"
+            assert camp11.temporal.strip_dir == os.path.join(root11, "strips")
+            assert camp11.dt_s == 5e-4, camp11.dt_s
+            assert camp11.run(8) == 8
+            assert os.path.isdir(os.path.join(root11, "strips"))
+            strip_files = sorted(os.listdir(os.path.join(root11, "strips")))
+            assert len(strip_files) == camp11.plan.z_m.size, strip_files
+            with open(os.path.join(root11, MANIFEST_NAME),
+                      encoding="utf-8") as fh:
+                man11 = _json.load(fh)
+            assert man11["dt_s"] == 5e-4 and man11["temporal"] is not None
+            assert "strip_dir" not in man11["temporal"], man11["temporal"]
+            got11 = camp11.load(8)
+            native11 = propagate_turbulent_scenario(
+                scn, orbit, n_trials=8, seed=common["seed"],
+                preset=common["preset"], grid=camp11.grid, plan=camp11.plan,
+                patch_radius_m=camp11.patch_radius_m, L0_m=camp11.L0_m,
+                precision=camp11.precision,
+                temporal=replace(spec,
+                                 strip_dir=camp11.temporal.strip_dir))
+            for a, b in zip(got11.trials, native11.trials):
+                assert a.collected_power == b.collected_power, (a, b)
+                assert a.smf_eta == b.smf_eta, (a, b)
+            # The frames MOVE: two frames of one record are not one snapshot.
+            eta11 = np.array([t.smf_eta for t in got11.trials])
+            assert eta11[0] != eta11[-1], eta11
+            # The derived time axis.
+            assert np.allclose(camp11.t_s(), np.arange(8) * 5e-4)
+            assert camp11.map_trials(lambda r: r.scalars["t_s"],
+                                     fields=False)[3] == 3 * 5e-4
+            try:
+                camp.t_s()
+                raise AssertionError("a snapshot campaign must raise on t_s")
+            except ValueError as exc:
+                assert "no time axis" in str(exc), str(exc)
+
             # fields=False KEEPS the stored screen phase.
             light = camp7.load(8, fields=False)
             assert light.fields is None
@@ -2031,10 +2179,13 @@ if __name__ == '__main__':
               f"(worst relative error {d_pa_post:.1e})")
         print(f"  ahead, regenerated       bit-identical "
               f"({d_pa_none:.1e} on the stored read)")
+        print(f"  frozen flow, strips     {len(strip_files):11d} files, "
+              f"dt {camp11.dt_s * 1e3:.2f} ms")
+        print(f"  SMF eta, frame 0 -> 7   {eta11[0]:11.6f} -> {eta11[-1]:.6f}")
         print("")
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
         for d in (root, root2, root3, root4, root5, root6, root7, root8,
-                  root9, root10, rootN):
+                  root9, root10, root11, rootN):
             shutil.rmtree(d, ignore_errors=True)
