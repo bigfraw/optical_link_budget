@@ -12,8 +12,9 @@ sqrt(lambda*z), and that structure builds the scintillation. Then the result
 becomes a function of the coarse grid, not of the atmosphere. See Schmidt,
 DOI 10.1117/3.866274, Ch. 9.
 
-The random draw comes from aotools. The package is a DEPENDENCY. This module
-imports it. It does not copy it, because aotools is LGPL-3.0.
+The module has two random-draw generators. The default is self-contained
+(numpy and scipy only). The opt-in aotools wrapper is the reference path; it is
+a lazy LGPL-3.0 import, so the module never copies aotools.
 
 Sources:
 - Fried, Optical resolution through a randomly inhomogeneous medium,
@@ -258,8 +259,8 @@ class ScreenFactory:
 
     THE DRAWS DIFFER FROM aotools. This generator and aotools do NOT give the
     same screen for the same seed. Each one is a correct, independent draw of
-    the same random field. The wave-optics runner keeps aotools as the default,
-    so an old run stays bit-identical.
+    the same random field. The wave-optics runner defaults to the olb generator;
+    pass screen_generator="aotools" to reproduce an aotools run bit-identically.
 
     THE CUDA DEVICE (an OPT-IN, 2026-09-07). The factory reads the FFT backend
     of the process ONE time, in __init__ (see

@@ -301,8 +301,8 @@ uplink and downlink records) without a trace of its own.
 
 ## `units` (`olb/units.py`)
 
-The module re-exports `todB`, `fromdB`, `todBm`, and `fromdBm` from
-`my_analysis_modules`. It adds two helper functions for the olb sign convention.
+The module holds the vendored unit conversions `todB`, `fromdB`, `todBm`, and
+`fromdBm`. It adds two helper functions for the olb sign convention.
 
 ### `loss_db(transmission)`
 

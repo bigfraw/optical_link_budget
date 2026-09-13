@@ -1076,7 +1076,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       Hufnagel-Valley profile: the continuous default. Space
                       only. See turbulent_grid.
         hs:           the height grid of a DISCRETE Cn2 profile, in m. Give it
-                      to take the legacy array planner. Space only.
+                      to take the discrete-array planner. Space only.
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         h_top_m:      the atmosphere top for the continuous integral, in m.
                       Space only.
@@ -1139,12 +1139,11 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       olb.models.splitter). None (the default) keeps the
                       single-detector record, bit for bit.
         start_index:  the index of the FIRST trial. The run covers the trials
-                      start_index .. start_index + n_trials - 1. The default 0
-                      is the old behaviour.
+                      start_index .. start_index + n_trials - 1. The default
+                      is 0.
         patch_radius_m: the radius of the stored receive-field disc, in m. None
-                      (the default) stores no field, and the record is bit for
-                      bit the old record. A float fills TurbWaveResult.fields
-                      and TurbWaveResult.patch.
+                      (the default) stores no field. A float fills
+                      TurbWaveResult.fields and TurbWaveResult.patch.
         precision:    "single" (the default) or "double". "single" runs the
                       whole propagation in complex64, with float32 phase
                       screens and a float32 boundary mask. WHY: a large
@@ -1196,12 +1195,11 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     """
     if boost:
         # THE PARENT BOOST LIVES HERE (backlog 2-I4, item 3). A windowless run
-        # (ssh, WMI) is throttled by EcoQoS without it, so a direct runner call
-        # over ssh used to need the SCRIPT to call boost_process_priority() by
-        # hand. Now it does not. A threaded run needs the parent only: the
-        # Threader threads inherit this priority. It is idempotent and a no-op
-        # off Windows, so a Campaign worker (already boosted in its pool
-        # initializer) is unaffected. See olb.waveoptics.priority.
+        # (ssh, WMI) is throttled by EcoQoS without it. A threaded run needs
+        # the parent only: the Threader threads inherit this priority. It is
+        # idempotent and a no-op off Windows, so a Campaign worker (already
+        # boosted in its pool initializer) is unaffected. See
+        # olb.waveoptics.priority.
         boost_process_priority()
     cdtype = field_dtype(precision)
     is_space = hasattr(scenario, "ground")
@@ -1603,7 +1601,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                       Hufnagel-Valley profile: the continuous default. Space
                       only. See turbulent_grid.
         hs:           the height grid of a DISCRETE Cn2 profile, in m. Give it
-                      to take the legacy array planner. Space only.
+                      to take the discrete-array planner. Space only.
         cn2_profile:  the zenith Cn2 profile on hs. Space only.
         h_top_m:      the atmosphere top for the continuous integral, in m.
                       Space only.
@@ -1865,11 +1863,8 @@ class _PostTail:
     """The clip, the power and the coupling of one POST-HOC read.
 
     WHY IT EXISTS. The aperture mask, the fibre mode and the defocus phase do
-    NOT change from trial to trial. The old read-back path rebuilt all three at
-    every trial: the clip rebuilt two coordinate meshes through
-    olb.waveoptics.sources.CircAperture, and the single-mode coupling rebuilt
-    the Gaussian fibre mode through olb.waveoptics.smf.smf_mode. This class
-    builds them ONE time for one call, on the crop, and it applies them.
+    NOT change from trial to trial. This class builds them ONE time for one
+    call, on the crop, and it applies them.
 
     THE PHYSICS IS THE PHYSICS OF THE RUN.
 

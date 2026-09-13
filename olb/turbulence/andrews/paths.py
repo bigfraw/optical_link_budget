@@ -720,13 +720,11 @@ def uplink_scintillation_index(hs, cn2_profile, wavelength, elevation_deg,
     higher corrected order. Also, a decorrelated higher-order correction
     reshapes the beam at the satellite, and these forms normalise by the
     vacuum-diffraction beam radius W. So `tracked=True` is OPTIMISTIC for a
-    pre-compensated uplink, and it is not a bound in either direction. An
-    earlier docstring called it the floor of the residual scintillation; that
-    claim was wrong. Decision: no analytic Term models the pre-compensated
-    scintillation. The model of record is the fidelity-1 FAST Monte Carlo
-    with the point-ahead offset (olb/models/fast.py, DTHETA;
-    backlog item 1-2). The tracked form stays valid for what it names: a
-    tilt-tracked, otherwise uncorrected beam.
+    pre-compensated uplink, and it is not a bound in either direction. Decision:
+    no analytic Term models the pre-compensated scintillation. The model of
+    record is the fidelity-1 FAST Monte Carlo with the point-ahead offset
+    (olb/models/fast.py, DTHETA; backlog item 1-2). The tracked form stays valid
+    for what it names: a tilt-tracked, otherwise uncorrected beam.
 
     RESTRICTION. The beam-wander term stays a weak-fluctuation result in every
     branch, which the book states below Eq. (59), printed p. 506. The book also
@@ -824,7 +822,7 @@ def uplink_coherence_radius(hs, cn2_profile, wavelength, elevation_deg, beam,
         radius at the satellite will be many times larger than the probable size
         of the satellite".
         The kernel `spherical_wave_coherence_diameter` in
-        my_analysis_modules/coupled_flux.py returns a DIFFERENT quantity: the
+        olb.turbulence.coupled_flux returns a DIFFERENT quantity: the
         GROUND-referred Fried parameter, weighted by ((L - z)/L)^(5/3). On a
         satellite uplink that weight is 1 over the whole turbulent layer, so
         that kernel reduces to Andrews Ch. 12, Eq. (23), printed p. 492, which

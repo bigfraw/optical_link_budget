@@ -160,9 +160,7 @@ the tilt.
   (2026-09-06): the sign pattern (one for each `(N, dtype)`) and the wrapped
   transfer function (one for each `(N, size, lam, |z|, dtype)`) live in a
   module dict, because a split-step Monte Carlo makes the SAME hops in every
-  trial, and the old body rebuilt four `N x N` arrays (three in double
-  precision) on every hop. The cached value is bit-identical to the old one:
-  the phase wrap still runs in float64, and the cache stores the finished
+  trial. The phase wrap still runs in float64, and the cache stores the finished
   factor only. The cache is bounded in BYTES by `FORVARD_CACHE_BYTES` (256 MiB
   by default; a 1024 px factor is 8 MiB single, 16 MiB double), and past the
   bound it drops the oldest factor. EACH STORAGE PLACE HAS ITS OWN BOUND
@@ -1027,14 +1025,13 @@ it. The trials are independent snapshots.
   single-detector record, bit for bit.
 - `start_index` is the index of the FIRST trial. The run covers the trials
   `start_index .. start_index + n_trials - 1`, and each `TurbTrial.seed_key`
-  holds the TRUE index. `0` (the default) is the old behaviour.
+  holds the TRUE index. `0` (the default) starts at the first trial.
 - `patch_radius_m` stores the receive-plane field on a disc of that radius, in
-  m. `None` (the default) stores no field, and the record is bit for bit the old
-  record. A float fills `TurbWaveResult.fields` and `TurbWaveResult.patch`. See
+  m. `None` (the default) stores no field. A float fills
+  `TurbWaveResult.fields` and `TurbWaveResult.patch`. See
   the paragraph below.
 - `compensation` is the perfect-AO correction (an OPT-IN, 2026-09-07, default
-  OFF). `None` (the default) makes no correction, and the run stays bit for bit
-  the old run. The string `"terminal"` reads the compensation stack of the CLIP
+  OFF). `None` (the default) makes no correction. The string `"terminal"` reads the compensation stack of the CLIP
   terminal. A sequence of `TipTilt` and `AO` stages gives an explicit stack. An
   empty stack acts as `None`. See Section 9h and the paragraph below.
 - `store_screen_phase=True` stores the summed screen phase of each trial at the
@@ -1449,9 +1446,6 @@ enters the key ONLY when it is not its default: `precision` when it is
 `None`, and `store_screen_phase` when it is `True`. A default therefore adds NO
 line to the hashed text, so every key that a stored campaign holds stays valid.
 Follow that rule for each new option.
-This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
-and which was RETIRED on 2026-09-04; the value of the key did not change, so an
-existing manifest still matches.
 
 #### `Campaign.run(n_trials, *, workers=None, progress=False, boost=True, cpu_fraction=0.9, memory_fraction=0.9)`
 
@@ -1628,8 +1622,7 @@ worker when the payload asks for it. A thread inherits the state of its
 process, so the threaded route (`workers=None`) needs the parent boost only.
 `boost=False` leaves every process at Normal. Off Windows the boost is a
 no-op. Do NOT set the High class: a 16-worker pool at High starves sshd and the
-VS Code server, and a Remote-SSH connection then times out. Before 2026-09-05
-the validation scripts patched the initializer by hand; the package now owns
+VS Code server, and a Remote-SSH connection then times out. The package owns
 the boost, and `validation/campaign_resources/README.md` keeps the launch
 rules.
 
@@ -2019,9 +2012,9 @@ field and stores no patch, so it has nowhere to keep the summed screen phase).
 show a CORRECTED snapshot. The *per-call* arguments (`n_trials`, `seed`, `grid`,
 `plan`, `threader`, `progress`, `detectors`, `start_index`, `patch_radius_m`,
 and the `run_fidelity2` selectors `vacuum`/`turbulence`) are NOT run options:
-each entry point names the ones it needs. The parent priority **boost** also
-moved into the runner (`boost=True`), so a direct `ssh`/`WMI` run is no longer
-throttled without a hand-call to `boost_process_priority()`.
+each entry point names the ones it needs. The parent priority **boost** is a
+runner option (`boost=True` by default), so a direct `ssh`/`WMI` run is not
+throttled.
 
 ### 11a. `run_fidelity2(scenario, geometry, *, n_trials=200, seed=None, threader=None, progress=True, vacuum=None, turbulence=True, detectors=None, **runner_kwargs)`
 

@@ -249,14 +249,12 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
       A. The APERTURE angle-of-arrival tilt of the received wavefront across
          the receive aperture, at the GAUSSIAN-beam r0, reduced by the site
          outer scale (olb.turbulence.angle_of_arrival
-         .aperture_arrival_angle_variance with `L0`). This REPLACES the old
-         beam-wander arrival tilt (2026-09-09, backlog 1-9 / 0-W4): the
-         fidelity-2 terrestrial campaigns measured the received per-axis tilt
-         at 1.65 to 2.1 times the beam-wander tilt the old Term read, and it
-         matches the aperture angle of arrival at the Gaussian r0 with the
-         von Karman Eq. (83) outer-scale factor to 3 percent at 10 cm
-         (physics.md 9m). It is the G-tilt (centroid) convention, which is the
-         tilt that moves the focal spot (Conflict C-04: olb also holds the Noll
+         .aperture_arrival_angle_variance with `L0`). The fidelity-2 terrestrial
+         campaigns measured the received per-axis tilt at 1.65 to 2.1 times the
+         beam-wander tilt, and it matches the aperture angle of arrival at the
+         Gaussian r0 with the von Karman Eq. (83) outer-scale factor to 3 percent
+         at 10 cm (physics.md 9m). It is the G-tilt (centroid) convention, which is
+         the tilt that moves the focal spot (Conflict C-04: olb also holds the Noll
          Zernike tilt in ao.py; the walk-off DISPLACEMENT is a centroid, so the
          G-tilt is the right one here). A receive tip-tilt or AO stage tracks it
          out, so the code gates it: a TipTilt or an AO stage in the rx
@@ -283,9 +281,8 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
     aperture angle-of-arrival kernel carries the G-tilt convention and the
     small-Fresnel-zone constraint of Eq. (83). A Term that opens a trace around
     this call inherits them. `regime_check` is kept for the caller contract (the
-    SMF walk-off and the MMF coupling Terms both pass it); since the re-point
-    (2026-09-09) it no longer toggles a wavelength, because the AoA path owns
-    its own constraint.
+    SMF walk-off and the MMF coupling Terms both pass it); it does not toggle a
+    wavelength, because the AoA path owns its own constraint.
 
     Returns:
         tuple
@@ -313,9 +310,8 @@ def _received_tiptilt_variance(scenario, *, n_grid, turbulence=True,
         # coupling Term uses (the launch curvature of a diverged beam enters it,
         # olb Gap 3). The received tilt is the APERTURE angle of arrival at that
         # r0, reduced by the site outer scale (von Karman Eq. (83)). It matches
-        # the fidelity-2 measurement to 3 percent at 10 cm, where the old
-        # beam-wander tilt read 1.65 to 2.1 times low (backlog 1-9, physics.md
-        # 9m).
+        # the fidelity-2 measurement to 3 percent at 10 cm, and reads 1.65 to
+        # 2.1 times the beam-wander tilt (physics.md 9m).
         f0 = launch_curvature(w0, divergence, wavelength)
         hs = np.linspace(0.0, L, int(n_grid))
         cn2_profile = np.full_like(hs, cn2)
@@ -595,8 +591,8 @@ def terrestrial_smf_coupling_term(scenario, geometry, *, n_grid=64,
                  "Gaussian beam. eta comes from the residual phase variance "
                  "(extended Marechal for a small residual, Dikmelik-Davidson "
                  "uncorrected coupling for a large one), evaluated at the "
-                 "horizontal Gaussian-beam r0. The flat-wavefront mode match is "
-                 "replaced by the DEFOCUS-ABERRATED closed form "
+                 "horizontal Gaussian-beam r0. The mode match uses the "
+                 "DEFOCUS-ABERRATED closed form "
                  "eta(a, c) = 2 a^2 |(1-exp(-(a^2-ic)))/(a^2-ic)|^2 (Shaklan and "
                  "Roddier, DOI 10.1364/AO.27.002334; Ruilier and Cassaing, "
                  "DOI 10.1364/JOSAA.18.000143), with "

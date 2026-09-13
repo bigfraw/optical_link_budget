@@ -5,11 +5,8 @@ mode is that shape in the pupil plane. It is a fundamental Gaussian. The
 coupling efficiency is the normalised overlap of the received field with that
 mode.
 
-The module transcribes two helpers from the shared kernel repository
-(my_analysis_modules: lightpipes_atmospherics.smf, coupling_efficiency, and
-the overlap and power kernels of general_atmospherics). The transcription keeps
-the package self-contained: it imports numpy and the local field, source and
-multimode modules only.
+The module keeps the package self-contained: it imports numpy and the local
+field, source and multimode modules only.
 
 Sources:
 - Shaklan and Roddier, Appl. Opt. 27, 2334 (1988),

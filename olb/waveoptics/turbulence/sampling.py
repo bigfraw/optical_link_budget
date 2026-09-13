@@ -532,7 +532,7 @@ def _plan_space(scenario, geometry, preset, lam, cn2, hs, cn2_profile, h_top,
 
     The DEFAULT and the callable route go to the CONTINUOUS planner, which
     integrates the Cn2 function directly. An explicit hs / cn2_profile array
-    goes to the ARRAY planner, the legacy fallback that groups the given
+    goes to the discrete-array planner, the fallback that groups the given
     layers. See docs/backlog.md, item 2-I2: DEFAULT_HS is now the fallback for
     an array caller only, not the physics grid of the default budget.
     """
@@ -664,8 +664,8 @@ def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
 def _plan_space_array(scenario, geometry, preset, lam, hs, cn2_profile, warns):
     """Build the space screen plan by grouping a discrete Cn2 layer array.
 
-    This is the LEGACY fallback for a caller that passes an explicit hs grid
-    and cn2_profile. The default budget uses _plan_space_continuous instead.
+    This is the discrete-array planner for a caller that passes an explicit hs
+    grid and cn2_profile. The default budget uses _plan_space_continuous instead.
     See docs/backlog.md, item 2-I2.
 
     The gridded path is the DOWNLINK slab only. The satellite is outside the
@@ -823,7 +823,7 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
                      item 2-I2). Space only. Ignored when hs or cn2_profile is
                      given.
         hs:          the height grid of a DISCRETE Cn2 profile, in m. Give it
-                     (with or without cn2_profile) to take the LEGACY array
+                     (with or without cn2_profile) to take the discrete-array
                      planner instead of the continuous one. Space only.
         cn2_profile: the zenith Cn2 profile on hs. None with hs takes the site
                      profile on that grid. Space only.
@@ -1055,7 +1055,7 @@ if __name__ == '__main__':
     # The continuous plan does not read a height grid, so it is grid-free by
     # construction. It agrees with a WELL-RESOLVED array plan (200 layers), and
     # it differs from the coarse 20-layer DEFAULT_HS array plan by the trapezoid
-    # bias only. An explicit hs still routes to the legacy array planner.
+    # bias only. An explicit hs still routes to the discrete-array planner.
     prof_20 = default_cn2_profile(space.channel.site, DEFAULT_HS)
     prof_200 = default_cn2_profile(
         space.channel.site, np.geomspace(DEFAULT_HS[0], DEFAULT_HS[-1], 200))
@@ -1107,7 +1107,7 @@ if __name__ == '__main__':
 
     # ---- 5. a weak screen near the receiver is exempt (ARRAY planner) ----
     # The Fresnel exemption lives in turbulent_grid and it keys on the Rytov
-    # SHARE of a screen. The legacy array planner keeps the near-ground screen
+    # SHARE of a screen. The discrete-array planner keeps the near-ground screen
     # of the profile, which sits about 50 m from the receiver and carries a
     # tiny share, so the exemption fires. (The continuous planner spreads that
     # weight over a fat bottom slab, so it has no such near-receiver spike; its

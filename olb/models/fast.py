@@ -687,7 +687,7 @@ if __name__ == '__main__':
     assert not any("did not open the assumption collection context" in reason
                    for _name, reason in checked), checked
 
-    # The migrated REGIME hard-flag: a 10 deg downlink drives the plane-wave
+    # The REGIME hard-flag: a 10 deg downlink drives the plane-wave
     # amplitude index past the weak boundary (sigma2_I ~ 1.6), so the TRACED
     # weak-regime check on plane_wave_scintillation_index fires. The Term is
     # not ok, and the violation carries the physics source prefix.

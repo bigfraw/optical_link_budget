@@ -18,11 +18,11 @@ Fried parameter (plane wave, downlink):
     chain. The spherical-wave coherence diameter (uplink) uses a different
     weight and lives in olb.turbulence.uplink_flux.
 
-    NEW HOME: `olb.turbulence.andrews.structure.coherence_radius` and
-    `olb.turbulence.andrews.structure.fried_parameter`. The Andrews chain is the
-    equivalent of the constant 0.4240. This module used the Fried 1966 constant
-    0.423 before, which gives an r0 that is 0.14 % larger. The book itself
-    prints the rounded 0.42 at Ch. 12, Eq. (23), printed p. 492.
+    The Fried parameter comes from
+    `olb.turbulence.andrews.structure.coherence_radius` and
+    `olb.turbulence.andrews.structure.fried_parameter`, which use the Andrews
+    constant 0.4240. The book prints the rounded 0.42 at Ch. 12, Eq. (23),
+    printed p. 492.
 
 Residual phase variance (Noll 1976):
     Over an aperture of diameter D and Fried parameter r0, the residual phase

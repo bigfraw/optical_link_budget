@@ -39,10 +39,8 @@ at "hard"; a soft or hard regime gives a warning.
 Launch-pupil limit: this model reads the launch beam through the waist w0 ONLY.
 It has no launch aperture and no central obscuration -- it is a pure, unclipped
 Gaussian. So its scintillation index does not change with an obscured pupil. The
-size of that omission is UNRESOLVED (an earlier obscuration validation compared
-this index against the fidelity-2 reciprocity overlap, but those two do not agree
-even with no obscuration, so that comparison is void; see the investigation
-note). The MEAN loss from a central obscuration is separate and IS carried, by
+size of that omission is UNRESOLVED. The MEAN loss from a central obscuration is
+separate and IS carried, by
 the launch-truncation Term olb.models.gaussian_efficiency.tx_gaussian_efficiency_term.
 '''
 
@@ -224,12 +222,8 @@ def _flux_result(w0, elevation_deg, range_m, wavelength, hs, cn2_profile,
     # with the UNSCALED zenith profile Cn2(h). The trapz over z then carries
     # the ds = airmass * dh path-length factor, AND the A(z), B(z) path
     # weights of Dios et al. 2004, Eqs. (16)-(20) (DOI 10.1364/AO.43.003866)
-    # read the true slant position. Before 2026-08-28 the wrapper scaled Cn2
-    # by the airmass and kept the vertical grid; that kept ds but read the
-    # weights at z = h, which cut the on-axis index below its slant scaling
-    # (approximately -40 percent at 30 deg elevation for a small waist). The
-    # fix reproduces Dios et al. 2004 Fig. 5 at 30 deg; the old call does not
-    # (see validation/dios_fig5_replication.py).
+    # read the true slant position. This mapping reproduces Dios et al. 2004
+    # Fig. 5 at 30 deg (see validation/dios_fig5_replication.py).
     zs = np.asarray(hs, dtype=float) * airmass
     cn2_zen = np.asarray(cn2_profile, dtype=float)
 
@@ -462,8 +456,8 @@ if __name__ == '__main__':
     assert np.isclose(s_elev["r0s"], s_map["r0s"])
 
     # The small-waist on-axis index must scale FASTER than the airmass with
-    # the elevation (the slant limit is near airmass^(11/6) = 3.56 at 30 deg;
-    # the old vertical-grid call gave airmass^1 = 2.0). Use a weak profile so
+    # the elevation (the slant limit is near airmass^(11/6) = 3.56 at 30 deg).
+    # Use a weak profile so
     # the log1p compression stays small.
     weak_scint_cn2 = 1e-17 * np.ones_like(hs)
     np.random.seed(5)

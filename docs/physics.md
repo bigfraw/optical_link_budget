@@ -496,14 +496,14 @@ so the result is additive with the geometric Term.
   size of the obscuration effect on the FADE is now MEASURED against fidelity 2
   alone: measured validity, see Section 9c.
 - Measured validity of the fade itself: see Section 9a (a filled launch) and
-  Section 9b (the vendored kernels and a slant-coordinate defect).
+  Section 9b (the coupled-flux kernels and a slant-coordinate defect).
 - The coupled-flux MC needs the `fast` package to build the HV57 Cn2 profile, or
   an explicit `cn2_profile`.
 
 #### Source
 
 Dios et al., Applied Optics 43 (2004) 3866, for the coupled-flux and wander-offset
-mechanism. The kernels are vendored in `olb.turbulence.coupled_flux`.
+mechanism. The kernels are in `olb.turbulence.coupled_flux`.
 
 ### 5d. Dios on-axis and off-axis beam scintillation
 
@@ -559,10 +559,10 @@ thin turbulence layer (the far-field limit).
   (`@assumes`, the `DIOS_RELIABILITY` constraint). The check fires when the index
   it returns leaves the weak regime (`hard_limit = 4 * UPLINK_SIGMA2X_LIMIT = 2.4`
   on the Rytov axis). The terrestrial scintillation Term therefore inherits its
-  hard-tier violation from THIS function: the flag migrated from the factory's old
-  `sigma_R^2 >= 1.0` test to the beam-wave index axis (`sigma_I^2 >= 2.4`). The two
-  coincide on the tested strong and long-path triggers. A narrow band between them
-  can now read `ok` where the old axis flagged, which is defensible; the tighter
+  hard-tier violation from THIS function, on the beam-wave index axis
+  (`sigma_I^2 >= 2.4`). That axis and the `sigma_R^2 >= 1.0` test coincide on the
+  tested strong and long-path triggers. A narrow band between them can now read
+  `ok`, which is defensible; the tighter
   lognormal-PDF house rule (`sigma_I^2 < 0.25`, a PDF-shape flag the factory keeps)
   backstops the common cases.
 

@@ -200,7 +200,7 @@ class MMF:
         numerical_aperture : float, optional
             Fibre numerical aperture NA = n*sin(theta_a) (about 0.2 for a common
             step-index MMF). None turns the angular gate OFF, so the coupling is the
-            spatial encircled energy alone (the old behaviour). A value gates the
+            spatial encircled energy alone. A value gates the
             focusing cone: the fraction of the aperture whose focused rays stay
             within the acceptance cone is min(1, (NA/NA_optic)^2), NA_optic=(D/2)/f.
         sensitivity_dbm : float, optional

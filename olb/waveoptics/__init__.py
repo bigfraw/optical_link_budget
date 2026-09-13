@@ -27,7 +27,8 @@ Two modules on top of that core read an olb scenario:
 
 smf.py holds the single-mode-fibre pupil mode and the coupling efficiency.
 
-The package builds NO Term and it changes NO budget.
+The package builds no Term itself. olb.models.waveoptics turns its output into
+the fidelity-2 Terms, which the budgets read at fidelity=2.
 """
 
 from .field import (Begin, Field, Intensity, Normal, Phase, Power,

@@ -20,10 +20,10 @@ eta goes to 1 when the aperture is much wider than the beam (no truncation) and
 to 0 when the aperture is much smaller than the beam (the wings carry the power).
 The classic optimal truncation is near alpha = 1.12.
 
-This is the corrected antenna-gain form. It has NO 2/alpha^2 prefactor; that
-prefactor double-counts a normalisation the untruncated-source reference already
-carries. The removal is validated against a numerical Fraunhofer propagation of a
-truncated Gaussian (tn2_kepler test_gauss_prop).
+This is the antenna-gain form with no 2/alpha^2 prefactor, which would
+double-count a normalisation the untruncated-source reference already carries.
+eta is bounded by 1. It is validated against a numerical Fraunhofer propagation
+of a truncated Gaussian.
 
 The transmitter is the ground station for an uplink, or the satellite for a
 downlink. The same code serves both.
@@ -217,16 +217,14 @@ if __name__ == '__main__':
     assert (tx_efficiency_loss_db(0.15, 0.12, obscuration_ratio=0.3)
             > tx_efficiency_loss_db(0.15, 0.12))
 
-    # Corrected form: NO 2/alpha^2 prefactor. eta is bounded by 1, so the loss is
-    # never a gain. The stale form (with 2/alpha^2) gives eta > 1 (negative loss)
-    # for a small alpha; the corrected form does not.
+    # NO 2/alpha^2 prefactor: eta is bounded by 1, so the loss is never a gain.
     assert np.all(gaussian_efficiency(np.array([0.1, 0.3, 0.5, 1.0, 2.0])) <= 1.0)
 
     # Top-hat correction: unobscured -> +3.01 dB; obscuration adds more.
     assert abs(uniform_aperture_correction_db(0.0) - 3.0103) < 1e-3
     assert uniform_aperture_correction_db(0.3) > uniform_aperture_correction_db(0.0)
 
-    # TN-2 launch: Da=150 mm, w_T=0.8*Da, Cr=0.3 -> alpha=0.625.
+    # Example launch: Da=150 mm, w_T=0.8*Da, Cr=0.3 -> alpha=0.625.
     tn2 = tx_efficiency_loss_db(0.150, 0.8 * 0.150, obscuration_ratio=0.3)
     assert 10.0 < tn2 < 12.0, tn2                            # ~10.8 dB
 
@@ -276,6 +274,6 @@ if __name__ == '__main__':
     assert abs(tx_gaussian_efficiency_term(bistatic).mean_db
                - tx_gaussian_efficiency_term(monostatic).mean_db) < 1e-9
 
-    print(f"TN-2 transmit truncation loss: {tn2:.2f} dB")
+    print(f"Example transmit truncation loss: {tn2:.2f} dB")
     print(f"Term: {term.name}  {term.mean_db:.2f} dB  ({term.note})")
     print("self-check passed")

@@ -20,8 +20,7 @@ zenith transmittance of exp(-0.05) = 0.95 (~0.22 dB). This value agrees with the
 near-IR clear-sky transmittances of ~0.9-0.96 in MODTRAN rural/clear aerosol
 runs and typical 1550 nm FSO link budgets. Set `tau_zenith` per site or haze.
 
-The airmass model (plane-parallel secant, 1/sin(elevation)) comes from
-fso_spot_size.airmass in the sibling TN-2 analysis repo. It uses the same slant
+The airmass model (plane-parallel secant, 1/sin(elevation)) uses the same slant
 scaling as the other modules. It diverges at the horizon. Do not use elevation 0.
 
 HORIZONTAL (terrestrial links): the Beer-Lambert extinction along a horizontal
@@ -41,8 +40,7 @@ def airmass(elevation_deg):
     '''
     Airmass along the slant path, 1/sin(elevation).
 
-    Plane-parallel secant model (borrowed from fso_spot_size.airmass). Diverges
-    at the horizon.
+    Plane-parallel secant model. Diverges at the horizon.
 
     Parameters:
         elevation_deg : float or numpy.ndarray

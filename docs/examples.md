@@ -413,9 +413,8 @@ links sit in OPPOSITE corners of the turbulence. Both use the shared helper
   0.994 m, 5 screens). It prints a single-snapshot coupling loss of 0.253 dB
   against a static floor of 0.256 dB, so the turbulence part is -0.002 dB, and
   the two spots hold 0.943 (still) and 0.943 (turbulent) of the power. The
-  screen count fell from 14 to 5 with the 2026-09-06 change of the per-screen
-  Rytov cap (`rapid` now equals the book cap), and the printed numbers moved
-  with it. The first
+  screen count is 5 with the per-screen Rytov cap (`rapid` now equals the
+  book cap). The first
   run takes 9 s and the second 5 s (the pictures). The figure goes to
   `examples/waveoptics/figures/mmf_core_psf_terrestrial.png`.
   - Run: `python -m examples.waveoptics.mmf_core_psf_terrestrial`

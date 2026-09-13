@@ -2,9 +2,7 @@
 Dios coupled-flux kernels for the LEO uplink (beam wander + scintillation).
 
 This module holds the lower-level coupled-flux physics that
-olb.turbulence.uplink_flux composes into a short uplink Monte Carlo. It was
-borrowed from the my_analysis_modules kernel (coupled_flux.py) and is vendored
-here VERBATIM, so olb owns it and does not depend on that repository. The
+olb.turbulence.uplink_flux composes into a short uplink Monte Carlo. The
 formulas keep their citations.
 
 The physics is Dios et al., Applied Optics 43(18), 3866 (2004),
@@ -16,7 +14,7 @@ Conflict C-01 in docs/andrews-crosscheck.md, and olb.turbulence.andrews.wander
 for the independent Andrews measurement kept side by side.
 
 The module needs numpy, scipy, and the olb assumptions decorator layer. It
-imports nothing else from the rest of olb and nothing from my_analysis_modules.
+imports nothing else from the rest of olb.
 
 Each public physics function declares its own validity through the `@assumes`
 decorator (olb.assumptions). Three assumptions recur here: the coherence-diameter
@@ -408,8 +406,7 @@ def on_axis_scintillation_index(L, k_0, wL, Z0, cn2s, z_points):
     # (DOI 10.1364/AO.43.003866) and Andrews and Phillips 2nd ed. chapter 8,
     # equation (17) (printed page 263, DOI 10.1117/3.626196) both give
     # A^(5/6) - (A^2 + B^2)^(5/12) * cos[(5/6) arctan(B/A)]. Factor out A^(5/6)
-    # to get the form below. Before 2026-08 a parenthesis closed too early, so
-    # the cosine multiplied the full bracket.
+    # to get the form below.
     integrand = cn2s * a_z ** (5 / 6) * (1 - (1 + ratio ** 2) ** (5 / 12) * np.cos((5 / 6) * np.arctan(ratio)))
     result = np.trapezoid(integrand, z_points)
 
@@ -465,10 +462,9 @@ def coupled_flux_sample(beta, cn2_profile, Z0, hs, L, k_0, wL, wL_lt):
     # which is the normalization that equation (26) needs. Section 5, step
     # (c)(ii) of the paper tells you to use equation (25) at this point.
     #
-    # An earlier patch removed this weight, because Andrews and Phillips 2nd ed.
-    # chapter 8, equations (9) and (15) (DOI 10.1117/3.626196) keep the local
-    # normalization. But this module implements Dios, and the removal made it
-    # disagree with the paper it cites. The weight is back (2026-08-25).
+    # This module implements Dios, so it keeps the mean-irradiance weight, even
+    # though Andrews and Phillips 2nd ed. chapter 8, equations (9) and (15)
+    # (DOI 10.1117/3.626196) keep the local normalization.
     I_off = mean_off_axis_irradiance(beta, wL_lt)
     sigma2_gauss = (sigma2_on + sigma2_off) * I_off ** 2
     sigma2_gauss_on_axis = sigma2_on * I_off ** 2
@@ -499,9 +495,7 @@ def on_axis_irradiance(beta, wst_L, xi_beta):
 
 
 if __name__ == '__main__':
-    # A light sanity check of the vendored kernels. The end-to-end numeric
-    # cross-check against the my_analysis_modules original is in the commit that
-    # added this module (a seeded _flux_result run matched bit-for-bit).
+    # A light sanity check of the coupled-flux kernels.
     hs = np.logspace(0, np.log10(20e3), 20)
     cn2 = 0.00594 * (21 / 27) ** 2 * (1e-5 * hs) ** 10 * np.exp(-hs / 1000) \
         + 2.7e-16 * np.exp(-hs / 1500) + 1.7e-14 * np.exp(-hs / 100)

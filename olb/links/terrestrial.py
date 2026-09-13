@@ -166,7 +166,7 @@ def terrestrial_scintillation_term(scenario, geometry, *, n_grid=_SCINT_GRID_N):
     #      the analytic path cannot. Adding both is NOT double-counting -- they
     #      are different statistical moments (variance vs mean).
     # This is the reason to converge the analytic and MC Dios paths rather than
-    # patch one. See memory dios-scintillation-convergence / pointing-jitter-into-beta.
+    # patch one.
 
     sigma2_P = A * sigma2_I
 
@@ -597,12 +597,12 @@ if __name__ == '__main__':
     assert q99_scint is not None and np.isfinite(q99_scint) and q99_scint > scint.mean_db, \
         (q99_scint, scint.mean_db)
 
-    # --- parity with the retired inline lognormal faces (backlog I-2) --------
-    # The three dB faces now come from olb.models.fade.irradiance_fade_term, not
-    # the old inline formula. Rebuild the retired faces and assert a match, so a
-    # future change to the shared adapter cannot silently move the numbers. The
-    # mean and the sampler are BYTE identical; the quantile matches to machine
-    # precision (the adapter takes -10 log10(exp(x)), the retired code took
+    # --- parity with the reference closed form -------------------------------
+    # The three dB faces now come from olb.models.fade.irradiance_fade_term.
+    # Rebuild the reference closed form and assert a match, so a future change to
+    # the shared adapter cannot silently move the numbers. The mean and the
+    # sampler are BYTE identical; the quantile matches to machine precision (the
+    # adapter takes -10 log10(exp(x)), the reference closed form takes
     # -10 x / ln10 directly).
     from scipy.stats import norm as _norm
     _ln10 = np.log(10.0)
@@ -617,7 +617,7 @@ if __name__ == '__main__':
     _b = -10.0 * np.log10(np.random.default_rng(4321).lognormal(
         mean=-_sl2 / 2.0, sigma=_sl, size=20_000))
     assert np.max(np.abs(_a - _b)) == 0.0
-    print(f"[parity] terrestrial lognormal faces match retired inline "
+    print(f"[parity] terrestrial lognormal faces match the reference closed form "
           f"(mean {scint.mean_db:.6f} dB, byte-identical sampler)")
 
     # The aperture-averaging win: a larger receive aperture shrinks the flux index
@@ -653,9 +653,8 @@ if __name__ == '__main__':
     assert prov, "the scintillation Term must carry traced provenance"
     assert any("on_axis_scintillation_index" in s for s in prov), prov
     assert any("aperture_averaging_factor_weak" in s for s in prov), prov
-    # The hard-tier regime flag MIGRATED to the physics: the strong and long-path
-    # cases now read not-ok through the TRACED Dios reliability check, not a
-    # hand-built factory flag. Assert membership, not the exact count.
+    # The strong and long-path cases now read not-ok through the TRACED Dios
+    # reliability check. Assert membership, not the exact count.
     assert any("on_axis_scintillation_index" in v and "unreliable" in v
                for v in strong.assumptions.violations), strong.assumptions.violations
     assert any("on_axis_scintillation_index" in v and "unreliable" in v

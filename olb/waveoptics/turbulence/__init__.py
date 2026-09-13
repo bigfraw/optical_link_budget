@@ -2,8 +2,8 @@
 
 The layer moves a complex field along a path, and it puts a random phase
 screen at each slab of that path. It gives one SNAPSHOT of the atmosphere
-for each seed. It carries no time axis and it builds no Term, so it changes
-no link budget.
+for each seed. It carries no time axis. The layer builds no Term itself;
+olb.models.waveoptics turns its trials into the fidelity-2 turbulence Term.
 
 The modules are:
 
