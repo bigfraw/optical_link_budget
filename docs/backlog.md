@@ -1163,7 +1163,18 @@ The path forward for each is a second reference or a derivation.
   median SMF fade event of gate (e) lasts 2 frames at `dt = 0.5 ms`, so the
   duration is only just resolved; (7) a TEMPORAL FADE REFERENCE MODEL — gate
   (e) gives the first fade rate and fade duration of the package, and nothing
-  checks them (see 0-N6 and `olb/turbulence/andrews/temporal.py`).
+  checks them (see 0-N6 and `olb/turbulence/andrews/temporal.py`). The
+  bucket can meet the Andrews Ch. 11 irradiance fade rate and duration;
+  the SMF fade has no book model, so its check is the Rice level-crossing
+  rate of its own measured autocorrelation (Rice, DOI
+  10.1002/j.1538-7305.1945.tb00453.x); (8) SERVO LAG, MEDIUM URGENCY
+  (owner, 2026-09-13) — the post-hoc correction fits the modes of frame k
+  and applies them to frame k, so every AO time series is the zero-lag
+  upper bound; apply the modes of frame `k - d` to frame `k` through the
+  `ApertureModes.estimate` / `.apply` split, and sweep `d` in frames.
+  Not started; the owner does not want it yet; (9) a one-layer record
+  against the Tyler tilt spectrum (DOI 10.1364/JOSAA.11.000358) as the
+  real corner test that gate (d) lacks.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
