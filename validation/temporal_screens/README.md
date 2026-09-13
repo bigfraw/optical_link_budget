@@ -16,6 +16,7 @@ repository root.
 | `frame0_parity.py` | (c) | frame 0 of a record against a drawn snapshot: the aperture scintillation index and the mean fibre coupling |
 | `tilt_spectrum.py` | (d) | the Z-tilt spectrum of one record: the -2/3 law and the corner, against the Greenwood frequency |
 | `hero_temporal.py` | (e) | the fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. SMOKE DONE 2026-09-13 (3.6 s); the FULL run DONE 2026-09-13 on the bigfraw GPU (727 s) |
+| `record_plots.py` | — | the PICTURES of record 0 at 30 deg: the power against time over 2 s, and a 0.1 s animation of the phase, the aperture intensity, the fibre tip and the fibre power around the deepest fade. It only READS the record. DONE 2026-09-13 (55 s): the deepest fibre fade is 40.3 dB under the median at t = 96.5 ms |
 
 ```
 python -m validation.temporal_screens.rect_factory
@@ -23,6 +24,7 @@ python -m validation.temporal_screens.strip_taylor
 python -m validation.temporal_screens.frame0_parity
 python -m validation.temporal_screens.tilt_spectrum
 python -m validation.temporal_screens.hero_temporal --smoke
+python -m validation.temporal_screens.record_plots
 ```
 
 ## Gate (e), the run lines
