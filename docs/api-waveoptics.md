@@ -687,7 +687,8 @@ wind profile; it does not import the runner, so the seed rule has no cycle.
   screen is a thin, pure phase element, so the power does not change. It raises
   `ValueError` on a spherical field and on a wrong-shape phase array.
 - `ScreenFactory(n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-  n_sub_levels=3, dtype=np.float64, lean=False, nx=None)` — the FAST screen generator,
+  n_sub_levels=3, dtype=np.float64, lean=False, nx=None, table_dtype=None)` —
+  the FAST screen generator,
   and the
   DEFAULT of the runner (`screen_generator="olb"`). It caches the sqrt-PSD
   filter and the separable subharmonic basis ONE time for the grid, then it
@@ -2106,30 +2107,84 @@ t = camp.t_s()                       # the derived time axis, in s.
 ```
 
 - `TemporalSpec(dt_s, n_frames, strip_dir, record=0, wind_ground_m_s=10.0,
-  wind_dir_deg=0.0, slew_rad_s=None, pad_outer_scales=2.0)` — a frozen dataclass
+  wind_dir_deg=0.0, slew_rad_s=None, pad_outer_scales=2.0, rotated=False,
+  rot_margin=0.07)` — a frozen dataclass
   that names ONE record. `record` separates two records of one campaign: they
   hold different strips and the same statistics. `slew_rad_s=None` reads
   `geometry.slew_deg_s`. `key()` gives the stable string that the fingerprint
-  reads, and it OMITS `strip_dir`, because the strips are a cache.
+  reads, and it OMITS `strip_dir`, because the strips are a cache. It also
+  omits `rotated` and `rot_margin` while `rotated` is False (the append-only
+  tail rule of `precision` and `fft_backend`), so every key of an older
+  record stays valid.
 - `strip_plan(plan, grid, spec, geometry, L0_m)` — a `StripPlan`: the drift
   `v_x_m_s` and `v_y_m_s` of each layer, the `(ny, nx)` shape of each strip (the
   column count rounds up to a multiple of `STRIP_ALIGN = 32`), and the seam pad
-  in pixels. `L0_m` must be FINITE.
+  in pixels. `L0_m` must be FINITE. With `spec.rotated` it gives the ROTATED
+  plan instead: one THIN strip for each layer along that layer's RESULTANT
+  velocity, plus `theta` (the angle of each layer) and `m_crop` (the padded
+  crop side of EACH layer, `n(|cos theta_j| + |sin theta_j| + 2 rot_margin)`,
+  a tuple with one value for each layer, 2026-09-13). `rot_margin` is now the
+  taper ROLL-OFF past the geometric rotation footprint, not the whole margin,
+  and its default is 0.07. A layer that walks along x therefore asks for a
+  much smaller crop than a layer that walks at 45 deg, and the crop pixels
+  drive the cost of a frame.
 - `frame_offsets(sp, k)` — the `(oy, ox)` pixel offset of each layer at frame
   `k`, from the ABSOLUTE position. A negative speed starts at the far end and
   walks back, so the window stays inside the strip.
 - `strip_paths(spec, n_screens)` — the file path of each strip.
-- `build_strips(sp, r0_m, paths, L0_m, subharmonics, seeds, dtype=np.float32)` —
-  it writes each strip to its own file. The call is IDEMPOTENT: a strip that
+- `build_strips(sp, r0_m, paths, L0_m, subharmonics, seeds, dtype=np.float32,
+  table_dtype=None)` — it writes each strip to its own file. `table_dtype=
+  np.float32` (an OPT-IN, 2026-09-13) builds the `ScreenFactory` filter tables
+  in single precision, which halves the peak memory of a large (crosswind) box
+  at a rounding-level change of the screen (max 1.1e-5 rad, D(r) identical to
+  six digits; `validation/temporal_screens/table_precision.py`). None keeps
+  the float64 tables of record. The call is IDEMPOTENT: a strip that
   already sits on disk is skipped, and each file goes through a temporary name
   and `os.replace`, so a killed run leaves no half file. It builds ONE layer at
   a time under the host `"scipy"` FFT backend, and it restores the backend it
   found. The RUNNER owns the seed rule (`run._screen_seed`), so this module
   takes the integer seeds as an argument and imports no runner.
-- `open_strips(paths)` — the strips as read-only memory maps. A pool then shares
-  ONE page cache, so a strip costs no private worker memory.
+- `open_strips(paths, on_device=False)` — the strips as read-only memory maps.
+  A pool then shares ONE page cache, so a strip costs no private worker
+  memory. `on_device=True` uploads the strips to the CUDA device ONE time
+  instead, which the runner does for the ROTATED route under the `"cupy"`
+  backend: a frame then crops and turns them where the field is and it uploads
+  nothing. The call falls back to the memory map, with a warning, when the
+  strips need more than half the free device memory.
 - `frame_stack(strips, sp, k)` — a generator of the `n` by `n` phase of each
-  layer at frame `k`. Each screen is a VIEW, so the call copies nothing.
+  layer at frame `k`. Each screen is a VIEW, so the call copies nothing. On
+  the ROTATED plan it takes the padded crop of the side `sp.m_crop` OF THAT
+  LAYER, turns it back with `rotate_fourier` under the end taper, and cuts the
+  central `n` by `n`; that route copies.
+- `rotate_fourier(patch, theta_rad, taper=None)` — the EXACT Fourier three-shear rotation
+  of a square patch, `out(p) = patch(R(theta) p)` about the centre (Unser,
+  Thevenaz and Yaroslavsky, DOI 10.1109/83.469963). A rotation is an x-shear,
+  a y-shear and an x-shear, and each shear translates one line by a phase ramp
+  on its 1-D transform (the Fourier shift theorem, Schmidt,
+  DOI 10.1117/3.866274, Ch. 2). It runs on the array module of the FFT
+  backend, so it runs on the device under `"cupy"`. It does NOT smooth the
+  Fresnel-scale structure, which a real-space bilinear or cubic rotation does.
+  TWO ERRORS STAY: the modes in the CORNERS of the frequency square leave the
+  square, and a shear WRAPS the non-periodic edge of a crop, so the caller
+  must cut a central window out of a patch that carries a margin. `taper` is
+  the width of the FLAT top of a 1-D raised-cosine window that the call puts
+  on the ends of every line BEFORE EACH of the three shears (2026-09-13). It
+  removes most of the wrap. A single 2-D window does NOT work, because the two
+  later shears undo it. `frame_stack` passes the rotation footprint
+  `n(|cos t| + |sin t|)`, so the kept frame reads only the flat top. None (the
+  default) keeps the plain call, which the validation scripts use as the
+  control.
+
+THE ROTATED STRIP IS AN OPT-IN (2026-09-13, backlog 2-P1b item 10), and the
+runner and `Campaign` do NOT read it yet. A CROSSWIND turns the walk of a
+layer away from the x axis, so the axis-aligned box grows its SHORT axis: the
+30 deg hero at `wind_dir_deg = 90` asks for a 11897 x 43744 box (520 Mpx) for
+one jet-level layer. The rotated thin strip of the same layer is 1080 x 44576
+(48 Mpx) at the old plan-wide `rot_margin=0.5`, and it builds in 6.7 s against
+137.4 s. The per-layer crop side and the end taper (2026-09-13) cut that
+further. The gate is `validation/temporal_screens/rotated_strip_gate.py`, the
+taper measurement is `validation/temporal_screens/rotation_taper.py`, and the
+cost and parity table is `validation/temporal_screens/README.md`.
 
 ---
 

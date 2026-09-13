@@ -1209,7 +1209,121 @@ The path forward for each is a second reference or a derivation.
   structure, the same reason the coarse screen died in P2
   (`validation/waveoptics_speed/`), so any rotated route needs a D(r) and a
   sigma2_I gate against the bounding-box strip, and bilinear likely fails it.
-  Not started.
+  STEP 1 DONE (2026-09-13, `validation/temporal_screens/table_precision.py`):
+  the MEMORY of the box is fixed. The noise draw and the transform chain of
+  `ScreenFactory` no longer hold four full grids at once (bit-identical on
+  every route of record), and `table_dtype=np.float32` (an OPT-IN on
+  `ScreenFactory` and `build_strips`) builds the filter tables in single
+  precision at a 1.1e-5 rad change (D(r) identical to six digits). The 520 Mpx
+  box now builds in 137 s at a 15.6 GiB peak (float64 tables 152 s, 20.0 GiB),
+  no swap, so a 9-layer crosswind record is about 20 min of strip build. The
+  TIME is the FFT of the 23x area. DECISIONS (owner, 2026-09-13): the
+  speed-only mapping (each layer along the slew axis at its resultant speed) is
+  REJECTED, because the downlink phase field in time depends on each layer's
+  velocity DIRECTION; the exact box stays the reference; the rotation route, if
+  built, is the FOURIER three-shear rotation (exact for the band-limited
+  periodic part), not a real-space bilinear or cubic interpolation.
+  STEP 2 DONE (2026-09-13, route (b), `validation/temporal_screens/
+  rotated_strip_gate.py`): the rotated thin strip is BUILT as an OPT-IN,
+  `TemporalSpec(rotated=True)` at the then plan-wide `rot_margin=0.5`,
+  with `rotate_fourier` in
+  `olb/waveoptics/turbulence/temporal.py` (Unser, Thevenaz and Yaroslavsky,
+  DOI 10.1109/83.469963). The default is OFF and the along-track route is
+  bit-identical; the two options enter `TemporalSpec.key()` only when
+  `rotated` is True, so every stored record keeps its key. THE GATE PASSES
+  19 of 20 bands: the rotation moves D(r) at 1 and 4 px by 0.1 to 1.7
+  percent at a 0.5 n margin and by 0.1 to 0.8 percent at 1.0 n, D(tau)
+  agrees with the unrotated cut of the SAME crops to 1.0 percent (6.5 deg)
+  and 3.2 percent (45 deg), and the point index, the aperture index and the
+  SMF coupling of a propagated frame agree to 1.7, 0.3 and 0.01 percent. A
+  0.25 n margin FAILS at 45 deg (D(1 px) 1.040), so 0.5 n is the floor and
+  1.0 n is clean. The real-space BILINEAR control loses 15 to 18 percent of
+  D(1 px), which confirms why it is not the tool. COST on bigfraw: the
+  30 deg hero crosswind layer builds in 6.7 s against 137.4 s for the box
+  (20x), and one rotated frame costs 6.7 ms on the cupy backend and 285 ms
+  on numpy at a 1080 px crop.
+  STEP 3 DONE (2026-09-13). TWO questions closed.
+  (i) ARE THE THREE ROUTES THE SAME SCREEN? YES, inside a few percent
+  (`validation/temporal_screens/route_equivalence.py`, 64 seeds x 8 windows,
+  production seam pad, `n = 256`, `L0 = 25 m`, a 0.70 m pupil, 87 of 108
+  bands): the along-track strip (2.56 m short axis), the box (52.6 m) and the
+  rotated strip (5.4 to 6.2 m) hold D(r) to 5 percent from 1 px to 0.70 m,
+  the Z-tilt to 5 to 7 percent (0.93 to 0.95 of the box, 2 SE 0.08), the
+  piston-free aperture variance to 4 to 6 percent and the RAW window variance
+  to 7 to 8 percent, and every radial band of the power spectrum to 0.5
+  percent. The one REAL rotation effect is the corner-mode loss of the outer
+  Nyquist ring, 1.5 percent at 45 deg (0.9846 +/- 0.0018) and nothing
+  measurable at 6.5 deg. THE 0.57 TO 1.69 FACTOR OF STEP 2 IS SAMPLING, NOT
+  SHAPE: gate 3 of `rotated_strip_gate.py` takes a scintillation index of 96
+  frames from THREE atmospheres and prints no bar on those columns, and its
+  "along track" arm is `case_plans(89.999)`, a BOX of a 15 m short axis, not
+  the 2.56 m thin strip of record. The sharp-cutoff `captured_fraction` model
+  predicts a 0.42 tilt capture for the thin strip and it measures 0.94, so the
+  subharmonic BAND rule of the rectangular `ScreenFactory` restores nearly the
+  whole low-frequency band.
+  (ii) IS A ROTATED RECORD THE SAME AS INDEPENDENT SNAPSHOTS? YES
+  (`validation/temporal_screens/rotated_record_parity.py`, the bigfraw GPU,
+  4000 frames at 0.5 ms against 4000 snapshot trials, `standard`, 512 px, 9
+  screens, block bootstrap of 20 ms, 8 of 12 bands): the bucket holds all four
+  bands (index 1.047 +/- 0.162, p5 -0.004 +/- 0.055 dB), and EVERY band that
+  misses sits inside ONE standard error (point index 0.948 +/- 0.100, point p1
+  -0.355 +/- 0.468 dB, SMF index 0.937 +/- 0.214, SMF p5 +0.461 +/- 1.520 dB).
+  2 s of record holds only about 75 independent atmospheres, so the fixed
+  bands cannot be resolved on the heavy-tailed fibre statistic.
+  THE RUNNER AND `Campaign` DO read `rotated`: a `TemporalSpec` threads
+  through `propagate_turbulent_scenario` and `Campaign` as it is, and the one
+  fix this step needed was the device guard in `run._uploaded` (a rotated
+  frame is ALREADY a cupy array, and `np.ascontiguousarray` refuses one). A
+  host run and a device run of the same seed agree to the printed digit.
+  COST of the 4000-frame hero crosswind record: strips 293.6 Mpx (1120 MB)
+  against 3265.5 Mpx (12.5 GB) for the exact box (11.1x), a build of about
+  77 s against about 860 s, and a wall of 745.4 s (0.186 s/frame, peak
+  working set 2.23 GiB) against 0.011 s/frame for an along-track record and
+  0.020 s/frame for the independent snapshots. So the rotation costs 17x at
+  the frame and it saves 11x of memory and build. THE OWNER DECISION that
+  remains is whether `rotated=True` ever becomes the DEFAULT for a crosswind.
+  STEP 4 DONE (2026-09-13). THE THREE CUTS that step 3 named are built, and
+  the hero record was rerun.
+  (a) THE TAPER. `rotation_taper.py` measured six cures for the seam ringing
+  of the shears against the rotation of the FULL periodic screen. The winner
+  is a 1-D raised-cosine taper on the ends of every line, applied BEFORE EACH
+  of the three shear transforms (a single 2-D window does NOT work: the two
+  later shears undo it). `rotate_fourier(patch, theta, taper=flat_px)` is
+  that taper, its flat top is the rotation footprint, and `taper=None` (the
+  default) keeps the plain control call. The edge-ring error drops from
+  1.8e-2 to 5.0e-3 rad (6.5 deg) and from 1.9e-2 to 6.6e-3 rad (45 deg).
+  (b) THE PER-LAYER CROP. `TemporalSpec.rot_margin` now means the taper
+  ROLL-OFF PAST the geometric footprint, default 0.07, and the crop side of
+  layer j is `n(|cos t_j| + |sin t_j|) + 2 rot_margin n`. A roll-off sweep at
+  `n = 256` passes the gate at 0.04, 0.07 and 0.10 at 3, 6.5, 20 and 45 deg
+  (ring 6.1e-3 to 8.0e-3 rad), so what is left is the CORNER-mode loss, not
+  the seam, and 0.07 carries about a factor of two.
+  (c) THE DEVICE-RESIDENT STRIP. `open_strips(paths, on_device=True)` uploads
+  the strips one time and the runner does that for the ROTATED route under
+  the `"cupy"` backend, so a frame uploads nothing. It falls back to the host
+  memory map, with a warning, over half the free device memory.
+  THE MEASURED GAIN on the SAME 4000-frame hero record (bigfraw GPU, 512 px,
+  9 layers, 30 deg, `wind_dir_deg = 90`, `standard`, single precision, seed
+  20260913): the crop side is 614 to 794 px for each layer against 1234 px
+  for the plan, the strips hold 643 MB against 1120 MB, the peak working set
+  is 1.55 GiB against 2.23 GiB, and the wall is 217.2 s (0.0543 s/frame)
+  against 745.4 s (0.186 s/frame), a 3.43x gain. The rotation now costs 4.9x
+  an along-track frame (0.011 s) and 2.7x an independent snapshot (0.020 s),
+  where it cost 17x and 9.3x. THE PARITY IMPROVED: 9 of 12 bands hold
+  against 8, the POINT receiver now holds all four (it held two), the BUCKET
+  holds all four, and the three misses are the SMF index (1.380 +/- 0.366,
+  about 1.8 SE), the SMF mean (-0.913 +/- 1.041 dB, inside 1 SE) and the SMF
+  p5 (+0.449 +/- 1.361 dB, inside 1 SE). CAVEAT: the smaller crop also makes
+  the strip SHORT AXIS smaller (8.5 m to 4.2 to 5.4 m), which sits between
+  the along-track route of record (3.5 m) and the 5.4 to 6.2 m that
+  `route_equivalence.py` measured against the exact box.
+  THE OWNER DECISION that remains is whether `rotated=True` becomes the
+  DEFAULT for a crosswind. The RECOMMENDATION is YES, on these numbers: the
+  rotated route is the only route that fits a 90 deg crosswind record in
+  memory (643 MB against 12.5 GB), its parity is now as good as the
+  along-track route's, and it costs 2.7x an independent snapshot, which is
+  the price of the time axis itself. The remaining cost is the three shear
+  FFTs of each layer of each frame.
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.

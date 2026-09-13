@@ -681,6 +681,48 @@ Open items:
   reference model checks these first temporal fade numbers (backlog 0-N6).
   NOT BUILT: a Fourier sub-pixel shift, temporal plus point-ahead, terrestrial
   frozen flow, device-resident strips, and a variable dt (see backlog 2-P1b).
+  THE CROSSWIND BOX FITS THE HOST (2026-09-13): the `ScreenFactory` noise
+  draw and transform chain hold one grid at a time (bit-identical), and
+  `table_dtype=np.float32` (an OPT-IN on `ScreenFactory` and `build_strips`)
+  builds the filter tables in single precision (1.1e-5 rad, D(r) identical);
+  the 520 Mpx box of a 90 deg crosswind builds in 137 s at 15.6 GiB, no swap.
+  The speed-only crosswind mapping is REJECTED (the phase field in time
+  depends on each layer's velocity direction).
+  THE ROTATED THIN STRIP IS BUILT AS AN OPT-IN (2026-09-13, backlog 2-P1b item
+  10): `TemporalSpec(rotated=True)` holds one thin strip per
+  layer along that layer's RESULTANT velocity, and `rotate_fourier` turns each
+  padded crop back with the exact Fourier three-shear rotation (Unser,
+  Thevenaz and Yaroslavsky, DOI 10.1109/83.469963). The default is OFF and the
+  along-track route is bit-identical (the two options enter
+  `TemporalSpec.key()` only when `rotated` is True). The gate
+  (`validation/temporal_screens/rotated_strip_gate.py`) passes 19 of 20 bands:
+  D(r) and D(tau) move by 1 to 3 percent and the propagated point index,
+  aperture index and SMF coupling by under 2 percent, a 0.25 n margin FAILS at
+  45 deg, and a real-space bilinear control loses 15 to 18 percent of D(1 px).
+  The hero crosswind layer builds in 6.7 s against 137.4 s for the box (20x),
+  and one rotated frame costs 6.7 ms on the cupy backend. THE RUNNER AND
+  `Campaign` DO read `rotated` (2026-09-13): a `TemporalSpec` threads through
+  as it is, and the one fix needed was the device guard in `run._uploaded`
+  (a rotated frame is already a cupy array). THE THREE ROUTES ARE THE SAME
+  SCREEN inside a few percent (`route_equivalence.py`, 64 seeds): D(r), the
+  radial power spectrum, the tilt and the piston-free aperture variance agree
+  to 5 percent, the raw window variance to 8 percent, and the only real
+  rotation effect is a 1.5 percent corner-mode loss of the outer Nyquist ring
+  at 45 deg. The 0.57 to 1.69 spread of the earlier gate was SAMPLING, not
+  shape. A 4000-frame rotated record also matches 4000 independent snapshots
+  (`rotated_record_parity.py`, the bigfraw GPU): every band that misses sits
+  inside one bootstrap standard error, and the bucket holds all four. COST:
+  643 MB of strips against 12.5 GB for the exact box (19x) and 217 s of
+  wall (0.0543 s/frame) against 0.011 s/frame along track. THE FRAME COST IS
+  CUT 3.43x (2026-09-13, step 4): `rotate_fourier(..., taper=flat_px)` puts a
+  1-D raised-cosine taper on the ends of every line BEFORE EACH of the three
+  shears (a single 2-D window does not work), `TemporalSpec.rot_margin` now
+  means the taper ROLL-OFF past the geometric footprint (default 0.07, not
+  0.5) so EACH LAYER gets its own crop side `n(|cos t| + |sin t| +
+  2 rot_margin)`, and `open_strips(..., on_device=True)` holds the strips on
+  the CUDA device so a rotated frame uploads nothing. The hero record then
+  holds 9 of 12 parity bands, not 8. Whether `rotated` becomes the DEFAULT
+  for a crosswind is an OWNER decision (backlog 2-P1b item 10).
 - **Several detectors, the master turbulence switch, and the Camera are BUILT
   (2026-09-02).** A `Terminal` still holds ONE detector: about twenty detector
   dispatch sites read that one field, so a receive path that feeds more than one
