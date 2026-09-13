@@ -11,19 +11,33 @@ scintillation together. There is no closed form for the coupled fade, so this is
 a MONTE-CARLO-ONLY Term. It gives a sampler and sets ``quantile=None``. This
 value tells the budget to evaluate the term with ``monte_carlo()``, not with the
 analytic fade sum.
+
+The module also gives the two analytic mean-only Terms of a pre-compensated
+uplink: the adaptive-optics fitting error (uplink_fitting_term) and the
+point-ahead anisoplanatism (uplink_point_ahead_term). The second one KEEPS THE
+TILT (remove="piston", owner decision 2026-09-11), because the terminal senses
+the downlink beacon tilt and the steering mirror adds the point-ahead offset
+geometrically. It also reads the site outer scale, so its Stone kernel carries
+the von Karman spectrum.
 '''
 
 import numpy as np
 
 from ..results import Budget, Term
 from ..assumptions import (Assumptions, trace_assumptions, BEAM_GAUSSIAN,
-                          BEAM_PLANE_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV)
+                          BEAM_PLANE_WAVE, REGIME_WEAK, SPECTRUM_KOLMOGOROV,
+                          SPECTRUM_VON_KARMAN)
 from ..models.geometric import geometric_loss_term
 from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from ..models.gaussian_efficiency import tx_gaussian_efficiency_term
 from ..turbulence.anisoplanatism import (anisoplanatic_phase_variance,
-                                         max_radial_order)
+                                         max_radial_order,
+                                         # _REMOVE_NLO is the ONE map from a
+                                         # `remove` name to the lowest radial
+                                         # order that carries error. Read it,
+                                         # do not copy it.
+                                         _REMOVE_NLO)
 from ..turbulence.ao import (plane_wave_fried_parameter_profile,
                             apply_compensation, MARECHAL_SIGMA2_MAX)
 from ..turbulence.uplink_flux import _flux_result
@@ -201,7 +215,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
 
 
 def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
-                            max_order='auto'):
+                            max_order='auto', remove='piston', L0_m=None):
     '''
     Point-ahead anisoplanatism Term (uplink pre-compensation residual).
 
@@ -214,14 +228,28 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
 
     The correction removes the part of each Zernike order that stays correlated
     across that angle. The DECORRELATION residual stays. The error is the sum of
-    that residual over the corrected orders 2..max_order, with the piston and the
-    two tilts left out (a separate tracking loop points the beam). The residual
-    per order is 2 sigma_n^2 (1 - rho_n): it is small for a well-correlated low
-    order and it saturates at twice the mode variance for a fully decorrelated
-    order. So the loss grows with the adaptive-optics order, up to an
-    infinite-order limit. This is NOT a penalty for correcting. It is the part of
-    the turbulence that the two directions do not share. See
-    anisoplanatic_phase_variance and Fig. 2 of Stone et al. (1994).
+    that residual over the corrected orders, from the lowest order that `remove`
+    keeps up to max_order. The residual per order is 2 sigma_n^2 (1 - rho_n): it
+    is small for a well-correlated low order and it saturates at twice the mode
+    variance for a fully decorrelated order. So the loss grows with the
+    adaptive-optics order, up to an infinite-order limit. This is NOT a penalty
+    for correcting. It is the part of the turbulence that the two directions do
+    not share. See anisoplanatic_phase_variance and Fig. 2 of Stone et al.
+    (1994).
+
+    THE TILT STAYS IN (owner decision, 2026-09-11). The default is
+    remove="piston". The terminal senses the DOWNLINK beacon tilt, and the
+    steering mirror adds the point-ahead offset geometrically. So the terminal
+    has no uplink tilt reference, and the uplink pays the FULL tilt
+    anisoplanatism. The old default remove="piston_tilt" assumed a separate
+    uplink tilt loop. That loop does not exist in this design. An uplink tilt
+    reference is a later stub, and a caller that has one can pass
+    remove="piston_tilt".
+
+    THE MODE SET MATCHES THE OTHER RUNGS. The fidelity-2 runner and the
+    fidelity-1 FAST Term both keep the tilt. With remove="piston" this Term takes
+    the same mode set as those two, except the piston, and the piston changes no
+    overlap integral. So the three rungs are now like for like.
 
     The Term is MEAN-ONLY: it gives the expected loss and no fade. It has no
     sampler and no quantile, because the phase variance is a steady-state
@@ -245,6 +273,18 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
             gives max_radial_order(n_modes). No AO stage gives None (the ideal
             infinite-order limit). An int forces that order. None forces the
             infinite-order limit.
+        remove : str
+            The modes that carry no error. "piston" (the default) keeps the
+            tilt, which is the convention of this design. "piston_tilt" removes
+            the two tilts as well; use it only with a separate uplink tilt
+            reference. "none" keeps every mode.
+        L0_m : float or None
+            Turbulence outer scale [m]. None (the default) reads the site value
+            scenario.channel.site.outer_scale_m. A float overrides it, and
+            np.inf is the Kolmogorov limit of the Stone paper. A finite value
+            puts the von Karman spectrum in the Stone kernel (Andrews and
+            Phillips, 2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20),
+            printed p. 68).
 
     Returns:
         Term
@@ -258,6 +298,9 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
     tx = scenario.tx_terminal
     D = tx.aperture_m
     wavelength = tx.wavelength_m
+    # The site holds the outer scale (backlog 2-P5). None reads the site value.
+    L0 = (float(scenario.channel.site.outer_scale_m) if L0_m is None
+          else float(L0_m))
 
     # Map the compensation stack to a corrected radial order. The largest AO
     # stage sets it. With no AO stage, fall back to the infinite-order limit.
@@ -274,8 +317,8 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
     # because hs is already a grid. So loop over the elevations.
     sigma2 = np.array([
         anisoplanatic_phase_variance(D, t, hs, cn2_profile, wavelength,
-                                     remove='piston_tilt', max_order=max_order,
-                                     elevation_deg=e)
+                                     remove=remove, max_order=max_order,
+                                     elevation_deg=e, L0=L0)
         for e, t in zip(elev, theta)])
     # Extended Marechal: eta = exp(-sigma2), so the loss is -10*log10(eta).
     # Source: V. W. S. Chan and others; extended Marechal approximation.
@@ -283,7 +326,17 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
     # DOI 10.1364/AO.48.001812. The same relation is in olb.models.coupling.
     loss_db = (10.0 / np.log(10.0)) * sigma2
 
-    order_note = "all orders" if max_order is None else f"orders 2..{max_order}"
+    # The lowest radial order that carries error follows `remove`: 0 keeps every
+    # mode, 1 keeps the tilt (the default), 2 removes the piston and the tilt.
+    n_lo = _REMOVE_NLO[remove]
+    order_note = ("all orders" if max_order is None
+                  else f"orders {n_lo}..{max_order}")
+    spectrum = SPECTRUM_KOLMOGOROV if np.isinf(L0) else SPECTRUM_VON_KARMAN
+    scale_note = ("The spectrum is Kolmogorov (L0 = infinity)." if np.isinf(L0)
+                  else f"The outer scale is L0={L0:g} m, so the Stone kernel "
+                       "carries the von Karman spectrum (Andrews and Phillips, "
+                       "2nd ed. (2005), DOI 10.1117/3.626196, Ch. 3, Eq. (20), "
+                       "printed p. 68).")
     theta_urad = theta * 1e6
     note = ("point-ahead anisoplanatism, " + order_note + ", theta="
             + (f"{theta_urad[0]:.2f}" if scalar
@@ -292,17 +345,17 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_WEAK,
-        spectrum=SPECTRUM_KOLMOGOROV,
+        spectrum=spectrum,
         validity="Decorrelation residual of a downlink-beacon uplink "
                  "pre-compensation. The terminal senses the turbulence on the "
                  "downlink beam and applies the conjugate to the uplink beam. The "
                  "correction removes the part of each Zernike order that stays "
                  "correlated across the point-ahead angle. The error is the "
                  "decorrelation residual summed over the corrected orders "
-                 + order_note + ", with the piston and the two tilts left out (a "
-                 "separate tracking loop points the beam). The residual per order "
+                 + order_note + " (remove=" + remove + "). The residual per order "
                  "is 2 sigma_n^2 (1 - rho_n). It grows with the corrected order. "
                  "Source: Stone et al. (1994), DOI 10.1364/JOSAA.11.000347. "
+                 + scale_note + " "
                  "The phase variance becomes a loss with the extended Marechal "
                  "approximation, the same relation as in olb.models.coupling "
                  "(V. W. S. Chan and others; extended Marechal approximation). "
@@ -320,6 +373,27 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
                  "accuracy. This Term does not correct it. "
                  "This Term gives the mean loss only. It models no fade.",
     )
+    # THE TILT CONVENTION (owner decision, 2026-09-11). The beacon tilt drives
+    # the steering mirror, and the point-ahead offset is added geometrically, so
+    # the uplink has no tilt reference of its own and it pays the full tilt
+    # anisoplanatism.
+    if remove == 'piston':
+        assumptions.flag(
+            "TILT INCLUDED: the terminal senses the DOWNLINK beacon tilt and "
+            "the steering mirror adds the point-ahead offset geometrically, so "
+            "the uplink pays the FULL tilt anisoplanatism (remove='piston'). "
+            "An uplink tilt reference would lower this loss; this design has "
+            "none. Pass remove='piston_tilt' only with such a reference. This "
+            "mode set matches the fidelity-1 FAST Term and the fidelity-2 "
+            "runner, except the piston, which changes no overlap integral."
+        )
+    else:
+        assumptions.flag(
+            f"TILT REMOVED: remove={remove!r} takes the two tilts out of the "
+            "error. That needs a separate uplink tilt reference. The design of "
+            "record has none, so this reads an OPTIMISTIC loss. The default is "
+            "remove='piston'."
+        )
     # BIG LIMITATION: the pre-compensated uplink model is phase-only and
     # mean-only. Adaptive optics corrects the phase; it does not remove the
     # amplitude scintillation. No trustworthy analytic model exists for the
@@ -358,6 +432,8 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
             "theta_paa_rad": float(theta[0]) if scalar else np.asarray(theta),
             "sigma2_rad2": float(sigma2[0]) if scalar else sigma2,
             "max_order": max_order,
+            "remove": remove,
+            "L0_m": L0,
         },
         assumptions=assumptions,
         mean_only=True,   # fidelity-0: expected residual only, no fade (see results.Budget)
@@ -475,6 +551,85 @@ def uplink_fitting_term(scenario, geometry, hs=None, cn2_profile=None):
     )
 
 
+# The match tolerance of the point-ahead angle selection [rad]. It holds an
+# absolute floor and a relative part, so a stored float and a recomputed float
+# of the same geometry match.
+POINT_AHEAD_ATOL_RAD = 1e-9
+POINT_AHEAD_RTOL = 1e-6
+
+
+def _point_ahead_index(angles, geometry):
+    '''
+    Give the index of the record angle that matches the geometry.
+
+    A fidelity-2 record can hold more than one point-ahead angle (the runner
+    takes a sequence). The budget models ONE line of sight, so it reads the
+    angle of its own geometry (olb.geometry.CircularOrbit.point_ahead_rad).
+
+    Parameters:
+        angles : tuple of float
+            The resolved point-ahead angles of the record [rad], in the record
+            order.
+        geometry : CircularOrbit or TLEPass
+            The link geometry. It gives the wanted angle.
+
+    Returns:
+        int
+            The position of the matching angle.
+
+    Raises:
+        ValueError
+            No angle of the record matches the geometry.
+    '''
+    theta = float(np.asarray(geometry.point_ahead_rad, dtype=float).ravel()[0])
+    tol = POINT_AHEAD_ATOL_RAD + POINT_AHEAD_RTOL * abs(theta)
+    for i, a in enumerate(angles):
+        if abs(float(a) - theta) <= tol:
+            return i
+    have = ", ".join(
+        f"{float(a) * 1e6:.4g} urad ({np.degrees(float(a)) * 3600.0:.4g} "
+        f"arcsec)" for a in angles)
+    raise ValueError(
+        f"the wave record holds no point-ahead angle for this geometry. The "
+        f"geometry needs {theta * 1e6:.4g} urad "
+        f"({np.degrees(theta) * 3600.0:.4g} arcsec), and the record holds "
+        f"{have}. Run the record with point_ahead_rad=\"geometry\" for this "
+        f"geometry, or add that angle to the sequence.")
+
+
+def _point_ahead_losses(trials, index):
+    '''
+    Give the per-trial uplink loss at one point-ahead angle [dB].
+
+    The runner reports the reciprocity overlap of each point-ahead direction in
+    TurbTrial.eta_turb_pa, in the record angle order (Shapiro,
+    DOI 10.1364/JOSA.61.000492; Stone and others, DOI 10.1364/JOSAA.11.000347).
+    The loss is -10*log10(eta), the same reduction the beacon direction takes.
+
+    Parameters:
+        trials : list of TurbTrial
+            The trials of the record.
+        index : int
+            The position of the wanted angle.
+
+    Returns:
+        numpy.ndarray
+            One loss value for each trial [dB].
+
+    Raises:
+        ValueError
+            A trial carries no point-ahead overlap.
+    '''
+    etas = [None if t.eta_turb_pa is None else t.eta_turb_pa[index]
+            for t in trials]
+    if not etas or any(e is None for e in etas):
+        raise ValueError(
+            "the wave record names point-ahead angles, but a trial carries no "
+            "point-ahead overlap (TurbTrial.eta_turb_pa is None). The overlap "
+            "needs an UPLINK scenario. Run the record again for the uplink.")
+    return -10.0 * np.log10(np.asarray(etas, dtype=float))
+
+
 def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
                             turbulence=True):
     '''
@@ -505,13 +660,26 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
     Term below flags that. An UNCORRECTED record fits the uncorrected uplink
     only.
 
+    THE POINT AHEAD (2026-09-11, backlog 2-P4). A record from
+    run_fidelity2(..., point_ahead_rad=...) also reads the screens through
+    LATERALLY SHIFTED windows, one for each angle, and it reports the overlap
+    of each in TurbTrial.eta_turb_pa. The Term then reads the angle of THIS
+    geometry (_point_ahead_index) in place of eta_turb, so it pays the
+    point-ahead anisoplanatism (Stone and others,
+    DOI 10.1364/JOSAA.11.000347). A record that names no angle for this
+    geometry raises.
+
     With `turbulence` False, or with a VACUUM-ONLY bundle (turbulent None), the
     reciprocity Term is dropped and the DETERMINISTIC geometric Terms stand
     alone.
     '''
+    # _QUANTITY_SPEC holds the ONE name and category of the eta_turb face. The
+    # point-ahead route hands the losses in through loss_db, so it reads that
+    # pair here and it keeps the Term identical to the beacon Term.
     from ..models.waveoptics import (flag_uncorrected_compensation,
                                      waveoptics_vacuum_term,
-                                     waveoptics_turbulence_term)
+                                     waveoptics_turbulence_term,
+                                     _QUANTITY_SPEC)
     elev = np.asarray(geometry.elevation_deg, dtype=float)
     if elev.size == 1:
         # A one-element array IS one line of sight, so accept it as a scalar.
@@ -554,14 +722,50 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
         # fidelity-2 route builds no coupling Term at any setting, so nothing
         # else is needed.
         return geo
-    pen = waveoptics_turbulence_term(
-        wave.turbulent, quantity="eta_turb", beam_type=BEAM_GAUSSIAN,
-        sigma2_I=sigma2_I,
-        note="uplink turbulence penalty by reciprocity (wave optics). PURE "
-             "turbulence penalty: the free-space spread, the launch truncation, "
-             "and the satellite-aperture capture are in the vacuum-optics Term, "
-             "and the tracking jitter is in the pointing Term.")
-    if pen.meta.get("n_modes_corrected", 0):
+    note = ("uplink turbulence penalty by reciprocity (wave optics). PURE "
+            "turbulence penalty: the free-space spread, the launch truncation, "
+            "and the satellite-aperture capture are in the vacuum-optics Term, "
+            "and the tracking jitter is in the pointing Term.")
+    term_kwargs = dict(quantity="eta_turb", beam_type=BEAM_GAUSSIAN,
+                       sigma2_I=sigma2_I, note=note)
+    # THE POINT AHEAD. A record that names point-ahead angles reports one
+    # overlap for each angle. The budget takes the angle of ITS geometry, so
+    # the Term pays the point-ahead anisoplanatism of this line of sight.
+    pa_angles = getattr(wave.turbulent, "point_ahead_rad", None)
+    pa_index = None if pa_angles is None else _point_ahead_index(pa_angles,
+                                                                 geometry)
+    if pa_index is not None:
+        theta = float(pa_angles[pa_index])
+        arcsec = float(np.degrees(theta) * 3600.0)
+        name, category = _QUANTITY_SPEC["eta_turb"]
+        term_kwargs.update(
+            loss_db=_point_ahead_losses(wave.turbulent.trials, pa_index),
+            name=name, category=category,
+            note=note + (f" The record reads the screens at the point-ahead "
+                         f"angle {theta * 1e6:.3g} urad ({arcsec:.3g} "
+                         f"arcsec)."),
+            meta_extra={
+                "point_ahead_rad": theta,
+                "point_ahead_arcsec": arcsec,
+                "point_ahead_index": int(pa_index),
+                "screen_margin_m": float(
+                    getattr(wave.turbulent, "screen_margin_m", 0.0) or 0.0),
+                "screen_n": getattr(wave.turbulent, "screen_n", None),
+            })
+    pen = waveoptics_turbulence_term(wave.turbulent, **term_kwargs)
+    # The angle 0.0 repeats the beacon path, so it models no anisoplanatism.
+    pa_modelled = pa_index is not None and float(pa_angles[pa_index]) != 0.0
+    if pa_modelled:
+        pen.assumptions.flag(
+            "POINT-AHEAD ANISOPLANATISM MODELLED: the ground stack senses the "
+            "beacon direction and the uplink reads the screens through "
+            "windows shifted by round(theta z / dx) pixels (plane-parallel "
+            "screens, integer-pixel offsets, no Earth curvature, snapshot "
+            "only). The correction stays PERFECT AO (no wavefront-sensor "
+            "noise, no servo lag). Stone et al., "
+            "DOI 10.1364/JOSAA.11.000347."
+        )
+    if pen.meta.get("n_modes_corrected", 0) and not pa_modelled:
         # A CORRECTED record is a PERFECT pre-compensation reference. The
         # ground stack corrects the same screens the uplink reads back, so
         # nothing decorrelates over the point-ahead angle.
@@ -574,8 +778,9 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
             "reference and it is OPTIMISTIC. The model of record for a real "
             "pre-compensated uplink stays fidelity=1 (uplink_fast_term)."
         )
-    else:
-        flag_uncorrected_compensation(pen, scenario)
+    # An UNCORRECTED record models no pre-compensation at all. The function
+    # does nothing when the record IS corrected.
+    flag_uncorrected_compensation(pen, scenario)
     return geo + [pen]
 
 
@@ -603,7 +808,9 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
       PRE-COMPENSATED (DownlinkBeacon with an AO stage):
         fidelity=0 : the AO error budget -- two analytic mean-only phase Terms:
             the AO fitting error (uplink_fitting_term) and the point-ahead
-            anisoplanatism (uplink_point_ahead_term). PHASE-ONLY and MEAN-ONLY:
+            anisoplanatism (uplink_point_ahead_term). That second Term KEEPS
+            THE TILT (remove="piston") and it reads the site outer scale, so
+            its number moved on 2026-09-11. PHASE-ONLY and MEAN-ONLY:
             no scintillation, no fade (decision 2026-08-27, the pre-compensated
             beam has no trustworthy analytic scintillation form). The Terms flag
             it, so Budget.check() warns.
@@ -616,10 +823,21 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             record (run_fidelity2(..., compensation="terminal")). The perfect-AO
             correction applies the ground stack to the ground-plane field, so
             the reciprocity overlap reads a PRE-COMPENSATED beam. It is an
-            IDEAL reference: no point-ahead decorrelation, no wavefront-sensor
-            noise, no servo lag, so it is OPTIMISTIC and the Term flags it. The
-            model of record stays fidelity=1 (FAST). An UNCORRECTED record
-            raises.
+            IDEAL reference: no wavefront-sensor noise and no servo lag, so it
+            is OPTIMISTIC and the Term flags it. The model of record stays
+            fidelity=1 (FAST). An UNCORRECTED record raises.
+
+            THE POINT-AHEAD RECORD. A record from
+            run_fidelity2(..., point_ahead_rad="geometry") (or a sequence of
+            angles) also propagates each point-ahead direction through the SAME
+            atmosphere, and it reports one overlap for each angle. The budget
+            then reads the angle that matches ITS geometry
+            (geometry.point_ahead_rad), inside the tolerance
+            POINT_AHEAD_ATOL_RAD + POINT_AHEAD_RTOL * theta, and the Term pays
+            the point-ahead anisoplanatism. A record that holds no such angle
+            raises, and the message lists the angles it holds. A record with NO
+            point-ahead angle keeps the old behaviour and its NO ANISOPLANATISM
+            flag.
       LaserGuideStar: not implemented yet. It raises NotImplementedError.
 
     Pointing jitter: the coupled-flux Term (uncorrected fidelity 1) carries the
@@ -666,8 +884,9 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             If the scenario uses a LaserGuideStar pre-compensation source.
         ValueError
             If fidelity is not 0/1/2; if fidelity=0 for an uncorrected uplink; if
-            fidelity=2 without a `wave` bundle, or with an UNCORRECTED bundle
-            for a pre-compensated uplink.
+            fidelity=2 without a `wave` bundle, with an UNCORRECTED bundle
+            for a pre-compensated uplink, or with a point-ahead bundle that
+            names no angle for this geometry.
         ImportError
             If fidelity=1 pre-compensated and `fast-aosim` is not installed.
     '''
@@ -982,6 +1201,28 @@ if __name__ == '__main__':
         small_term.meta["sigma2_rad2"]
     assert not any("MARECHAL" in v for v in small_term.assumptions.violations)
 
+    # --- the tilt convention and the outer scale (2026-09-11) ---------------
+    # (i) The default keeps the TILT, so it reads ABOVE the old piston_tilt
+    #     convention at the same outer scale.
+    pa_inf = uplink_point_ahead_term(ao_scn, pa_geom, L0_m=np.inf)
+    pa_inf_tilt_out = uplink_point_ahead_term(ao_scn, pa_geom, L0_m=np.inf,
+                                              remove='piston_tilt')
+    assert pa_inf.meta["remove"] == 'piston'
+    assert pa_inf.mean_db > pa_inf_tilt_out.mean_db, (pa_inf.mean_db,
+                                                      pa_inf_tilt_out.mean_db)
+    assert any("TILT INCLUDED" in v for v in pa_inf.assumptions.violations)
+    assert any("TILT REMOVED" in v
+               for v in pa_inf_tilt_out.assumptions.violations)
+    # (ii) The site outer scale (25 m by default) cuts the large scales, so the
+    #      default reads BELOW the Kolmogorov limit.
+    assert pa_term.meta["L0_m"] == ao_scn.channel.site.outer_scale_m == 25.0
+    assert pa_term.mean_db < pa_inf.mean_db, (pa_term.mean_db, pa_inf.mean_db)
+    assert pa_term.assumptions.spectrum == SPECTRUM_VON_KARMAN
+    assert pa_inf.assumptions.spectrum == SPECTRUM_KOLMOGOROV
+    # (iii) The Term face does not move: same name, same category, same shape.
+    assert pa_inf.name == "point-ahead anisoplanatism"
+    assert pa_inf.category == "anisoplanatism" and pa_inf.mean_only
+
     # A direct call with no AO stage falls back to the infinite-order upper bound.
     tt_scn = _uplink(0.2, power=40, jitter=2e-6, sensitivity=-40,
                      ground_aperture=1.5, compensation=[TipTilt()])
@@ -1237,6 +1478,56 @@ if __name__ == '__main__':
               f"turbulence {pre_turb.mean_db:.2f} dB "
               f"(uncorrected mean overlap {bare.mean():.4f}, "
               f"corrected {good.mean():.4f})")
+        # A record with NO point-ahead angle keeps the old reduction: the Term
+        # is the empirical mean of -10*log10(eta_turb), and it names no angle.
+        assert pre_bundle.turbulent.point_ahead_rad is None
+        assert "point_ahead_rad" not in pre_turb.meta, pre_turb.meta
+        assert abs(pre_turb.mean_db
+                   - float((-10.0 * np.log10(good)).mean())) < 1e-12
+
+        # --- the POINT-AHEAD fidelity-2 route (2026-09-11, backlog 2-P4) ----
+        # ONE record holds two angles: 0.0 (the beacon control) and the angle
+        # of the geometry. The budget reads the geometry angle, so its Term
+        # pays the point-ahead anisoplanatism.
+        pa2_theta = float(np.asarray(budget_geom.point_ahead_rad,
+                                     dtype=float).ravel()[0])
+        pa2_bundle = run_fidelity2(
+            pre_scn, budget_geom, preset="rapid", n_trials=6, seed=9,
+            progress=False, compensation="terminal",
+            point_ahead_rad=(0.0, pa2_theta), cn2_profile=pre_cn2)
+        pa2_up = uplink_budget(pre_scn, budget_geom, fidelity=2,
+                               wave=pa2_bundle, cn2_profile=pre_cn2)
+        pa2_turb = next(t for t in pa2_up.terms
+                        if t.meta.get("model") == "waveoptics")
+        assert pa2_turb.meta["point_ahead_rad"] == pa2_theta
+        assert pa2_turb.meta["point_ahead_index"] == 1
+        assert pa2_turb.meta["screen_n"] >= pa2_bundle.turbulent.grid.n
+        assert pa2_turb.meta["screen_margin_m"] > 0.0
+        # The BEACON direction of the SAME record is angle 0. The point-ahead
+        # Term must cost more, because the correction does not fit it.
+        pa2_beacon = np.array([t.eta_turb_pa[0]
+                               for t in pa2_bundle.turbulent.trials])
+        pa2_beacon_db = float((-10.0 * np.log10(pa2_beacon)).mean())
+        assert pa2_turb.mean_db > pa2_beacon_db, (pa2_turb.mean_db,
+                                                  pa2_beacon_db)
+        assert not any("NO ANISOPLANATISM" in v
+                       for v in pa2_turb.assumptions.violations)
+        assert any("POINT-AHEAD ANISOPLANATISM MODELLED" in v
+                   for v in pa2_turb.assumptions.violations)
+        assert any("PERFECT AO" in v for v in pa2_turb.assumptions.violations)
+        assert pa2_up.provides_fade
+        # A geometry whose angle the record does not hold raises, and the
+        # message names the fix.
+        try:
+            uplink_budget(pre_scn, CircularOrbit(600e3, 30.0), fidelity=2,
+                          wave=pa2_bundle, cn2_profile=pre_cn2)
+        except ValueError as e:
+            assert "geometry" in str(e) and "urad" in str(e), str(e)
+        else:
+            raise AssertionError("a missing point-ahead angle must raise")
+        print(f"uplink fidelity 2, POINT AHEAD ({pa2_theta * 1e6:.2f} urad, "
+              f"60 deg, 6 trials): turbulence {pa2_turb.mean_db:.2f} dB, "
+              f"beacon direction {pa2_beacon_db:.2f} dB")
 
     print('\n' + '=' * 40)
     print(f"point-ahead angle: {pa_term.meta['theta_paa_rad'] * 1e6:.2f} urad, "

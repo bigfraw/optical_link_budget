@@ -253,14 +253,15 @@ module, for example `python -m examples.andrews.scintillation_regimes`.
 
 ## The wave-optics suite ([examples/waveoptics/](../examples/waveoptics/))
 
-The `examples/waveoptics/` directory holds eleven scripts for the fidelity-2 field
+The `examples/waveoptics/` directory holds twelve scripts for the fidelity-2 field
 propagation layer (`olb/waveoptics/`). Each script propagates a real complex
 field on a square grid, prints a table of numbers, and saves a figure in
 `examples/waveoptics/figures/`. The first three have NO turbulence. The next
 three add the turbulent split step of `olb/waveoptics/turbulence/`. The seventh
 wires the layer into the three link budgets. Two draw the focused spot on a
 multimode-fibre core, one bins the focal spot onto a tracking-camera pixel grid,
-and one stores a campaign of trials on disk.
+one stores a campaign of trials on disk, and one pays the point-ahead
+anisoplanatism of a pre-compensated uplink.
 
 EVERY script that runs a Monte Carlo keeps its trials in an
 `olb.waveoptics.turbulence.Campaign`, the store of trials on disk. Each script
@@ -449,24 +450,51 @@ The campaign script:
   fidelity-2 BUDGET. It builds 1000 downlink snapshots (600 km, 30 deg, rapid
   preset) as ten blocks of 100, with `workers=4` (ONE warm process pool, and
   each block runs serially inside its process), into
-  `examples/waveoptics/_campaign_demo2/`. A second run of the script computes
-  NOTHING: the blocks sit on disk. The script then shows the canonical flow: ONE
-  scenario and ONE orbit serve the campaign AND the budgets, and the campaign
-  goes straight into the `wave` slot. `downlink_budget(scenario, orbit,
-  fidelity=2, wave=campaign)` gives 45.60 dB (extinction 0.43 dB + geometric
-  spreading 31.48 dB + wave-optics turbulence 13.68 dB, with no pointing
-  jitter), and `multi_detector_budgets(scenario, orbit, arms, fidelity=2,
-  wave=campaign)` gives 47.15 dB for the `SMF` arm (splitter 1.55 dB) and
-  37.23 dB for the `MMF` light-bucket arm (splitter 5.23 dB). The last section
-  is DIAGNOSTIC, outside the budget flow: `campaign.recouple(SMF(),
-  aperture_m=0.20)` couples the SAME stored fields into a smaller receive
-  aperture with no new propagation (mean eta 0.27681). The first run takes about
-  50 s, the second about 18 s.
+  `examples/waveoptics/_campaigns/campaign_demo/` (the store convention of
+  every campaign script). A second run of the script computes NOTHING: the
+  blocks sit on disk. The script then shows the canonical flow: ONE scenario
+  and ONE orbit serve the campaign AND the budgets, and the campaign goes
+  straight into the `wave` slot. `downlink_budget(scenario, orbit, fidelity=2,
+  wave=campaign)` gives 44.80 dB (extinction 0.43 dB + geometric spreading
+  31.48 dB + wave-optics turbulence 12.89 dB, with no pointing jitter), and
+  `multi_detector_budgets(scenario, orbit, arms, fidelity=2, wave=campaign)`
+  gives 46.35 dB for the `SMF` arm (splitter 1.55 dB) and 37.24 dB for the
+  `MMF` light-bucket arm (splitter 5.23 dB). The last section is DIAGNOSTIC,
+  outside the budget flow: `campaign.recouple(SMF(), aperture_m=0.20)` couples
+  the SAME stored fields into a smaller receive aperture with no new
+  propagation (mean eta 0.29665). The numbers are the single-precision default
+  of 2026-09-05 with the 25 m site outer scale of 2026-09-09 (measured
+  2026-09-11). The first run takes about 22 s of trials on four processes, the
+  second computes no trial.
   - API: `Campaign(scenario, geometry, root, seed=..., preset=...,
     block_size=..., sizing_aperture_m=...)`, then `campaign.run(1000, workers=4)`
     and `wave=campaign` on a budget. `campaign.recouple(detector,
     aperture_m=...)` is the diagnostic face.
   - Run: `python examples/waveoptics/campaign_demo.py`
+
+The point-ahead script:
+
+- `uplink_point_ahead.py` — the point-ahead anisoplanatism of a PRE-COMPENSATED
+  uplink at `fidelity=2` (backlog 2-P4). A 500 km uplink at 30 deg from a 0.4 m
+  ground terminal with an `AO(10)` stack and a `DownlinkBeacon`. ONE campaign of
+  40 snapshots (rapid preset, a 256 px grid and 448 px oversize screens) carries
+  `compensation="terminal"`, `store_screen_phase=True` and three angles: 0.0 (the
+  beacon control), the geometry angle (5.24 arcsec) and 10 arcsec. The runner
+  draws each screen one time on the wider grid and reads it through a shifted
+  window for each angle, so every pass sees ONE atmosphere. The printed loss
+  `-10*log10(eta_turb_pa)` is 1.52 dB mean and 2.78 dB at p5 in the beacon
+  direction, 3.30 and 5.96 dB at the geometry angle, and 4.34 and 9.31 dB at
+  10 arcsec. `uplink_budget(scn, geom, fidelity=2, wave=campaign)` then reads the
+  angle of its own geometry: the turbulence Term is 3.30 dB, the total is
+  49.11 dB, and the Term carries `POINT-AHEAD ANISOPLANATISM MODELLED` and
+  `PERFECT AO`, and NOT `NO ANISOPLANATISM`. The last section is POST HOC:
+  `campaign.recouple_point_ahead([TipTilt()])` reads the SAME stored planes with
+  another stack and it propagates nothing. The first run takes about 5 s; the
+  second computes no trial.
+  - API: `Campaign(..., compensation="terminal", point_ahead_rad=(...),
+    store_screen_phase=True)`, then `wave=campaign` on `uplink_budget`, and
+    `campaign.recouple_point_ahead(stack)` for the post-hoc face.
+  - Run: `python examples/waveoptics/uplink_point_ahead.py`
 
 The fidelity-0 and fidelity-1 defaults are unchanged: a budget consumes the
 wave-optics layer only when the caller sets `fidelity=2` and gives it a wave

@@ -86,7 +86,8 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               L0_m, subharmonics, hs, cn2_profile, block_size,
               cn2=None, h_top_m=None, grid=None, plan=None,
               precision="double", fft_backend="numpy", compensation=None,
-              store_screen_phase=False):
+              store_screen_phase=False, point_ahead_rad=None,
+              screen_margin_m=0.0):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -122,6 +123,15 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         store_screen_phase: the screen-phase store switch. It enters the key
                           when it is True, because a stored block then holds
                           one more array.
+        point_ahead_rad:  the RESOLVED point-ahead angles, a tuple of floats,
+                          or None. Resolve the string "geometry" against the
+                          geometry BEFORE the call, so the key names the
+                          angles. It enters the key when it is not None,
+                          because a point-ahead run draws a wider screen and
+                          it stores one more scalar for each angle.
+        screen_margin_m:  the RESOLVED extra screen width, in m. It enters the
+                          key when it is above 0, because the wider draw
+                          changes the screens.
 
     Returns:
         A 64-character hex string.
@@ -139,6 +149,11 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         tail.append(f"compensation={tuple(compensation)!r}")
     if store_screen_phase:
         tail.append("store_screen_phase=True")
+    if point_ahead_rad is not None:
+        tail.append("point_ahead_rad="
+                    f"{tuple(float(a) for a in point_ahead_rad)!r}")
+    if float(screen_margin_m) > 0.0:
+        tail.append(f"screen_margin_m={float(screen_margin_m)!r}")
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([
@@ -218,6 +233,18 @@ if __name__ == '__main__':
     assert ktt != cache_key(scn, geom, seed=7, compensation=(AO(n_modes=10),),
                             **common)
     assert k0 != cache_key(scn, geom, seed=7, store_screen_phase=True, **common)
+
+    # ---- the point-ahead options enter the key only when they are set ----
+    assert k0 == cache_key(scn, geom, seed=7, point_ahead_rad=None,
+                           screen_margin_m=0.0, **common), \
+        "the point-ahead defaults must not change an existing key"
+    kpa = cache_key(scn, geom, seed=7, point_ahead_rad=(0.0, 5e-5), **common)
+    assert kpa != k0, "a point-ahead angle set must change the key"
+    assert kpa == cache_key(scn, geom, seed=7, point_ahead_rad=(0.0, 5e-5),
+                            **common)
+    assert kpa != cache_key(scn, geom, seed=7, point_ahead_rad=(0.0, 6e-5),
+                            **common)
+    assert k0 != cache_key(scn, geom, seed=7, screen_margin_m=0.5, **common)
 
     print(f"key {k0[:16]}... is stable; the seed, the hardware, the preset, "
           "the generator, the block size, the geometry and the Cn2 each "

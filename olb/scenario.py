@@ -87,7 +87,9 @@ class LaserGuideStar:
     light samples a cone of the turbulence, not the full column. This gives focal
     (cone) anisoplanatism. That is a different effect from the point-ahead angular
     anisoplanatism of the downlink beacon. This class is a placeholder for a later
-    task.
+    task. The fidelity-2 hook for that cone is
+    olb.waveoptics.turbulence.run.sensing_geometry, which gives the window scale
+    of a guide star at each screen; it is not implemented yet and it raises.
 
     Parameters:
         altitude_m : float

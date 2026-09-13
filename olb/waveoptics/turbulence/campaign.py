@@ -69,16 +69,22 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from ..field import field_dtype
 from ..grid import GridSpec
 from ..priority import boost_process_priority
 from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
-                  _crop_array, _field_patch, _patch_field, _PostCorrector,
-                  _PostTail, _resolve_compensation, clip_terminal,
-                  _resolve_seed, propagate_turbulent_scenario)
-from .sampling import ScreenPlan, resolve_outer_scale, turbulent_grid
+                  _crop_array, _field_patch, _patch_field, _PointAheadRunner,
+                  _PostCorrector,
+                  _PostTail, _resolve_compensation, _resolve_point_ahead,
+                  _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
+                  _uplink_ground, clip_terminal,
+                  _resolve_seed, propagate_turbulent_scenario,
+                  space_vacuum_baseline)
+from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
+from .splitstep import super_gaussian_boundary
 
 # The manifest name and the block name. A block file holds one block only, so a
 # stopped campaign keeps every finished block.
@@ -125,21 +131,37 @@ def _columns_of(result):
     between processes.
 
     The OPTIONAL "screen_phase" array joins the dict only when the run stored
-    one. So the block file of a default campaign holds exactly the arrays it
-    always held.
+    one. The three POINT-AHEAD arrays join it only when the run made a
+    point-ahead pass. So the block file of a default campaign holds exactly the
+    arrays it always held.
 
     Args:
         result: the TurbWaveResult of one block.
 
     Returns:
-        A dict of numpy arrays, one for each column, plus "fields", and
-        "screen_phase" when the run stored it.
+        A dict of numpy arrays, one for each column, plus "fields",
+        "screen_phase" when the run stored it, and "eta_turb_pa", "fields_pa"
+        and "screen_phase_pa" when the run made a point-ahead pass.
     """
     out = {c: np.array([_none_to_nan(getattr(t, c)) for t in result.trials],
                        dtype=np.float64) for c in _COLUMNS}
     out["fields"] = np.asarray(result.fields, dtype=np.complex64)
     if result.screen_phase is not None:
         out["screen_phase"] = np.asarray(result.screen_phase, dtype=np.float32)
+    # THE POINT-AHEAD COLUMNS. "eta_turb_pa" is (n_trials, n_angles); a trial
+    # with no overlap (a downlink) holds NaN in every angle.
+    if result.point_ahead_rad is not None:
+        n_angles = len(result.point_ahead_rad)
+        out["eta_turb_pa"] = np.array(
+            [[np.nan] * n_angles if t.eta_turb_pa is None
+             else [_none_to_nan(v) for v in t.eta_turb_pa]
+             for t in result.trials], dtype=np.float64).reshape(
+                 len(result.trials), n_angles)
+        if result.fields_pa is not None:
+            out["fields_pa"] = np.asarray(result.fields_pa, dtype=np.complex64)
+        if result.screen_phase_pa is not None:
+            out["screen_phase_pa"] = np.asarray(result.screen_phase_pa,
+                                                dtype=np.float32)
     return out
 
 
@@ -213,6 +235,8 @@ def _run_block(b):
         fft_backend=_W["kwargs"]["fft_backend"],
         compensation=_W["kwargs"]["compensation"],
         store_screen_phase=_W["kwargs"]["store_screen_phase"],
+        point_ahead_rad=_W["kwargs"]["point_ahead_rad"],
+        screen_margin_m=_W["kwargs"]["screen_margin_m"],
         boost=False)        # the worker boosted itself in _init_worker.
     return int(b), _columns_of(res)
 
@@ -228,16 +252,23 @@ def _read_block_file(path, fields=True):
         path:   the path of the block file.
         fields: True loads the stored field. False leaves it None.
 
+    THE POINT-AHEAD ARRAYS read the same way: each one is None when the file
+    holds none. So an OLD block file, written before the point ahead existed,
+    still reads.
+
     Returns:
-        A dict of arrays: one for each column of _COLUMNS, plus "fields" and
-        "screen_phase". Either of the two is None when the file holds none, or
-        when the caller asks for no field.
+        A dict of arrays: one for each column of _COLUMNS, plus "fields",
+        "screen_phase", "eta_turb_pa", "fields_pa" and "screen_phase_pa". Each
+        optional array is None when the file holds none, or when the caller
+        asks for no field.
     """
     with np.load(path) as z:
         cols = {c: z[c] for c in _COLUMNS}
         cols["fields"] = z["fields"] if fields else None
-        cols["screen_phase"] = (z["screen_phase"]
-                                if "screen_phase" in z.files else None)
+        for name in ("screen_phase", "eta_turb_pa", "screen_phase_pa"):
+            cols[name] = z[name] if name in z.files else None
+        cols["fields_pa"] = (z["fields_pa"]
+                             if fields and "fields_pa" in z.files else None)
     return cols
 
 
@@ -264,6 +295,12 @@ class TrialRecord:
         screen_phase: the stored summed screen phase of the trial, at the
                       patch pixels, or None.
         context:      the per-block dict (see above).
+        arrays_pa:    the rebuilt POINT-AHEAD field of the trial, one array for
+                      each angle, on the same crop as `array`. It is None when
+                      the campaign made no point-ahead pass, or when the call
+                      asks for no field.
+        screen_phase_pa: the stored summed screen phase of each point-ahead
+                      window, one row for each angle, or None.
     """
 
     row: int
@@ -273,6 +310,8 @@ class TrialRecord:
     scalars: dict
     screen_phase: np.ndarray
     context: dict
+    arrays_pa: tuple = None
+    screen_phase_pa: np.ndarray = None
 
     def field(self, compact=True):
         """Give the trial as a Field.
@@ -316,15 +355,25 @@ def _apply_block(fn, cols, patch, lam, base_row, fields=True, compact=True):
     context = {}
     phase = cols.get("screen_phase")
     stack = cols.get("fields")
+    stack_pa = cols.get("fields_pa")
+    phase_pa = cols.get("screen_phase_pa")
+    eta_pa = cols.get("eta_turb_pa")
     out = []
     for k in range(int(cols[_COLUMNS[0]].size)):
         array = (_crop_array(patch, stack[k], compact=compact)
                  if fields and stack is not None else None)
+        arrays_pa = (tuple(_crop_array(patch, stack_pa[i, k], compact=compact)
+                           for i in range(stack_pa.shape[0]))
+                     if fields and stack_pa is not None else None)
+        scalars = {c: cols[c][k] for c in _COLUMNS}
+        if eta_pa is not None:
+            scalars["eta_turb_pa"] = eta_pa[k]
         out.append(fn(TrialRecord(
             row=int(base_row) + k, array=array, patch=patch, lam=float(lam),
-            scalars={c: cols[c][k] for c in _COLUMNS},
+            scalars=scalars,
             screen_phase=None if phase is None else phase[k],
-            context=context)))
+            context=context, arrays_pa=arrays_pa,
+            screen_phase_pa=(None if phase_pa is None else phase_pa[:, k]))))
     return np.asarray(out)
 
 
@@ -342,6 +391,7 @@ def _map_block(b):
                             fields=m["fields"])
     if m["screen_phase"] is False:
         cols["screen_phase"] = None
+        cols["screen_phase_pa"] = None
     return int(b), _apply_block(m["fn"], cols, m["patch"], m["lam"],
                                 int(b) * int(m["block_size"]),
                                 fields=m["fields"], compact=m["compact"])
@@ -423,6 +473,115 @@ class _CompensateTrials(_CoupleTrials):
         return np.nan if eta is None else float(eta)
 
 
+class _PointAheadTrials:
+    """The per-trial callable of `Campaign.recouple_point_ahead`.
+
+    It reads the STORED point-ahead planes of a trial, it corrects each one
+    with the BEACON estimate, and it gives the uplink reciprocity overlap of
+    each angle. So it makes no propagation. See
+    olb.waveoptics.turbulence.run.point_ahead_overlap.
+
+    The modal basis is the large cost of the read, so the callable builds it
+    ONE time for each block, in the record context. The transmit mode and the
+    vacuum baseline come from the parent, so no block computes them again.
+    """
+
+    def __init__(self, compensation, aperture_m, obscuration_ratio, psi,
+                 o_vac, source, compact=True):
+        """Hold the fixed parts of one read.
+
+        Args:
+            compensation:      the RESOLVED stack, or None for no correction.
+            aperture_m:        the clip aperture diameter, in m.
+            obscuration_ratio: the central obscuration of that aperture.
+            psi:               the ground transmit mode, on the same pixels as
+                               the trial arrays.
+            o_vac:             the free-space overlap baseline.
+            source:            "screens", "slopes", or "gtilt".
+            compact:           True works on the crop.
+        """
+        self.compensation = compensation
+        self.aperture_m = float(aperture_m)
+        self.obscuration_ratio = float(obscuration_ratio)
+        self.conj_psi = np.conj(psi)
+        self.o_vac = float(o_vac)
+        self.source = source
+        self.compact = bool(compact)
+
+    def __call__(self, rec):
+        if rec.arrays_pa is None:
+            raise ValueError(
+                "Campaign.recouple_point_ahead: this campaign stores no "
+                "point-ahead field. Make it with point_ahead_rad AND "
+                "patch_radius_m, and run it again.")
+        coeffs = None
+        if self.compensation is not None:
+            corrector = rec.context.get("pa_corrector")
+            if corrector is None:
+                corrector = _PostCorrector(rec.patch, self.compensation,
+                                           self.aperture_m,
+                                           self.obscuration_ratio, self.source,
+                                           compact=self.compact)
+                rec.context["pa_corrector"] = corrector
+            if self.source == "screens" and rec.screen_phase is None:
+                raise ValueError(
+                    "Campaign.recouple_point_ahead: source='screens' needs "
+                    "the stored summed screen phase, and this campaign holds "
+                    "none. Make it with store_screen_phase=True, or use "
+                    "source='slopes'.")
+            coeffs = corrector.coefficients(rec.array, rec.screen_phase)
+        out = []
+        for E in rec.arrays_pa:
+            if coeffs is not None:
+                E = corrector.modes.apply(E, coeffs, sign=-1)
+            out.append(float(np.abs((E * self.conj_psi).sum()) ** 2)
+                       / self.o_vac)
+        return np.asarray(out, dtype=float)
+
+
+class _RegeneratePointAhead:
+    """The per-trial callable of `Campaign.point_ahead`.
+
+    It REBUILDS the screens of a trial from the seeds of the campaign and it
+    propagates them at each asked angle. So it answers an angle the campaign
+    never stored. The screen factory, the boundary mask, the modal basis and
+    the vacuum baseline build ONE time for each block, in the record context.
+    See olb.waveoptics.turbulence.run.point_ahead_regenerate.
+    """
+
+    def __init__(self, record, angles, compensation, scenario, geometry,
+                 **options):
+        """Hold the fixed parts of one read.
+
+        Args:
+            record:   a small TurbWaveResult that names the grid, the plan,
+                      the preset, the seed entropy and the screen side.
+            angles:   the point-ahead angles, in rad.
+            compensation: None, "terminal", or a list of stages.
+            scenario: the SpaceScenario of the campaign.
+            geometry: the link geometry.
+            options:  the runner options of _PointAheadRunner.
+        """
+        self.record = record
+        self.angles = angles
+        self.compensation = compensation
+        self.scenario = scenario
+        self.geometry = geometry
+        self.options = dict(options)
+
+    def __call__(self, rec):
+        runner = rec.context.get("pa_runner")
+        if runner is None:
+            runner = _PointAheadRunner(self.record, self.angles,
+                                       self.compensation, self.scenario,
+                                       self.geometry, **self.options)
+            rec.context["pa_runner"] = runner
+        # THE ROW IS THE TRIAL INDEX. A campaign runs block b from the
+        # start_index b * block_size, so the campaign row IS the seed index.
+        return runner.trial(rec.row, stored_phase=rec.screen_phase,
+                            patch=rec.patch)
+
+
 class Campaign:
     """A set of turbulent trials on disk, in blocks.
 
@@ -441,6 +600,12 @@ class Campaign:
         compensation:   the RESOLVED perfect-AO stack of every trial, or None.
         n_modes_corrected: the number of removed Noll modes, or 0.
         store_screen_phase: True keeps the summed screen phase of each trial.
+        point_ahead_rad: the RESOLVED point-ahead angles of every trial, a
+                        tuple of floats, or None.
+        screen_margin_m: the extra screen width of the point-ahead windows, in
+                        m. It is 0.0 for a campaign with no point-ahead pass.
+        screen_n:       the pixel count of one drawn screen side. It equals
+                        grid.n for a campaign with no point-ahead pass.
     """
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
@@ -449,7 +614,8 @@ class Campaign:
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=None,
                  subharmonics=True, screen_generator="olb",
                  precision="single", fft_backend="numpy", compensation=None,
-                 store_screen_phase=False):
+                 store_screen_phase=False, point_ahead_rad=None,
+                 screen_margin_m=None):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -537,6 +703,20 @@ class Campaign:
                            (`recouple_compensated`). It adds one array to each
                            block file, and it enters the fingerprint. The
                            default False stores nothing.
+            point_ahead_rad: None (the default, NO point-ahead pass), the string
+                           "geometry", a float, or a sequence of angles in rad.
+                           Each angle adds one more propagation of the SAME
+                           atmosphere through a laterally shifted window of each
+                           screen, and each block file then holds the uplink
+                           overlap, the field and the screen phase of every
+                           angle. The RESOLVED angles enter the fingerprint and
+                           the manifest. It needs a SPACE scenario. See
+                           olb.waveoptics.turbulence.run.
+            screen_margin_m: the extra screen width of the shifted windows, in
+                           m. None on a NEW campaign reads the geometry; None on
+                           a REOPENED campaign reads the stored value from the
+                           manifest, exactly like patch_radius_m. The RESOLVED
+                           value enters the fingerprint.
 
         Raises:
             ValueError: the seed is not an integer, the precision name is
@@ -600,21 +780,33 @@ class Campaign:
                         else clip_terminal(scenario).aperture_m)
                 patch_radius_m = float(base) / 2.0 * PATCH_MARGIN_FACTOR
         self.patch_radius_m = float(patch_radius_m)
-
-        self.fingerprint = cache_key(
-            scenario, geometry, preset=self.preset, seed=self.seed,
-            screen_generator=screen_generator, L0_m=self.L0_m,
-            subharmonics=subharmonics, cn2=cn2, hs=hs,
-            cn2_profile=cn2_profile, h_top_m=h_top_m,
-            block_size=self.block_size, grid=grid, plan=plan,
-            precision=self.precision, fft_backend=self.fft_backend,
-            compensation=self.compensation,
-            store_screen_phase=self.store_screen_phase)
+        # RESOLVE THE POINT-AHEAD ANGLES BEFORE THE FINGERPRINT, the same rule
+        # as the compensation stack: the key names the ANGLES, not the string
+        # "geometry". The MARGIN needs the finished screen plan, so it resolves
+        # below, and the key follows it.
+        self.point_ahead_rad = _resolve_point_ahead(point_ahead_rad, geometry)
 
         os.makedirs(self.root_dir, exist_ok=True)
+
+        def fingerprint_of():
+            """Give the content key of this campaign. It reads the margin."""
+            return cache_key(
+                scenario, geometry, preset=self.preset, seed=self.seed,
+                screen_generator=screen_generator, L0_m=self.L0_m,
+                subharmonics=subharmonics, cn2=cn2, hs=hs,
+                cn2_profile=cn2_profile, h_top_m=h_top_m,
+                block_size=self.block_size, grid=grid, plan=plan,
+                precision=self.precision, fft_backend=self.fft_backend,
+                compensation=self.compensation,
+                store_screen_phase=self.store_screen_phase,
+                point_ahead_rad=self.point_ahead_rad,
+                screen_margin_m=self.screen_margin_m)
+
         if stored_manifest is not None:
             man = stored_manifest
-            self._check_manifest(man)
+            # THE GRID AND THE PLAN COME FIRST. The screen margin reads the
+            # plan, and the fingerprint reads the margin, so the check below
+            # runs after all three.
             self.grid = GridSpec(size_m=man["grid"]["size_m"],
                                  n=int(man["grid"]["n"]),
                                  scaled=bool(man["grid"]["scaled"]))
@@ -626,6 +818,9 @@ class Campaign:
                 z_total_m=float(man["plan"]["z_total_m"]),
                 r0_total_m=float(man["plan"]["r0_total_m"]),
                 direction=man["plan"]["direction"])
+            self._resolve_margin(screen_margin_m, man)
+            self.fingerprint = fingerprint_of()
+            self._check_manifest(man)
             self.patch = FieldPatch(
                 radius_m=self.patch_radius_m, n=int(man["patch"]["n"]),
                 pixel_m=float(man["patch"]["pixel_m"]),
@@ -638,9 +833,33 @@ class Campaign:
                 cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=self.L0_m)
             self.grid = sized_grid if grid is None else grid
             self.plan = sized_plan if plan is None else plan
+            self._resolve_margin(screen_margin_m, None)
+            self.fingerprint = fingerprint_of()
             self.patch = _field_patch(self.grid, self.patch_radius_m)
             np.save(os.path.join(self.root_dir, PATCH_NAME), self.patch.indices)
             self._write_manifest(manifest_path)
+
+    # ---- the point-ahead screen margin ------------------------------------
+
+    def _resolve_margin(self, screen_margin_m, man):
+        """Set screen_margin_m and screen_n of this campaign.
+
+        An EXPLICIT value wins. A REOPENED campaign then reads the stored value
+        from the manifest, exactly as patch_radius_m does, so a change of the
+        automatic rule never breaks an older store. A NEW campaign reads the
+        geometry through run._resolve_screen_margin.
+
+        Args:
+            screen_margin_m: the caller value, or None.
+            man:             the stored manifest dict, or None for a new store.
+        """
+        if screen_margin_m is None and self.point_ahead_rad is not None \
+                and man is not None and "screen_margin_m" in man:
+            screen_margin_m = float(man["screen_margin_m"])
+        self.screen_margin_m = _resolve_screen_margin(
+            screen_margin_m, self.point_ahead_rad, self.plan)
+        self.screen_n = _screen_draw_n(self.grid.n, self.screen_margin_m,
+                                       self.grid.pixel_m)
 
     # ---- the manifest -----------------------------------------------------
 
@@ -664,14 +883,22 @@ class Campaign:
                 "fft_backend": self.fft_backend,
                 "compensation": repr(self.compensation),
                 "store_screen_phase": self.store_screen_phase,
+                "point_ahead_rad": (None if self.point_ahead_rad is None
+                                    else list(self.point_ahead_rad)),
+                "screen_margin_m": self.screen_margin_m,
+                "screen_n": self.screen_n,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
         # The same for the FFT backend: an older manifest is a numpy store. A
         # manifest from before the compensation switch is an UNCORRECTED store
-        # with no stored screen phase.
+        # with no stored screen phase. A manifest from before the point ahead
+        # is a store with no point-ahead pass: no angle, no margin, and a screen
+        # that is the grid.
         defaults = {"precision": "double", "fft_backend": "numpy",
-                    "compensation": repr(None), "store_screen_phase": False}
+                    "compensation": repr(None), "store_screen_phase": False,
+                    "point_ahead_rad": None, "screen_margin_m": 0.0,
+                    "screen_n": int(self.grid.n)}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -700,6 +927,10 @@ class Campaign:
             "compensation": repr(self.compensation),
             "n_modes_corrected": int(self.n_modes_corrected),
             "store_screen_phase": self.store_screen_phase,
+            "point_ahead_rad": (None if self.point_ahead_rad is None
+                                else list(self.point_ahead_rad)),
+            "screen_margin_m": float(self.screen_margin_m),
+            "screen_n": int(self.screen_n),
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -765,22 +996,29 @@ class Campaign:
                 "precision": self.precision,
                 "fft_backend": self.fft_backend,
                 "compensation": self.compensation,
-                "store_screen_phase": self.store_screen_phase}
+                "store_screen_phase": self.store_screen_phase,
+                "point_ahead_rad": self.point_ahead_rad,
+                "screen_margin_m": self.screen_margin_m}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
 
         It reads the grid, the precision, the block size, the patch and the
-        hop count of the plan. See olb.waveoptics.resources.
+        hop count of the plan. A POINT-AHEAD campaign also counts the screen
+        noise that one trial keeps. See olb.waveoptics.resources.
 
         Returns:
             An int, in bytes.
         """
         patch_pixels = 0 if self.patch is None else int(self.patch.indices.size)
+        n_screens = (0 if self.point_ahead_rad is None
+                     else int(self.plan.z_m.size))
         return worker_memory_bytes(self.grid.n, self.precision,
                                    block_size=self.block_size,
                                    patch_pixels=patch_pixels,
-                                   n_hops=int(self.plan.z_m.size) + 1)
+                                   n_hops=int(self.plan.z_m.size) + 1,
+                                   screen_n=self.screen_n,
+                                   n_screens=n_screens)
 
     def auto_workers(self, *, cpu_fraction=0.9, memory_fraction=0.9):
         """Give the pool size that fills the machine for this campaign.
@@ -881,6 +1119,8 @@ class Campaign:
                     fft_backend=self.fft_backend,
                     compensation=self.compensation,
                     store_screen_phase=self.store_screen_phase,
+                    point_ahead_rad=self.point_ahead_rad,
+                    screen_margin_m=self.screen_margin_m,
                     boost=boost)
                 self._write_block(b, _columns_of(res))
                 if progress:
@@ -922,7 +1162,9 @@ class Campaign:
 
         THE STORED SCREEN PHASE IS A SEPARATE ARRAY. `fields=False` drops the
         field and it KEEPS the phase, because a caller that reads the phase
-        does not always want the field.
+        does not always want the field. The POINT-AHEAD arrays follow the same
+        rule: `fields=False` drops `fields_pa` and it keeps `eta_turb_pa` and
+        `screen_phase_pa`.
 
         Args:
             n_trials: the number of trials to load. None takes every stored
@@ -938,6 +1180,11 @@ class Campaign:
         cols = {c: [] for c in _COLUMNS}
         stack = []
         phase = []
+        # The POINT-AHEAD arrays. The per-angle arrays carry the ANGLE on the
+        # first axis and the trial on the second, so they join on axis 1.
+        eta_pa = []
+        stack_pa = []
+        phase_pa = []
         for b in blocks:
             got = self._read_block(b, fields=fields)
             for c in _COLUMNS:
@@ -946,7 +1193,14 @@ class Campaign:
                 stack.append(got["fields"])
             if got["screen_phase"] is not None:
                 phase.append(got["screen_phase"])
+            if got["eta_turb_pa"] is not None:
+                eta_pa.append(got["eta_turb_pa"])
+            if got["fields_pa"] is not None:
+                stack_pa.append(got["fields_pa"])
+            if got["screen_phase_pa"] is not None:
+                phase_pa.append(got["screen_phase_pa"])
         packed = {c: np.concatenate(cols[c])[:n] for c in _COLUMNS}
+        packed_eta_pa = (np.concatenate(eta_pa)[:n] if eta_pa else None)
         entropy = _resolve_seed(self.seed)
         trials = [
             TurbTrial(collected_power=_nan_to_none(packed["collected_power"][k]),
@@ -955,16 +1209,25 @@ class Campaign:
                       seed_key=(entropy, k),
                       wall_time_s=float(packed["wall_time_s"][k]),
                       mmf_eta=_nan_to_none(packed["mmf_eta"][k]),
-                      detector_etas=None)
+                      detector_etas=None,
+                      eta_turb_pa=(None if packed_eta_pa is None else
+                                   tuple(_nan_to_none(v)
+                                         for v in packed_eta_pa[k])))
             for k in range(n)]
         return TurbWaveResult(
             trials=trials, grid=self.grid, plan=self.plan, report=None,
             preset=self.preset, seed_entropy=entropy,
             fields=(np.concatenate(stack)[:n] if fields else None),
-            patch=(self.patch if fields or phase else None),
+            patch=(self.patch if fields or phase or phase_pa else None),
             compensation=self.compensation,
             n_modes_corrected=self.n_modes_corrected,
-            screen_phase=(np.concatenate(phase)[:n] if phase else None))
+            screen_phase=(np.concatenate(phase)[:n] if phase else None),
+            point_ahead_rad=self.point_ahead_rad,
+            screen_margin_m=self.screen_margin_m, screen_n=self.screen_n,
+            fields_pa=(np.concatenate(stack_pa, axis=1)[:, :n]
+                       if stack_pa else None),
+            screen_phase_pa=(np.concatenate(phase_pa, axis=1)[:, :n]
+                             if phase_pa else None))
 
     def field(self, row, *, compact=True):
         """Give one STORED trial back as a Field.
@@ -1073,6 +1336,7 @@ class Campaign:
                 cols = self._read_block(b, fields=fields)
                 if screen_phase is False:
                     cols["screen_phase"] = None
+                    cols["screen_phase_pa"] = None
                 out.append(_apply_block(fn, cols, self.patch, lam,
                                         b * self.block_size, fields=fields,
                                         compact=compact))
@@ -1180,6 +1444,148 @@ class Campaign:
                                screen_phase=(source == "screens"),
                                compact=compact)
 
+    def _point_ahead_ground(self, where):
+        """Give the ground terminal of a point-ahead read, or raise.
+
+        Args:
+            where: the caller name, for the error message.
+
+        Returns:
+            The ground Terminal.
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, or the scenario
+                        is not a space scenario with a ground transmitter.
+        """
+        if self.point_ahead_rad is None:
+            raise ValueError(
+                f"{where}: this campaign made no point-ahead pass. Make it "
+                "with point_ahead_rad, and run it again.")
+        return _uplink_ground(self.scenario, where)
+
+    def recouple_point_ahead(self, compensation, *, source=None, n_trials=None,
+                             workers=None, compact=True):
+        """Give the point-ahead uplink overlap of the STORED planes.
+
+        This is the campaign-level twin of
+        `olb.waveoptics.turbulence.run.point_ahead_overlap`. It corrects the
+        stored point-ahead field of each trial with the BEACON estimate of the
+        given stack, and it takes the reciprocity overlap with the ground
+        transmit mode. So a stored campaign gives the point-ahead fade of ANY
+        compensation stack, with NO new propagation. The answered angles are
+        the STORED angles (`Campaign.point_ahead_rad`); for another angle use
+        `Campaign.point_ahead`.
+
+        The transmit mode and the vacuum baseline are computed ONE time here,
+        and the modal basis builds one time for each block. See
+        `_PointAheadTrials`.
+
+        Args:
+            compensation: None (NO correction), the string "terminal", or a
+                          list of TipTilt and AO stages.
+            source:       "screens", "slopes", "gtilt", or None. None follows
+                          the channel family, so a space campaign senses the
+                          stored summed screen phase.
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs in this process. An int or "auto" opens a
+                          process pool (see `map_trials`).
+            compact:      True reads on the crop (the default). False reads on
+                          the full grid.
+
+        Returns:
+            A float array of the shape (n_trials, n_angles). The column order
+            is the order of `Campaign.point_ahead_rad`.
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, it stores no
+                        field, the scenario has no ground transmitter, or
+                        source="screens" and the campaign stored no screen
+                        phase.
+        """
+        where = "Campaign.recouple_point_ahead"
+        ground = self._point_ahead_ground(where)
+        if self.patch is None:
+            raise ValueError(
+                f"{where}: this campaign stores no field. Make it with a "
+                "patch_radius_m, and run it again.")
+        cdtype = field_dtype(self.precision)
+        psi_full = _transmit_mode_crop(ground, self.grid, self.patch, cdtype,
+                                       compact=False)
+        psi = _transmit_mode_crop(ground, self.grid, self.patch, cdtype,
+                                  compact=compact)
+        mask = super_gaussian_boundary(
+            self.grid.n, PRESETS[self.preset].boundary_width_frac)
+        _F_vac, o_vac = space_vacuum_baseline(
+            self.grid, self.plan, ground.wavelength_m, mask, cdtype,
+            psi_tx=psi_full)
+        if source is None:
+            source = ("screens" if hasattr(self.scenario, "ground")
+                      else "slopes")
+        stack, n_modes = _resolve_compensation(self.scenario, compensation)
+        rx = clip_terminal(self.scenario)
+        fn = _PointAheadTrials(stack if n_modes > 0 else None, rx.aperture_m,
+                               rx.obscuration_ratio, psi, o_vac, source,
+                               compact=compact)
+        return self.map_trials(
+            fn, n_trials=n_trials, workers=workers,
+            screen_phase=(source == "screens" and n_modes > 0),
+            compact=compact)
+
+    def point_ahead(self, angles, compensation, *, source=None, n_trials=None,
+                    workers=None, fft_backend="numpy"):
+        """Give the uplink overlap at ANY angle inside the drawn margin.
+
+        This is the campaign-level twin of
+        `olb.waveoptics.turbulence.run.point_ahead_regenerate`. It rebuilds the
+        screens of each stored trial from the seeds of the campaign, it crops
+        them at the window of each asked angle, and it propagates. So one
+        stored campaign answers a whole angle SWEEP. The factory options (the
+        outer scale, the subharmonics, the generator and the precision) come
+        from the MANIFEST, so the regenerated atmosphere is the stored one.
+
+        THE COST, per trial: ONE draw set of the screens, and ONE split step
+        for each angle. `recouple_point_ahead` costs no propagation, so use it
+        whenever the angle is a stored angle.
+
+        Args:
+            angles:       the point-ahead angles: the string "geometry", a
+                          float, or a sequence of floats, in rad.
+            compensation: None (NO correction), "terminal", or a list of
+                          stages.
+            source:       "screens" (the space source), "slopes", or None for
+                          the family rule.
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs in this process. An int or "auto" opens a
+                          process pool (see `map_trials`).
+            fft_backend:  "numpy" (the default), "scipy" or "cupy".
+
+        Returns:
+            A float array of the shape (n_trials, n_angles).
+
+        Raises:
+            ValueError: the campaign made no point-ahead pass, a window falls
+                        off the drawn screen, or an option is unknown.
+        """
+        self._point_ahead_ground("Campaign.point_ahead")
+        if source is None:
+            source = ("screens" if hasattr(self.scenario, "ground")
+                      else "slopes")
+        record = TurbWaveResult(
+            trials=[], grid=self.grid, plan=self.plan, report=None,
+            preset=self.preset, seed_entropy=_resolve_seed(self.seed),
+            screen_n=self.screen_n, screen_margin_m=self.screen_margin_m,
+            point_ahead_rad=self.point_ahead_rad)
+        fn = _RegeneratePointAhead(
+            record, angles, compensation, self.scenario, self.geometry,
+            source=source, fft_backend=fft_backend, precision=self.precision,
+            L0_m=self.L0_m, subharmonics=self.subharmonics,
+            screen_generator=self.screen_generator)
+        # The read needs NO stored field: it makes its own. The stored screen
+        # phase still comes through, because the screens route checks the
+        # regenerated sum against it.
+        return self.map_trials(fn, n_trials=n_trials, workers=workers,
+                               fields=False)
+
     def recollect(self, aperture_m=None, obscuration_ratio=None,
                   n_trials=None, workers=None, compact=True):
         """Give the collected power of each STORED trial, in grid units.
@@ -1260,6 +1666,9 @@ if __name__ == '__main__':
     root5 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck5_")
     root6 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck6_")
     root7 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck7_")
+    root8 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck8_")
+    root9 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck9_")
+    root10 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck10_")
     common = dict(seed=2024, preset="rapid", block_size=4)
     try:
         with warnings.catch_warnings():
@@ -1472,6 +1881,121 @@ if __name__ == '__main__':
             assert f_crop.N == _s and f_full.N == camp7.patch.n
             assert np.array_equal(f_crop.field,
                                   f_full.field[_o:_o + _s, _o:_o + _s])
+            # ---- 11. the point ahead round-trips through the store ----
+            # TWO BLOCKS of a point-ahead campaign must equal the native run,
+            # trial for trial, and the manifest must name the three fields.
+            up_scn = SpaceScenario(
+                ground=ground, space=Terminal(aperture_m=0.30,
+                                              wavelength_m=lam),
+                direction="uplink", channel=Channel())
+            theta = float(np.asarray(orbit.point_ahead_rad).ravel()[0])
+            camp8 = Campaign(up_scn, orbit, root8,
+                             point_ahead_rad=(0.0, theta),
+                             store_screen_phase=True, **common)
+            assert camp8.fingerprint != Campaign(
+                up_scn, orbit, root9, store_screen_phase=True,
+                **common).fingerprint, "a point-ahead angle must key"
+            assert camp8.point_ahead_rad == (0.0, theta)
+            assert camp8.screen_margin_m > 0.0, camp8.screen_margin_m
+            assert camp8.screen_n > camp8.grid.n, (camp8.screen_n,
+                                                   camp8.grid.n)
+            assert camp8.run(8) == 8
+            with open(os.path.join(root8, MANIFEST_NAME),
+                      encoding="utf-8") as fh:
+                man8 = _json.load(fh)
+            assert man8["point_ahead_rad"] == [0.0, theta], man8["point_ahead_rad"]
+            assert man8["screen_margin_m"] == camp8.screen_margin_m
+            assert man8["screen_n"] == camp8.screen_n
+            # A reopen with no explicit margin reads the stored value.
+            re8 = Campaign(up_scn, orbit, root8, point_ahead_rad=(0.0, theta),
+                           store_screen_phase=True, **common)
+            assert re8.screen_margin_m == camp8.screen_margin_m
+            assert re8.fingerprint == camp8.fingerprint
+            got8 = camp8.load(8)
+            native8 = propagate_turbulent_scenario(
+                up_scn, orbit, n_trials=8, seed=common["seed"],
+                preset=common["preset"], grid=camp8.grid, plan=camp8.plan,
+                patch_radius_m=camp8.patch_radius_m,
+                point_ahead_rad=(0.0, theta), screen_margin_m=camp8.screen_margin_m,
+                store_screen_phase=True, L0_m=camp8.L0_m,
+                precision=camp8.precision)
+            assert got8.point_ahead_rad == (0.0, theta)
+            for a, b in zip(got8.trials, native8.trials):
+                assert a.eta_turb_pa == b.eta_turb_pa, (a.eta_turb_pa,
+                                                        b.eta_turb_pa)
+                assert a.eta_turb_pa[0] == a.eta_turb, a.eta_turb_pa
+            # The stored planes come back in TRIAL order, one plane per angle.
+            assert got8.fields_pa.shape == (2, 8, camp8.patch.indices.size)
+            assert np.array_equal(got8.fields_pa, native8.fields_pa)
+            assert np.array_equal(got8.screen_phase_pa,
+                                  native8.screen_phase_pa)
+            # fields=False drops the point-ahead FIELD and keeps the scalars.
+            light8 = camp8.load(8, fields=False)
+            assert light8.fields_pa is None
+            assert light8.trials[0].eta_turb_pa == got8.trials[0].eta_turb_pa
+            assert light8.screen_phase_pa is not None
+            # map_trials hands the per-angle crops to a callable.
+            def _shapes(rec):
+                """Give the plane count and the crop side of one trial."""
+                assert rec.screen_phase_pa.shape[0] == 2
+                assert len(rec.arrays_pa) == 2
+                assert rec.arrays_pa[0].shape == rec.array.shape
+                return float(np.abs(rec.arrays_pa[1]).sum())
+            assert np.all(camp8.map_trials(_shapes) > 0.0)
+
+            # ---- 11a. the point-ahead POST-HOC reads ----
+            # THE STORED-PLANE ROUTE. A CORRECTED campaign of the same seed
+            # gives the reference numbers, and recouple_point_ahead must
+            # reproduce them from the UNCORRECTED planes of camp8.
+            from ...terminal import AO
+            camp10 = Campaign(up_scn, orbit, root10,
+                              point_ahead_rad=(0.0, theta),
+                              store_screen_phase=True,
+                              compensation=[AO(n_modes=10)], **common)
+            assert camp10.run(8) == 8
+            pa_run = np.array([t.eta_turb_pa
+                               for t in camp10.load(8).trials])
+            pa_post = camp8.recouple_point_ahead([AO(n_modes=10)])
+            d_pa_post = float(np.abs(pa_post / pa_run - 1.0).max())
+            assert pa_post.shape == pa_run.shape, pa_post.shape
+            assert d_pa_post < 1e-5, (pa_post[0], pa_run[0], d_pa_post)
+            # An UNCORRECTED read gives the stored numbers back.
+            pa_stored = np.array([t.eta_turb_pa for t in got8.trials])
+            pa_none = camp8.recouple_point_ahead(None)
+            d_pa_none = float(np.abs(pa_none / pa_stored - 1.0).max())
+            assert d_pa_none < 1e-5, (pa_none[0], pa_stored[0], d_pa_none)
+            # THE REGENERATION ROUTE at a STORED angle is bit-identical.
+            pa_regen = camp8.point_ahead([theta], None, n_trials=4)
+            assert np.array_equal(pa_regen[:, 0], pa_stored[:4, 1]), \
+                (pa_regen[:, 0], pa_stored[:4, 1])
+
+            # ---- 11b. an OLD block and an OLD manifest still read ----
+            # Delete the three point-ahead keys of block 0 and of the manifest,
+            # and the store must open and load as a campaign with no point
+            # ahead. This is the shape of every campaign stored before today.
+            with np.load(camp8._block_path(0)) as z8:
+                kept = {k: z8[k] for k in z8.files
+                        if k not in ("eta_turb_pa", "fields_pa",
+                                     "screen_phase_pa")}
+            np.savez(camp8._block_path(0), **kept)
+            man_old = {k: v for k, v in man8.items()
+                       if k not in ("point_ahead_rad", "screen_margin_m",
+                                    "screen_n")}
+            man_old["fingerprint"] = Campaign(
+                up_scn, orbit, root9, store_screen_phase=True,
+                **common).fingerprint
+            with open(os.path.join(root8, MANIFEST_NAME), "w",
+                      encoding="utf-8") as fh:
+                _json.dump(man_old, fh)
+            old8 = Campaign(up_scn, orbit, root8, store_screen_phase=True,
+                            **common)
+            assert old8.point_ahead_rad is None
+            assert old8.screen_margin_m == 0.0
+            assert old8.screen_n == old8.grid.n
+            loaded_old = old8.load(4)     # block 0 only: the trimmed file.
+            assert all(t.eta_turb_pa is None for t in loaded_old.trials)
+            assert loaded_old.fields_pa is None
+
             # fields=False KEEPS the stored screen phase.
             light = camp7.load(8, fields=False)
             assert light.fields is None
@@ -1497,9 +2021,20 @@ if __name__ == '__main__':
         print(f"  SMF eta, TipTilt in run {eta_ao.mean():11.6f}")
         print(f"  SMF eta, TipTilt posthoc {eta_post.mean():10.6f} "
               f"(worst relative error {d_post:.1e})")
+        print(f"  point ahead, screen     {camp8.grid.n:11d} -> "
+              f"{camp8.screen_n} px "
+              f"(margin {camp8.screen_margin_m:.3f} m)")
+        print(f"  eta_turb, beacon        {got8.trials[0].eta_turb:11.6f}")
+        print(f"  eta_turb, ahead         "
+              f"{got8.trials[0].eta_turb_pa[1]:11.6f}")
+        print(f"  ahead AO(10), post hoc  {pa_post[0, 1]:11.6f} "
+              f"(worst relative error {d_pa_post:.1e})")
+        print(f"  ahead, regenerated       bit-identical "
+              f"({d_pa_none:.1e} on the stored read)")
         print("")
         print(f"(elapsed {time.time() - t_start:.1f} s)")
         print("self-check passed")
     finally:
-        for d in (root, root2, root3, root4, root5, root6, root7):
+        for d in (root, root2, root3, root4, root5, root6, root7, root8,
+                  root9, root10, rootN):
             shutil.rmtree(d, ignore_errors=True)

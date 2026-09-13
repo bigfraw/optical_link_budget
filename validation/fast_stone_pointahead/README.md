@@ -17,8 +17,9 @@ olb holds TWO models of that residual:
   DOI 10.1364/OE.458659.
 - **Fidelity 0.** The Stone (1994) finite-aperture modal law
   (`olb.turbulence.anisoplanatism.anisoplanatic_phase_variance`) sums the
-  decorrelation residual of the Zernike radial orders 2 to `max_order`. olb
-  calls it through `olb.links.uplink.uplink_point_ahead_term`.
+  decorrelation residual of the Zernike radial orders 1 to `max_order`. olb
+  calls it through `olb.links.uplink.uplink_point_ahead_term`, which removes the
+  PISTON only from 2026-09-11, so the tilt (order 1) stays in.
   Source: J. Stone, P. H. Hu, S. P. Mills and S. Ma, J. Opt. Soc. Am. A 11(1),
   347 (1994), DOI 10.1364/JOSAA.11.000347.
 
@@ -66,9 +67,24 @@ The Stone set that holds the same modes is `remove='none'` over the band
 `0..max_order`. That is the MODE-MATCHED pair, and the script reads its ratio
 `Q/S_n` for the verdict.
 
-The production Term `uplink_point_ahead_term` uses `remove='piston_tilt'`,
-because a separate tracking loop points the beam. The script prints that pairing
-too (`F/S_pt`), but it is NOT mode matched, so it is not the physics test.
+**The production Term keeps the TILT from 2026-09-11.**
+`uplink_point_ahead_term` defaults to `remove="piston"`. The terminal senses the
+tilt of the DOWNLINK beacon, and the steering mirror adds the point-ahead offset
+geometrically. So the terminal holds no uplink tilt reference, and the uplink
+pays the full tilt decorrelation. The old default `remove="piston_tilt"` assumed
+a separate uplink tilt loop, and that loop does not exist in this design.
+
+So the production pairing is FAST against the Stone band with the PISTON
+removed (the column `F/S_pis`). The two sets then differ by the piston ALONE.
+A piston is a constant phase over the pupil: it changes no overlap integral and
+no far-field irradiance, so it is a bookkeeping difference and not a physics
+difference. The script keeps the old piston-and-tilt column in the tables for
+the record.
+
+The Term also reads the site outer scale `Site.outer_scale_m` (25 m by
+default). Stage C therefore gives FAST the same outer scale, through
+`fast_params={"L0": 25.0}`, so the arm is like for like. The mode-matched
+stages A and B keep the Kolmogorov limit, because the Stone paper writes it.
 
 ### The low-frequency truncation
 
@@ -106,7 +122,7 @@ Karman spectrum `0.033 Cn2 dh (kappa^2 + k0^2)^(-11/6)` (Andrews and Phillips,
 | A1 | The HV5/7 profile at the production point (1.5 m, 60 deg, the 600 km orbit point-ahead angle, ZMAX = 55). It prints the full attribution table, and it isolates the piston term and the tilt term. |
 | B | Three sweeps: the point-ahead angle (0 to 2 times nominal), the corrected order (ZMAX 3 to 66, plus the production ZMAX = 60), and the elevation (30, 60, 90 deg). |
 | Convergence | The A1 case on three grids: the base grid, a finer `df`, and a higher `kappa_max`. |
-| C | The whole-Term comparison in dB. It gives the fidelity-1 FAST Monte Carlo mean against the fidelity-0 analytic pair, with the attribution ladder between them (Stone, FAST servo off, FAST default servo, each as an extended Marechal dB, T. S. Ross, DOI 10.1364/AO.48.001812). |
+| C | The whole-Term comparison in dB, LIKE FOR LIKE at the site outer scale `L0` = 25 m on every leg. It gives the fidelity-1 FAST Monte Carlo mean against the fidelity-0 analytic pair, with the attribution ladder between them (Stone, FAST servo off, FAST default servo, each as an extended Marechal dB, T. S. Ross, DOI 10.1364/AO.48.001812). It also prints the mode-set table: the Stone value with no mode removed, with the piston removed, and with the piston and the tilt removed, at 25 m and in the Kolmogorov limit. |
 
 ### Gates and verdicts
 
@@ -158,8 +174,8 @@ Two notes about the current environment (numpy 2.4.6):
 
 ## Verdict
 
-**FULL run, 2026-09-02** (grid 1024 / 0.01 m, `df` = 0.614 rad/m, 3000 Monte
-Carlo draws, runtime 547 s). Every numerics gate passes: the A0 single-layer
+**FULL run, 2026-09-11** (grid 1024 / 0.01 m, `df` = 0.614 rad/m, 3000 Monte
+Carlo draws, runtime 604 s). Every numerics gate passes: the A0 single-layer
 FAST integral agrees with the independent quadrature to 0.53 % (gate 1 %), the
 clean closure holds to machine precision, the refined-grid convergence moves
 0.15 % (gate 1 %), and a zero point-ahead angle gives exactly zero on both
@@ -178,12 +194,35 @@ most about 5 %, and the difference grows gently with the angle. The fitting
 side agrees to 0.6 %: the FAST clean uncorrected-band integral gives
 0.3334 rad^2 against the Noll residual 0.3354 rad^2 at 55 modes.
 
-**The production pairing differs by the MODE SET, not by the physics.** The
-FAST modal mask keeps the piston and the two tilts, and
-`uplink_point_ahead_term` removes them (a tracking loop points the beam). At
-the production point that convention difference is 2.08 rad^2 of piston
-decorrelation plus 0.41 rad^2 of tilt decorrelation, so the raw pairing reads
-3.5x. That factor is explained, and it is not an error in either route.
+**The production pairing now differs by the PISTON alone.** From 2026-09-11 the
+Term keeps the tilt, so both routes hold it. At the production point (1.5 m,
+60 deg, 9.01 arcsec, ZMAX = 60), like for like at `L0` = 25 m:
+
+| quantity | rad^2 |
+| --- | --- |
+| FAST clean split, keeps the piston and the tilt | 1.8088 |
+| Stone, no mode removed (the mode-matched partner) | 1.7840 |
+| Stone, piston removed (the shipped Term) | 0.9479 |
+| the piston decorrelation | 0.8361 |
+| the tilt decorrelation, which BOTH routes keep | 0.3902 |
+
+So `F/S_pis` reads 1.91, and 0.836 of the 0.861 rad^2 gap is the piston. The
+rest is the 1.4 % that separates FAST from the mode-matched Stone value on this
+grid. A piston is a constant phase over the pupil, so it changes no overlap
+integral and no far-field irradiance: the two routes agree on every mode that
+the link can see.
+
+**The outer scale cuts the piston, and it does not touch the tilt.** The same
+point in the Kolmogorov limit reads 2.079 rad^2 of piston decorrelation and
+0.407 rad^2 of tilt decorrelation. At `L0` = 25 m the piston falls to
+0.836 rad^2 (a 60 % cut) and the tilt only to 0.390 rad^2 (a 4 % cut). The
+piston difference between two directions lives in the largest scales, and the
+finite outer scale removes them. So the shipped Term moves very little with the
+outer scale (0.9679 to 0.9479 rad^2, 0.09 dB), while the mode-matched Stone
+value falls from 3.047 to 1.784 rad^2.
+
+That cut also closes the FAST grid truncation. At `L0` = 25 m the FAST study
+grid holds the band: `F/S_n` = 1.014, against 0.638 in the Kolmogorov limit.
 
 **Two measured cautions on the FAST side.**
 
@@ -196,26 +235,52 @@ decorrelation plus 0.41 rad^2 of tilt decorrelation, so the raw pairing reads
 2. **The low-frequency grid truncation.** The Kolmogorov anisoplanatic
    integral converges only as `kappa^(1/3)`, and the FAST grid holds no
    frequency below `df`. On the fine 1024 / 0.01 study grid the FAST number
-   misses 29 to 48 % of the whole-plane variance (38.6 % at the production
-   point). The shipped `uplink_fast_term` runs on the FAST auto grid
+   misses 29 to 56 % of the whole-plane variance (38.6 % at the production
+   point). A finite outer scale removes that caution: at `L0` = 25 m the same
+   grid holds the band (stage C). The shipped `uplink_fast_term` runs on the
+   FAST auto grid
    (NPXLS = 202, `df` = 3.11 rad/m), which misses more. The missing band sits
    at scales far above the 1.5 m aperture, where the phase across the pupil is
    close to a piston, so its effect on the COUPLED FLUX is damped; this study
    does not quantify that damping. OPEN follow-up.
 
-**Stage C, the Term level: MEASURED DIFFERENCE, decomposed.** The fidelity-1
-Monte Carlo mean reads 0.6 to 1.7 dB BELOW the fidelity-0 analytic pair at
-all five operating points (worst ratio 0.78). The backlog first reading is
-reproduced: 3.04 dB against 3.79 dB at AO(60), 60 deg, 1.5 m. The attribution
-ladder shows where the gap lives: the two sides hold different mode sets
-(above), the default-servo FAST sim runs on the coarse auto grid, and the
-analytic side maps rad^2 to dB through the extended Marechal relation while
-the Monte Carlo measures the true mode overlap. The gap is a composition of
-known, measured conventions, not an unexplained physics disagreement.
+**Stage C, the Term level: the gap GREW, and the reason is the tilt.** The
+fidelity-1 Monte Carlo mean now reads 2.1 to 4.2 dB BELOW the fidelity-0
+analytic pair at all five operating points (worst ratio 0.55, so the mechanical
+verdict reads INVESTIGATE where it read MEASURED DIFFERENCE before).
+
+| point | fid0 = point-ahead + fitting [dB] | fid1 Monte Carlo [dB] |
+| --- | --- | --- |
+| AO(60) @ 60 deg | 5.467 = 4.117 + 1.351 | 3.026 |
+| AO(60) @ 30 deg | 9.470 = 7.130 + 2.340 | 5.317 |
+| AO(21) @ 60 deg | 7.078 = 3.726 + 3.353 | 4.522 |
+| AO(60) @ 90 deg | 4.735 = 3.565 + 1.170 | 2.655 |
+| AO(10) @ 60 deg | 9.550 = 3.175 + 6.375 | 6.145 |
+
+The fidelity-1 side did NOT move: 3.026 dB against the 3.04 dB of the
+2026-09-02 run at AO(60), 60 deg, so the outer scale costs the FAST Monte Carlo
+nothing. The fidelity-0 side moved from 3.79 to 5.47 dB, and the move is the
+point-ahead Term alone: 2.435 dB (piston and tilt removed, Kolmogorov) to
+4.117 dB (piston removed, `L0` = 25 m). The tilt adds 1.69 dB and the outer
+scale gives 0.09 dB back.
+
+The attribution ladder says where the remaining gap lives, and it is the LOW
+FREQUENCY band. The FAST Monte Carlo runs on the shipped auto grid
+(NPXLS = 202, `df` = 3.11 rad/m), which holds no scale above 2 m, so it drops
+most of the tilt decorrelation that the analytic side now charges in full: the
+default-servo residual reads 0.825 rad^2 (3.59 dB) against the 1.809 rad^2
+(7.86 dB) of the same case on the fine study grid. The analytic side also maps
+rad^2 to dB through the extended Marechal relation, which over-charges a
+tilt-dominated error, because a tilt displaces the far-field beam and does not
+scatter it. So the fidelity-0 pair is the PESSIMISTIC bound and the fidelity-1
+Monte Carlo is the OPTIMISTIC one, and the tilt sits between them. This is an
+OPEN follow-up, and it does not touch the mode-matched verdict above.
 
 **Bottom line for backlog 1-5.** The comparison the backlog asked for is done,
 and it VALIDATES both routes: at matched conditions the FAST kernel and the
 Stone law agree to about 5 % across the swept point-ahead angles, corrected
-orders, and elevations, and the fitting sides agree to under 1 %. The
-Term-level spread is explained by convention, grid, and mapping choices, each
-one measured here.
+orders, and elevations, and the fitting sides agree to under 1 %. With the
+production mode set of 2026-09-11 the two routes differ by the piston only, and
+no overlap integral sees a piston. The Term-level spread in dB is larger than
+before, and it is the tilt: the analytic Term charges the full tilt
+decorrelation, and the shipped FAST grid holds little of it.
