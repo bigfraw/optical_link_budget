@@ -1179,13 +1179,16 @@ The path forward for each is a second reference or a derivation.
   bounding box of the diagonal walk `v = v_slew (+x) + v_buf (wind_dir_deg)`,
   so a crosswind grows the SHORT axis and the box balloons. A thin strip
   rotated to each layer's resultant velocity, with a per-frame rotated crop,
-  would keep the box thin. MEASURED (bigfraw GPU, 2026-09-13, pure crosswind
+  would keep the box thin. MEASURED (bigfraw, 2026-09-13, pure crosswind
   `wind_dir_deg = 90`, 30 deg hero, `validation/temporal_screens/` scratch):
-  the bounding box is 12.2 GiB over 9 layers, the rotated strips 6.7 GiB
-  (0.55x); the biggest box (18k x 33k) OOMs an 8 GiB GPU FFT, so the box needs
-  the host build there. The COMPUTE is NOT the blocker: a GPU bilinear crop is
-  0.071 ms per 512 px frame (0.28 s per layer per 4000-frame record) and cubic
-  0.390 ms (1.56 s), against about 40 s of propagation per record. The saving
+  the strips are a DISK cache, built on the HOST (scipy) one layer at a time,
+  then memory-mapped, so the peak build RAM is ONE box (about 2.2 GiB for the
+  biggest crosswind layer) and the SAVING is on the disk cache and the host
+  build FFT: the bounding-box cache is 12.2 GiB over 9 layers, the rotated
+  strips 6.7 GiB (0.55x). The GPU never FFTs a box. The COMPUTE is NOT the
+  blocker: a GPU bilinear crop is 0.071 ms per 512 px frame (0.28 s per layer
+  per 4000-frame record) and cubic 0.390 ms (1.56 s), against about 40 s of
+  propagation per record. The saving
   is MODEST and MIS-ALIGNED (the rotation helps LEAST on the fast top layers,
   where the box is biggest and the resultant angle is smallest, B/A = 0.66, and
   MOST on the slow mid layers, B/A = 0.44), and the along-track default (the
