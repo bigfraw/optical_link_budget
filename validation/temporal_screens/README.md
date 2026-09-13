@@ -255,3 +255,14 @@ Only the MEAN over many pairs says anything.
   corner.
 - Andrews and Phillips, DOI 10.1117/3.626196, Ch. 14, Eq. (38), printed p. 622.
   The Greenwood frequency of a slant path, which `greenwood_frequency` gives.
+
+## The low-frequency band of a strip
+
+`figures/strip_band.png` shows the frequency plane near zero. A square
+grid has one missing cell at f = 0, and the Lane subharmonics fill it. A
+strip has an fx spacing of 1/Lx, much finer than its fy spacing of 1/Ly, so
+the fy = 0 row is a wide slab of thin cells, each sampled at fy = 0 only.
+Per-axis subharmonics fill the origin box only, and D(r) along y reads 8 to
+23 percent low. The landed rule zeroes that row in the main filter and
+redraws the slab as 2P+1 sub-rows in fy (the 1-D Lane partition), each at
+every fx. See the `ScreenFactory` docstring and gate (a).
