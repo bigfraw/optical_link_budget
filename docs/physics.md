@@ -1806,6 +1806,25 @@ column. It wins on MEMORY only, and only under about 1 GiB of spare memory.
 | (b) Taylor and the spectrum | `D(tau) / D(v tau)` is 0.98 to 1.02, and the temporal PSD exponent is -2.643 +/- 0.054 against the -8/3 law. 9 of 9 bands. |
 | (c) frame 0 against a snapshot | The aperture `sigma2_I` ratio is 0.939 +/- 0.251 and the SMF eta ratio is 1.039 +/- 0.215 (256 trials, rapid), both inside 2 SE. This is THE gate that proves the route. |
 | (d) the tilt spectrum | The low band reads -0.56 against the -2/3 law (PASS), and the corner sits at 38 Hz, between the `0.3 V/D` pupil corners of the layers (5 to 56 Hz). |
+| (e) the fade rate and duration | The hero campaign RAN on the bigfraw GPU (2026-09-13, 8 records of 4000 frames at `dt = 0.5 ms`, 16 s for each elevation, 727 s wall). Both elevations hold the 20-event band. |
+
+**The first temporal fade numbers** (5 percent level of the pooled series, an
+event is a maximal run of frames under it; the rate bar is Poisson and the
+duration bar is 2 SE):
+
+| case | level below the median | events | rate [1/s] | mean duration [ms] | longest [ms] |
+|---|---|---|---|---|---|
+| 30 deg SMF | 12.60 dB | 596 | 37.25 +/- 1.53 | 1.342 +/- 0.089 | 9.5 |
+| 30 deg bucket | 0.49 dB | 407 | 25.44 +/- 1.26 | 1.966 +/- 0.143 | 7.0 |
+| 20 deg SMF | 12.33 dB | 562 | 35.12 +/- 1.48 | 1.423 +/- 0.100 | 11.5 |
+| 20 deg bucket | 0.85 dB | 291 | 18.19 +/- 1.07 | 2.749 +/- 0.215 | 9.5 |
+
+TWO CAUTIONS. The median SMF event lasts 1.0 ms, which is 2 frames, so
+`dt = 0.5 ms` only just resolves the SMF fade duration; a finer `dt` is the
+next study. These are the FIRST temporal fade numbers of the package, and no
+reference model checks them; `olb/turbulence/andrews/temporal.py` holds an
+analytic fade rate and fade duration that still have no external check
+(backlog 0-N6).
 
 **The Greenwood frequency is the wrong reference for a tilt corner.** `f_G` is a
 PHASE quantity that does not know the pupil (Greenwood,

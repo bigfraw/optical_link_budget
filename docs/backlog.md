@@ -1141,7 +1141,13 @@ The path forward for each is a second reference or a derivation.
   row in place of the 3x3 subharmonics. The runner and `Campaign` take
   `temporal=`, an OPT-IN whose default None keeps every snapshot run bit for
   bit and every stored campaign key valid (`3f4624d389fb81ee` unchanged). The
-  gates are `validation/temporal_screens/` (a) to (d). See `docs/physics.md`
+  gates are `validation/temporal_screens/` (a) to (e). THE HERO CAMPAIGN, gate
+  (e), RAN on the bigfraw GPU on 2026-09-13: 8 records of 2 s at `dt = 0.5 ms`
+  for each of 30 and 20 deg, 727 s in total. At the 5 percent level the 30 deg
+  SMF fades 37.25 +/- 1.53 times per second for a mean 1.342 +/- 0.089 ms and
+  the bucket 25.44 +/- 1.26 times per second for 1.966 +/- 0.143 ms; 20 deg
+  reads 35.12 /s / 1.423 ms and 18.19 /s / 2.749 ms. Both elevations hold the
+  20-event band. See `docs/physics.md`
   Section 7 and `docs/api-waveoptics.md` Section 9i. Deferred pieces: 2-P1b.
 - **2-P1b. The frozen-flow pieces that are NOT built.** Each one is a
   deliberate deferral of 2-P1, and each has its own ceiling in the module
@@ -1153,7 +1159,11 @@ The path forward for each is a second reference or a derivation.
   path has no slew and no Bufton profile, so it needs its own velocity model;
   the runner raises on a non-downlink plan; (4) DEVICE-RESIDENT strips — a cupy
   run uploads each crop, about 9 MiB per frame at 1024 px; (5) a VARIABLE `dt`
-  — `Campaign.t_s` derives the time as `row * dt_s`.
+  — `Campaign.t_s` derives the time as `row * dt_s`; (6) a FINER `dt` — the
+  median SMF fade event of gate (e) lasts 2 frames at `dt = 0.5 ms`, so the
+  duration is only just resolved; (7) a TEMPORAL FADE REFERENCE MODEL — gate
+  (e) gives the first fade rate and fade duration of the package, and nothing
+  checks them (see 0-N6 and `olb/turbulence/andrews/temporal.py`).
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.

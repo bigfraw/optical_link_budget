@@ -671,8 +671,14 @@ Open items:
   (r0 = 15.4 cm) at 11.3 m/s. The Fresnel pixel rule now skips a screen at zero distance to the
   receiver, which only an `h_gl=[0]` plan makes. SIZING at 30 deg, standard:
   n = 512, dx 6.86 mm, 9 screens, layer speeds 11 to 137 m/s, about 0.6 GB of
-  float32 strips for a 2 s record. THE FIRST CAMPAIGN is 8 records of 2 s at
-  dt = 0.5 ms for each elevation (30 and 20 deg), and it is PENDING on bigfraw.
+  float32 strips for a 2 s record. THE FIRST CAMPAIGN IS DONE (gate (e),
+  2026-09-13, the bigfraw GPU, 8 records of 2 s at dt = 0.5 ms for each
+  elevation, 727 s): at the 5 percent level the 30 deg SMF fades 37.25 +/- 1.53
+  times per second for a mean 1.342 +/- 0.089 ms and the bucket 25.44 +/- 1.26
+  times per second for 1.966 +/- 0.143 ms, and 20 deg reads 35.12 /s / 1.423 ms
+  (SMF) and 18.19 /s / 2.749 ms (bucket). TWO CAUTIONS: the median SMF event is
+  2 frames long, so dt = 0.5 ms only just resolves the duration, and no
+  reference model checks these first temporal fade numbers (backlog 0-N6).
   NOT BUILT: a Fourier sub-pixel shift, temporal plus point-ahead, terrestrial
   frozen flow, device-resident strips, and a variable dt (see backlog 2-P1b).
 - **Several detectors, the master turbulence switch, and the Camera are BUILT

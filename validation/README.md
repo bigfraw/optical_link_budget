@@ -126,8 +126,9 @@ gate (b) holds 9 of 9 Taylor and spectrum bands, with a temporal PSD exponent of
 snapshot, which is the gate that proves the route; gate (d) holds the -2/3 tilt
 law and finds the corner at 38 Hz, where the `0.3 V/D` pupil corners of the
 layers sit, NOT at the Greenwood frequency. Gate (e), the hero record campaign
-(8 records of 2 s at `dt = 0.5 ms` for each of 30 and 20 deg), is PENDING on
-bigfraw.
+(8 records of 2 s at `dt = 0.5 ms` for each of 30 and 20 deg), RAN on the
+bigfraw GPU on 2026-09-13 in 727 s: both elevations hold the 20-event band, and
+the 5 percent fade rate is 37.3 /s (SMF) and 25.4 /s (bucket) at 30 deg.
 
 | File | Purpose |
 | --- | --- |
@@ -135,6 +136,7 @@ bigfraw.
 | [temporal_screens/strip_taylor.py](temporal_screens/strip_taylor.py) | Gate (b). One pixel of the moving frame: the temporal `D(tau)` against the spatial `D(v tau)`, the temporal spectrum slope, and the seam correlation. |
 | [temporal_screens/frame0_parity.py](temporal_screens/frame0_parity.py) | Gate (c). Frame 0 of a record against a drawn snapshot: the aperture `sigma2_I` and the mean fibre coupling. |
 | [temporal_screens/tilt_spectrum.py](temporal_screens/tilt_spectrum.py) | Gate (d). The Z-tilt spectrum of one record against the -2/3 law, the Greenwood frequency and the Tyler `V/D` corner. |
+| [temporal_screens/hero_temporal.py](temporal_screens/hero_temporal.py) | Gate (e). The fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. |
 
 ## lognormal_certification/
 

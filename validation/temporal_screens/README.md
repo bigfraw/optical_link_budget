@@ -15,7 +15,7 @@ repository root.
 | `strip_taylor.py` | (b) | one pixel of the moving frame: Taylor, the -8/3 temporal spectrum, and the seam |
 | `frame0_parity.py` | (c) | frame 0 of a record against a drawn snapshot: the aperture scintillation index and the mean fibre coupling |
 | `tilt_spectrum.py` | (d) | the Z-tilt spectrum of one record: the -2/3 law and the corner, against the Greenwood frequency |
-| `hero_temporal.py` | (e) | the fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. SMOKE DONE 2026-09-13 (3.6 s); the full run is bigfraw time |
+| `hero_temporal.py` | (e) | the fade RATE and the fade DURATION at the 5 percent level, from 8 records of 2 s at 30 and 20 deg. SMOKE DONE 2026-09-13 (3.6 s); the FULL run DONE 2026-09-13 on the bigfraw GPU (727 s) |
 
 ```
 python -m validation.temporal_screens.rect_factory
@@ -124,6 +124,39 @@ does not know the pupil, and the tilt of a 0.7 m pupil breaks on the V/D scale
 (Tyler, DOI 10.1364/JOSAA.11.000358). The measured 38 Hz sits between the
 corner of the slowest layer and the corner of the fastest one, which is where
 the blend of a five-layer stack must sit.
+
+Gate (e), the hero downlink, `standard` preset, single precision, seed
+20260913, the cupy backend on bigfraw. It ran 8 records of 4000 frames at
+dt = 0.5 ms for each elevation, which is 16 s of record for each elevation. It
+took **727 s** in total, 0.010 to 0.011 s per frame at 512 px. The full log is
+`data/hero_temporal.log` (not tracked), the series are
+`data/hero_temporal_{30,20}.csv` and the figures are
+`figures/hero_temporal_{30,20}.png`.
+
+The 5 percent fade level is the 5th percentile of the pooled series. An event
+is a maximal run of frames under that level. The rate bar is Poisson and the
+duration bar is 2 SE.
+
+| case | level below the median | events | rate [1/s] | mean duration [ms] | median [ms] | longest [ms] |
+|---|---|---|---|---|---|---|
+| 30 deg SMF | 12.60 dB | 596 | 37.25 +/- 1.53 | 1.342 +/- 0.089 | 1.000 | 9.5 |
+| 30 deg bucket | 0.49 dB | 407 | 25.44 +/- 1.26 | 1.966 +/- 0.143 | 1.500 +/- 0.071 | 7.0 |
+| 20 deg SMF | 12.33 dB | 562 | 35.12 +/- 1.48 | 1.423 +/- 0.100 | 1.000 | 11.5 |
+| 20 deg bucket | 0.85 dB | 291 | 18.19 +/- 1.07 | 2.749 +/- 0.215 | 2.500 +/- 0.464 | 9.5 |
+
+Both elevations hold the 20-event band, so both PASS. The record grid is
+512 px, 6.86 mm at 30 deg and 8.68 mm at 20 deg. The Greenwood frequency at the
+strip velocities is 658.7 Hz at 30 deg and 684.4 Hz at 20 deg, and tau0 is
+1.518 ms and 1.461 ms; those are context, not a test (see gate (d)).
+
+TWO CAUTIONS.
+
+1. The median SMF event lasts 1.0 ms, which is 2 frames. So dt = 0.5 ms only
+   just resolves the SMF fade duration. A finer dt is the next study.
+2. These are the FIRST temporal fade numbers of the package, and no reference
+   model checks them. `olb/turbulence/andrews/temporal.py` holds an analytic
+   fade rate and fade duration that have no external check (backlog 0-N6), so a
+   temporal fade reference model is the other next study.
 
 ## What the two structure gates found
 
