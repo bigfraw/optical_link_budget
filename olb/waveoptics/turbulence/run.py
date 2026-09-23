@@ -458,9 +458,12 @@ class _DeviceTail:
         numerator = float(abs((E * self._smf_mode()).sum())) ** 2
         return numerator / denominator
 
-    def overlap(self, field, psi_conj):
-        """Give |sum(E conj(psi))|^2 of a device field, as a float."""
-        return float(abs((field * psi_conj).sum())) ** 2
+    def overlap(self, field, psi):
+        """Give the reciprocity overlap |sum(E psi)|^2 of a device field.
+
+        NO conjugate: see reciprocity_overlap.
+        """
+        return float(abs((field * psi).sum())) ** 2
 
     def patch_row(self, field, indices):
         """Download the patch pixels of a device field, and nothing else."""
@@ -1255,6 +1258,36 @@ def _ground_transmit_mode(ground, grid, dtype=np.complex128):
     return psi / np.sqrt((np.abs(psi) ** 2).sum())
 
 
+def reciprocity_overlap(E, psi):
+    """Give the uplink reciprocity overlap |sum(E psi)|^2, as a float.
+
+    formula:
+        E_sat = sum( psi_tx(r) U_down(r) )        NO conjugate
+    Source: J. H. Shapiro, DOI 10.1364/JOSA.61.000492. The Green's function
+    of the paraxial wave equation through ONE frozen atmosphere is symmetric,
+    G(a, b) = G(b, a). So the field at a satellite point from the launched
+    field psi_tx is the integral of psi_tx against the field U_down that a
+    point source at the satellite makes at the ground.
+
+    THE CONJUGATE IS WRONG HERE. The mode-match form sum(E conj(M)) holds
+    for two fields that travel the SAME way (a fibre mode against a received
+    field). psi_tx travels up and U_down travels down. A real psi_tx (a
+    collimated launch) gives the same number either way; a CURVED psi_tx (a
+    diverged launch) with the conjugate reads the OPPOSITE curvature, a
+    converging beam. The optimum launch is psi_tx = conj(U_down), which is
+    phase conjugation. The module self-check tests this rule against direct
+    propagation.
+
+    Args:
+        E:   the receive-plane field of the downlink (the host array).
+        psi: the ground transmit mode on the same pixels.
+
+    Returns:
+        |sum(E psi)|^2.
+    """
+    return float(np.abs((E * psi).sum()) ** 2)
+
+
 def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
                           device_route=False):
     """Give the VACUUM slab field and the free-space overlap baseline.
@@ -1285,7 +1318,8 @@ def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
 
     Returns:
         The pair (F_vac, o_vac). F_vac is the HOST vacuum receive Field, and
-        o_vac is |sum(F_vac conj(psi_tx))|^2, or None with no psi_tx.
+        o_vac is |sum(F_vac psi_tx)|^2 (no conjugate), or None with no
+        psi_tx.
     """
     F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
     # The flat screen goes up ONE time on the device route. A host route keeps
@@ -1296,7 +1330,7 @@ def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
                                [flat] * int(plan.z_m.size),
                                plan.z_total_m, boundary=mask))
     o_vac = (None if psi_tx is None else
-             float(np.abs((F_vac.field * np.conj(psi_tx)).sum()) ** 2))
+             reciprocity_overlap(F_vac.field, psi_tx))
     return F_vac, o_vac
 
 
@@ -1777,7 +1811,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # A POINT-AHEAD TRIAL KEEPS THE HOST TAIL TOO (phase 1). Its extra
         # passes read the receive field on the host, so the trial takes the ONE
         # download of before.
-        tail = patch_idx = psi_conj = None
+        tail = patch_idx = psi_dev = None
         if device and not need_sum and comp_modes is None and pa_angles is None:
             wanted = [rx.detector] + list(detectors or ())
             if all(_DeviceTail.handles(d) for d in wanted):
@@ -1786,7 +1820,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 if patch is not None:
                     patch_idx = xp().asarray(patch.indices)
                 if psi_tx is not None:
-                    psi_conj = xp().asarray(np.conj(psi_tx))
+                    psi_dev = xp().asarray(psi_tx)
 
         factory = getattr(build_screen, "factory", None)
 
@@ -1860,8 +1894,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 detector_etas = (None if detectors is None else
                                  tuple(tail.eta(d, clipped) for d in detectors))
                 eta_turb = None
-                if psi_conj is not None and scenario.direction == "uplink":
-                    eta_turb = tail.overlap(E, psi_conj) / o_vac
+                if psi_dev is not None and scenario.direction == "uplink":
+                    eta_turb = tail.overlap(E, psi_dev) / o_vac
                 return TurbTrial(collected_power=collected_power,
                                  smf_eta=smf_eta, eta_turb=eta_turb,
                                  seed_key=(seed_entropy, k),
@@ -1918,7 +1952,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 # The reciprocity overlap. See Shapiro,
                 # DOI 10.1364/JOSA.61.000492. Point-ahead anisoplanatism is NOT
                 # modelled: the uplink and the downlink read the same screens.
-                o = float(np.abs((F_rx.field * np.conj(psi_tx)).sum()) ** 2)
+                o = reciprocity_overlap(F_rx.field, psi_tx)
                 eta_turb = o / o_vac
             eta_turb_pa = None
             if pa_angles is not None:
@@ -1946,9 +1980,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                         E = F_pa.field
                         if coeffs is not None:
                             E = comp_modes.apply(E, coeffs, sign=-1)
-                        got.append(
-                            float(np.abs((E * np.conj(psi_tx)).sum()) ** 2)
-                            / o_vac)
+                        got.append(reciprocity_overlap(E, psi_tx) / o_vac)
                 eta_turb_pa = tuple(got) if got else None
             return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
                              eta_turb=eta_turb, seed_key=(seed_entropy, k),
@@ -2855,7 +2887,7 @@ def recollect(result, aperture_m, obscuration_ratio, *, trials=None,
 # THE OVERLAP CONVENTION of a pre-compensated uplink. Both readers below use
 # the convention of the runner:
 #
-#     eta = |sum(apply(F, coeffs, -1) * conj(psi_tx))|^2 / o_vac
+#     eta = |sum(apply(F, coeffs, -1) * psi_tx)|^2 / o_vac   (no conjugate)
 #
 # `coeffs` is the BEACON estimate, and F is the field of the POINT-AHEAD
 # direction. So the beacon senses one time, and the uplink pays what that
@@ -3017,7 +3049,6 @@ def point_ahead_overlap(result, compensation, scenario, *, source="screens",
                 "summed screen phase of the BEACON window, and this record "
                 "holds none. Run the campaign with store_screen_phase=True, "
                 "or use source='slopes'.")
-    conj_psi = np.conj(psi)
     rows = (list(range(result.fields_pa.shape[1])) if trials is None
             else [int(r) for r in trials])
     n_angles = int(result.fields_pa.shape[0])
@@ -3033,7 +3064,7 @@ def point_ahead_overlap(result, compensation, scenario, *, source="screens",
             E = _crop_array(patch, result.fields_pa[i, row], compact=compact)
             if coeffs is not None:
                 E = corrector.modes.apply(E, coeffs, sign=-1)
-            out[m, i] = float(np.abs((E * conj_psi).sum()) ** 2) / o_vac
+            out[m, i] = reciprocity_overlap(E, psi) / o_vac
     return out
 
 
@@ -3141,7 +3172,6 @@ class _PointAheadRunner:
                 psi_tx=self.psi_tx)
         finally:
             set_fft_backend(previous)
-        self.conj_psi = np.conj(self.psi_tx)
         self.modes = None
         if self.n_modes > 0:
             # The SLOPE route fits more modes than it corrects and it zeros the
@@ -3216,8 +3246,7 @@ class _PointAheadRunner:
                 E = self._propagate(noise, i).field
                 if coeffs is not None:
                     E = self.modes.apply(E, coeffs, sign=-1)
-                out[i] = (float(np.abs((E * self.conj_psi).sum()) ** 2)
-                          / self.o_vac)
+                out[i] = reciprocity_overlap(E, self.psi_tx) / self.o_vac
             return out
         finally:
             set_fft_backend(previous)
@@ -3348,6 +3377,54 @@ if __name__ == '__main__':
             phase_screen(0.1, 32, 0.01, seed=0)
     except ImportError:
         pass                                   # aotools is optional.
+
+    # ---- the reciprocity overlap takes NO conjugate (2026-09-23) ----
+    # Direct propagation is the truth: launch psi, propagate it L, and read
+    # the on-axis irradiance. The overlap of psi with the field of a small
+    # source at L must follow it for a CURVED launch (a real psi cannot tell
+    # the two forms apart). The lens sign sets the curvature: f > 0 converges.
+    from ..lenses import Lens
+    from ..propagators import Forvard
+    n_r, side_r, L_r = 512, 0.35, 120.0
+
+    def _launch(f):
+        F = GaussBeam(Begin(side_r, lam, n_r), 0.02)
+        return F if f is None else Lens(F, f)
+
+    def _screened(F, phase):
+        F.field = F.field * np.exp(1j * phase)
+        return F
+
+    c_r = n_r // 2
+    U_r = Forvard(GaussBeam(Begin(side_r, lam, n_r), 1e-3), L_r).field
+    base = None
+    for f in (None, 2 * L_r, -2 * L_r):
+        truth = abs(Forvard(_launch(f), L_r).field[c_r, c_r]) ** 2
+        psi_r = _launch(f).field
+        got = reciprocity_overlap(U_r, psi_r)
+        wrong = reciprocity_overlap(U_r, np.conj(psi_r))
+        if base is None:
+            base = (truth, got, wrong)
+            continue
+        assert abs(got / base[1] / (truth / base[0]) - 1) < 0.03, (f, got)
+        assert abs(wrong / base[2] / (truth / base[0]) - 1) > 0.5, (f, wrong)
+    # One smooth 2 rad phase screen at L/4 above the launch. The ratio of the
+    # overlap to the truth must not depend on the launch curvature.
+    k_r = np.fft.fftfreq(n_r, side_r / n_r)
+    kx, ky = np.meshgrid(k_r, k_r)
+    ph = np.fft.ifft2(np.fft.fft2(np.random.default_rng(3).standard_normal(
+        (n_r, n_r))) * np.exp(-(kx ** 2 + ky ** 2) * 0.02 ** 2)).real
+    ph *= 2.0 / ph.std()
+    U_s = Forvard(_screened(Forvard(GaussBeam(Begin(side_r, lam, n_r), 1e-3),
+                                    0.75 * L_r), ph), 0.25 * L_r).field
+    ratios = []
+    for f in (None, -L_r):
+        truth = abs(Forvard(_screened(Forvard(_launch(f), 0.25 * L_r), ph),
+                            0.75 * L_r).field[c_r, c_r]) ** 2
+        ratios.append(reciprocity_overlap(U_s, _launch(f).field) / truth)
+    assert abs(ratios[1] / ratios[0] - 1) < 0.15, ratios
+    print("  reciprocity overlap: no conjugate, checked against direct "
+          "propagation (vacuum and one screen)")
 
     # ---- 2-I4. the run-option coverage guard (the straggler guard) ----
     check_run_option_coverage()
