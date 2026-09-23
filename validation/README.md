@@ -333,6 +333,18 @@ grid-edge Fresnel rings (OPEN). See
 | --- | --- |
 | [divergence_sampling/divergence_sampling.py](divergence_sampling/divergence_sampling.py) | The phase cut, the phase map and far field, and the overlap-error sweep (production grid against an 8x finer grid), plus a 16-trial turbulent smoke run. It writes `figures/1_phase_cut.png`, `figures/2_phase_map.png` and `figures/3_overlap_error.png`. |
 
+## uplink_divergence/
+
+The fidelity-2 uplink with a deliberate divergence, up to 200 urad (a 15 cm
+aperture, 55 mm waist, 500 km, 30 and 60 deg). The grid non-convergence of
+`divergence_sampling/` comes from the plane-wave start of the slab; a wide
+Gaussian start fixes it and matches a direct upward propagation through the
+same screens (Arm A). Two 2000-trial GPU campaigns give the power
+distributions (Arm B). Two findings: a PHYSICAL hard-clip far-field ripple
+(about +/-1.4 dB against the divergence), and a budget bug, the truncation Term
+charges the collimated 1.47 dB at every divergence (NOT FIXED). See
+[uplink_divergence/README.md](uplink_divergence/README.md).
+
 ## waveoptics_speed/
 
 The fidelity-2 speed campaign (P0 to P4; see

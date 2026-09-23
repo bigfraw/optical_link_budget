@@ -146,7 +146,11 @@ tests the rule against direct propagation (a lens of f = +/- 2L in vacuum, and
 one phase screen). Before the fix, the table read 0.686 at 100 urad and 10.6
 at 300 urad.
 
-## Follow-up 2 (2026-09-23): a diverged launch is NOT grid-converged. OPEN.
+## Follow-up 2 (2026-09-23): a diverged launch is NOT grid-converged. RESOLVED.
+
+RESOLVED the same day in [../uplink_divergence/](../uplink_divergence/README.md):
+the cause IS the plane-wave start (the rings), and a wide Gaussian start
+matches a direct upward propagation. The record below is kept as found.
 
 The mean eta_turb of a diverged launch moves with the pixel count at a FIXED
 grid side and screen plan (64 trials, seed 7, rapid):

@@ -1,5 +1,9 @@
 # HANDOVER: the diverged fidelity-2 uplink (2026-09-23)
 
+> STATUS (later on 2026-09-23): DONE. The blocker of Section 3c is RESOLVED
+> and the plan of Section 4 ran WITHOUT the Dios arm (owner decision). See
+> [../uplink_divergence/README.md](../uplink_divergence/README.md).
+
 Read this first in the next session. It records the state of the work, the
 findings, the open problem and the next plan. The detail of each finding is in
 [README.md](README.md).
