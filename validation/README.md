@@ -316,6 +316,23 @@ by default.
 | --- | --- |
 | [vacuum_loss/vacuum_loss_validation.py](vacuum_loss/vacuum_loss_validation.py) | The cross-check itself. It writes `vacuum_loss_results.json`. |
 
+## divergence_sampling/
+
+The grid-sampling limit of a DELIBERATELY DIVERGED fidelity-2 uplink. The
+space sizer does not read the launch curvature, so past about
+`lambda / (2 dx)` (113 urad on the test grid) the ground transmit mode of the
+reciprocity overlap aliases into a lattice of false bowl centres. The
+vacuum-overlap denominator then errs by -27 to +16 dB, and the turbulence Term
+can show a false GAIN. A sizer guard is NOT BUILT. Two follow-ups: the
+overlap took a wrong conjugate (FIXED 2026-09-23, `reciprocity_overlap`), and
+a diverged launch is NOT grid-converged because the vacuum baseline carries
+grid-edge Fresnel rings (OPEN). See
+[divergence_sampling/README.md](divergence_sampling/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [divergence_sampling/divergence_sampling.py](divergence_sampling/divergence_sampling.py) | The phase cut, the phase map and far field, and the overlap-error sweep (production grid against an 8x finer grid), plus a 16-trial turbulent smoke run. It writes `figures/1_phase_cut.png`, `figures/2_phase_map.png` and `figures/3_overlap_error.png`. |
+
 ## waveoptics_speed/
 
 The fidelity-2 speed campaign (P0 to P4; see
