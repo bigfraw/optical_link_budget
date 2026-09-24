@@ -839,6 +839,15 @@ ONLY. `cn2`, `hs`, `cn2_profile`, `h_top_m` are all space only. `L0_m` sits here
 so that one call site holds all the turbulence options; the SIZER does not read
 it, and the runner passes it to `phase_screen()`.
 
+**THE DIVERGED-UPLINK PIXEL RULE (2026-09-24, backlog 2-DV item 2).** A space
+UPLINK whose ground `Transmitter` sets `divergence_rad = theta` adds the pixel
+limit `dx <= lambda / (4 theta)`. The overlap reads the curved launch phase,
+and the Nyquist test of a source quadratic phase at the aperture edge is
+Schmidt, DOI 10.1117/3.866274, Ch. 7, Eq. (7.40), printed p. 123; the factor 4
+keeps a margin of 2. A collimated launch, a downlink and a terrestrial path
+get no limit, so their grids do not move. For the AETHER-11 terminal at
+200 urad the grids are 512 / 1024 / 2048 px at 73 / 45 / 20 deg.
+
 **THE GROUND-LAYER KNOB `h_gl` (2026-09-13, default `None`).** It is a sequence
 of GROUND heights, in m. Each named height gets a screen of its OWN, at exactly
 that height; the slab edges of the forced region are the midpoints between two
@@ -993,7 +1002,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, temporal=None, h_gl=None, boost=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation="auto", store_screen_phase=False, point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto", boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1009,6 +1018,33 @@ frames of one record.
 - The geometry must give ONE range. More than one raises `ValueError`. Loop in
   the caller.
 - A `"retro"` direction raises `NotImplementedError`.
+- `start_waist_frac` is the START FIELD of a space slab (a RUN OPTION,
+  2026-09-24, backlog 2-DV item 1). `"auto"` (the default) takes a Gaussian
+  of `GAUSS_START_WAIST_FRAC = 0.3` times the grid side for a DIVERGED uplink
+  (the ground `Transmitter` sets `divergence_rad`) and the plane wave
+  otherwise, so a collimated or a downlink run is bit-identical. `None`
+  forces the plane wave; a float forces a Gaussian of that fraction. WHY: the
+  plane-wave start fills the grid, so the absorbing mask acts as a soft
+  aperture and its edge sends Fresnel rings to the centre. A collimated
+  transmit mode does not read them (they divide out in the vacuum baseline);
+  a curved one does (-16 to +10 dB, no grid convergence;
+  `validation/uplink_divergence/`). The Gaussian start matched a direct
+  upward propagation inside 3 percent. The vacuum baseline takes the SAME
+  start, `TurbWaveResult.start_waist_frac` records it, and every post-hoc
+  reader reads it. A terrestrial scenario with a float raises.
+- `compensation` and `point_ahead_rad` default to `"auto"` (2026-09-24,
+  backlog 2-DV item 5): `run.resolve_precompensation` turns a space UPLINK
+  with `precompensation=DownlinkBeacon()` into `compensation="terminal"` and
+  `point_ahead_rad="geometry"`, so the fidelity-2 run describes the link the
+  way the fidelity-0 and fidelity-1 budgets do. Every other scenario resolves
+  to `None` for both, so its run does not move. An explicit value (`None`
+  too) wins.
+- A SIDE-MOUNTED launch (`Transmitter.shift_m`, 2026-09-24, backlog 2-DV item
+  10) moves the transmit mode by whole pixels. Its correction is TIP-TILT
+  only: the stack senses over the clip (main) aperture and
+  `ApertureModes.tilt_plane` puts the tilt on the shifted disc as a plane. A
+  stack past 3 Noll modes raises, and a disc that reaches the absorbing band
+  warns.
 - `subharmonics=True` is the value to keep: the tilt content drives the beam
   wander, and the uplink overlap reads that wander.
 - `screen_generator` is `"olb"` (the default, the fast `ScreenFactory`),
@@ -1094,7 +1130,13 @@ frames of one record.
   study. It needs a SPACE scenario and the `"olb"` screen generator; a
   terrestrial scenario, the `"olb-lean"` generator and the `"aotools"`
   generator all raise `ValueError`. An empty sequence and a negative angle
-  raise. See the paragraph below.
+  raise. See the paragraph below. THE COST (2026-09-24, backlog 2-DV item 9):
+  each oversize screen is built ONE time per trial and each pass crops its
+  window, and the `"cupy"` route draws the noise of the next trial in threads
+  while the device runs this one (the pipelined draw of Section 3). Both are
+  bit-identical. Measured on the bigfraw RTX 4070: 22 to 4.8 s per 100 trials
+  at 73 deg (512 px) and 67 to 14 s at 45 deg (1024 px), about 1.8x a plain
+  run, the cost of the second pass.
 - `screen_margin_m` is the extra screen width the shifted windows need, in m.
   `None` (the default) reads the geometry: `max(angles) * max(z_g)`, with `z_g`
   the ground distance of a screen. A run with no point-ahead angle keeps the
@@ -1554,10 +1596,26 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, temporal=None, h_gl=None)`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, sizing_divergence_rad=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation="auto", store_screen_phase="auto", point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto")`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
+
+- THE UPLINK OPTIONS (2026-09-24, backlog 2-DV). `compensation`,
+  `point_ahead_rad` and `start_waist_frac` resolve `"auto"` as the runner
+  does (Section 9d). `store_screen_phase="auto"` is `True` for a
+  `DownlinkBeacon` uplink (the post-hoc beacon correction senses it) and
+  `False` otherwise. `sizing_divergence_rad` sizes a campaign of a
+  COLLIMATED scenario for the widest divergence that `uplink_overlaps` will
+  read: the grid takes the `lambda / (4 theta)` rule and the `"auto"` start
+  takes the Gaussian. It enters the manifest, like `sizing_aperture_m`. The
+  default patch covers a shifted transmit disc (`Transmitter.shift_m`).
+- A point-ahead campaign draws WIDER screens, so it does NOT pair trial for
+  trial with a plain campaign of the same seed. Compare statistics, or read
+  the `"none"` case of `uplink_overlaps` as the baseline.
+- `Campaign.run` forwards ONE option list (`_runner_kwargs`) on the serial and
+  on the pool route (fixed 2026-09-24: both routes dropped
+  `start_waist_frac`).
 
 - `seed` is REQUIRED, and it must be an integer: a campaign grows over more than
   one session, so its trials must repeat. `None` or a numpy `Generator` raises
@@ -1780,6 +1838,32 @@ ONE computed campaign answers EVERY compensation stack.
   wrapper, so it takes `workers=` and `compact=`.
 - A campaign that made no point-ahead pass, or that stores no field, raises
   `ValueError`.
+
+#### `Campaign.uplink_overlaps(compensation=None, *, grounds=None, source=None, n_trials=None, workers=None, compact=True)`
+
+It gives EVERY uplink case of EVERY transmit mode from ONE read of each block
+(2026-09-24, backlog 2-DV items 3 and 4). The stored field is the downlink slab
+at the ground, and it does not depend on the launch, so each ground `Terminal`
+in `grounds` (another divergence, waist, aperture or `shift_m`) is a post-hoc
+reciprocity overlap (no conjugate; Shapiro, DOI 10.1364/JOSA.61.000492), each
+with its OWN vacuum baseline. One vacuum solve serves every mode.
+
+It returns a dict of float arrays:
+
+| Key | Shape | The case |
+|---|---|---|
+| `"none"` | `(n_trials, n_grounds)` | the beacon field, no correction (the in-run `eta_turb`) |
+| `"corrected"` | `(n_trials, n_grounds)` | the beacon field, beacon estimate removed: perfect reciprocity, the upper bound |
+| `"none_pa"` | `(n_trials, n_angles, n_grounds)` | each stored point-ahead field, no correction |
+| `"corrected_pa"` | `(n_trials, n_angles, n_grounds)` | each point-ahead field, BEACON estimate removed: the real pre-compensated uplink |
+
+- The `"corrected"` cases need a stack; the `"_pa"` cases need a campaign made
+  with `point_ahead_rad`. `source=None` takes `"screens"`, which needs
+  `store_screen_phase=True`.
+- It is bit-identical to `recouple_point_ahead` for the scenario ground, and
+  `"none"` matches the in-run `eta_turb` to 1.5e-7.
+- A shifted ground takes a `TipTilt()` stack only; a larger stack raises. A
+  diverged ground on a plane-start campaign warns (see `start_waist_frac`).
 
 #### `Campaign.point_ahead(angles, compensation, *, source=None, n_trials=None, workers=None, fft_backend="numpy")`
 
@@ -2043,6 +2127,10 @@ wave-optics ladder count the SAME modes.
     slopes. The piston coefficient is `0.0`.
   - `reconstruct(coeffs)` — the `(N, N)` phase map of a set of coefficients,
     zero outside the mask.
+  - `tilt_plane(coeffs)` — the piston and tilt of a fit (Noll modes 1 to 3) as
+    a PLANE over the whole `(N, N)` grid (2026-09-24). It equals
+    `reconstruct(coeffs[:3])` inside the mask. The runner uses it to put the
+    main-aperture tilt on a SIDE-MOUNTED transmit disc (`Transmitter.shift_m`).
   - `apply(field, coeffs, sign=-1)` — `field * exp(sign * 1j *
     reconstruct(coeffs))`. Use `sign=-1` to REMOVE the sensed phase, which is a
     receive-side correction. Use `sign=+1` to ADD the conjugate phase, which is

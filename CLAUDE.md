@@ -31,7 +31,10 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
 
 - `olb/terminal.py` — pure data. ALL terminal hardware lives here. A `Terminal`
   holds `aperture_m`, `obscuration_ratio`, `wavelength_m`, `pointing_jitter_rad`,
-  an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`), an
+  an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`,
+  and the bistatic `aperture_m`/`obscuration_ratio`/`shift_m`; `shift_m` is a
+  SIDE-MOUNTED launch that takes tip-tilt pre-compensation only, and its repr
+  omits an unset shift so no stored campaign key moves), an
   optional `Detector` (`Aperture`, `SMF`, or `MMF`, each with `sensitivity_dbm`;
   `SMF` also carries `focal_length_m`, `mode_field_radius_m`, `optimal_focus`, and
   `defocus_m`;
@@ -380,7 +383,11 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   process pool LOSES on a light read (the Windows spawn) and wins 1.28x on a
   compensated read.
   THE PERFECT-AO CORRECTION is two more runner options (2026-09-07, backlog
-  2-AO, an OPT-IN, DEFAULT OFF, so an uncorrected run is BIT-IDENTICAL):
+  2-AO, an OPT-IN; from 2026-09-24 `compensation` and `point_ahead_rad`
+  default to "auto", which `run.resolve_precompensation` turns into
+  "terminal" and "geometry" for a space uplink with
+  `precompensation=DownlinkBeacon()` and into None for every other scenario,
+  so an uncorrected run stays BIT-IDENTICAL; backlog 2-DV item 5):
   `compensation=None|"terminal"|[stages]` removes the first N Noll modes over
   the receive aperture in EACH trial, BEFORE the clip, the coupling, the
   multi-arm `detector_etas` and the reciprocity overlap; `store_screen_phase=
@@ -400,7 +407,8 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   trial falls back to the HOST tail (one download per trial); a device-side
   projection is a later step.
   THE POINT AHEAD is two more runner options (2026-09-11, backlog 2-P4, an
-  OPT-IN, DEFAULT OFF, so a run with no angle is BIT-IDENTICAL):
+  OPT-IN, OFF except for a DownlinkBeacon uplink, see "auto" above, so a run
+  with no angle is BIT-IDENTICAL):
   `point_ahead_rad=None|"geometry"|float|sequence` and `screen_margin_m`. A
   point-ahead trial draws each screen ONE time on an oversize grid (`screen_n`,
   a multiple of 32 px wide enough for the widest shift), propagates the BEACON
@@ -419,8 +427,14 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   `screen_phase_pa`; the campaign blocks and the manifest carry them, and the
   fingerprint tail is APPEND-ONLY (an unset option adds no line, so every stored
   key stays valid). It needs a SPACE scenario and the `olb` generator: the lean
-  and the aotools generators REFUSE a point-ahead run. `worker_memory_bytes`
-  counts the kept noise. TWO POST-HOC ROUTES: `point_ahead_overlap` /
+  and the aotools generators REFUSE a point-ahead run. A trial builds each
+  oversize screen ONE time and the passes crop it, and the cupy route feeds
+  the pipelined threaded draw (2026-09-24, 2-DV item 9, bit-identical, 4.5 to
+  4.8x on the RTX 4070); `worker_memory_bytes` counts the kept noise, an
+  over-estimate now. THREE POST-HOC ROUTES: `Campaign.uplink_overlaps(
+  compensation, grounds=[...])` (2026-09-24, 2-DV items 3 and 4: none /
+  corrected / none_pa / corrected_pa for EVERY transmit mode from ONE read,
+  each mode with its own vacuum baseline), `point_ahead_overlap` /
   `Campaign.recouple_point_ahead` (any stack from the stored planes, NO
   propagation, the STORED angles) and `point_ahead_regenerate` /
   `Campaign.point_ahead` (ANY angle inside the drawn margin; it regenerates the
@@ -630,6 +644,32 @@ production modules now carry the book equation numbers in their docstrings, and
 Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
 
 Open items:
+
+- **Backlog 2-DV is WORKED THROUGH (2026-09-24, branch
+  `uplink-precomp-divergence`): the diverged, TT-pre-compensated fidelity-2
+  uplink of the AETHER-11 study (`C:\repos\satcom\NG`, `OLB_CHANGES.md`)
+  needs no monkey patch and no private helper.** (1) `start_waist_frac`
+  (a RUN OPTION, default "auto") starts a DIVERGED uplink slab from a
+  Gaussian of 0.3 x the grid side (`run.GAUSS_START_WAIST_FRAC`), because the
+  plane start's edge rings reach a curved transmit mode; every other run is
+  bit-identical, and the value enters the record, the manifest and (only when
+  set) the fingerprint. (2) `turbulent_grid` adds dx <= lambda / (4 theta) for
+  a diverged uplink (Schmidt Eq. (7.40)); `Campaign(sizing_divergence_rad=)`
+  sizes a collimated campaign for a wider read. (3, 4)
+  `Campaign.uplink_overlaps`. (5) the "auto" DownlinkBeacon options (runner,
+  `run_fidelity2`, `Campaign`, and `store_screen_phase="auto"` on Campaign).
+  (6) documented: a point-ahead draw does not pair with a plain campaign.
+  (7, 8) `tx_gaussian_efficiency_term` takes the launch curvature (alpha^2 ->
+  alpha^2 + i k a^2/(2R), Klein and Degnan DOI 10.1364/AO.13.002134): a
+  NUMBER MOVE for every diverged budget at every fidelity, and with the
+  geometric Term it equals the NG grid Fraunhofer irradiance to 0.06 dB.
+  (9) the point-ahead speed-up above, plus a cached clip mask in the host
+  tail (every CPU run gains; a point-ahead device tail is not needed).
+  (10) `Transmitter.shift_m`: any shift takes TIP-TILT only, sensed over the
+  main aperture and applied as a plane (`ApertureModes.tilt_plane`); no
+  shift keeps AO(n). A bug found on the way: `Campaign.run` held two
+  hand-copied option lists; both now forward `_runner_kwargs()`. OPEN: item
+  11, a backend-agnostic read key.
 
 - **The fidelity-2 FROZEN-FLOW TIME AXIS is BUILT (2026-09-13, branch
   `waveoptics-temporal`, backlog 2-P1).** It is an OPT-IN and the DEFAULT is
