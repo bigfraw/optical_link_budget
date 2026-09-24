@@ -855,6 +855,20 @@ def resolve_outer_scale(L0_m, scenario):
     return float(getattr(site, "outer_scale_m", np.inf))
 
 
+def _launch_divergence(scenario):
+    """Give the launch divergence of a diverged space UPLINK, or None.
+
+    It is the far-field HALF angle of the ground Transmitter (olb.terminal).
+    A downlink, a terrestrial path or a collimated launch gives None, so the
+    pixel rule of turbulent_grid does not move for them.
+    """
+    ground = getattr(scenario, "ground", None)
+    t = None if ground is None else ground.transmitter
+    if t is None or scenario.direction != "uplink":
+        return None
+    return t.divergence_rad
+
+
 def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
                    cn2_profile=None, h_top_m=None, L0_m=np.inf, h_gl=None):
     """Size a turbulent split-step grid, and plan the screens.
@@ -895,6 +909,20 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
     than fresnel_weight_min of the total Rytov variance must obey it. A weak
     screen close to the receiver is exempt, because it adds almost no
     scintillation. That exemption is an olb rule; the book gives none.
+
+    A DIVERGED UPLINK adds a fourth limit (backlog 2-DV item 2):
+
+        dx <= lambda / (4 theta)          the curved launch phase
+
+    theta is the launch half angle (Transmitter.divergence_rad). The uplink
+    reads the slab field through the overlap with the transmit mode, and that
+    mode carries the quadratic phase of the diverged beam. The Nyquist test of
+    a source quadratic phase at the aperture edge is Schmidt,
+    DOI 10.1117/3.866274, Ch. 7, Eq. (7.40), printed p. 123: the local tilt
+    theta_edge needs dx <= lambda / (2 theta_edge). The factor 4 keeps a
+    margin of 2 on the far-field half angle, which holds an edge tilt up to
+    2 theta. validation/uplink_divergence (Arm B) showed the overlap stable to
+    200 urad on this rule. A collimated launch gives no limit.
 
     THE PIXEL COUNT. n is the next power of two of side/dx, as Schmidt,
     DOI 10.1117/3.866274, Listing 7.2, line 13, printed p. 128, does, inside
@@ -984,6 +1012,9 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
     if needs_fresnel.any():
         dx_wanted = min(dx_wanted,
                         float(np.sqrt(lam * z_to_rx[needs_fresnel]).min()) / 2)
+    theta = _launch_divergence(scenario)
+    if theta is not None:
+        dx_wanted = min(dx_wanted, lam / (4.0 * theta))
 
     n_wanted = int(2 ** np.ceil(np.log2(side / dx_wanted)))
     n = int(min(max(n_wanted, N_MIN), p.n_max))
@@ -1016,6 +1047,10 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
                           f"{feature * 1e3:.1f} mm)")
         if fresnel_pixels < 2.0:
             broken.append(f"pixels per Fresnel scale {fresnel_pixels:.2f} < 2")
+        if theta is not None and dx > lam / (4.0 * theta):
+            broken.append(f"pixel {dx * 1e3:.2f} mm > lambda/(4 theta) = "
+                          f"{lam / (4.0 * theta) * 1e3:.2f} mm (launch "
+                          f"divergence {theta * 1e6:.0f} urad)")
         warns.append(
             f"turbulent_grid: the pixel count wants {n_wanted}, but n_max is "
             f"{p.n_max}. The grid keeps its side and takes a pixel "

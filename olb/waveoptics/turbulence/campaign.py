@@ -82,7 +82,7 @@ from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
                   _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
                   _uplink_ground, clip_terminal,
                   _resolve_seed, _screen_seed, propagate_turbulent_scenario,
-                  reciprocity_overlap,
+                  reciprocity_overlap, resolve_start_waist_frac,
                   space_vacuum_baseline)
 from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
 from .splitstep import super_gaussian_boundary
@@ -167,8 +167,8 @@ def _columns_of(result):
     return out
 
 
-def _sizing_scenario(scenario, aperture_m):
-    """Copy a scenario with a different CLIP aperture.
+def _sizing_scenario(scenario, aperture_m, divergence_rad=None):
+    """Copy a scenario with a different CLIP aperture (and launch divergence).
 
     The rule is the rule of run.clip_terminal: a SpaceScenario clips at
     `ground` in EVERY direction (the field is always the downlink slab at the
@@ -179,12 +179,22 @@ def _sizing_scenario(scenario, aperture_m):
 
     Args:
         scenario:   a SpaceScenario or a TerrestrialScenario.
-        aperture_m: the clip aperture diameter of the copy, in m.
+        aperture_m: the clip aperture diameter of the copy, in m. None keeps
+                    the aperture.
+        divergence_rad: an optional launch divergence of the ground
+                    Transmitter of a space UPLINK, in rad. The sizer then
+                    applies its lambda / (4 theta) pixel rule (see
+                    sampling.turbulent_grid).
 
     Returns:
         A copy. The input scenario does not change.
     """
-    rx = replace(clip_terminal(scenario), aperture_m=float(aperture_m))
+    rx = clip_terminal(scenario)
+    if aperture_m is not None:
+        rx = replace(rx, aperture_m=float(aperture_m))
+    if divergence_rad is not None:
+        rx = replace(rx, transmitter=replace(rx.transmitter,
+                                             divergence_rad=float(divergence_rad)))
     if hasattr(scenario, "ground"):
         role = "ground"
     else:
@@ -624,12 +634,14 @@ class Campaign:
 
     def __init__(self, scenario, geometry, root_dir, *, seed,
                  preset="standard", block_size=100, patch_radius_m=None,
-                 sizing_aperture_m=None, grid=None, plan=None, cn2=None,
+                 sizing_aperture_m=None, sizing_divergence_rad=None,
+                 grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=None,
                  subharmonics=True, screen_generator="olb",
                  precision="single", fft_backend="numpy", compensation=None,
                  store_screen_phase=False, point_ahead_rad=None,
-                 screen_margin_m=None, temporal=None, h_gl=None):
+                 screen_margin_m=None, temporal=None, h_gl=None,
+                 start_waist_frac="auto"):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -665,6 +677,13 @@ class Campaign:
                            the grid. The trials still run with the original
                            scenario. Use it to store one field that serves every
                            smaller receive aperture.
+            sizing_divergence_rad: an optional launch divergence, in rad, that
+                           sizes the grid of a space UPLINK campaign (its
+                           lambda / (4 theta) pixel rule), and that turns the
+                           "auto" slab start to the Gaussian. Give the WIDEST
+                           divergence that `uplink_overlaps` will read, when
+                           the scenario itself is collimated. It enters the
+                           manifest, like sizing_aperture_m.
             grid:          an optional GridSpec. The plan is then still planned
                            from the Cn2 inputs.
             plan:          an optional ScreenPlan. Give it WITH grid to hold
@@ -745,6 +764,15 @@ class Campaign:
                            named height gets a screen of its own. It enters the
                            fingerprint and the manifest. See
                            sampling.turbulent_grid.
+            start_waist_frac: the slab start, "auto" (the default: the
+                           Gaussian start for a DIVERGED uplink, the plane wave
+                           otherwise), None (the plane wave) or a float (a
+                           fraction of the grid side). A collimated campaign
+                           that `uplink_overlaps` reads with DIVERGED modes
+                           needs 0.3 (run.GAUSS_START_WAIST_FRAC). The
+                           resolved value enters the fingerprint and the
+                           manifest when it is not None. See
+                           olb.waveoptics.turbulence.run.resolve_start_waist_frac.
 
         Raises:
             ValueError: the seed is not an integer, the precision name is
@@ -779,12 +807,22 @@ class Campaign:
         self.subharmonics = bool(subharmonics)
         self.sizing_aperture_m = (None if sizing_aperture_m is None
                                   else float(sizing_aperture_m))
+        self.sizing_divergence_rad = (None if sizing_divergence_rad is None
+                                      else float(sizing_divergence_rad))
+        sizer_scenario = scenario
+        if self.sizing_aperture_m is not None                 or self.sizing_divergence_rad is not None:
+            sizer_scenario = _sizing_scenario(scenario, self.sizing_aperture_m,
+                                              self.sizing_divergence_rad)
         # RESOLVE THE STACK BEFORE THE FINGERPRINT. The key then names the
         # stages, not the string "terminal", so a campaign that asks for the
         # terminal stack and a campaign that gives the same stages share a key.
         self.compensation, self.n_modes_corrected = _resolve_compensation(
             scenario, compensation)
         self.store_screen_phase = bool(store_screen_phase)
+        # "auto" reads the SIZING scenario, so a collimated campaign sized for
+        # a diverged read takes the Gaussian start too.
+        self.start_waist_frac = resolve_start_waist_frac(start_waist_frac,
+                                                         sizer_scenario)
         # THE STRIPS LIVE WITH THE CAMPAIGN. The spec of a caller may name any
         # directory; the campaign moves it under its own root, so a deleted
         # campaign takes its cache with it. `strip_dir` is not part of
@@ -839,7 +877,8 @@ class Campaign:
                 store_screen_phase=self.store_screen_phase,
                 point_ahead_rad=self.point_ahead_rad,
                 screen_margin_m=self.screen_margin_m,
-                temporal=self.temporal, h_gl=self.h_gl)
+                temporal=self.temporal, h_gl=self.h_gl,
+                start_waist_frac=self.start_waist_frac)
 
         if stored_manifest is not None:
             man = stored_manifest
@@ -865,8 +904,6 @@ class Campaign:
                 pixel_m=float(man["patch"]["pixel_m"]),
                 indices=np.load(os.path.join(self.root_dir, PATCH_NAME)))
         else:
-            sizer_scenario = (scenario if self.sizing_aperture_m is None else
-                              _sizing_scenario(scenario, self.sizing_aperture_m))
             sized_grid, sized_plan, _ = turbulent_grid(
                 sizer_scenario, geometry, preset=self.preset, cn2=cn2, hs=hs,
                 cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=self.L0_m,
@@ -919,6 +956,7 @@ class Campaign:
                 "block_size": self.block_size,
                 "patch_radius_m": self.patch_radius_m,
                 "sizing_aperture_m": self.sizing_aperture_m,
+                "sizing_divergence_rad": self.sizing_divergence_rad,
                 "precision": self.precision,
                 "fft_backend": self.fft_backend,
                 "compensation": repr(self.compensation),
@@ -931,6 +969,7 @@ class Campaign:
                              else self.temporal.key()),
                 "dt_s": self.dt_s,
                 "h_gl": (None if self.h_gl is None else list(self.h_gl)),
+                "start_waist_frac": self.start_waist_frac,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
@@ -943,7 +982,9 @@ class Campaign:
                     "compensation": repr(None), "store_screen_phase": False,
                     "point_ahead_rad": None, "screen_margin_m": 0.0,
                     "screen_n": int(self.grid.n),
-                    "temporal": None, "dt_s": None, "h_gl": None}
+                    "temporal": None, "dt_s": None, "h_gl": None,
+                    "start_waist_frac": None,
+                    "sizing_divergence_rad": None}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
             if got != value:
@@ -966,6 +1007,7 @@ class Campaign:
             "block_size": self.block_size,
             "patch_radius_m": self.patch_radius_m,
             "sizing_aperture_m": self.sizing_aperture_m,
+            "sizing_divergence_rad": self.sizing_divergence_rad,
             "screen_generator": self.screen_generator,
             "precision": self.precision,
             "fft_backend": self.fft_backend,
@@ -980,6 +1022,7 @@ class Campaign:
                          else self.temporal.key()),
             "dt_s": self.dt_s,
             "h_gl": (None if self.h_gl is None else list(self.h_gl)),
+            "start_waist_frac": self.start_waist_frac,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -1095,7 +1138,8 @@ class Campaign:
                 "store_screen_phase": self.store_screen_phase,
                 "point_ahead_rad": self.point_ahead_rad,
                 "screen_margin_m": self.screen_margin_m,
-                "temporal": self.temporal, "h_gl": self.h_gl}
+                "temporal": self.temporal, "h_gl": self.h_gl,
+                "start_waist_frac": self.start_waist_frac}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
@@ -1330,7 +1374,7 @@ class Campaign:
                        if stack_pa else None),
             screen_phase_pa=(np.concatenate(phase_pa, axis=1)[:, :n]
                              if phase_pa else None),
-            temporal=self.temporal)
+            temporal=self.temporal, start_waist_frac=self.start_waist_frac)
 
     def field(self, row, *, compact=True):
         """Give one STORED trial back as a Field.
@@ -1620,7 +1664,7 @@ class Campaign:
             self.grid.n, PRESETS[self.preset].boundary_width_frac)
         _F_vac, o_vac = space_vacuum_baseline(
             self.grid, self.plan, ground.wavelength_m, mask, cdtype,
-            psi_tx=psi_full)
+            psi_tx=psi_full, start_waist_frac=self.start_waist_frac)
         if source is None:
             source = ("screens" if hasattr(self.scenario, "ground")
                       else "slopes")
@@ -1677,7 +1721,8 @@ class Campaign:
             trials=[], grid=self.grid, plan=self.plan, report=None,
             preset=self.preset, seed_entropy=_resolve_seed(self.seed),
             screen_n=self.screen_n, screen_margin_m=self.screen_margin_m,
-            point_ahead_rad=self.point_ahead_rad)
+            point_ahead_rad=self.point_ahead_rad,
+            start_waist_frac=self.start_waist_frac)
         fn = _RegeneratePointAhead(
             record, angles, compensation, self.scenario, self.geometry,
             source=source, fft_backend=fft_backend, precision=self.precision,

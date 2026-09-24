@@ -94,7 +94,7 @@ RUN_OPTIONS = (
     "preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m", "subharmonics",
     "screen_generator", "precision", "fft_backend", "compensation",
     "store_screen_phase", "point_ahead_rad", "screen_margin_m",
-    "temporal", "h_gl",
+    "temporal", "h_gl", "start_waist_frac",
 )
 
 # The subset that the grid sizer (sampling.turbulent_grid) reads. A wrapper
@@ -880,6 +880,9 @@ class TurbWaveResult:
                       set of independent snapshots. Trial k is then frame k of
                       the record, at the time k * dt_s. See
                       olb.waveoptics.turbulence.temporal.
+        start_waist_frac: the RESOLVED slab start of a space run (a fraction
+                      of the grid side), or None for the plane-wave start. A
+                      post-hoc reader builds its vacuum baseline from it.
     """
 
     trials: list
@@ -900,6 +903,7 @@ class TurbWaveResult:
     fields_pa: np.ndarray = None
     screen_phase_pa: np.ndarray = None
     temporal: object = None
+    start_waist_frac: float = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -1241,11 +1245,84 @@ def _screen_builder(screen_generator, grid, L0_m, subharmonics,
         f"'olb' or 'olb-lean', not {screen_generator!r}.")
 
 
-def _start_field(scenario, grid, lam, is_space, dtype=np.complex128):
+# THE GAUSSIAN SLAB START (backlog 2-DV item 1, 2026-09-24). The plane-wave
+# start fills the grid, so the absorbing mask acts as a soft aperture, and over
+# a 20 to 40 km slab its edge sends Fresnel rings to the centre. A COLLIMATED
+# transmit mode (a flat phase) does not read them: they sit in the vacuum
+# baseline too, and they divide out. A DIVERGED transmit mode (a curved phase)
+# does: its overlap with the rings swings -16 to +10 dB and it does not converge
+# with the grid (validation/uplink_divergence, gate 0). A wide Gaussian start
+# has no edge, so it makes no rings. At 0.3 of the grid side it matched a direct
+# upward propagation inside 3 percent (Arm A). The vacuum baseline takes the
+# SAME start, so a turbulent output still has the vacuum limit 1.0.
+GAUSS_START_WAIST_FRAC = 0.3
+
+
+def resolve_start_waist_frac(start_waist_frac, scenario):
+    """Resolve the slab start option to a waist fraction, or None.
+
+    Args:
+        start_waist_frac: "auto" (the default of the entry points), None (the
+                          plane-wave start), or a float (the 1/e amplitude
+                          radius of the Gaussian start, as a fraction of the
+                          grid side).
+        scenario:         the SpaceScenario or TerrestrialScenario.
+
+    Returns:
+        A float, or None for the plane-wave start. "auto" gives
+        GAUSS_START_WAIST_FRAC for a space UPLINK whose ground Transmitter
+        sets divergence_rad (a diverged launch), and None otherwise, so a
+        collimated or a downlink run does not move one bit.
+
+    Raises:
+        ValueError: a float is not above 0, or a terrestrial scenario asks for
+                    a Gaussian start (its path starts from the launch beam).
+    """
+    ground = getattr(scenario, "ground", None)
+    if isinstance(start_waist_frac, str):
+        if start_waist_frac != "auto":
+            raise ValueError(
+                f"start_waist_frac must be 'auto', None or a float, not "
+                f"{start_waist_frac!r}.")
+        t = None if ground is None else ground.transmitter
+        diverged = (t is not None and scenario.direction == "uplink"
+                    and t.divergence_rad is not None)
+        return GAUSS_START_WAIST_FRAC if diverged else None
+    if start_waist_frac is None:
+        return None
+    if ground is None:
+        raise ValueError(
+            "start_waist_frac: a terrestrial path starts from the clipped "
+            "launch beam, not from a slab start. Pass None or 'auto'.")
+    frac = float(start_waist_frac)
+    if not frac > 0.0:
+        raise ValueError(f"start_waist_frac must be above 0, not {frac!r}.")
+    return frac
+
+
+def _slab_start(grid, lam, dtype, start_waist_frac):
+    """Make the start field of a space slab.
+
+    None gives the unit plane wave that fills the grid. A float gives the
+    Gaussian exp(-r^2 / w^2) with w = start_waist_frac * grid side, on axis
+    1.0. See GAUSS_START_WAIST_FRAC and olb.waveoptics.sources.GaussBeam
+    (Siegman, ISBN 978-0935702118, p. 642).
+    """
+    F = Begin(grid.size_m, lam, grid.n, dtype=dtype)
+    if start_waist_frac is None:
+        return F
+    F = GaussBeam(F, float(start_waist_frac) * grid.size_m)
+    F.field = F.field.astype(dtype)       # GaussBeam gives a real float64
+    return F
+
+
+def _start_field(scenario, grid, lam, is_space, dtype=np.complex128,
+                 start_waist_frac=None):
     """Make the field that enters the split step.
 
     The space slab starts from a unit PLANE WAVE that fills the grid: the
-    satellite is outside the atmosphere. A terrestrial path starts from the
+    satellite is outside the atmosphere. A resolved start_waist_frac makes it a
+    wide Gaussian instead (see GAUSS_START_WAIST_FRAC). A terrestrial path starts from the
     clipped transmit beam of the near terminal, on the exact launch recipe of
     olb.waveoptics.run.propagate_scenario.
 
@@ -1255,12 +1332,13 @@ def _start_field(scenario, grid, lam, is_space, dtype=np.complex128):
         lam:      the wavelength, in m.
         is_space: True for a space slab, False for a terrestrial path.
         dtype:    the complex type of the field.
+        start_waist_frac: the RESOLVED slab start, or None (the plane wave).
 
     Returns:
         A Field.
     """
     if is_space:
-        return Begin(grid.size_m, lam, grid.n, dtype=dtype)
+        return _slab_start(grid, lam, dtype, start_waist_frac)
     tx = scenario.tx_terminal
     t = tx.transmitter
     w_v, offset = virtual_waist(t.waist_m, t.divergence_rad, lam)
@@ -1330,7 +1408,7 @@ def reciprocity_overlap(E, psi):
 
 
 def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
-                          device_route=False):
+                          device_route=False, start_waist_frac=None):
     """Give the VACUUM slab field and the free-space overlap baseline.
 
     THE BASELINE IS THE SAME PATH WITH FLAT SCREENS. A space slab starts from a
@@ -1356,13 +1434,15 @@ def space_vacuum_baseline(grid, plan, lam, mask, cdtype, *, psi_tx=None,
                       uplink reciprocity mode of Shapiro,
                       DOI 10.1364/JOSA.61.000492.
         device_route: True makes the flat screen on the CUDA device.
+        start_waist_frac: the RESOLVED slab start of the run, or None (the
+                      plane wave). It must be the start of the trials.
 
     Returns:
         The pair (F_vac, o_vac). F_vac is the HOST vacuum receive Field, and
         o_vac is |sum(F_vac psi_tx)|^2 (no conjugate), or None with no
         psi_tx.
     """
-    F_plane = Begin(grid.size_m, lam, grid.n, dtype=cdtype)
+    F_plane = _slab_start(grid, lam, cdtype, start_waist_frac)
     # The flat screen goes up ONE time on the device route. A host route keeps
     # the numpy array it always made.
     flat = (xp().zeros((grid.n, grid.n)) if device_route
@@ -1409,7 +1489,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  fft_backend="numpy", compensation=None,
                                  store_screen_phase=False,
                                  point_ahead_rad=None, screen_margin_m=None,
-                                 temporal=None, h_gl=None, boost=True):
+                                 temporal=None, h_gl=None,
+                                 start_waist_frac="auto", boost=True):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -1617,6 +1698,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       only reaches the SIZER, so it does nothing when the
                       caller gives its own grid and plan. See
                       sampling.turbulent_grid.
+        start_waist_frac: the start field of a SPACE slab. "auto" (the
+                      default) takes the Gaussian start for a DIVERGED uplink
+                      (the ground Transmitter sets divergence_rad) and the
+                      plane wave otherwise, so a collimated or a downlink run
+                      is bit-identical. None forces the plane wave; a float
+                      forces a Gaussian of that fraction of the grid side (a
+                      collimated campaign that a reader overlaps with
+                      diverged modes needs 0.3). The resolved value enters the
+                      record. See GAUSS_START_WAIST_FRAC.
         boost:        True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS) one time at entry. A windowless run
@@ -1661,6 +1751,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     if (grid is None) != (plan is None):
         raise ValueError("propagate_turbulent_scenario: give grid AND plan "
                          "together, or give neither.")
+    start_waist_frac = resolve_start_waist_frac(start_waist_frac, scenario)
 
     # ---- the point ahead (an OPT-IN, default OFF) ----
     pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
@@ -1808,7 +1899,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # as the (w_free/w_st)^2 rescale of olb.turbulence.uplink_flux.
             F_vac, o_vac = space_vacuum_baseline(
                 grid, plan, lam, mask, cdtype, psi_tx=psi_tx,
-                device_route=device_route)
+                device_route=device_route, start_waist_frac=start_waist_frac)
+            F_in = _slab_start(grid, lam, cdtype, start_waist_frac)
             p_reference = Power(_clip(F_vac, rx.aperture_m,
                                       rx.obscuration_ratio))
         else:
@@ -1868,10 +1960,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # whole run. A host backend keeps the host field, unchanged.
         F_device = None
         if device:
-            source = (Begin(grid.size_m, lam, grid.n, dtype=cdtype) if is_space
-                      else F_in)
-            F_device = Field.shallowcopy(source)
-            F_device.field = xp().asarray(source.field)
+            F_device = Field.shallowcopy(F_in)
+            F_device.field = xp().asarray(F_in.field)
 
         # The optional field capture. One mask serves every trial, and each
         # trial writes ONE row. So the threads touch no shared row, and no lock
@@ -1976,9 +2066,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             sum_box = [None]
             if need_sum:
                 stack = _summing(stack, sum_box)
-            F_start = (F_device if F_device is not None else
-                       (Begin(grid.size_m, lam, grid.n, dtype=cdtype)
-                        if is_space else F_in))
+            F_start = F_device if F_device is not None else F_in
             F_out = split_step(F_start, plan.z_m, stack, plan.z_total_m,
                                boundary=mask)
 
@@ -2155,7 +2243,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                           screen_margin_m=margin_m, screen_n=int(n_draw),
                           fields_pa=fields_pa,
                           screen_phase_pa=screen_phase_pa,
-                          temporal=temporal)
+                          temporal=temporal,
+                          start_waist_frac=start_waist_frac)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -2165,7 +2254,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               subharmonics=True, screen_generator="olb",
                               precision="single", fft_backend="numpy",
                               compensation=None, point_ahead_rad=None,
-                              screen_margin_m=None, h_gl=None):
+                              screen_margin_m=None, h_gl=None,
+                              start_waist_frac="auto"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -2239,6 +2329,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         h_gl:         an optional sequence of GROUND heights, in m, for the
                       sizer. None (the default) keeps the plain equal-Rytov
                       cut. See sampling.turbulent_grid.
+        start_waist_frac: the slab start, as in
+                      propagate_turbulent_scenario ("auto", None or a float).
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field, corrected
@@ -2335,7 +2427,10 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                                        subharmonics, dtype=cdtype,
                                        n_draw=n_draw)
         seeds = [_screen_seed(entropy, trial, j) for j in range(n_screens)]
-        F_start = _start_field(scenario, grid, lam, is_space, dtype=cdtype)
+        F_start = _start_field(
+            scenario, grid, lam, is_space, dtype=cdtype,
+            start_waist_frac=resolve_start_waist_frac(start_waist_frac,
+                                                      scenario))
 
         def run_pass(offsets, box):
             """Propagate one pass, and give the host receive Field back.
@@ -3143,7 +3238,7 @@ def point_ahead_overlap(result, compensation, scenario, *, source="screens",
                                    PRESETS[result.preset].boundary_width_frac)
     _F_vac, o_vac = space_vacuum_baseline(
         result.grid, result.plan, ground.wavelength_m, mask, cdtype,
-        psi_tx=psi_full)
+        psi_tx=psi_full, start_waist_frac=result.start_waist_frac)
 
     rx = clip_terminal(scenario)
     _stack, n_modes = _resolve_compensation(scenario, compensation)
@@ -3276,9 +3371,11 @@ class _PointAheadRunner:
             self.factory = build.factory
             self.psi_tx = _ground_transmit_mode(self.ground, self.grid,
                                                 dtype=self.cdtype)
+            self.F_start = _slab_start(self.grid, self.lam, self.cdtype,
+                                       result.start_waist_frac)
             _F_vac, self.o_vac = space_vacuum_baseline(
                 self.grid, self.plan, self.lam, self.mask, self.cdtype,
-                psi_tx=self.psi_tx)
+                psi_tx=self.psi_tx, start_waist_frac=result.start_waist_frac)
         finally:
             set_fft_backend(previous)
         self.modes = None
@@ -3308,9 +3405,7 @@ class _PointAheadRunner:
         stack = self._screens(noise, angle_index)
         if box is not None:
             stack = _summing(stack, box)
-        F_start = Begin(self.grid.size_m, self.lam, self.grid.n,
-                        dtype=self.cdtype)
-        return to_host(split_step(F_start, self.plan.z_m, stack,
+        return to_host(split_step(self.F_start, self.plan.z_m, stack,
                                   self.plan.z_total_m, boundary=self.mask))
 
     def trial(self, k, stored_phase=None, patch=None):
