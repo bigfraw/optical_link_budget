@@ -19,13 +19,11 @@ are from 2026-08-26 and can drift.
 
 ## Top of the stack (the recommended order)
 
-0. **URGENT — DO THIS NEXT, BEFORE ANY OTHER ITEM OR FEATURE (owner order,
-   2026-09-24): fold the diverged, TT-pre-compensated fidelity-2 uplink into
-   olb.** The AETHER-11 study (`C:\repos\satcom\NG`) runs it today on
-   monkey patches and PRIVATE olb helpers, and a point-ahead run is ~10x
-   slower than it should be. The full list, with the workaround and the
-   change for each, is item 2-DV below (source: `NG/OLB_CHANGES.md`). Do
-   not start other olb work until 2-DV is worked through.
+0. **2-DV is WORKED THROUGH (2026-09-24, branch `uplink-precomp-divergence`):
+   the diverged, TT-pre-compensated fidelity-2 uplink is folded into olb.**
+   The AETHER-11 study (`C:\repos\satcom\NG`) no longer needs a monkey patch
+   or a private helper; a point-ahead GPU run is 4.5 to 4.8x faster. Item 11
+   stays open. See item 2-DV below.
 
 1. **Gap 2 is DECIDED and WIRED (2026-08-27): the pre-compensated uplink
    fade comes from FAST.** No trustworthy closed form exists; the model of
@@ -755,47 +753,56 @@ The path forward for each is a second reference or a derivation.
 
 ## Fidelity 2 — wave optics
 
-- **2-DV. URGENT (owner order 2026-09-24, top of the stack item 0) — the
-  diverged launch and the beacon-TT pre-compensation as first-class
-  fidelity-2 options.** Found by the AETHER-11 study
-  (`NG/olb_f2_uplink_divergence.py`, `NG/olb_f2_uplink_tt.py`); the detailed
-  notes are `NG/OLB_CHANGES.md` (items 1 to 10). The changes:
-  1. `start_field="plane" | ("gauss", frac)` on the runner / Campaign, in the
-     fingerprint. NG monkey-patches `run.Begin` today (the plane-wave start's
-     edge rings wreck a diverged psi_tx: -16 to +10 dB), and the fingerprint
-     cannot tell the two starts apart.
-  2. The grid sizer applies dx <= lambda / (4 theta_max) from
-     `Transmitter.divergence_rad` (NG doubles n by hand).
-  3. `recouple*` / `recouple_point_ahead` take several transmit modes (one
-     campaign, many divergences), each with its own vacuum baseline. NG
-     imports `_PostCorrector`, `_ground_transmit_mode`,
-     `_transmit_mode_crop`, `space_vacuum_baseline`.
-  4. One read gives none / TT ideal / TT point-ahead / none point-ahead
-     (today three calls, three passes over the blocks).
-  5. The Campaign / `run_fidelity2` read `SpaceScenario.precompensation =
-     DownlinkBeacon()` + the ground stack (today only the analytic path does).
-  6. The point-ahead margin changes the screen draw, so the trials do not
-     pair with a plain campaign of the same seed: document it, or draw on
-     the largest grid and crop.
-  7. The exact vacuum on-axis irradiance of a clipped, diverged launch moves
-     into olb (NG `vacuum_irradiance`); this also fixes 8.
-  8. `tx_gaussian_efficiency_term` charges the collimated truncation at every
-     divergence (0.7 to 2.7 dB wrong at fidelity 2).
-  9. PERFORMANCE: a point-ahead run drops the pipelined threaded noise draw
-     (run.py ~l. 2099) and the `_DeviceTail` (~l. 1912): 25 s vs 2.4 s per
-     100 trials at 73 deg on the RTX 4070, GPU 30 to 40 % busy. Feed the
-     threaded draw's RAW noise to `run_one` for every pass (memory ~2 trials
-     of noise; check bit-identity before resuming a campaign; expect 2 to 4x
-     alone), then a device tail for the point-ahead overlap and summed phase.
-  10. NEW FEATURE (owner wants it): a lateral centre-to-centre offset `s`
-     (and own diameter) of the beacon SENSING aperture from the Tx aperture,
-     e.g. `DownlinkBeacon(offset_m=(sx, sy), aperture_m=...)`. Beacon at
-     infinity + plane-parallel screens: fit the tilt on the stored beacon
-     summed phase over a disc at `s`, apply it to the point-ahead field over
-     the Tx disc, so no new screen windows are needed. It needs an
-     off-centre fit mask in `_PostCorrector` / `ApertureModes` and a stored
-     patch of radius >= |s| + D_sense/2 (the 1.5 x Tx-radius default allows
-     only ~37 mm here).
+- **2-DV. DONE except item 11 (owner order 2026-09-24; branch
+  `uplink-precomp-divergence`) — the diverged launch and the beacon-TT
+  pre-compensation as first-class fidelity-2 options.** Found by the
+  AETHER-11 study (`NG/olb_f2_uplink_divergence.py`,
+  `NG/olb_f2_uplink_tt.py`); the source notes are `NG/OLB_CHANGES.md`. Owner
+  decisions are in the items.
+  1. DONE. `start_waist_frac="auto"|None|float` (a RUN OPTION) starts the
+     space slab from a Gaussian of 0.3 x the grid side
+     (`run.GAUSS_START_WAIST_FRAC`). "auto" (owner) takes it for a DIVERGED
+     uplink only, so every other run is bit-identical. The record, the
+     manifest and the fingerprint (only when set) carry it; the vacuum
+     baseline and every post-hoc reader read it. It equals the NG
+     `run.Begin` patch bit for bit.
+  2. DONE. `turbulent_grid` adds dx <= lambda / (4 theta) for a diverged
+     uplink (Schmidt Eq. (7.40)); `Campaign(sizing_divergence_rad=)` sizes a
+     collimated campaign for a wider read (and turns the "auto" start on).
+     The grids equal the NG hand-doubled grids.
+  3, 4. DONE. `Campaign.uplink_overlaps(compensation, grounds=[...])` reads
+     each block ONE time and gives "none", "corrected", "none_pa" and
+     "corrected_pa" for every transmit mode, each with its own vacuum
+     baseline. It is bit-identical to `recouple_point_ahead` and matches the
+     in-run eta_turb to 1.5e-7. It replaces the NG `_Eta`/`_EtaTT`.
+  5. DONE. `compensation="auto"` and `point_ahead_rad="auto"` (the runner,
+     the field diagnostic, `run_fidelity2` and `Campaign`) resolve a
+     `precompensation=DownlinkBeacon()` uplink to "terminal" and "geometry"
+     (`run.resolve_precompensation`); `Campaign(store_screen_phase="auto")`
+     keeps the screen phase for it. Owner: both run_fidelity2 and Campaign.
+  6. DONE (documented, not changed). The point-ahead margin draws a
+     different atmosphere; the `Campaign(point_ahead_rad=)` docstring says so.
+     Drawing every campaign on the widest grid would re-key every store.
+  7, 8. DONE. `tx_gaussian_efficiency_term` takes the launch curvature:
+     alpha^2 -> alpha^2 + i beta, beta = k a^2 / (2R) (Klein and Degnan,
+     DOI 10.1364/AO.13.002134). With the geometric Term it equals the NG grid
+     Fraunhofer irradiance to 0.06 dB in 9 of 9 cells, so item 7 needs no
+     new code. A NUMBER MOVE for every diverged budget at every fidelity.
+  9. DONE. (a) The pipelined threaded draw feeds the point-ahead route; (b)
+     each oversize screen is built ONE time per trial (half the transforms
+     and half the kept memory), and the host tail builds the clip mask one
+     time. Bit-identical to main; bigfraw RTX 4070: 73 deg 22 to 4.8 s and
+     45 deg 67 to 14 s per 100 trials. A device tail for the point-ahead
+     overlap is NOT needed: the host tail now costs what the device tail
+     costs (2.6 against 2.4 s per 100 on a plain run).
+  10. DONE (owner re-scoped 2026-09-24). `Transmitter.shift_m=(x, y)` is a
+     side-mounted launch. ANY shift takes TIP-TILT pre-compensation only:
+     the main aperture senses it and it goes on the shifted disc as a plane
+     (`ApertureModes.tilt_plane`); a stack past 3 Noll modes raises. No shift
+     keeps AO(n) as before. The repr omits an unset shift, so no stored key
+     moves. The default campaign patch covers the shifted disc.
+  11. OPEN. A backend-agnostic READ key (read a cupy campaign on the
+     laptop).
 
 - **2-AO. The RECEIVE-side perfect AO and the reciprocity pre-compensation are
   BUILT (2026-09-07, branch `waveoptics-ao`). They are an OPT-IN, and the

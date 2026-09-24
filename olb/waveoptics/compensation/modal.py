@@ -291,6 +291,36 @@ class ApertureModes:
         res = self._flat(phase) - self._flat(self.reconstruct(coeffs))
         return float(np.var(res))
 
+    def tilt_plane(self, coeffs):
+        """Give the piston and tilt of a fit as a PLANE over the whole grid.
+
+        Noll modes 1 to 3 (piston, tip, tilt) are planes over the aperture
+        (Noll 1976, DOI 10.1364/JOSA.66.000207, Table I), so they extend past
+        the mask with no ambiguity. A SIDE-MOUNTED launch reads the tilt that
+        the main aperture senses on its own, shifted disc: the plane carries it
+        there. The higher modes are not planes, so they do not extend, and the
+        call reads coefficients 1 to 3 only.
+
+        Args:
+            coeffs: the Noll coefficients of this basis, in radians.
+
+        Returns:
+            An (N, N) float64 phase map, in radians. It equals
+            `reconstruct(coeffs[:3])` inside the mask.
+        """
+        if getattr(self, "_planes", None) is None:
+            # Each basis column 1 to 3 IS a plane over the mask, so one least-
+            # squares fit of (1, x, y) gives it exactly. It is built one time.
+            y, x = np.divmod(self.indices, self.n)
+            A = np.stack([np.ones_like(x), x, y], axis=1).astype(np.float64)
+            k = min(3, self.n_modes)
+            self._planes = np.linalg.lstsq(A, self.basis[:, :k],
+                                           rcond=None)[0]
+        c = np.asarray(coeffs, dtype=np.float64)[:self._planes.shape[1]]
+        a0, ax, ay = self._planes @ c
+        yy, xx = np.indices((self.n, self.n), dtype=np.float64)
+        return a0 + ax * xx + ay * yy
+
 
 if __name__ == '__main__':
     import time
@@ -431,6 +461,16 @@ if __name__ == '__main__':
         pass
     else:
         raise AssertionError("an unknown stage must raise")
+
+    # The tilt plane equals the fitted tip-tilt inside the mask, and it
+    # extends it outside as a plane.
+    tt = ApertureModes(3, 64, circle(64, 30))
+    c_tt = np.array([0.3, -1.2, 0.7])
+    plane = tt.tilt_plane(c_tt)
+    assert np.allclose(plane.ravel()[tt.indices],
+                       tt.reconstruct(c_tt).ravel()[tt.indices], atol=1e-12)
+    assert np.allclose(np.diff(plane, 2, axis=1), 0.0, atol=1e-12)
+    assert abs(plane[0, 0]) > 0.0
 
     # The build cost of a realistic receive aperture.
     t0 = time.perf_counter()

@@ -28,7 +28,7 @@ Detector. So the model emits ONE receive-coupling Term, not two. See
 olb.models.coupling.
 '''
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, Union
 
 
@@ -69,6 +69,17 @@ class Transmitter:
             transmitter shares the owning Terminal obscuration_ratio. Set 0.0 for
             an unobscured beam director on a terminal whose receive telescope is
             obscured.
+        shift_m : tuple, optional
+            The (x, y) offset [m] of the transmit aperture centre from the
+            centre of the owning Terminal aperture: a SIDE-MOUNTED beam
+            director. None (the default) is a co-axial launch. Only the
+            fidelity-2 uplink reads it: the reciprocity overlap takes the
+            transmit mode at the shifted disc. A shifted launch takes TIP-TILT
+            pre-compensation only (backlog 2-DV item 10, owner decision
+            2026-09-24): the tilt is sensed over the Terminal (main) aperture
+            and applied as a plane over the shifted disc. A higher-order
+            modal fit does not carry from one pupil to another, so a stack
+            that removes more than 3 Noll modes raises.
     '''
     waist_m: float
     power_dbm: Optional[float] = None
@@ -76,6 +87,15 @@ class Transmitter:
     divergence_rad: Optional[float] = None
     aperture_m: Optional[float] = None
     obscuration_ratio: Optional[float] = None
+    shift_m: Optional[tuple] = None
+
+    def __repr__(self):
+        # A campaign fingerprint holds this text. An unset shift adds nothing,
+        # so the text of every co-axial launch (and every stored key) stays
+        # the text of the generated dataclass repr.
+        return "Transmitter(" + ", ".join(
+            f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
+            if f.name != "shift_m" or self.shift_m is not None) + ")"
 
 
 # --- Detector front ends ----------------------------------------------------

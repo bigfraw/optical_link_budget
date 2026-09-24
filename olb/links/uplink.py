@@ -1447,9 +1447,16 @@ if __name__ == '__main__':
                           ground_aperture=0.5, compensation=[AO(20)],
                           precompensation=DownlinkBeacon())
         pre_cn2 = default_cn2_profile(pre_scn.channel.site)
+        # A DownlinkBeacon scenario takes the corrected, point-ahead run BY
+        # DEFAULT (backlog 2-DV item 5). This check pins point_ahead_rad=None
+        # to test the zero-angle route and its NO ANISOPLANATISM flag.
+        from ..waveoptics.turbulence.run import resolve_precompensation
+        assert resolve_precompensation(pre_scn, "auto", "auto") == (
+            "terminal", "geometry")
         pre_bundle = run_fidelity2(
             pre_scn, budget_geom, preset="rapid", n_trials=16, seed=9,
-            progress=False, compensation="terminal", cn2_profile=pre_cn2)
+            progress=False, compensation="terminal", point_ahead_rad=None,
+            cn2_profile=pre_cn2)
         pre_up = uplink_budget(pre_scn, budget_geom, fidelity=2,
                                wave=pre_bundle, cn2_profile=pre_cn2)
         pre_turb = next(t for t in pre_up.terms
@@ -1461,7 +1468,8 @@ if __name__ == '__main__':
         # The correction must not deepen the fade of the same seed.
         bare_bundle = run_fidelity2(
             pre_scn, budget_geom, preset="rapid", n_trials=16, seed=9,
-            progress=False, cn2_profile=pre_cn2)
+            progress=False, compensation=None, point_ahead_rad=None,
+            cn2_profile=pre_cn2)
         bare = np.array([t.eta_turb for t in bare_bundle.turbulent.trials])
         good = np.array([t.eta_turb for t in pre_bundle.turbulent.trials])
         assert good.mean() > bare.mean(), (good.mean(), bare.mean())

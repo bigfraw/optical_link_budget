@@ -40,6 +40,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ...beam import virtual_waist
+from ...scenario import DownlinkBeacon
 from ...terminal import Aperture, Camera, SMF, MMF
 from ..compensation import (ApertureModes, circle, max_abs_step,
                             modes_from_stack, wrapped_gradient)
@@ -542,6 +543,30 @@ def _summing(screens, box):
         else:
             box[0] += scr
         yield scr
+
+
+def resolve_precompensation(scenario, compensation, point_ahead_rad):
+    """Resolve the "auto" defaults of `compensation` and `point_ahead_rad`.
+
+    The fidelity-0 and fidelity-1 uplink budgets read the scenario
+    `precompensation` (olb.scenario.DownlinkBeacon). This rule makes the
+    fidelity-2 runners read it too (backlog 2-DV item 5, owner decision
+    2026-09-24), so every rung describes the link the same way: a space
+    UPLINK with a DownlinkBeacon takes compensation="terminal" (the ground
+    stack) and point_ahead_rad="geometry" (the uplink leaves at the
+    point-ahead angle). Every other scenario takes None for both, so its run
+    does not move. An explicit value (None too) always wins.
+
+    Returns:
+        The pair (compensation, point_ahead_rad), with no "auto" left.
+    """
+    beacon = (hasattr(scenario, "ground") and scenario.direction == "uplink"
+              and isinstance(scenario.precompensation, DownlinkBeacon))
+    if isinstance(compensation, str) and compensation == "auto":
+        compensation = "terminal" if beacon else None
+    if isinstance(point_ahead_rad, str) and point_ahead_rad == "auto":
+        point_ahead_rad = "geometry" if beacon else None
+    return compensation, point_ahead_rad
 
 
 def _resolve_compensation(scenario, compensation):
@@ -1349,6 +1374,63 @@ def _start_field(scenario, grid, lam, is_space, dtype=np.complex128,
     return _clip(F0, *_launch_aperture(tx))
 
 
+def _tx_shift_px(ground, pixel_m):
+    """Give the (row, column) pixel shift of a side-mounted launch, or None.
+
+    Transmitter.shift_m = (x, y) in m moves the transmit disc from the centre
+    of the Terminal aperture. The shift rounds to whole pixels (an error of at
+    most half a pixel), because a lateral shift does not change the
+    statistics of a homogeneous atmosphere; only the separation from the
+    sensing (main) aperture matters, and that is known to a pixel.
+    """
+    t = ground.transmitter
+    if t is None or t.shift_m is None:
+        return None
+    sx, sy = (float(v) for v in t.shift_m)
+    return int(round(sy / pixel_m)), int(round(sx / pixel_m))
+
+
+def _tx_reach_m(ground, pixel_m):
+    """Give the largest radius of the (shifted) transmit disc, in m."""
+    aperture_m, _obscuration = _launch_aperture(ground)
+    sh = _tx_shift_px(ground, pixel_m)
+    return (aperture_m / 2.0 if sh is None
+            else float(np.hypot(*sh)) * pixel_m + aperture_m / 2.0)
+
+
+def _check_uplink_shift(ground, n_modes, where):
+    """Raise when a side-mounted launch asks for more than tip-tilt.
+
+    Owner decision 2026-09-24 (backlog 2-DV item 10): a SHIFTED launch takes
+    tip-tilt pre-compensation only, sensed over the main aperture. The tilt
+    is a plane and it carries to the shifted disc (ApertureModes.tilt_plane);
+    a higher Noll mode fitted over one pupil does not describe another.
+    """
+    t = ground.transmitter
+    if t is not None and t.shift_m is not None and n_modes > 3:
+        raise ValueError(
+            f"{where}: the ground Transmitter has shift_m={t.shift_m!r} (a "
+            f"side-mounted launch), and the stack removes {n_modes} Noll "
+            "modes. A shifted launch takes TipTilt() only: the main aperture "
+            "senses the tilt, and a higher mode does not carry to another "
+            "pupil. Use a TipTilt() stack, or set shift_m=None.")
+
+
+def _uplink_corrected(modes, E, coeffs, shifted):
+    """Apply the BEACON correction to an uplink-direction field.
+
+    A co-axial launch removes the fitted modes over the aperture mask, which
+    is the runner rule. A SHIFTED launch removes the fitted piston and tilt
+    as a PLANE over the whole grid, so the shifted transmit disc gets the tilt
+    that the main aperture sensed (see _check_uplink_shift). Source: Noll
+    1976, DOI 10.1364/JOSA.66.000207 (the modal basis).
+    """
+    if shifted:
+        return (E * np.exp(-1j * modes.tilt_plane(coeffs))).astype(
+            E.dtype, copy=False)
+    return modes.apply(E, coeffs, sign=-1)
+
+
 def _ground_transmit_mode(ground, grid, dtype=np.complex128):
     """Make the normalised transmit mode of the ground terminal.
 
@@ -1374,7 +1456,12 @@ def _ground_transmit_mode(ground, grid, dtype=np.complex128):
         F = GForvard(F, offset)
     aperture_m, obscuration = _launch_aperture(ground)
     psi = _clip(F, aperture_m, obscuration).field
-    return psi / np.sqrt((np.abs(psi) ** 2).sum())
+    psi = psi / np.sqrt((np.abs(psi) ** 2).sum())
+    # A SIDE-MOUNTED launch (Transmitter.shift_m) sits off the centre. The
+    # mode is zero outside its disc, so a roll moves it with no wrap while the
+    # disc stays on the grid (the runner checks that).
+    sh = _tx_shift_px(ground, grid.pixel_m)
+    return psi if sh is None else np.roll(psi, sh, axis=(0, 1))
 
 
 def reciprocity_overlap(E, psi):
@@ -1486,9 +1573,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  screen_generator="olb", progress=False,
                                  detectors=None, start_index=0,
                                  patch_radius_m=None, precision="single",
-                                 fft_backend="numpy", compensation=None,
+                                 fft_backend="numpy", compensation="auto",
                                  store_screen_phase=False,
-                                 point_ahead_rad=None, screen_margin_m=None,
+                                 point_ahead_rad="auto", screen_margin_m=None,
                                  temporal=None, h_gl=None,
                                  start_waist_frac="auto", boost=True):
     """Run a set of turbulent split-step trials for one scenario.
@@ -1644,7 +1731,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       Validate a single-precision run against a
                       double-precision run of the same seed before a budget
                       reads it. See validation/precision.
-        compensation: None (the default, NO correction), the string
+        compensation: "auto" (the default: "terminal" for a space uplink
+                      with precompensation=DownlinkBeacon(), None otherwise;
+                      see resolve_precompensation), None (NO correction), the
+                      string
                       "terminal", or a list of TipTilt and AO stages. The
                       string reads the compensation stack of the CLIP terminal
                       (clip_terminal: the ground terminal of a space link in
@@ -1661,7 +1751,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       terrestrial run may store it too, but its post-hoc
                       correction reads the field slopes. The default False
                       stores nothing.
-        point_ahead_rad: None (the default, NO point-ahead pass), the string
+        point_ahead_rad: "auto" (the default: "geometry" for a space uplink
+                      with precompensation=DownlinkBeacon(), None otherwise;
+                      see resolve_precompensation), None (NO point-ahead
+                      pass), the string
                       "geometry" (the one angle of the geometry), a float, or a
                       sequence of angles in rad. Each angle adds ONE more
                       propagation of the SAME atmosphere through a LATERALLY
@@ -1752,6 +1845,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         raise ValueError("propagate_turbulent_scenario: give grid AND plan "
                          "together, or give neither.")
     start_waist_frac = resolve_start_waist_frac(start_waist_frac, scenario)
+    compensation, point_ahead_rad = resolve_precompensation(
+        scenario, compensation, point_ahead_rad)
 
     # ---- the point ahead (an OPT-IN, default OFF) ----
     pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
@@ -1844,6 +1939,20 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     comp_stack, n_modes = _resolve_compensation(scenario, compensation)
     comp_source = "screens" if is_space else "slopes"
     comp_modes = None
+    # A SIDE-MOUNTED uplink launch takes the tilt as a plane (backlog 2-DV
+    # item 10). See _uplink_corrected.
+    is_uplink = is_space and scenario.direction == "uplink"
+    shifted = bool(is_uplink and _tx_shift_px(scenario.ground, grid.pixel_m))
+    if is_uplink:
+        _check_uplink_shift(scenario.ground, n_modes,
+                            "propagate_turbulent_scenario")
+        r_tx = _tx_reach_m(scenario.ground, grid.pixel_m)
+        if r_tx >= r_flat:
+            warnings.warn(
+                f"propagate_turbulent_scenario: the transmit disc reaches "
+                f"{r_tx:.4g} m from the centre, into the absorbing band of the "
+                f"boundary mask (it starts at {r_flat:.4g} m). Use a wider "
+                "grid.")
     if n_modes > 0:
         # The SLOPE route needs a longer fit than it corrects, and it zeros the
         # extra coefficients. See SLOPE_MIN_MODES.
@@ -2126,6 +2235,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             if screen_phase is not None:
                 screen_phase[k - start_index] = acc.ravel()[patch.indices]
             coeffs = None
+            E_unc = F_rx.field      # the correction below makes a new array
             if comp_modes is not None:
                 # The clip, the coupling and the reciprocity overlap below all
                 # read the CORRECTED wavefront. See _apply_compensation (the
@@ -2159,7 +2269,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 # The reciprocity overlap. See Shapiro,
                 # DOI 10.1364/JOSA.61.000492. Point-ahead anisoplanatism is NOT
                 # modelled: the uplink and the downlink read the same screens.
-                o = reciprocity_overlap(F_rx.field, psi_tx)
+                E_up = F_rx.field
+                if shifted and coeffs is not None:
+                    E_up = _uplink_corrected(comp_modes, E_unc, coeffs, True)
+                o = reciprocity_overlap(E_up, psi_tx)
                 eta_turb = o / o_vac
             eta_turb_pa = None
             if pa_angles is not None:
@@ -2186,7 +2299,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                     if eta_turb is not None:
                         E = F_pa.field
                         if coeffs is not None:
-                            E = comp_modes.apply(E, coeffs, sign=-1)
+                            E = _uplink_corrected(comp_modes, E, coeffs,
+                                                  shifted)
                         got.append(reciprocity_overlap(E, psi_tx) / o_vac)
                 eta_turb_pa = tuple(got) if got else None
             return TurbTrial(collected_power=collected_power, smf_eta=smf_eta,
@@ -2275,7 +2389,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               h_top_m=None, L0_m=None,
                               subharmonics=True, screen_generator="olb",
                               precision="single", fft_backend="numpy",
-                              compensation=None, point_ahead_rad=None,
+                              compensation="auto", point_ahead_rad="auto",
                               screen_margin_m=None, h_gl=None,
                               start_waist_frac="auto"):
     """Propagate ONE snapshot and give back the complex receive-plane field.
@@ -2381,6 +2495,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         raise ValueError(
             f"propagate_turbulent_field: the geometry gives {range_m.size} "
             "ranges. Give one range.")
+    compensation, point_ahead_rad = resolve_precompensation(
+        scenario, compensation, point_ahead_rad)
     pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
     if pa_angles is not None:
         if len(pa_angles) != 1:
@@ -3181,11 +3297,12 @@ def _transmit_mode_crop(ground, grid, patch, cdtype, compact=True):
     Raises:
         ValueError: the launch aperture is larger than the stored patch.
     """
-    aperture_m, _obscuration = _launch_aperture(ground)
-    if aperture_m / 2.0 > patch.radius_m:
+    reach = _tx_reach_m(ground, grid.pixel_m)
+    if reach > patch.radius_m:
         raise ValueError(
-            f"the launch aperture radius ({aperture_m / 2.0:.4g} m) is larger "
-            f"than the stored patch radius ({patch.radius_m:.4g} m). The "
+            f"the launch aperture reaches {reach:.4g} m from the centre (its "
+            f"radius plus any Transmitter.shift_m), past the stored patch "
+            f"radius ({patch.radius_m:.4g} m). The "
             "ground transmit mode must sit inside the patch, or the overlap "
             "loses power. Store a wider patch.")
     psi = _ground_transmit_mode(ground, grid, dtype=cdtype)
@@ -3264,6 +3381,8 @@ def point_ahead_overlap(result, compensation, scenario, *, source="screens",
 
     rx = clip_terminal(scenario)
     _stack, n_modes = _resolve_compensation(scenario, compensation)
+    _check_uplink_shift(ground, n_modes, "point_ahead_overlap")
+    shifted = _tx_shift_px(ground, result.grid.pixel_m) is not None
     corrector = None
     if n_modes > 0:
         corrector = _PostCorrector(patch, _stack, rx.aperture_m,
@@ -3289,7 +3408,7 @@ def point_ahead_overlap(result, compensation, scenario, *, source="screens",
         for i in range(n_angles):
             E = _crop_array(patch, result.fields_pa[i, row], compact=compact)
             if coeffs is not None:
-                E = corrector.modes.apply(E, coeffs, sign=-1)
+                E = _uplink_corrected(corrector.modes, E, coeffs, shifted)
             out[m, i] = reciprocity_overlap(E, psi) / o_vac
     return out
 
@@ -3383,6 +3502,10 @@ class _PointAheadRunner:
         rx = clip_terminal(scenario)
         self.stack, self.n_modes = _resolve_compensation(scenario,
                                                          compensation)
+        _check_uplink_shift(self.ground, self.n_modes,
+                            "point_ahead_regenerate")
+        self.shifted = _tx_shift_px(self.ground,
+                                    self.grid.pixel_m) is not None
         previous = set_fft_backend(fft_backend)
         try:
             # L0_m=None reads the site outer scale, the runner default.
@@ -3471,7 +3594,7 @@ class _PointAheadRunner:
             for i in range(len(self.angles)):
                 E = self._propagate(noise, i).field
                 if coeffs is not None:
-                    E = self.modes.apply(E, coeffs, sign=-1)
+                    E = _uplink_corrected(self.modes, E, coeffs, self.shifted)
                 out[i] = reciprocity_overlap(E, self.psi_tx) / self.o_vac
             return out
         finally:

@@ -65,6 +65,7 @@ Sources:
 import json
 import os
 import time
+import warnings
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -76,13 +77,16 @@ from ..resources import auto_workers, worker_memory_bytes
 from ..threader import Threader
 from .fingerprint import cache_key
 from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
-                  _crop_array, _field_patch, _patch_field, _PointAheadRunner,
-                  _PostCorrector,
+                  _check_uplink_shift, _crop_array, _field_patch,
+                  _ground_transmit_mode, _patch_field, _PointAheadRunner,
+                  _PostCorrector, _tx_reach_m, _tx_shift_px,
+                  _uplink_corrected,
                   _PostTail, _resolve_compensation, _resolve_point_ahead,
                   _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
                   _uplink_ground, clip_terminal,
                   _resolve_seed, _screen_seed, propagate_turbulent_scenario,
-                  reciprocity_overlap, resolve_start_waist_frac,
+                  reciprocity_overlap, resolve_precompensation,
+                  resolve_start_waist_frac,
                   space_vacuum_baseline)
 from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
 from .splitstep import super_gaussian_boundary
@@ -233,24 +237,13 @@ def _run_block(b):
     Returns:
         The pair (b, the column dict).
     """
+    kw = dict(_W["kwargs"])
+    bs = kw.pop("block_size")
     res = propagate_turbulent_scenario(
         _W["scenario"], _W["geometry"], threader=None,
-        start_index=int(b) * _W["kwargs"]["block_size"],
+        start_index=int(b) * bs, n_trials=bs,
         grid=_W["grid"], plan=_W["plan"],
-        n_trials=_W["kwargs"]["block_size"],
-        seed=_W["kwargs"]["seed"], preset=_W["kwargs"]["preset"],
-        patch_radius_m=_W["kwargs"]["patch_radius_m"],
-        L0_m=_W["kwargs"]["L0_m"],
-        subharmonics=_W["kwargs"]["subharmonics"],
-        screen_generator=_W["kwargs"]["screen_generator"],
-        precision=_W["kwargs"]["precision"],
-        fft_backend=_W["kwargs"]["fft_backend"],
-        compensation=_W["kwargs"]["compensation"],
-        store_screen_phase=_W["kwargs"]["store_screen_phase"],
-        point_ahead_rad=_W["kwargs"]["point_ahead_rad"],
-        screen_margin_m=_W["kwargs"]["screen_margin_m"],
-        temporal=_W["kwargs"]["temporal"], h_gl=_W["kwargs"]["h_gl"],
-        boost=False)        # the worker boosted itself in _init_worker.
+        boost=False, **kw)  # the worker boosted itself in _init_worker.
     return int(b), _columns_of(res)
 
 
@@ -508,7 +501,7 @@ class _PointAheadTrials:
     """
 
     def __init__(self, compensation, aperture_m, obscuration_ratio, psi,
-                 o_vac, source, compact=True):
+                 o_vac, source, compact=True, shifted=False):
         """Hold the fixed parts of one read.
 
         Args:
@@ -520,7 +513,10 @@ class _PointAheadTrials:
             o_vac:             the free-space overlap baseline.
             source:            "screens", "slopes", or "gtilt".
             compact:           True works on the crop.
+            shifted:           True for a side-mounted launch: the tilt goes
+                               on as a plane (run._uplink_corrected).
         """
+        self.shifted = bool(shifted)
         self.compensation = compensation
         self.aperture_m = float(aperture_m)
         self.obscuration_ratio = float(obscuration_ratio)
@@ -554,9 +550,73 @@ class _PointAheadTrials:
         out = []
         for E in rec.arrays_pa:
             if coeffs is not None:
-                E = corrector.modes.apply(E, coeffs, sign=-1)
+                E = _uplink_corrected(corrector.modes, E, coeffs,
+                                      self.shifted)
             out.append(reciprocity_overlap(E, self.psi) / self.o_vac)
         return np.asarray(out, dtype=float)
+
+
+class _UplinkOverlapTrials:
+    """The per-trial callable of `Campaign.uplink_overlaps`.
+
+    It reads ONE stored trial and it gives every uplink case of every
+    transmit mode from that one read: the beacon field and each point-ahead
+    field, each one uncorrected and (with a stack) corrected with the BEACON
+    estimate. The overlap convention is the runner one: no conjugate on the
+    transmit mode (Shapiro, DOI 10.1364/JOSA.61.000492).
+
+    The value is one flat array of the shape (n_cases, n_modes). The case
+    order is: "none", ["corrected"], then "none_pa" for each angle, then
+    ["corrected_pa"] for each angle.
+    """
+
+    def __init__(self, compensation, aperture_m, obscuration_ratio, psis,
+                 o_vacs, shifted, source, compact=True):
+        self.compensation = compensation
+        self.aperture_m = float(aperture_m)
+        self.obscuration_ratio = float(obscuration_ratio)
+        self.psis = psis
+        self.o_vacs = [float(o) for o in o_vacs]
+        self.shifted = [bool(v) for v in shifted]
+        self.source = source
+        self.compact = bool(compact)
+
+    def __call__(self, rec):
+        fields = [rec.array]
+        pa = list(rec.arrays_pa or ())
+        coeffs = corrector = None
+        if self.compensation is not None:
+            corrector = rec.context.get("uplink_corrector")
+            if corrector is None:
+                corrector = _PostCorrector(rec.patch, self.compensation,
+                                           self.aperture_m,
+                                           self.obscuration_ratio, self.source,
+                                           compact=self.compact)
+                rec.context["uplink_corrector"] = corrector
+            coeffs = corrector.coefficients(rec.array, rec.screen_phase)
+        out = np.empty((len(self._cases(len(pa))), len(self.psis)))
+        # A correction depends on the shift only (a plane or the modal fit),
+        # so each kind is computed ONE time for all the transmit modes.
+        done = {}
+        for j, (psi, o_vac, shifted) in enumerate(
+                zip(self.psis, self.o_vacs, self.shifted)):
+            if coeffs is not None and shifted not in done:
+                done[shifted] = [
+                    _uplink_corrected(corrector.modes, E, coeffs, shifted)
+                    for E in fields + pa]
+            rows = fields + ([done[shifted][0]] if coeffs is not None else [])
+            rows += pa + (done[shifted][1:] if coeffs is not None else [])
+            for i, E in enumerate(rows):
+                out[i, j] = reciprocity_overlap(E, psi) / o_vac
+        return out
+
+    def _cases(self, n_angles):
+        """Give the case labels of the rows, in order."""
+        corrected = self.compensation is not None
+        return (["none"] + (["corrected"] if corrected else [])
+                + [("none_pa", i) for i in range(n_angles)]
+                + ([("corrected_pa", i) for i in range(n_angles)]
+                   if corrected else []))
 
 
 class _RegeneratePointAhead:
@@ -638,8 +698,8 @@ class Campaign:
                  grid=None, plan=None, cn2=None,
                  hs=None, cn2_profile=None, h_top_m=None, L0_m=None,
                  subharmonics=True, screen_generator="olb",
-                 precision="single", fft_backend="numpy", compensation=None,
-                 store_screen_phase=False, point_ahead_rad=None,
+                 precision="single", fft_backend="numpy", compensation="auto",
+                 store_screen_phase="auto", point_ahead_rad="auto",
                  screen_margin_m=None, temporal=None, h_gl=None,
                  start_waist_frac="auto"):
         """Open a campaign, or make a new one.
@@ -721,7 +781,10 @@ class Campaign:
                            Validate it against a double-precision run of the
                            same seed before a budget reads it. See
                            validation/precision.
-            compensation:  None (the default, NO correction), the string
+            compensation:  "auto" (the default: "terminal" for a space
+                           uplink with precompensation=DownlinkBeacon(), None
+                           otherwise; see run.resolve_precompensation), None
+                           (NO correction), the string
                            "terminal" (the compensation stack of the clip
                            terminal), or a list of TipTilt and AO stages. Each
                            trial then removes the first N Noll modes of the
@@ -730,13 +793,19 @@ class Campaign:
                            enters the fingerprint and the manifest, so a
                            corrected campaign never mixes with an uncorrected
                            one. The default keeps every stored key valid.
-            store_screen_phase: True stores the summed screen phase of each
+            store_screen_phase: "auto" (the default) is True for a space
+                           uplink with precompensation=DownlinkBeacon() (the
+                           post-hoc beacon correction reads it) and False
+                           otherwise. True stores the summed screen phase of
+                           each
                            trial at the patch pixels, as float32. It is the
                            sensing source of the post-hoc SPACE correction
                            (`recouple_compensated`). It adds one array to each
                            block file, and it enters the fingerprint. The
                            default False stores nothing.
-            point_ahead_rad: None (the default, NO point-ahead pass), the string
+            point_ahead_rad: "auto" (the default: "geometry" for a space
+                           uplink with precompensation=DownlinkBeacon(), None
+                           otherwise), None (NO point-ahead pass), the string
                            "geometry", a float, or a sequence of angles in rad.
                            Each angle adds one more propagation of the SAME
                            atmosphere through a laterally shifted window of each
@@ -744,7 +813,12 @@ class Campaign:
                            overlap, the field and the screen phase of every
                            angle. The RESOLVED angles enter the fingerprint and
                            the manifest. It needs a SPACE scenario. See
-                           olb.waveoptics.turbulence.run.
+                           olb.waveoptics.turbulence.run. CAUTION: the angles
+                           widen the screen draw (screen_n), so a point-ahead
+                           campaign draws a DIFFERENT atmosphere from a plain
+                           campaign of the same seed, and the two do not pair
+                           trial for trial. Compare statistics, or read the
+                           "none" case of `uplink_overlaps` as the baseline.
             screen_margin_m: the extra screen width of the shifted windows, in
                            m. None on a NEW campaign reads the geometry; None on
                            a REOPENED campaign reads the stored value from the
@@ -816,8 +890,20 @@ class Campaign:
         # RESOLVE THE STACK BEFORE THE FINGERPRINT. The key then names the
         # stages, not the string "terminal", so a campaign that asks for the
         # terminal stack and a campaign that gives the same stages share a key.
+        auto_phase = (isinstance(point_ahead_rad, str)
+                      and point_ahead_rad == "auto")
+        compensation, point_ahead_rad = resolve_precompensation(
+            scenario, compensation, point_ahead_rad)
         self.compensation, self.n_modes_corrected = _resolve_compensation(
             scenario, compensation)
+        if isinstance(store_screen_phase, str):
+            if store_screen_phase != "auto":
+                raise ValueError(
+                    f"Campaign: store_screen_phase must be 'auto', True or "
+                    f"False, not {store_screen_phase!r}.")
+            # A beacon campaign keeps the phase that the post-hoc beacon
+            # correction senses; every other campaign stores none, as before.
+            store_screen_phase = auto_phase and point_ahead_rad is not None
         self.store_screen_phase = bool(store_screen_phase)
         # "auto" reads the SIZING scenario, so a collimated campaign sized for
         # a diverged read takes the Gaussian start too.
@@ -855,6 +941,15 @@ class Campaign:
                 base = (self.sizing_aperture_m if self.sizing_aperture_m is not None
                         else clip_terminal(scenario).aperture_m)
                 patch_radius_m = float(base) / 2.0 * PATCH_MARGIN_FACTOR
+                # A SIDE-MOUNTED launch (Transmitter.shift_m) must sit inside
+                # the stored disc too. The shift reads 1 mm pixels here,
+                # because the grid is not sized yet; the margin covers it.
+                ground = getattr(scenario, "ground", None)
+                if ground is not None and ground.transmitter is not None \
+                        and ground.transmitter.shift_m is not None:
+                    patch_radius_m = max(
+                        patch_radius_m,
+                        _tx_reach_m(ground, 1e-3) * PATCH_MARGIN_FACTOR)
         self.patch_radius_m = float(patch_radius_m)
         # RESOLVE THE POINT-AHEAD ANGLES BEFORE THE FINGERPRINT, the same rule
         # as the compensation stack: the key names the ANGLES, not the string
@@ -1252,22 +1347,16 @@ class Campaign:
         if workers is None:
             # The CUDA route refuses a threader: one device, one stream.
             threader = None if self.fft_backend == "cupy" else Threader()
+            # ONE option list (_runner_kwargs) feeds the serial route and the
+            # pool route, so an option cannot reach one route and miss the
+            # other (start_waist_frac did, 2026-09-24).
+            kw = self._runner_kwargs()
+            kw.pop("block_size")
             for i, b in enumerate(missing):
                 res = propagate_turbulent_scenario(
                     self.scenario, self.geometry, n_trials=self.block_size,
-                    start_index=b * self.block_size, seed=self.seed,
-                    preset=self.preset, grid=self.grid, plan=self.plan,
-                    patch_radius_m=self.patch_radius_m, L0_m=self.L0_m,
-                    subharmonics=self.subharmonics,
-                    screen_generator=self.screen_generator,
-                    precision=self.precision, threader=threader,
-                    fft_backend=self.fft_backend,
-                    compensation=self.compensation,
-                    store_screen_phase=self.store_screen_phase,
-                    point_ahead_rad=self.point_ahead_rad,
-                    screen_margin_m=self.screen_margin_m,
-                    temporal=self.temporal, h_gl=self.h_gl,
-                    boost=boost)
+                    start_index=b * self.block_size, grid=self.grid,
+                    plan=self.plan, threader=threader, boost=boost, **kw)
                 self._write_block(b, _columns_of(res))
                 if progress:
                     print(f"  block {b:5d} done "
@@ -1669,14 +1758,136 @@ class Campaign:
             source = ("screens" if hasattr(self.scenario, "ground")
                       else "slopes")
         stack, n_modes = _resolve_compensation(self.scenario, compensation)
+        _check_uplink_shift(ground, n_modes, where)
         rx = clip_terminal(self.scenario)
-        fn = _PointAheadTrials(stack if n_modes > 0 else None, rx.aperture_m,
-                               rx.obscuration_ratio, psi, o_vac, source,
-                               compact=compact)
+        fn = _PointAheadTrials(
+            stack if n_modes > 0 else None, rx.aperture_m,
+            rx.obscuration_ratio, psi, o_vac, source, compact=compact,
+            shifted=_tx_shift_px(ground, self.grid.pixel_m) is not None)
         return self.map_trials(
             fn, n_trials=n_trials, workers=workers,
             screen_phase=(source == "screens" and n_modes > 0),
             compact=compact)
+
+    def uplink_overlaps(self, compensation=None, *, grounds=None, source=None,
+                        n_trials=None, workers=None, compact=True):
+        """Give every uplink case of every transmit mode from ONE read.
+
+        One stored campaign of the downlink slab answers ANY launch: the
+        uplink is the reciprocity overlap of the stored ground field with the
+        transmit mode (Shapiro, DOI 10.1364/JOSA.61.000492), so each ground
+        Terminal in `grounds` (another divergence, waist, aperture or
+        Transmitter.shift_m) is a post-hoc read, with its OWN vacuum baseline.
+        The call reads each block ONE time and it gives all the cases at once
+        (backlog 2-DV items 3 and 4):
+
+          "none":         the beacon field, no correction (the in-run
+                          eta_turb for the scenario ground).
+          "corrected":    the beacon field with the beacon estimate removed:
+                          perfect reciprocity, the upper bound.
+          "none_pa":      the point-ahead field of each stored angle, no
+                          correction (the same statistics as "none").
+          "corrected_pa": the point-ahead field with the BEACON estimate
+                          removed: the real pre-compensated uplink.
+
+        The "corrected" cases need a stack, and the "_pa" cases need a
+        campaign made with point_ahead_rad. A side-mounted launch
+        (Transmitter.shift_m) takes a TipTilt() stack only; its tilt is sensed
+        over the main aperture and it goes on the shifted disc as a plane.
+
+        A DIVERGED transmit mode needs a Gaussian-start campaign (see
+        `start_waist_frac`, and `sizing_divergence_rad` for the grid); a
+        plane-start campaign warns, because its edge rings reach a curved
+        mode.
+
+        Args:
+            compensation: None (no correction), "terminal", or a list of
+                          TipTilt and AO stages.
+            grounds:      a sequence of ground Terminals, each with a
+                          Transmitter, or None for the scenario ground.
+            source:       "screens", "slopes", "gtilt", or None for the
+                          family rule ("screens" on a space link).
+            n_trials:     the number of trials. None takes every stored trial.
+            workers:      None runs in this process. An int or "auto" opens a
+                          process pool (see `map_trials`).
+            compact:      True reads on the crop (the default).
+
+        Returns:
+            A dict of float arrays. "none" and "corrected" have the shape
+            (n_trials, n_grounds); "none_pa" and "corrected_pa" have the shape
+            (n_trials, n_angles, n_grounds), in the order of
+            `Campaign.point_ahead_rad`.
+
+        Raises:
+            ValueError: the campaign is not a space campaign with a stored
+                        patch, a ground has no Transmitter, a transmit disc
+                        falls outside the patch, a shifted launch asks for
+                        more than tip-tilt, or source="screens" and the
+                        campaign stored no screen phase.
+        """
+        where = "Campaign.uplink_overlaps"
+        if not hasattr(self.scenario, "ground") or self.patch is None:
+            raise ValueError(
+                f"{where}: the read needs a SPACE campaign that stores a "
+                "field patch (patch_radius_m).")
+        grounds = ([self.scenario.ground] if grounds is None
+                   else list(grounds))
+        for g in grounds:
+            _uplink_ground(replace(self.scenario, ground=g), where)
+        stack, n_modes = _resolve_compensation(self.scenario, compensation)
+        for g in grounds:
+            _check_uplink_shift(g, n_modes, where)
+        if source is None:
+            source = "screens"
+        if n_modes > 0 and source == "screens" \
+                and not self.store_screen_phase:
+            raise ValueError(
+                f"{where}: source='screens' needs the stored summed screen "
+                "phase. Make the campaign with store_screen_phase=True, or "
+                "use source='slopes'.")
+        if self.start_waist_frac is None and any(
+                g.transmitter.divergence_rad is not None for g in grounds):
+            warnings.warn(
+                f"{where}: a DIVERGED transmit mode reads a PLANE-start "
+                "campaign, and the grid-edge rings of that start reach a "
+                "curved mode (-16 to +10 dB in validation/uplink_divergence). "
+                "Make the campaign with start_waist_frac=0.3 or "
+                "sizing_divergence_rad.")
+        cdtype = field_dtype(self.precision)
+        lam = self.scenario.ground.wavelength_m
+        mask = super_gaussian_boundary(
+            self.grid.n, PRESETS[self.preset].boundary_width_frac)
+        # ONE vacuum solve serves every mode: only the overlap differs.
+        F_vac, _ = space_vacuum_baseline(
+            self.grid, self.plan, lam, mask, cdtype,
+            start_waist_frac=self.start_waist_frac)
+        o_vacs = [reciprocity_overlap(
+            F_vac.field, _ground_transmit_mode(g, self.grid, dtype=cdtype))
+            for g in grounds]
+        psis = [_transmit_mode_crop(g, self.grid, self.patch, cdtype,
+                                    compact=compact) for g in grounds]
+        shifted = [_tx_shift_px(g, self.grid.pixel_m) is not None
+                   for g in grounds]
+        rx = clip_terminal(self.scenario)
+        fn = _UplinkOverlapTrials(stack if n_modes > 0 else None,
+                                  rx.aperture_m, rx.obscuration_ratio, psis,
+                                  o_vacs, shifted, source, compact=compact)
+        out = self.map_trials(fn, n_trials=n_trials, workers=workers,
+                              screen_phase=(source == "screens"
+                                            and n_modes > 0),
+                              compact=compact)
+        n_angles = 0 if self.point_ahead_rad is None else len(
+            self.point_ahead_rad)
+        cases = fn._cases(n_angles)
+        res = {"none": out[:, cases.index("none")]}
+        if "corrected" in cases:
+            res["corrected"] = out[:, cases.index("corrected")]
+        for name in ("none_pa", "corrected_pa"):
+            idx = [i for i, c in enumerate(cases)
+                   if isinstance(c, tuple) and c[0] == name]
+            if idx:
+                res[name] = out[:, idx]
+        return res
 
     def point_ahead(self, angles, compensation, *, source=None, n_trials=None,
                     workers=None, fft_backend="numpy"):
@@ -2117,6 +2328,31 @@ if __name__ == '__main__':
             pa_regen = camp8.point_ahead([theta], None, n_trials=4)
             assert np.array_equal(pa_regen[:, 0], pa_stored[:4, 1]), \
                 (pa_regen[:, 0], pa_stored[:4, 1])
+
+            # ---- 11a2. the ONE-READ uplink reader (backlog 2-DV 3, 4, 10) ----
+            # It must equal the stored-plane route case for case, and give a
+            # column for each transmit mode.
+            g0 = camp8.scenario.ground
+            g_div = replace(g0, transmitter=replace(g0.transmitter,
+                                                    divergence_rad=5e-5))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")    # a plane-start campaign
+                up8 = camp8.uplink_overlaps([AO(n_modes=10)],
+                                            grounds=[g0, g_div])
+            assert up8["corrected_pa"].shape == (8, 2, 2)
+            assert np.array_equal(up8["corrected_pa"][:, :, 0], pa_post)
+            assert np.array_equal(up8["none_pa"][:, :, 0], pa_none)
+            beacon8 = np.array([t.eta_turb for t in got8.trials])
+            assert np.allclose(up8["none"][:, 0], beacon8, rtol=1e-5)
+            # A side-mounted launch takes tip-tilt only.
+            g_shift = replace(g0, transmitter=replace(g0.transmitter,
+                                                      shift_m=(0.0, 0.0)))
+            try:
+                camp8.uplink_overlaps([AO(n_modes=10)], grounds=[g_shift])
+            except ValueError as e:
+                assert "TipTilt" in str(e), str(e)
+            else:
+                raise AssertionError("a shifted launch past tip-tilt must raise")
 
             # ---- 11b. an OLD block and an OLD manifest still read ----
             # Delete the three point-ahead keys of block 0 and of the manifest,
