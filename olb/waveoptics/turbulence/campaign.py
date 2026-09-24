@@ -82,6 +82,7 @@ from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
                   _resolve_screen_margin, _screen_draw_n, _transmit_mode_crop,
                   _uplink_ground, clip_terminal,
                   _resolve_seed, propagate_turbulent_scenario,
+                  reciprocity_overlap,
                   space_vacuum_baseline)
 from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
 from .splitstep import super_gaussian_boundary
@@ -503,7 +504,7 @@ class _PointAheadTrials:
         self.compensation = compensation
         self.aperture_m = float(aperture_m)
         self.obscuration_ratio = float(obscuration_ratio)
-        self.conj_psi = np.conj(psi)
+        self.psi = psi
         self.o_vac = float(o_vac)
         self.source = source
         self.compact = bool(compact)
@@ -534,8 +535,7 @@ class _PointAheadTrials:
         for E in rec.arrays_pa:
             if coeffs is not None:
                 E = corrector.modes.apply(E, coeffs, sign=-1)
-            out.append(float(np.abs((E * self.conj_psi).sum()) ** 2)
-                       / self.o_vac)
+            out.append(reciprocity_overlap(E, self.psi) / self.o_vac)
         return np.asarray(out, dtype=float)
 
 

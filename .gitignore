@@ -29,3 +29,5 @@ validation/waveoptics_ao/campaigns/
 validation/posthoc_speed/campaigns/
 validation/waveoptics_pointahead/campaigns/
 validation/waveoptics_pointahead/campaigns_smoke/
+validation/uplink_divergence/campaigns/
+validation/uplink_divergence/*.npy

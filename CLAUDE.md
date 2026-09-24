@@ -405,7 +405,9 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   pixels, no interpolation; the propagation grid does not grow). The ground
   stack senses the BEACON, and the SAME coefficients go on the
   uplink-direction field, which IS the pre-distorted launch: `eta_turb_pa[i] =
-  |sum(apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx))|^2 / o_vac` (Shapiro
+  |sum(apply(F_pa[i], coeffs_beacon, -1) psi_tx)|^2 / o_vac`, NO conjugate on
+  psi_tx (fixed 2026-09-23, `reciprocity_overlap`; a curved launch read the
+  opposite curvature before) (Shapiro
   DOI 10.1364/JOSA.61.000492; Stone DOI 10.1364/JOSAA.11.000347; Noll
   DOI 10.1364/JOSA.66.000207). `TurbTrial.eta_turb_pa` holds one overlap for
   each angle next to the UNCHANGED beacon `eta_turb`, and `TurbWaveResult`

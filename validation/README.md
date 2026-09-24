@@ -316,6 +316,35 @@ by default.
 | --- | --- |
 | [vacuum_loss/vacuum_loss_validation.py](vacuum_loss/vacuum_loss_validation.py) | The cross-check itself. It writes `vacuum_loss_results.json`. |
 
+## divergence_sampling/
+
+The grid-sampling limit of a DELIBERATELY DIVERGED fidelity-2 uplink. The
+space sizer does not read the launch curvature, so past about
+`lambda / (2 dx)` (113 urad on the test grid) the ground transmit mode of the
+reciprocity overlap aliases into a lattice of false bowl centres. The
+vacuum-overlap denominator then errs by -27 to +16 dB, and the turbulence Term
+can show a false GAIN. A sizer guard is NOT BUILT. Two follow-ups: the
+overlap took a wrong conjugate (FIXED 2026-09-23, `reciprocity_overlap`), and
+a diverged launch is NOT grid-converged because the vacuum baseline carries
+grid-edge Fresnel rings (OPEN). See
+[divergence_sampling/README.md](divergence_sampling/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [divergence_sampling/divergence_sampling.py](divergence_sampling/divergence_sampling.py) | The phase cut, the phase map and far field, and the overlap-error sweep (production grid against an 8x finer grid), plus a 16-trial turbulent smoke run. It writes `figures/1_phase_cut.png`, `figures/2_phase_map.png` and `figures/3_overlap_error.png`. |
+
+## uplink_divergence/
+
+The fidelity-2 uplink with a deliberate divergence, up to 200 urad (a 15 cm
+aperture, 55 mm waist, 500 km, 30 and 60 deg). The grid non-convergence of
+`divergence_sampling/` comes from the plane-wave start of the slab; a wide
+Gaussian start fixes it and matches a direct upward propagation through the
+same screens (Arm A). Two 2000-trial GPU campaigns give the power
+distributions (Arm B). Two findings: a PHYSICAL hard-clip far-field ripple
+(about +/-1.4 dB against the divergence), and a budget bug, the truncation Term
+charges the collimated 1.47 dB at every divergence (NOT FIXED). See
+[uplink_divergence/README.md](uplink_divergence/README.md).
+
 ## waveoptics_speed/
 
 The fidelity-2 speed campaign (P0 to P4; see

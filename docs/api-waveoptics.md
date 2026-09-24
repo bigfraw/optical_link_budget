@@ -1161,7 +1161,13 @@ with the ground transmit mode. See Shapiro, DOI 10.1364/JOSA.61.000492. The
 transmit mode `psi_tx` is the launch recipe above, scaled so that
 `sum(|psi_tx|^2) = 1.0`. Then
 
-    eta_turb = |SUM E_rx conj(psi_tx)|^2 / |SUM E_vac conj(psi_tx)|^2
+    eta_turb = |SUM E_rx psi_tx|^2 / |SUM E_vac psi_tx|^2
+
+NO conjugate on `psi_tx` (fixed 2026-09-23): the launch travels up and
+`E_rx` travels down, and the Green's function is symmetric, so the
+mode-match conjugate does not belong here. A real (collimated) `psi_tx`
+gives the same number either way; a curved (diverged) one does not. See
+`reciprocity_overlap` and `validation/divergence_sampling/`.
 
 where `E_vac` is the zero-screen vacuum run through the same mask and the same
 hops. So the vacuum limit of `eta_turb` is exactly 1.0, and
@@ -1192,7 +1198,7 @@ models that with a LATERALLY SHIFTED WINDOW of the SAME screens.
 - **THE PASSES.** Each trial runs the BEACON pass on the unshifted window and
   ONE more pass for each angle. The ground stack senses the BEACON only, and the
   SAME Noll coefficients go on the uplink-direction field. So the overlap is
-  `eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx)|^2 /
+  `eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) psi_tx|^2 /
   o_vac`, against the SAME vacuum baseline `space_vacuum_baseline` that the
   beacon overlap uses. See Shapiro, DOI 10.1364/JOSA.61.000492, and Stone, Hu,
   Mills and Ma, DOI 10.1364/JOSAA.11.000347.

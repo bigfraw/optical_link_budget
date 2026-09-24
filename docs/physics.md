@@ -1511,7 +1511,13 @@ overlap of the received downlink field with the ground transmit mode. See
 Shapiro, "Reciprocity of the turbulent atmosphere," DOI 10.1364/JOSA.61.000492.
 The code reads
 
-    eta_turb = |SUM E_rx conj(psi_tx)|^2 / |SUM E_vac conj(psi_tx)|^2
+    eta_turb = |SUM E_rx psi_tx|^2 / |SUM E_vac psi_tx|^2
+
+NO conjugate on `psi_tx` (fixed 2026-09-23): the launch travels up and
+`E_rx` travels down, and the Green's function is symmetric, so the
+mode-match conjugate does not belong here. A real (collimated) `psi_tx`
+gives the same number either way; a curved (diverged) one does not. See
+`reciprocity_overlap` and `validation/divergence_sampling/`.
 
 with `psi_tx` the normalised ground transmit mode and `E_vac` a zero-screen
 vacuum run through the SAME mask and the SAME hops. So the vacuum limit is
@@ -1669,7 +1675,7 @@ subsection above does. The SAME Noll coefficients then go on the
 uplink-direction field.
 
 That sign follows from the corrected overlap that already exists. The
-uncorrected reciprocity route reads `eta_turb = |SUM E_rx conj(psi_tx)|^2 /
+uncorrected reciprocity route reads `eta_turb = |SUM E_rx psi_tx|^2 /
 o_vac`. The perfect-AO route applies `exp(-i phi_fit)` to the receive-direction
 field `E_rx` before that sum, and by Shapiro reciprocity
 (DOI 10.1364/JOSA.61.000492) that product IS the pre-distorted launch: the beam
@@ -1678,7 +1684,7 @@ launched beam does not change, because the terminal still senses the beacon; the
 PATH changes. So the same coefficients go on the uplink-direction field
 `F_pa[i]`:
 
-    eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) conj(psi_tx)|^2
+    eta_turb_pa[i] = |SUM apply(F_pa[i], coeffs_beacon, -1) psi_tx|^2
                      / o_vac
 
 with `coeffs_beacon` the coefficients of the beacon estimate and `o_vac` the one
