@@ -1817,6 +1817,12 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     lam = scenario.tx_terminal.wavelength_m
     rx = clip_terminal(scenario)
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)
+    # THE CLIP MASK IS BUILT ONE TIME (2026-09-24, backlog 2-DV item 9). _clip
+    # rebuilds two coordinate meshes on every call, which was about 13 ms of a
+    # 68 ms point-ahead GPU trial. The host tail below writes 0.0 at the SAME
+    # pixels that _clip writes 0.0, so the clipped field is bit-identical.
+    clip_zero = _clip(Begin(grid.size_m, lam, grid.n), rx.aperture_m,
+                      rx.obscuration_ratio).field == 0.0
 
     # The receive aperture must sit in the part of the grid that the mask does
     # not touch. The mask is exactly 1.0 inside (1 - width_frac) of the
@@ -2011,16 +2017,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
         factory = getattr(build_screen, "factory", None)
 
-        def windowed(noise, angle_index):
+        def windowed(screens, angle_index):
             """Yield the screens of one pass, one at a time, on its window.
 
-            The screen is built from the noise the trial already drew, so every
-            pass of the trial reads the SAME atmosphere. `angle_index` None
-            takes the beacon window (the offset 0); an integer takes the window
-            of that point-ahead angle. See _screen_windows.
+            `screens` are the oversize screens of the trial, built ONE time, so
+            every pass of the trial reads the SAME atmosphere. `angle_index`
+            None takes the beacon window (the offset 0); an integer takes the
+            window of that point-ahead angle. See _screen_windows.
             """
-            for j in range(n_screens):
-                scr = factory.make_from_noise(plan.r0_m[j], noise[j])
+            for j, scr in enumerate(screens):
                 s = 0 if angle_index is None else int(pa_shifts[angle_index][j])
                 yield scr[0:grid.n, s:s + grid.n]
 
@@ -2033,10 +2038,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             screen of a POINT-AHEAD trial that the draw threads already drew;
             None draws it here.
 
-            A POINT-AHEAD trial keeps the white noise of every screen, so each
-            pass rebuilds the SAME screen on its own window. The noise is
-            n_screens * n_draw^2 complex values, which is the one memory cost
-            of the option.
+            A POINT-AHEAD trial builds every oversize screen ONE time, and each
+            pass crops its own window of it (2026-09-24, backlog 2-DV item 9).
+            The screens are n_screens * n_draw^2 real values, which is the one
+            memory cost of the option. That is half the bytes of the complex
+            noise that the route kept before, and half the screen transforms,
+            because the route rebuilt every screen in every pass. A screen is
+            the same function of the same noise, so the values do not move.
             """
             t0 = time.perf_counter()
             # A GENERATOR, not a list: split_step takes the screens one at a
@@ -2060,7 +2068,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                     noise = [factory.draw(np.random.default_rng(
                         _screen_seed(seed_entropy, k, j)))
                         for j in range(n_screens)]
-                stack = windowed(noise, None)
+                screens = [factory.make_from_noise(plan.r0_m[j], noise[j])
+                           for j in range(n_screens)]
+                del noise
+                stack = windowed(screens, None)
             elif stack is None:
                 stack = (build_screen(_screen_seed(seed_entropy, k, j),
                                       plan.r0_m[j])
@@ -2125,7 +2136,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                     F_rx, comp_modes, comp_source, n_modes, acc,
                     slope_step_warned, "propagate_turbulent_scenario")
 
-            collected = _clip(F_rx, rx.aperture_m, rx.obscuration_ratio)
+            collected = Field.copy(F_rx)
+            collected.field[clip_zero] = 0.0
+            collected._IsGauss = False
             collected_power = float(Power(collected) / p_reference)
             # The receive-terminal detector, the single-detector faces. The MMF
             # and the SMF physics live in _detector_eta, so the multi-detector
@@ -2157,7 +2170,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 got = []
                 for i in range(len(pa_angles)):
                     box_i = [None]
-                    st = windowed(noise, i)
+                    st = windowed(screens, i)
                     if need_sum:
                         st = _summing(st, box_i)
                     F_pa = to_host(split_step(F_start, plan.z_m, st,
