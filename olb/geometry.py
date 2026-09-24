@@ -89,7 +89,18 @@ class SatellitePass:
         return 2 * self.tangential_velocity() / _C
 
     def apparent_slew_rate(self):
-        '''Return the apparent angular slew rate of the line of sight [deg/s].'''
+        '''Return the apparent angular slew rate of the line of sight [deg/s].
+
+        THE RATE IS REFERENCED TO THE ALTITUDE, not to the slant range. It is
+        v*sin(el)/h_sat, which is the coefficient of the `ws*h` term of the
+        Bufton wind profile with h the ALTITUDE of a layer (Andrews and
+        Phillips, DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3), printed
+        p. 481). So the apparent speed at a layer is this rate times the
+        ALTITUDE of the layer, and NOT times its slant distance: a slant
+        distance counts the 1/sin(el) factor a second time. The frozen-flow
+        time axis reads it that way (see
+        olb.waveoptics.turbulence.temporal.strip_plan).
+        '''
         return np.rad2deg(self.tangential_velocity() / self.satellite.altitude)
 
 

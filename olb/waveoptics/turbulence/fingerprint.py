@@ -87,7 +87,7 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               cn2=None, h_top_m=None, grid=None, plan=None,
               precision="double", fft_backend="numpy", compensation=None,
               store_screen_phase=False, point_ahead_rad=None,
-              screen_margin_m=0.0):
+              screen_margin_m=0.0, temporal=None, h_gl=None):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -132,6 +132,15 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         screen_margin_m:  the RESOLVED extra screen width, in m. It enters the
                           key when it is above 0, because the wider draw
                           changes the screens.
+        temporal:         the TemporalSpec of a frozen-flow record, or None. It
+                          enters the key through `TemporalSpec.key()` when it
+                          is not None, because a frame of a moving strip is a
+                          different atmosphere from an independent snapshot.
+                          The key of a spec holds no `strip_dir`, because the
+                          strips are a deletable cache that the seed rebuilds.
+        h_gl:             the forced ground heights of the screen plan, in m,
+                          or None. It enters the key when it is not None,
+                          because it moves the screens.
 
     Returns:
         A 64-character hex string.
@@ -154,6 +163,10 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
                     f"{tuple(float(a) for a in point_ahead_rad)!r}")
     if float(screen_margin_m) > 0.0:
         tail.append(f"screen_margin_m={float(screen_margin_m)!r}")
+    if temporal is not None:
+        tail.append(f"temporal={temporal.key()}")
+    if h_gl is not None:
+        tail.append(f"h_gl={tuple(float(v) for v in h_gl)!r}")
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([
@@ -245,6 +258,26 @@ if __name__ == '__main__':
     assert kpa != cache_key(scn, geom, seed=7, point_ahead_rad=(0.0, 6e-5),
                             **common)
     assert k0 != cache_key(scn, geom, seed=7, screen_margin_m=0.5, **common)
+
+    # ---- the temporal record and the ground layers key only when set ----
+    from .temporal import TemporalSpec
+    assert k0 == cache_key(scn, geom, seed=7, temporal=None, h_gl=None,
+                           **common), \
+        "the temporal defaults must not change an existing key"
+    spec = TemporalSpec(dt_s=5e-4, n_frames=100, strip_dir="/a")
+    ktm = cache_key(scn, geom, seed=7, temporal=spec, **common)
+    assert ktm != k0, "a temporal record must change the key"
+    # The strip directory is a deletable cache, so it must NOT name the run.
+    assert ktm == cache_key(scn, geom, seed=7,
+                            temporal=TemporalSpec(dt_s=5e-4, n_frames=100,
+                                                  strip_dir="/b"), **common)
+    assert ktm != cache_key(scn, geom, seed=7,
+                            temporal=TemporalSpec(dt_s=1e-3, n_frames=100,
+                                                  strip_dir="/a"), **common)
+    kgl = cache_key(scn, geom, seed=7, h_gl=[0.0, 50.0], **common)
+    assert kgl != k0, "a forced ground height must change the key"
+    assert kgl == cache_key(scn, geom, seed=7, h_gl=(0.0, 50.0), **common)
+    assert kgl != cache_key(scn, geom, seed=7, h_gl=[0.0, 60.0], **common)
 
     print(f"key {k0[:16]}... is stable; the seed, the hardware, the preset, "
           "the generator, the block size, the geometry and the Cn2 each "

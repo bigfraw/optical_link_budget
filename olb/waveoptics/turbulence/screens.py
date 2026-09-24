@@ -188,7 +188,11 @@ def _phase_psd_unit(f, L0_m, l0_m):
     Returns:
         The phase PSD at r0 = 1 m, in rad^2 m^2.
     """
-    f = np.asarray(f, dtype=float)
+    # A float32 input STAYS float32 (the table_dtype of `ScreenFactory`);
+    # every other input is float64, as before.
+    f = np.asarray(f)
+    if f.dtype != np.float32:
+        f = f.astype(float, copy=False)
     fm = np.inf if l0_m <= 0.0 else 5.92 / (2.0 * np.pi * float(l0_m))
     f0 = 0.0 if not np.isfinite(L0_m) else 1.0 / float(L0_m)
     denom = (f * f + f0 * f0) ** (11.0 / 6.0)
@@ -279,8 +283,21 @@ class ScreenFactory:
     printed pp. 166 and 167. The subharmonic screen is Eq. (9.81), printed
     p. 169. The default scales give the pure Kolmogorov spectrum.
 
+    A STRIP (2026-09-13). The keyword `nx` makes a RECTANGULAR screen of `n`
+    rows and `nx` columns at one pitch. The frozen-flow time axis needs it: a
+    strip holds the whole travel of one layer, and a frame is a crop of it (see
+    olb.waveoptics.turbulence.temporal). Each axis then has its own fundamental
+    frequency, so the filter carries sqrt(dfy*dfx), and the 3 by 3
+    subharmonics give place to the BAND of `_build_band`: the row fy = 0 of the
+    main grid is cut out and drawn again as 2P+1 sub-rows in y at the fine x
+    sampling of the strip. A square call keeps the old expressions, object
+    for object, so its screen does not move by one bit. A strip needs a FINITE
+    outer scale, and the lean body has no strip route.
+
     Attributes:
-        n:            the number of pixels along one side.
+        n:            the number of pixels along the y axis.
+        nx:           the number of pixels along the x axis. It equals `n` for
+                      a square screen.
         pixel_m:      the pixel pitch, in m.
         L0_m:         the outer scale, in m.
         l0_m:         the inner scale, in m.
@@ -290,7 +307,8 @@ class ScreenFactory:
     _EXPONENT = -5.0 / 6.0                 # r0 enters the screen as r0^(-5/6).
 
     def __init__(self, n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-                 n_sub_levels=3, dtype=np.float64, lean=False):
+                 n_sub_levels=3, dtype=np.float64, lean=False, nx=None,
+                 table_dtype=None):
         """Build the cached filter and the subharmonic basis for one grid.
 
         Args:
@@ -318,25 +336,63 @@ class ScreenFactory:
                           but a lean run is NOT bit-identical to a default
                           run of the same seed. False (the default) keeps the
                           body of record.
+            nx:           the pixel count along the x axis. None (the default)
+                          makes the square screen of record, and the screen is
+                          bit-identical to the screen of an older version. An
+                          integer makes a RECTANGULAR STRIP of `n` rows and
+                          `nx` columns at the same pitch. A strip feeds the
+                          frozen-flow time axis: the crop window scrolls along
+                          the long axis (see
+                          olb.waveoptics.turbulence.temporal).
+            table_dtype:  the floating type of the FILTER BUILD (the
+                          frequency grid and the PSD of win 1). None (the
+                          default) builds in float64 and casts the finished
+                          filter to `dtype`, as before, so every screen of
+                          record is bit-identical. numpy.float32 builds the
+                          tables in single precision: the peak memory of the
+                          build falls by half and a large strip builds
+                          faster, at a rounding-level change of the filter
+                          (see validation/temporal_screens/table_precision.py).
+                          The subharmonic tables are small and stay float64.
+
+        Raises:
+            ValueError:          the screen is rectangular and the outer scale
+                                 is not finite.
+            NotImplementedError: the screen is rectangular and `lean` is True.
         """
         self.n = int(n)
+        self.nx = self.n if nx is None else int(nx)
+        self._rect = self.nx != self.n
         self.pixel_m = float(pixel_m)
         self.L0_m = float(L0_m)
         self.l0_m = float(l0_m)
         self.subharmonics = bool(subharmonics)
+        # A STRIP NEEDS A FINITE OUTER SCALE. The Kolmogorov limit puts the
+        # phase variance in the largest scale of the grid, so the long axis of
+        # a strip would carry much more low-frequency power than the short
+        # axis, and the two axes would not hold the same statistics. A finite
+        # L0 bounds that power, so the two axes agree.
+        if self._rect and not np.isfinite(self.L0_m):
+            raise ValueError(
+                "ScreenFactory(nx=...): a rectangular strip needs a FINITE "
+                "outer scale L0_m. The Kolmogorov limit gives the long axis "
+                "more low-frequency power than the short axis.")
         # THE REACH GUARD (backlog 2-P5). A finite outer scale needs the
         # subharmonics to reach its von Karman corner; a small grid side needs
         # more levels for that. Raise the count when the requested levels do
         # not reach L0, and say so, so the outer scale is not silently
         # truncated to the grid-limited scale. An infinite L0 keeps the count.
-        needed = required_n_sub_levels(self.L0_m, self.n * self.pixel_m,
+        # The SHORT axis sets the reach: it holds the lowest sampled frequency
+        # of the two axes at the fewest levels.
+        needed = required_n_sub_levels(self.L0_m,
+                                       min(self.n, self.nx) * self.pixel_m,
                                        base=int(n_sub_levels))
         if subharmonics and needed > int(n_sub_levels):
             warnings.warn(
                 f"ScreenFactory: the outer scale L0 = {self.L0_m:.4g} m needs "
-                f"{needed} subharmonic levels on this grid (side "
-                f"{self.n * self.pixel_m:.4g} m, reach "
-                f"{self.n * self.pixel_m * 3 ** int(n_sub_levels):.4g} m at "
+                f"{needed} subharmonic levels on this grid (short side "
+                f"{min(self.n, self.nx) * self.pixel_m:.4g} m, reach "
+                f"{min(self.n, self.nx) * self.pixel_m * 3 ** int(n_sub_levels):.4g} m at "
                 f"{int(n_sub_levels)} levels), so the count is raised from "
                 f"{int(n_sub_levels)} to {needed}. A wider grid (a larger "
                 f"receive aperture or a coarser pixel) would avoid it.")
@@ -344,6 +400,7 @@ class ScreenFactory:
         self._rdtype = np.float32 if dtype == np.float32 else np.float64
         self._cdtype = (np.complex64 if dtype == np.float32
                         else np.complex128)
+        self._tdtype = np.float32 if table_dtype == np.float32 else np.float64
         self.lean = bool(lean)
         # The array module of the FFT backend, read ONE time. numpy for the
         # host backends, cupy for the "cupy" backend.
@@ -355,19 +412,50 @@ class ScreenFactory:
                 "writes the grid in place through scipy.fft, and scipy.fft "
                 "does not take a device array. Use lean=False with the "
                 "'cupy' FFT backend.")
+        if self.lean and self._rect:
+            raise NotImplementedError(
+                "ScreenFactory(lean=True) has no rectangular route. The lean "
+                "body folds a square sign pattern into the filter. Use "
+                "lean=False with nx=.")
 
         n = self.n
+        nxc = self.nx
         dx = self.pixel_m
 
         # ---- win 1: the cached high-frequency filter, at r0 = 1 m ----
         # Schmidt, Ch. 9, Eqs. (9.78) to (9.80), printed pp. 166 and 167:
         # cn = (g1 + i g2) sqrt(PHI) df, then phi = Re{ift(cn)}. The df factor
-        # and the r0 = 1 spectrum fold into one cached array.
-        df = 1.0 / (n * dx)
-        fx = (np.arange(n) - n // 2) * df
-        FX, FY = np.meshgrid(fx, fx)
-        psd = _phase_psd_unit(np.hypot(FX, FY), self.L0_m, self.l0_m)
-        psd[n // 2, n // 2] = 0.0             # Listing 9.2, line 16, p. 167.
+        # and the r0 = 1 spectrum fold into one cached array. A rectangular
+        # grid has ONE df on each axis, so the area element of Eq. (9.78) is
+        # dfy*dfx and the amplitude factor is its square root. The two are
+        # equal on a square grid, and the code then keeps the old expression,
+        # so a square screen does not move by one bit.
+        dfy = 1.0 / (n * dx)
+        dfx = 1.0 / (nxc * dx)
+        df = dfy if dfy == dfx else np.sqrt(dfy * dfx)
+        fy = (np.arange(n) - n // 2) * dfy
+        fx = (np.arange(nxc) - nxc // 2) * dfx
+        # ONE full-size table, not a meshgrid pair: the two axis vectors
+        # broadcast into the radial frequency. In float64 the values equal
+        # the meshgrid route bit for bit; float32 is the `table_dtype` opt-in.
+        f_rad = np.hypot(fx.astype(self._tdtype)[None, :],
+                         fy.astype(self._tdtype)[:, None])
+        psd = _phase_psd_unit(f_rad, self.L0_m, self.l0_m)
+        del f_rad
+        psd[n // 2, nxc // 2] = 0.0           # Listing 9.2, line 16, p. 167.
+        # THE fy = 0 ROW OF A STRIP GOES TO THE BAND. The whole row carries
+        # the power of the frequencies |fy| < dfy/2, and the main grid gives
+        # all of it to fy = 0, which holds NO structure along y. On a square
+        # grid that row is thin and the subharmonics repair it. On a strip the
+        # row is the widest part of the spectrum, because dfy is many times
+        # dfx, so the row must be rebuilt with a real y structure. The band of
+        # `_band_from` does that, and the row is cut here so it is not counted
+        # two times. Measured on a (512, 4096) strip at L0 = 25 m: without the
+        # band, D(r) along y reads 8 to 23 percent LOW and D(r) along x reads
+        # 1 to 12 percent HIGH; with it the two axes hold the analytic law
+        # inside 1 percent.
+        if self._rect:
+            psd[n // 2, :] = 0.0
         self._filt = (np.sqrt(psd) * df).astype(self._rdtype)
         if self._device:
             # The filter multiplies each draw, so it stays on the device.
@@ -378,7 +466,7 @@ class ScreenFactory:
             # ifftshift(c))) = S * ifft2(S * c), where S is the alternating
             # sign pattern (-1)^(i+j) (the identity the LightPipes Forvard
             # uses). So the filter carries S, and the output factor carries
-            # S * n^2 (the Eq. (2.9) scale of `_ift_series`). Neither one
+            # S * n^2 (the Eq. (2.9) scale of `_base_pair_from`). Neither one
             # costs a pass at run time.
             if n % 2:
                 raise ValueError("ScreenFactory(lean=True) needs an even n")
@@ -393,9 +481,16 @@ class ScreenFactory:
         # frequency set is a 3 by 3 grid at the pitch df_p = 1/(3^p L). The
         # basis exp(i 2 pi f_p m x) is the same on the two axes, so one n by 3
         # matrix E_p serves both. The level sum is E_p @ C @ E_p.T.
+        #
+        # A STRIP TAKES THE BAND INSTEAD (see `_band_from`): its x axis is
+        # already sampled finely, so only the y axis needs the subdivision.
         self._sub_filt = []
         self._E = []
-        if self.subharmonics:
+        self._band_filt = None
+        self._band_E = None
+        if self.subharmonics and self._rect:
+            self._build_band(fx, dfy, dfx, dx)
+        elif self.subharmonics:
             side = n * dx
             x = (np.arange(n) - n // 2) * dx
             for p in range(1, self.n_sub_levels + 1):
@@ -413,20 +508,70 @@ class ScreenFactory:
                 self._sub_filt.append(sub_filt)
                 self._E.append(E)
 
-    def _ift_series(self, cn):
-        """Give the bare Fourier-series sum of the coefficient grid cn.
+    def _build_band(self, fx, dfy, dfx, dx):
+        """Build the low-frequency BAND of a strip: the row |fy| < dfy/2.
 
-        It is `ift2(cn, 1.0)` of Schmidt, DOI 10.1117/3.866274, Ch. 2,
-        Eq. (2.9), printed p. 17, with df = 1: the centred inverse transform
-        times n^2. The result is Eq. (9.78), printed p. 167.
+        THE PARTITION. The band is cut into 2P+1 sub-rows in y, with P the
+        subharmonic level count. Level p holds the two rows at
+        fy = +/- dfy/3^p, each of HEIGHT dfy/3^p, and the last level adds the
+        central row at fy = 0 of height dfy/3^P. The heights add up to dfy
+        exactly, so the band holds the power of the row it replaces. It is the
+        subdivision of Schmidt, DOI 10.1117/3.866274, Ch. 9, Eq. (9.81),
+        printed p. 169 (from Lane, Glindemann and Dainty,
+        DOI 10.1088/0959-7174/2/3/003), applied to ONE axis.
 
-        The transform runs on the array module of the backend, so it stays
-        where the coefficient grid is.
+        Each sub-row keeps the FINE x sampling of the strip, so the long axis
+        carries a continuum of low frequencies and not a comb of a few tones.
+        A comb would repeat down the strip: with the 3 by 3 subharmonics of a
+        square grid the pattern comes back every 3^P * side_y, which is 34.6 m
+        on a 1.28 m grid, and a 100 m record then walks into its own start.
         """
-        n = self.n
+        rows, heights = [], []
+        for p in range(1, self.n_sub_levels + 1):
+            df_p = dfy / 3.0 ** p
+            rows += [-df_p, df_p]
+            heights += [df_p, df_p]
+        rows.append(0.0)
+        heights.append(dfy / 3.0 ** self.n_sub_levels)
+        filt = np.empty((len(rows), self.nx))
+        for i, (f_row, height) in enumerate(zip(rows, heights)):
+            psd_row = _phase_psd_unit(np.hypot(f_row, fx), self.L0_m,
+                                      self.l0_m)
+            if f_row == 0.0:
+                psd_row[self.nx // 2] = 0.0     # the piston, as Listing 9.2.
+            filt[i] = np.sqrt(psd_row * height * dfx)
+        y = (np.arange(self.n) - self.n // 2) * dx
+        band_e = np.exp(1j * 2.0 * np.pi * np.outer(y, rows))
+        self._band_filt = filt.astype(self._rdtype)
+        self._band_E = band_e.astype(self._cdtype)
+        if self._device:
+            self._band_filt = self._xp.asarray(self._band_filt)
+            self._band_E = self._xp.asarray(self._band_E)
+
+    def _band_from(self, r0_m, g):
+        """Give the low-frequency band screen of a strip, on drawn noise.
+
+        The band is a sum of 2P+1 sub-rows (see `_build_band`). Each sub-row
+        is ONE frequency in y and the whole fine grid in x, so it is the outer
+        product of a y phase vector and the inverse transform of its x
+        coefficients. The sum of the outer products is ONE matrix product.
+
+        Args:
+            r0_m: the Fried parameter of the slab, in m.
+            g:    the complex noise, of shape (2P+1, nx).
+
+        Returns:
+            An n by nx array of the phase, in radians.
+        """
         xpm = self._xp
-        shifted = xpm.fft.fftshift(xpm.fft.ifft2(xpm.fft.ifftshift(cn)))
-        return (shifted * (n * n)).astype(self._cdtype)
+        if self._device:
+            g = xpm.asarray(g)
+        c = g * self._band_filt * (float(r0_m) ** self._EXPONENT)
+        rows = xpm.fft.fftshift(
+            xpm.fft.ifft(xpm.fft.ifftshift(c, axes=1), axis=1),
+            axes=1) * self.nx
+        out = xpm.real(self._band_E @ rows.astype(self._cdtype))
+        return (out - out.mean()).astype(self._rdtype)
 
     def _subharmonic(self, r0_m, rng):
         """Give the low-frequency subharmonic screen for one r0 and one rng.
@@ -441,7 +586,10 @@ class ScreenFactory:
         every backend. The device route uploads the cast 3 by 3 grid only.
         """
         if not self.subharmonics:
-            return self._xp.zeros((self.n, self.n), dtype=self._rdtype)
+            return self._xp.zeros((self.n, self.nx), dtype=self._rdtype)
+        if self._rect:
+            return self._band_from(
+                r0_m, self._complex_noise(rng, self._band_E.shape[1], self.nx))
 
         def levels():
             """Draw the noise grid of each level, in the order of old."""
@@ -458,9 +606,11 @@ class ScreenFactory:
         """
         xpm = self._xp
         if not self.subharmonics:
-            return xpm.zeros((self.n, self.n), dtype=self._rdtype)
+            return xpm.zeros((self.n, self.nx), dtype=self._rdtype)
+        if self._rect:
+            return self._band_from(r0_m, next(noise_iter))
         scale = float(r0_m) ** self._EXPONENT
-        lo = xpm.zeros((self.n, self.n), dtype=self._cdtype)
+        lo = xpm.zeros((self.n, self.nx), dtype=self._cdtype)
         for E, sub_filt in zip(self._E, self._sub_filt):
             g = next(noise_iter)
             if self._device:
@@ -484,26 +634,57 @@ class ScreenFactory:
         cast grid. So the device screen holds the same random numbers as the
         host screen of the same seed.
         """
-        return self._base_pair_from(self._complex_noise(rng, self.n))
+        return self._base_pair_from(self._complex_noise(rng, self.n, self.nx))
 
-    def _complex_noise(self, rng, m):
-        """Draw one m by m complex noise grid, cast to the factory type.
+    def _complex_noise(self, rng, m, mx=None):
+        """Draw one m by mx complex noise grid, cast to the factory type.
+
+        `mx` is None for a square grid, and then the shape is m by m. So a
+        square draw reads the random stream exactly as an older version does.
 
         The real grid comes FIRST and the imaginary grid comes second. That
         order is the order of the random stream, so it must not change. The
         cast lives here, because the CUDA route draws in threads and the cast
         is the expensive half of the draw at a large grid.
         """
-        g = (rng.standard_normal((m, m)) + 1j * rng.standard_normal((m, m)))
-        return g.astype(self._cdtype)
+        shape = (int(m), int(m if mx is None else mx))
+        # Write the two float64 draws STRAIGHT into the real and the
+        # imaginary part. The value of each part is the same round-to-nearest
+        # cast as `(a + 1j*b).astype(cdtype)`, so the screen does not move by
+        # one bit, and the peak of the draw is one float64 grid plus the
+        # complex grid, not the two float64 grids plus two complex128 grids
+        # (2026-09-13; a 5e8 px crosswind box drew 25 GB here).
+        g = np.empty(shape, dtype=self._cdtype)
+        g.real = rng.standard_normal(shape)
+        g.imag = rng.standard_normal(shape)
+        return g
 
     def _base_pair_from(self, g):
-        """The body of `_base_pair`, on noise the caller already drew."""
+        """The body of `_base_pair`, on noise the caller already drew.
+
+        The transform is `ift2(cn, 1.0)` of Schmidt, DOI 10.1117/3.866274,
+        Ch. 2, Eq. (2.9), printed p. 17, with df = 1: the centred inverse
+        transform times n^2. The result is Eq. (9.78), printed p. 167. It
+        runs on the array module of the backend, so it stays where the
+        coefficient grid is.
+
+        ONE GRID DIES AS THE NEXT IS BORN. Each step rebinds the one name, so
+        the noise, the coefficient grid and the shifted copies are not alive
+        together: the peak of a build is the transform's own two grids plus
+        its input, not four grids (2026-09-13, the crosswind box). The
+        operations and their order are unchanged, so the screen is
+        bit-identical.
+        """
         xpm = self._xp
         if self._device:
             g = xpm.asarray(g)
         cn = g * self._filt
-        full = self._ift_series(cn)
+        del g
+        cn = xpm.fft.ifftshift(cn)
+        cn = xpm.fft.ifft2(cn)
+        cn = xpm.fft.fftshift(cn)
+        full = (cn * (self.n * self.nx)).astype(self._cdtype)
+        del cn
         return xpm.real(full), xpm.imag(full)
 
     def draw(self, rng):
@@ -542,8 +723,11 @@ class ScreenFactory:
                 "ScreenFactory(lean=True) has no split draw. The lean body "
                 "writes the normals straight into the coefficient grid. Use "
                 "lean=False.")
-        out = [self._complex_noise(rng, self.n)]
-        if self.subharmonics:
+        out = [self._complex_noise(rng, self.n, self.nx)]
+        if self.subharmonics and self._rect:
+            out.append(self._complex_noise(rng, self._band_E.shape[1],
+                                           self.nx))
+        elif self.subharmonics:
             for _ in range(self.n_sub_levels):
                 out.append(self._complex_noise(rng, 3))
         return tuple(out)
@@ -562,6 +746,7 @@ class ScreenFactory:
         it = iter(noise)
         base, _ = self._base_pair_from(next(it))
         hi = (float(r0_m) ** self._EXPONENT) * base
+        del base                      # frees the complex grid it views.
         return (hi + self._subharmonic_from(r0_m, it)).astype(self._rdtype)
 
     def make(self, r0_m, rng):
@@ -584,6 +769,7 @@ class ScreenFactory:
             return self._make_lean(r0_m, rng)
         base, _ = self._base_pair(rng)
         hi = (float(r0_m) ** self._EXPONENT) * base
+        del base                      # frees the complex grid it views.
         return (hi + self._subharmonic(r0_m, rng)).astype(self._rdtype)
 
     def _make_lean(self, r0_m, rng):
@@ -859,6 +1045,67 @@ if __name__ == '__main__':
         raise AssertionError("lean must need an even n")
     except ValueError:
         pass
+
+    # Fg. the rectangular strip (2026-09-13).
+    # Fg1. nx = n must be bit-identical to the square factory, in both
+    # precisions and at both outer scales.
+    for dt in (np.float64, np.float32):
+        for L0c in (25.0, np.inf):
+            sq = ScreenFactory(64, 0.01, L0_m=L0c, dtype=dt).make(
+                0.12, np.random.default_rng(21))
+            rc = ScreenFactory(64, 0.01, L0_m=L0c, dtype=dt, nx=64).make(
+                0.12, np.random.default_rng(21))
+            assert np.array_equal(sq, rc), (dt, L0c)
+
+    # Fg2. the guards.
+    try:
+        ScreenFactory(64, 0.01, nx=128)
+        raise AssertionError('a strip must need a finite L0')
+    except ValueError as exc:
+        assert 'outer scale' in str(exc), str(exc)
+    try:
+        ScreenFactory(64, 0.01, L0_m=25.0, nx=128, lean=True)
+        raise AssertionError('a lean strip must raise')
+    except NotImplementedError as exc:
+        assert 'rectangular' in str(exc), str(exc)
+
+    # Fg2b. the split draw works for a strip too.
+    fac_r = ScreenFactory(64, 0.01, L0_m=25.0, nx=256)
+    s_make = fac_r.make(0.12, np.random.default_rng(3))
+    s_split = fac_r.make_from_noise(0.12, fac_r.draw(np.random.default_rng(3)))
+    assert np.array_equal(s_make, s_split), 'the strip split draw must match'
+    assert s_make.shape == (64, 256), s_make.shape
+
+    # Fg3. a (256, 2048) strip holds the SAME structure function on the two
+    # axes as the square 256 factory of the same pitch and the same L0.
+    nS, nxS, dxS, r0S, L0S, MS = 256, 2048, 0.01, 0.10, 25.0, 12
+    ksS = np.array([3, 8, 16])
+    fac_strip = ScreenFactory(nS, dxS, L0_m=L0S, nx=nxS)
+    fac_sq = ScreenFactory(nS, dxS, L0_m=L0S)
+    d_sq = np.zeros(ksS.size)
+    d_sy = np.zeros(ksS.size)
+    d_sx = np.zeros(ksS.size)
+    for i in range(MS):
+        st = fac_strip.make(r0S, np.random.default_rng(12000 + i))
+        sq = fac_sq.make(r0S, np.random.default_rng(13000 + i))
+        for j, kpx in enumerate(ksS):
+            d_sq[j] += d_phi(sq, kpx)
+            d_sy[j] += np.mean((st[kpx:, :] - st[:-kpx, :]) ** 2)
+            d_sx[j] += np.mean((st[:, kpx:] - st[:, :-kpx]) ** 2)
+    d_sq /= MS
+    d_sy /= MS
+    d_sx /= MS
+    assert st.shape == (nS, nxS), st.shape
+    # A 12-screen ensemble carries a few percent of sample error, so the band
+    # is 10 percent. The gate script measures the same thing against the
+    # analytic law to a standard error
+    # (validation/temporal_screens/rect_factory.py).
+    assert np.all(np.abs(d_sy / d_sq - 1.0) < 0.10), d_sy / d_sq
+    assert np.all(np.abs(d_sx / d_sq - 1.0) < 0.10), d_sx / d_sq
+    print(f"ScreenFactory strip ({nS}, {nxS}) D(r) / square D(r), "
+          f"r/r0 = {ksS * dxS / r0S}:")
+    print(f"  along y {np.round(d_sy / d_sq, 3)}")
+    print(f"  along x {np.round(d_sx / d_sq, 3)}")
 
     # Ff. the float32 switch measures a small error against float64.
     fac64 = ScreenFactory(256, 0.01, dtype=np.float64)

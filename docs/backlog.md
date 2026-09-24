@@ -120,7 +120,14 @@ are from 2026-08-26 and can drift.
   tilt of ao.py; the two are not added.
 - **0-W4. Gap 6 and Gap 7: `l0`/`L0` and the temporal faces have no
   consumer. THE OUTER SCALE: the FIELD half is DONE (2026-09-09), the
-  ANALYTIC half remains.** The fidelity-2 screens now read an explicit site
+  ANALYTIC half remains. THE TEMPORAL FACES NOW HAVE A CROSS-CHECK, not a
+  consumer (2026-09-13, 2-P1): the frozen-flow time axis measures a fade rate
+  and a fade duration at fidelity 2, and gate (d) of
+  `validation/temporal_screens/` reads `andrews.temporal.greenwood_frequency`
+  against the measured tilt spectrum. No Term reads the temporal faces yet.
+  The gate also gives the RULE for that comparison: feed the function the
+  per-layer velocity array of the record, because its default Bufton profile
+  carries its own slew term and then reads 1.7x high.** The fidelity-2 screens now read an explicit site
   outer scale (`Site.outer_scale_m`, default 25 m; see 2-P5). The ANALYTIC
   tilt and wander Terms (fidelity 0/1) still do NOT read it, so fidelity 0/1
   and fidelity 2 are not yet at parity on the outer scale — that is the
@@ -1119,10 +1126,290 @@ The path forward for each is a second reference or a derivation.
   operating choice (owner, 2026-09-05) removes the grid dependence. Steps (1) an
   explicit site L0 and (3) 0-W4 (the analytic tilt Terms) still stand. Pairs with
   gap S-27 and 2-N2.
-- **2-P1. The temporal (frozen-flow) axis is a stub.** `TemporalScreens`
-  raises (olb/waveoptics/turbulence/temporal.py:54); the layer gives
-  snapshots only — no fade rate, no fade duration. The design note lives in
-  the class docstring.
+- **2-P1. The temporal (frozen-flow) axis — DONE (2026-09-13, branch
+  `waveoptics-temporal`).** THE ROUTE is per-layer oversized Fourier STRIP
+  screens with an integer-pixel crop window, and the aotools EXTRUSION is
+  RETIRED. It over-correlates its own axis at a frame side of 0.1 to 0.35 `L0`,
+  the production regime (`validation/screens/FINDINGS.md` Q5 point 4, Q6, Q8),
+  and it is slow (measured 2026-09-13: `add_row` 0.93 ms per row at 512 px and
+  2.38 ms at 1024 px, with EVERY intermediate row mandatory, against 12 to
+  26 us for one strip column, and a frame is a slice). It wins only under about
+  1 GiB of spare memory; that case is recorded in the module docstring, not
+  built. `olb/waveoptics/turbulence/temporal.py` now holds `TemporalSpec`,
+  `strip_plan`, `build_strips`, `open_strips` and `frame_stack`;
+  `ScreenFactory(nx=...)` draws the strip, with the BAND redraw of the `fy = 0`
+  row in place of the 3x3 subharmonics. The runner and `Campaign` take
+  `temporal=`, an OPT-IN whose default None keeps every snapshot run bit for
+  bit and every stored campaign key valid (`3f4624d389fb81ee` unchanged). The
+  gates are `validation/temporal_screens/` (a) to (e). THE HERO CAMPAIGN, gate
+  (e), RAN on the bigfraw GPU on 2026-09-13: 8 records of 2 s at `dt = 0.5 ms`
+  for each of 30 and 20 deg, 727 s in total. At the 5 percent level the 30 deg
+  SMF fades 37.25 +/- 1.53 times per second for a mean 1.342 +/- 0.089 ms and
+  the bucket 25.44 +/- 1.26 times per second for 1.966 +/- 0.143 ms; 20 deg
+  reads 35.12 /s / 1.423 ms and 18.19 /s / 2.749 ms. Both elevations hold the
+  20-event band. See `docs/physics.md`
+  Section 7 and `docs/api-waveoptics.md` Section 9i. Deferred pieces: 2-P1b.
+- **2-P1b. The frozen-flow pieces that are NOT built.** Each one is a
+  deliberate deferral of 2-P1, and each has its own ceiling in the module
+  docstring: (1) a FOURIER SUB-PIXEL shift — the integer shift costs at most
+  half a pixel and it breaks only when `v_min * dt < 0.2 dx`; (2) TEMPORAL plus
+  POINT-AHEAD (2-P4) — a point-ahead pass takes a laterally SHIFTED window and
+  a frame takes a window that MOVES, so the two windows on one strip need their
+  own design; the runner raises; (3) TERRESTRIAL frozen flow — a horizontal
+  path has no slew and no Bufton profile, so it needs its own velocity model;
+  the runner raises on a non-downlink plan; (4) DEVICE-RESIDENT strips — DONE
+  (2026-09-13, step 4 (c) of item (10)): `open_strips(paths, on_device=True)`
+  uploads the strips one time and the runner does that for the ROTATED route
+  under the `"cupy"` backend, so a rotated frame uploads nothing. The
+  along-track route keeps the memory map, because its frame is a plain slice;
+  (5) a VARIABLE `dt`
+  — `Campaign.t_s` derives the time as `row * dt_s`; (6) a FINER `dt` — the
+  median SMF fade event of gate (e) lasts 2 frames at `dt = 0.5 ms`, so the
+  duration is only just resolved; (7) a TEMPORAL FADE REFERENCE MODEL — gate
+  (e) gives the first fade rate and fade duration of the package, and nothing
+  checks them (see 0-N6 and `olb/turbulence/andrews/temporal.py`). The
+  bucket can meet the Andrews Ch. 11 irradiance fade rate and duration;
+  the SMF fade has no book model, so its check is the Rice level-crossing
+  rate of its own measured autocorrelation (Rice, DOI
+  10.1002/j.1538-7305.1945.tb00453.x); (8) SERVO LAG, MEDIUM URGENCY
+  (owner, 2026-09-13) — the post-hoc correction fits the modes of frame k
+  and applies them to frame k, so every AO time series is the zero-lag
+  upper bound; apply the modes of frame `k - d` to frame `k` through the
+  `ApertureModes.estimate` / `.apply` split, and sweep `d` in frames.
+  Not started; the owner does not want it yet; (9) a one-layer record
+  against the Tyler tilt spectrum (DOI 10.1364/JOSAA.11.000358) as the
+  real corner test that gate (d) lacks; (10) the ROTATED THIN STRIP for a
+  CROSSWIND — DONE through step 5 (2026-09-13): the rotated route is the
+  crosswind DEFAULT. The history of the five steps follows. The strip is an axis-aligned
+  bounding box of the diagonal walk `v = v_slew (+x) + v_buf (wind_dir_deg)`,
+  so a crosswind grows the SHORT axis and the box balloons. A thin strip
+  rotated to each layer's resultant velocity, with a per-frame rotated crop,
+  would keep the box thin. MEASURED (bigfraw, 2026-09-13, pure crosswind
+  `wind_dir_deg = 90`, 30 deg hero, `validation/temporal_screens/` scratch):
+  the strips are a DISK cache, built on the HOST (scipy) one layer at a time,
+  then memory-mapped. THE GENERATION of a crosswind box is the real cost, not
+  the memory or the per-frame crop: the whole along-track (thin) 9-layer plan
+  builds in 22.7 s and 0.52 GiB, but ONE perpendicular box layer (11897 x
+  43744) took 170 s and about 2.2 GiB stored, and it ballooned host RAM before
+  it reached layer 1, so the full 9-box crosswind build is roughly 25 min plus
+  the blow-up. The box FFT is 23x the area of the thin strip, and the
+  `ScreenFactory` filter builds float64 `meshgrid` arrays of the full 2-D size
+  (about 3.9 GiB each at that shape), so the box thrashes memory too. The
+  bounding-box disk cache is 12.2 GiB over 9 layers, the rotated strips 6.7 GiB
+  (0.55x). THE PER-FRAME ROTATION is cheap (a GPU bilinear crop is 0.071 ms per
+  512 px frame, 0.28 s per layer per 4000-frame record; cubic 0.390 ms, 1.56 s;
+  against about 40 s of propagation per record), so the rotation route wins on
+  GENERATION time and RAM, which is a strong case for a crosswind. TWO ROUTES:
+  (a) FFT the thin strip then rotate it ONCE onto a big axis-aligned grid and
+  slice as now (saves the big FFT, keeps the big memory, one interpolation
+  pass); (b) hold the thin strip and rotate each frame's crop (saves the FFT
+  AND the memory, one interpolation per crop). Either route needs a
+  ROTATION-CORNER PAD: a grid-aligned n x n crop rotated by theta has a strip
+  footprint of n(|cos theta| + |sin theta|), so the SHORT axis needs
+  n(cos theta + sin theta) + seam pad, an extra about 0.41 n at 45 deg and
+  negligible at the small angles of the fast layers. The along-track default
+  (the usual case) needs NONE of this, because its box IS the thin strip. THE
+  REAL QUESTION is FIDELITY, not speed:
+  interpolating a phase screen smooths its high-frequency (Fresnel-scale)
+  structure, the same reason the coarse screen died in P2
+  (`validation/waveoptics_speed/`), so any rotated route needs a D(r) and a
+  sigma2_I gate against the bounding-box strip, and bilinear likely fails it.
+  STEP 1 DONE (2026-09-13, `validation/temporal_screens/table_precision.py`):
+  the MEMORY of the box is fixed. The noise draw and the transform chain of
+  `ScreenFactory` no longer hold four full grids at once (bit-identical on
+  every route of record), and `table_dtype=np.float32` (an OPT-IN on
+  `ScreenFactory` and `build_strips`) builds the filter tables in single
+  precision at a 1.1e-5 rad change (D(r) identical to six digits). The 520 Mpx
+  box now builds in 137 s at a 15.6 GiB peak (float64 tables 152 s, 20.0 GiB),
+  no swap, so a 9-layer crosswind record is about 20 min of strip build. The
+  TIME is the FFT of the 23x area. DECISIONS (owner, 2026-09-13): the
+  speed-only mapping (each layer along the slew axis at its resultant speed) is
+  REJECTED, because the downlink phase field in time depends on each layer's
+  velocity DIRECTION; the exact box stays the reference; the rotation route, if
+  built, is the FOURIER three-shear rotation (exact for the band-limited
+  periodic part), not a real-space bilinear or cubic interpolation.
+  STEP 2 DONE (2026-09-13, route (b), `validation/temporal_screens/
+  rotated_strip_gate.py`): the rotated thin strip is BUILT as an OPT-IN,
+  `TemporalSpec(rotated=True)` at the then plan-wide `rot_margin=0.5`,
+  with `rotate_fourier` in
+  `olb/waveoptics/turbulence/temporal.py` (Unser, Thevenaz and Yaroslavsky,
+  DOI 10.1109/83.469963). The default is OFF and the along-track route is
+  bit-identical; the two options enter `TemporalSpec.key()` only when
+  `rotated` is True, so every stored record keeps its key. THE GATE PASSES
+  19 of 20 bands: the rotation moves D(r) at 1 and 4 px by 0.1 to 1.7
+  percent at a 0.5 n margin and by 0.1 to 0.8 percent at 1.0 n, D(tau)
+  agrees with the unrotated cut of the SAME crops to 1.0 percent (6.5 deg)
+  and 3.2 percent (45 deg), and the point index, the aperture index and the
+  SMF coupling of a propagated frame agree to 1.7, 0.3 and 0.01 percent. A
+  0.25 n margin FAILS at 45 deg (D(1 px) 1.040), so 0.5 n is the floor and
+  1.0 n is clean. The real-space BILINEAR control loses 15 to 18 percent of
+  D(1 px), which confirms why it is not the tool. COST on bigfraw: the
+  30 deg hero crosswind layer builds in 6.7 s against 137.4 s for the box
+  (20x), and one rotated frame costs 6.7 ms on the cupy backend and 285 ms
+  on numpy at a 1080 px crop.
+  STEP 3 DONE (2026-09-13). TWO questions closed.
+  (i) ARE THE THREE ROUTES THE SAME SCREEN? YES, inside a few percent
+  (`validation/temporal_screens/route_equivalence.py`, 64 seeds x 8 windows,
+  production seam pad, `n = 256`, `L0 = 25 m`, a 0.70 m pupil, 87 of 108
+  bands): the along-track strip (2.56 m short axis), the box (52.6 m) and the
+  rotated strip (5.4 to 6.2 m) hold D(r) to 5 percent from 1 px to 0.70 m,
+  the Z-tilt to 5 to 7 percent (0.93 to 0.95 of the box, 2 SE 0.08), the
+  piston-free aperture variance to 4 to 6 percent and the RAW window variance
+  to 7 to 8 percent, and every radial band of the power spectrum to 0.5
+  percent. The one REAL rotation effect is the corner-mode loss of the outer
+  Nyquist ring, 1.5 percent at 45 deg (0.9846 +/- 0.0018) and nothing
+  measurable at 6.5 deg. THE 0.57 TO 1.69 FACTOR OF STEP 2 IS SAMPLING, NOT
+  SHAPE: gate 3 of `rotated_strip_gate.py` takes a scintillation index of 96
+  frames from THREE atmospheres and prints no bar on those columns, and its
+  "along track" arm is `case_plans(89.999)`, a BOX of a 15 m short axis, not
+  the 2.56 m thin strip of record. The sharp-cutoff `captured_fraction` model
+  predicts a 0.42 tilt capture for the thin strip and it measures 0.94, so the
+  subharmonic BAND rule of the rectangular `ScreenFactory` restores nearly the
+  whole low-frequency band.
+  (ii) IS A ROTATED RECORD THE SAME AS INDEPENDENT SNAPSHOTS? YES
+  (`validation/temporal_screens/rotated_record_parity.py`, the bigfraw GPU,
+  4000 frames at 0.5 ms against 4000 snapshot trials, `standard`, 512 px, 9
+  screens, block bootstrap of 20 ms, 8 of 12 bands): the bucket holds all four
+  bands (index 1.047 +/- 0.162, p5 -0.004 +/- 0.055 dB), and EVERY band that
+  misses sits inside ONE standard error (point index 0.948 +/- 0.100, point p1
+  -0.355 +/- 0.468 dB, SMF index 0.937 +/- 0.214, SMF p5 +0.461 +/- 1.520 dB).
+  2 s of record holds only about 75 independent atmospheres, so the fixed
+  bands cannot be resolved on the heavy-tailed fibre statistic.
+  THE RUNNER AND `Campaign` DO read `rotated`: a `TemporalSpec` threads
+  through `propagate_turbulent_scenario` and `Campaign` as it is, and the one
+  fix this step needed was the device guard in `run._uploaded` (a rotated
+  frame is ALREADY a cupy array, and `np.ascontiguousarray` refuses one). A
+  host run and a device run of the same seed agree to the printed digit.
+  COST of the 4000-frame hero crosswind record: strips 293.6 Mpx (1120 MB)
+  against 3265.5 Mpx (12.5 GB) for the exact box (11.1x), a build of about
+  77 s against about 860 s, and a wall of 745.4 s (0.186 s/frame, peak
+  working set 2.23 GiB) against 0.011 s/frame for an along-track record and
+  0.020 s/frame for the independent snapshots. So the rotation costs 17x at
+  the frame and it saves 11x of memory and build. THE OWNER DECISION that
+  remains is whether `rotated=True` ever becomes the DEFAULT for a crosswind.
+  STEP 4 DONE (2026-09-13). THE THREE CUTS that step 3 named are built, and
+  the hero record was rerun.
+  (a) THE TAPER. `rotation_taper.py` measured six cures for the seam ringing
+  of the shears against the rotation of the FULL periodic screen. The winner
+  is a 1-D raised-cosine taper on the ends of every line, applied BEFORE EACH
+  of the three shear transforms (a single 2-D window does NOT work: the two
+  later shears undo it). `rotate_fourier(patch, theta, taper=flat_px)` is
+  that taper, its flat top is the rotation footprint, and `taper=None` (the
+  default) keeps the plain control call. The edge-ring error drops from
+  1.8e-2 to 5.0e-3 rad (6.5 deg) and from 1.9e-2 to 6.6e-3 rad (45 deg).
+  (b) THE PER-LAYER CROP. `TemporalSpec.rot_margin` now means the taper
+  ROLL-OFF PAST the geometric footprint, default 0.07, and the crop side of
+  layer j is `n(|cos t_j| + |sin t_j|) + 2 rot_margin n`. A roll-off sweep at
+  `n = 256` passes the gate at 0.04, 0.07 and 0.10 at 3, 6.5, 20 and 45 deg
+  (ring 6.1e-3 to 8.0e-3 rad), so what is left is the CORNER-mode loss, not
+  the seam, and 0.07 carries about a factor of two.
+  (c) THE DEVICE-RESIDENT STRIP. `open_strips(paths, on_device=True)` uploads
+  the strips one time and the runner does that for the ROTATED route under
+  the `"cupy"` backend, so a frame uploads nothing. It falls back to the host
+  memory map, with a warning, over half the free device memory.
+  THE MEASURED GAIN on the SAME 4000-frame hero record (bigfraw GPU, 512 px,
+  9 layers, 30 deg, `wind_dir_deg = 90`, `standard`, single precision, seed
+  20260913): the crop side is 614 to 794 px for each layer against 1234 px
+  for the plan, the strips hold 643 MB against 1120 MB, the peak working set
+  is 1.55 GiB against 2.23 GiB, and the wall is 217.2 s (0.0543 s/frame)
+  against 745.4 s (0.186 s/frame), a 3.43x gain. The rotation now costs 4.9x
+  an along-track frame (0.011 s) and 2.7x an independent snapshot (0.020 s),
+  where it cost 17x and 9.3x. THE PARITY IMPROVED: 9 of 12 bands hold
+  against 8, the POINT receiver now holds all four (it held two), the BUCKET
+  holds all four, and the three misses are the SMF index (1.380 +/- 0.366,
+  about 1.8 SE), the SMF mean (-0.913 +/- 1.041 dB, inside 1 SE) and the SMF
+  p5 (+0.449 +/- 1.361 dB, inside 1 SE). CAVEAT: the smaller crop also makes
+  the strip SHORT AXIS smaller (8.5 m to 4.2 to 5.4 m), which sits between
+  the along-track route of record (3.5 m) and the 5.4 to 6.2 m that
+  `route_equivalence.py` measured against the exact box.
+  STEP 5, THE DEFAULT SWITCH AND THE POOLED PARITY (2026-09-13, an OWNER
+  DECISION). THE ROTATED ROUTE IS NOW THE CROSSWIND DEFAULT.
+  `TemporalSpec.rotated` is `Optional[bool] = None` = AUTO, and
+  `TemporalSpec.resolve_rotated()` takes the rotated route when
+  `wind_dir_deg` is not a multiple of 180 deg. The test reads the wind
+  DIRECTION and not the plan, because the crosswind part of a layer is
+  `V(h) sin(wind_dir)` and the Bufton `V(h)` is never 0, so the two tests are
+  the same one and `key()` stays a pure function of the spec. THE ALONG-TRACK
+  ROUTE IS BIT-IDENTICAL and its KEY IS UNCHANGED: the two options enter
+  `key()` only when the RESOLVED route is the rotated one, and the key holds
+  the RESOLVED value, so auto and explicit True name the same record. The
+  `temporal` self-check asserts the auto rule, the two overrides and the old
+  along-track key string.
+  THE PARITY WAS THEN REMEASURED ON A POOLED RECORD, to answer the one
+  remaining doubt of step 4 (the SMF index and mean, which read 2 s of record
+  = about 75 independent tilt times). `rotated_record_parity.py` gained
+  `--records N`: it runs N records of `--frames` frames, each with its OWN
+  strips and its OWN atmosphere, and it POOLS the frames against `N * frames`
+  independent snapshots. The block bootstrap draws its blocks WITHIN each
+  record, never across the join, and `effective_n` reports the independent
+  tilt times that the pooled record holds.
+  THE RUN (bigfraw GPU, cupy, 512 px, 9 layers, 30 deg, `wind_dir_deg = 90`,
+  `standard`, single precision, seed 20260913, dt = 2 ms, 5 x 1000 frames =
+  10.0 s, against 5000 independent snapshots; the route resolved to
+  `rotated (auto)`): 0.0489 s for each frame, 21.9 s of strip build and
+  642 MB of strips for each record, 2.26 GiB of peak working set, and 244.4 s
+  of record wall against 19.1 s for the 1000 new snapshots. THE PARITY IS
+  10 OF 12 BANDS, against 9. The point and the bucket hold all four each. THE
+  SMF MEAN AND THE SMF p5 NOW PASS: the mean moved 0.913 dB at 2 s and moves
+  0.011 +/- 0.383 dB pooled, and the p5 moved 0.449 dB at 2 s and moves
+  -0.295 +/- 0.878 dB pooled (a 12.91 dB record fade against 12.62 dB, so the
+  record is 0.29 dB PESSIMISTIC, the safe direction). The two misses are the
+  SMF index (0.889 +/- 0.099, about 1.1 SE low, a fourth-moment estimator of
+  a heavy-tailed series) and the SMF p1 (-1.252 +/- 2.312 dB, inside 1 SE).
+  The pooled record holds 352 independent tilt times for the fibre (70 for
+  each record) against about 75 for the single 2 s record, 1539 for the
+  bucket and 4567 for the point. See `validation/temporal_screens/README.md`,
+  the step 5 section, for the full table.
+
+  OPEN ENDS after the crosswind work (2026-09-13). Seven items stay open. They
+  are ordered by priority.
+
+  1. HIGH. THE SLOW LAYERS STUTTER. `frame_offsets` rounds the walk to INTEGER
+     pixels. At `dx = 6.86 mm` and `dt = 0.5 ms` the ground layer at 11 m/s
+     moves 5.5 mm in one frame, which is under one pixel, so it advances in
+     jumps of 0 or 1 px. The 137 m/s top layer moves 20 px in the same frame.
+     This bites the low-frequency end of the temporal spectrum and the tilt of
+     the layer that holds 73 percent of the `Cn2`. The rotated route already
+     shears in the Fourier domain, and a shear makes a sub-pixel shift a plain
+     phase ramp, so an exact sub-pixel walk is a small build (it is item (1)
+     above, the Fourier sub-pixel shift). GATE: the tilt temporal PSD of the
+     ground layer ALONE against the Tyler spectrum (DOI 10.1364/JOSAA.11.000358).
+  2. HIGH. THE THIN STRIP READS THE TILT LOW. Both thin routes, along track and
+     rotated, carry 5 to 7 percent LESS Zernike tilt variance than the exact
+     box (0.2 to 0.3 dB of tilt power, 2 SE 0.08). The along-track strip also
+     reads `D(r)` 5 to 9 percent low along its LONG axis at 0.18 to 0.70 m
+     (`validation/temporal_screens/route_equivalence.py`). That is a bias of
+     the route of record. Find out whether it comes from the BAND rule of the
+     `fy = 0` row or from the short axis. The fibre fade is tilt-driven, so
+     this bias goes straight into the fibre numbers.
+  3. MEDIUM. THE FADE TAIL IS UNDER-SAMPLED. At 10 s of pooled atmosphere the
+     SMF p1 carries a 2.3 dB bar and the SMF scintillation index misses by
+     1.1 SE, so neither is resolved. The p1 line holds about 3.5 samples for
+     each realisation, which is under the ten-sample rule of
+     `EmpiricalSampler`. This needs more RECORDS, not a new method: run
+     `rotated_record_parity.py --records N` at a larger `N`.
+  4. MEDIUM. ONE GEOMETRY IS VALIDATED. Every parity number comes from 30 deg
+     elevation, a 90 deg wind, one `Cn2` profile and `L0 = 25 m` (the per-layer
+     angles did span 7 to 87 deg). NOT RUN: 20 deg, a headwind or a tailwind,
+     and a stronger ground layer. The taper gate of `rotation_taper.py` reads
+     an ABSOLUTE ring error in radians, and the seam step scales with the phase
+     rms, so a strong path needs its own taper check.
+  5. MEDIUM. NO REFERENCE MODEL CHECKS THE TEMPORAL FADE NUMBERS. The fade rate
+     and the mean fade duration of gate (e) have no external check (this is
+     item (7) above and backlog 0-N6). `olb/turbulence/andrews/temporal.py`
+     holds the Greenwood frequency, `tau0`, the fade rate and the fade duration
+     (DOI 10.1117/3.626196, Ch. 11), and no Term consumes them. A comparison
+     script is the cheap anchor.
+  6. LOW. THE TIME STEP AGAINST THE FADE DURATION. The median SMF event lasts
+     2 frames at `dt = 0.5 ms`, so the step only just resolves a duration. The
+     2 ms pooled run was a STATISTICS test, not a duration test. A duration
+     study needs the fine step AND long records together, which costs more than
+     either one alone.
+  7. LOW. FIVE DOCUMENTED LIMITS, none of them bounded by a measurement:
+     temporal plus point-ahead (item (2) above), terrestrial frozen flow (item
+     (3)), a variable `dt` (item (5)), ONE wind direction for every layer, and
+     NO boiling (the model is pure Taylor frozen flow, DOI
+     10.1098/rspa.1938.0032).
 - **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
   and the `"retro"` direction raise (run.py:231, :443, :608). The two
   passes share screens, so they are correlated; that needs its own design.
@@ -1337,16 +1624,16 @@ The path forward for each is a second reference or a derivation.
   2-I3 (the preset revision) and 2-I2 (continuous profiles, which drive the
   screen placement). See `turbulent_grid` in
   olb/waveoptics/turbulence/sampling.py.
-- **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — STILL
-  OPEN.** A frozen-flow time axis (2-P1, still a stub) needs the screen arrays
-  in a fixed order, so a naive whole-sim parallel split breaks the time
-  correlation. Two ways out: (a) build the screen arrays BEFORE the parallel
-  fan-out, then hand each worker its ready arrays; or (b) the leaning choice —
-  simulate about 1 second of link time for each worker (this holds MANY
-  coherence times), and still multiprocess across the 1-second blocks. Decide
-  the block length from the coherence time and the wind, and record the choice.
-  Pairs with 2-N3 and the P3 scaling data (`validation/waveoptics_speed/`);
-  needs the temporal axis (2-P1) first.
+- **2-N4b. Run WHOLE fidelity-2 sims in parallel, the TEMPORAL case — DONE by
+  way (a) (2026-09-13, with 2-P1).** The STRIPS are the pre-built screen
+  arrays: `Campaign.run` builds them ONE time in the parent, before the pool
+  opens, and each worker only OPENS them as read-only memory maps. So Windows
+  spawn is cheap, the page cache is shared (a strip costs no private worker
+  memory, and `resources.worker_memory_bytes` says so), and a frame draws no
+  random number. The time correlation is safe because a frame is addressed by
+  its ABSOLUTE position, so a block is a bit-identical slice of the record,
+  exactly as `start_index` makes a block of snapshots. Way (b), the 1-second
+  worker block, is not needed.
 - **2-N7. The memory cut and the two speed opt-ins — DONE (2026-09-06,
   `validation/memory_cut/`).** The fidelity-2 Monte Carlo was throttled by
   memory: by the BANDWIDTH in steady state (12 workers of 32 at 512 px on
@@ -1925,6 +2212,17 @@ The path forward for each is a second reference or a derivation.
 
 ## Documentation debt
 
+- **DD-10. Split `docs/physics.md` into pure physics and olb computation
+  (owner, 2026-09-13).** The file now mixes the physics of a model with the
+  way olb computes it: the frozen-flow section carries the three-shear Fourier
+  rotation, its edge effects, the per-shear taper and the crop margins, and
+  other sections carry the split-step sampling rules, the grid sizers, the
+  screen generators and the campaign mechanics. Move the computation content
+  into its own document (a `docs/computation.md` or the existing
+  `docs/api-waveoptics.md` where it is an API fact), keep in `physics.md` only
+  the equations, their sources and the measured validity of each model, and
+  cross-reference the two. A reader of the physics must not need the code
+  tricks, and a reader of the tricks must not wade through the physics.
 - **DD-2. PARTLY DONE (verified 2026-09-04).** The README "Next / planned" graph
   dropped the two closed nodes NT5 (validate the diverged coupled-flux feed;
   measured and closed) and NT8 (thread f0 into the terrestrial Fried call; 0-W2),

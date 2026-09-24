@@ -527,7 +527,7 @@ def _plan_terrestrial(scenario, geometry, preset, lam):
 
 
 def _plan_space(scenario, geometry, preset, lam, cn2, hs, cn2_profile, h_top,
-                warns):
+                warns, h_gl=None):
     """Build the space screen plan. Dispatch on the profile kind.
 
     The DEFAULT and the callable route go to the CONTINUOUS planner, which
@@ -537,6 +537,11 @@ def _plan_space(scenario, geometry, preset, lam, cn2, hs, cn2_profile, h_top,
     an array caller only, not the physics grid of the default budget.
     """
     if hs is not None or cn2_profile is not None:
+        if h_gl is not None:
+            raise ValueError(
+                "turbulent_grid: h_gl is a knob of the CONTINUOUS planner, and "
+                "hs / cn2_profile take the legacy ARRAY planner. Drop hs and "
+                "cn2_profile, or drop h_gl.")
         return _plan_space_array(scenario, geometry, preset, lam, hs,
                                  cn2_profile, warns)
     if cn2 is None:
@@ -546,10 +551,82 @@ def _plan_space(scenario, geometry, preset, lam, cn2, hs, cn2_profile, h_top,
             """The site Hufnagel-Valley zenith Cn2(h). See profiles.get_c2n."""
             return get_c2n(h, site.wind_rms_m_s, site.cn2_ground)
     return _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top,
-                                  warns)
+                                  warns, h_gl=h_gl)
 
 
-def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
+def _forced_ground_edges(h_gl, h_edges, w_cum, h, n_s, h_top, sec):
+    """Put a screen at each named ground height, and cut the rest as before.
+
+    WHY. The equal-Rytov cut puts the lowest screen at the Cn2-weighted centre
+    of a FAT bottom slab. A site whose ground layer holds a strong, thin
+    inversion, or a temporal study that needs the SLOW ground wind on its own
+    screen, must name that height. `h_gl` does that.
+
+    THE RULE. The first `n_f` screens (the ones nearest the ground) sit EXACTLY
+    at the named heights. Their slab edges are the MIDPOINTS between two named
+    heights, with the ground at the bottom and `h_cut` at the top. `h_cut` is
+    the `n_f`-th edge of the plain equal-Rytov cut, so the forced screens take
+    the place of the `n_f` lowest screens and nothing else moves. The remaining
+    `n_s - n_f` screens are the plain equal-Rytov cut of the slab
+    [h_cut, h_top], at their Cn2-weighted centroids.
+
+    THE TURBULENCE IS CONSERVED. The edges still partition [0, h_top], so the
+    integrated Cn2 and the Rytov weight of the whole path do not change. Only
+    the placement inside the bottom region changes.
+
+    Args:
+        h_gl:    the named heights, in m.
+        h_edges: the edges of the plain equal-Rytov cut, ascending in h.
+        w_cum:   the cumulative Rytov weight on the integration grid.
+        h:       the integration grid, in m.
+        n_s:     the screen count.
+        h_top:   the top of the atmosphere, in m.
+        sec:     the slant secant of the line of sight.
+
+    Returns:
+        The pair (edges, z_forced). `edges` is the new ascending edge array,
+        and `z_forced` maps the z-ascending screen index of a forced screen to
+        its exact distance from the input plane, in m.
+
+    Raises:
+        ValueError: a named height is negative, it is at or above the top of
+                    the atmosphere, it is at or above `h_cut`, or the count of
+                    named heights is not below the screen count.
+    """
+    forced = np.unique(np.asarray(h_gl, dtype=float).ravel())
+    n_f = int(forced.size)
+    if n_f >= int(n_s):
+        raise ValueError(
+            f"turbulent_grid: h_gl names {n_f} heights, and the plan holds "
+            f"{int(n_s)} screens. Name fewer heights, or take a preset with a "
+            "larger min_screens.")
+    if forced[0] < 0.0 or forced[-1] >= float(h_top):
+        raise ValueError(
+            f"turbulent_grid: h_gl must hold heights in [0, {float(h_top):.4g}) "
+            f"m, and it gives {forced.min():.4g} to {forced.max():.4g} m.")
+    h_cut = float(h_edges[n_f])
+    if forced[-1] >= h_cut:
+        raise ValueError(
+            f"turbulent_grid: the highest h_gl height ({forced[-1]:.4g} m) is "
+            f"at or above the {n_f}-th equal-Rytov edge h_cut = {h_cut:.4g} m. "
+            "A forced screen must stay inside the region it replaces. Name a "
+            "lower height, or name more heights.")
+
+    low = np.concatenate(([0.0], 0.5 * (forced[:-1] + forced[1:]), [h_cut]))
+    n_r = int(n_s) - n_f
+    w_cut = float(np.interp(h_cut, h, w_cum))
+    targets = w_cut + (float(w_cum[-1]) - w_cut) * np.arange(1, n_r) / n_r
+    upper = np.concatenate((np.interp(targets, w_cum, h), [float(h_top)]))
+    edges = np.concatenate((low, upper))
+    # The slab j counts from the GROUND, and the screen index counts along z,
+    # so the forced slab j is the screen n_s - 1 - j.
+    z_forced = {int(n_s) - 1 - j: (float(h_top) - float(forced[j])) * sec
+                for j in range(n_f)}
+    return edges, z_forced
+
+
+def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns,
+                           h_gl=None):
     """Build the space screen plan by integrating a continuous Cn2 callable.
 
     The gridded path is the DOWNLINK slab only. The satellite is outside the
@@ -578,6 +655,10 @@ def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
         cn2:    a callable cn2(h) -> the zenith Cn2 at height h [m], in
                 m^(-2/3). Vectorised over an ndarray of heights.
         h_top:  the top of the integrated atmosphere, in m.
+        h_gl:   an optional sequence of ground heights, in m. Each one gets a
+                screen of its own, at exactly that height. None (the default)
+                keeps the plain equal-Rytov cut, byte for byte. See
+                _forced_ground_edges.
     """
     p = preset
     k = wavenumber(lam)
@@ -628,6 +709,14 @@ def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
     h_inner = np.interp(targets, w_cum, h)
     h_edges = np.concatenate(([0.0], h_inner, [float(h_top)]))   # ascending
 
+    # THE GROUND-LAYER KNOB (default None). It replaces the lowest screens by
+    # screens that sit at named heights. The turbulence is conserved, because
+    # the edges still partition [0, h_top]. See _forced_ground_edges.
+    z_forced = {}
+    if h_gl is not None:
+        h_edges, z_forced = _forced_ground_edges(h_gl, h_edges, w_cum, h, n_s,
+                                                 h_top, sec)
+
     # Each slab [h_edges[j], h_edges[j+1]] gives one screen. The slabs run from
     # the ground (j = 0, the far z) to the top (j = n-1, z = 0), so the reverse
     # order puts the screens at INCREASING z, the order that split_step wants.
@@ -642,8 +731,11 @@ def _plan_space_continuous(scenario, geometry, preset, lam, cn2, h_top, warns):
         i = n_s - 1 - j                                   # z-ascending index
         m_slab = _seg(m_cum, lo, hi)
         cn2_int[i] = m_slab
-        z[i] = (_seg(zm_cum, lo, hi) / m_slab if m_slab > 0.0
-                else (float(h_top) - 0.5 * (lo + hi)) * sec)
+        if i in z_forced:
+            z[i] = z_forced[i]              # the named height, exactly.
+        else:
+            z[i] = (_seg(zm_cum, lo, hi) / m_slab if m_slab > 0.0
+                    else (float(h_top) - 0.5 * (lo + hi)) * sec)
         s2[i] = _seg(w_cum, lo, hi)
 
     r0 = screen_r0(cn2_int, lam)
@@ -764,7 +856,7 @@ def resolve_outer_scale(L0_m, scenario):
 
 
 def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
-                   cn2_profile=None, h_top_m=None, L0_m=np.inf):
+                   cn2_profile=None, h_top_m=None, L0_m=np.inf, h_gl=None):
     """Size a turbulent split-step grid, and plan the screens.
 
     THE EXTENT RULE. The grid holds the beam AND the light that the turbulence
@@ -833,6 +925,12 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
         L0_m:        the outer scale, in m. The SIZER does not read it. The
                      runner passes it to phase_screen. It stays here so that
                      one call site holds all the turbulence options.
+        h_gl:        an optional sequence of GROUND heights, in m. Each named
+                     height gets a screen of its own, at exactly that height,
+                     and the rest of the path keeps the equal-Rytov cut. None
+                     (the default) gives the plain plan, byte for byte. It
+                     needs the CONTINUOUS space planner: hs, cn2_profile or a
+                     terrestrial scenario raises. See _forced_ground_edges.
 
     Returns:
         A tuple (GridSpec, ScreenPlan, SamplingReport).
@@ -857,8 +955,13 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
 
     if hasattr(scenario, "ground"):          # a space scenario; terrestrial has near/far
         plan, r_beam, feature = _plan_space(
-            scenario, geometry, p, lam, cn2, hs, cn2_profile, h_top_m, warns)
+            scenario, geometry, p, lam, cn2, hs, cn2_profile, h_top_m, warns,
+            h_gl=h_gl)
     else:
+        if h_gl is not None:
+            raise ValueError(
+                "turbulent_grid: h_gl names ground HEIGHTS, and a terrestrial "
+                "path has no height axis. Drop h_gl.")
         plan, r_beam, feature = _plan_terrestrial(scenario, geometry, p, lam)
 
     # ---- the extent ----
@@ -871,7 +974,11 @@ def turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None,
     total_s2 = float(plan.sigma2_r.sum())
     share = (plan.sigma2_r / total_s2 if total_s2 > 0
              else np.zeros_like(plan.sigma2_r))
-    needs_fresnel = share > p.fresnel_weight_min
+    # A screen that sits AT the receiver plane (z_to_rx = 0, which only an
+    # h_gl=[0] plan makes) propagates through no distance, so it adds no
+    # scintillation and it has no Fresnel scale. It is exempt. Every other plan
+    # puts every screen strictly inside the path, so this changes nothing.
+    needs_fresnel = (share > p.fresnel_weight_min) & (z_to_rx > 0.0)
     dx_wanted = min(plan.r0_total_m / p.pixels_per_r0,
                     feature / (PIXELS_PER_FEATURE / 2))
     if needs_fresnel.any():
@@ -1293,6 +1400,61 @@ if __name__ == '__main__':
         _, plan9, _ = turbulent_grid(space, orbit30, preset="reference")
     assert plan9.z_m.size == PRESETS["reference"].min_screens, plan9.z_m.size
 
+    # ---- 11. the h_gl ground-layer knob (default None) ----
+    # h_gl=None must give the SAME plan, array for array, and a named height
+    # must put a screen at exactly that height while the turbulence is kept.
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        _, plan_none, _ = turbulent_grid(space, orbit30, h_gl=None)
+    for field in ("z_m", "cn2_int_m13", "r0_m", "sigma2_r"):
+        assert np.array_equal(getattr(plan_none, field),
+                              getattr(plan2, field)), field
+    assert plan_none.r0_total_m == plan2.r0_total_m
+
+    sec30 = 1.0 / np.sin(np.deg2rad(30.0))
+    gl_rows = []
+    for heights in ([0.0], [50.0, 200.0]):
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            _, plan_gl, _ = turbulent_grid(space, orbit30, h_gl=heights)
+        assert plan_gl.z_m.size == plan2.z_m.size, plan_gl.z_m.size
+        # Each named height holds a screen, at exactly that height.
+        for j, h_f in enumerate(sorted(heights)):
+            i = plan_gl.z_m.size - 1 - j
+            want = (DEFAULT_H_TOP_M - h_f) * sec30
+            assert abs(plan_gl.z_m[i] - want) < 1e-6, (h_f, plan_gl.z_m[i],
+                                                       want)
+        # The screens stay in z order, and the turbulence is conserved.
+        assert np.all(np.diff(plan_gl.z_m) > 0), plan_gl.z_m
+        for field in ("cn2_int_m13", "sigma2_r"):
+            a = float(getattr(plan_gl, field).sum())
+            b = float(getattr(plan2, field).sum())
+            assert abs(a / b - 1.0) < 1e-3, (heights, field, a, b)
+        gl_rows.append((tuple(heights), plan_gl.z_m.size,
+                        plan_gl.r0_m[-1], plan_gl.r0_total_m))
+
+    # The three refusals.
+    for bad, where in (([DEFAULT_H_TOP_M], "above the top"),
+                       ([-1.0], "a negative height"),
+                       ([1e4], "above h_cut")):
+        try:
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                turbulent_grid(space, orbit30, h_gl=bad)
+            raise AssertionError(f"h_gl={bad} ({where}) must raise")
+        except ValueError:
+            pass
+    try:
+        turbulent_grid(space, orbit30, hs=DEFAULT_HS, h_gl=[0.0])
+        raise AssertionError("h_gl with the array planner must raise")
+    except ValueError as exc:
+        assert "ARRAY planner" in str(exc), str(exc)
+    try:
+        turbulent_grid(scn1, HorizontalPath(L1), h_gl=[0.0])
+        raise AssertionError("h_gl on a terrestrial path must raise")
+    except ValueError as exc:
+        assert "no height axis" in str(exc), str(exc)
+
     # ---- the printed tables ----
     print("case 1, terrestrial, 2 km, Cn2 = 5e-15, standard preset:")
     print(f"  grid side               {g1.size_m:11.4f} m")
@@ -1384,6 +1546,15 @@ if __name__ == '__main__':
           f"{'Cn2 = 1e-14':>14}")
     for name, path_m, n_lo, n_hi in count_rows:
         print(f"  {name:<12}{path_m * 1e-3:>11.0f}{n_lo:>14}{n_hi:>14}")
+    print("")
+    print("case 11, the h_gl ground-layer knob, 30 deg, standard preset:")
+    print(f"  {'h_gl [m]':<16}{'screens':>9}{'lowest r0 [cm]':>16}"
+          f"{'r0 total [cm]':>15}")
+    print(f"  {'None':<16}{plan2.z_m.size:>9}{plan2.r0_m[-1] * 1e2:>16.2f}"
+          f"{plan2.r0_total_m * 1e2:>15.2f}")
+    for heights, n_scr, r0_low, r0_tot in gl_rows:
+        print(f"  {str(list(heights)):<16}{n_scr:>9}{r0_low * 1e2:>16.2f}"
+              f"{r0_tot * 1e2:>15.2f}")
     print("")
     print(f"(elapsed {time.time() - t_start:.1f} s)")
     # ---- 10. the clamp report names the broken rules ----

@@ -226,7 +226,11 @@ stochastic turbulence Term. The caller precomputes both with
 `olb.models.waveoptics.run_fidelity2`, or passes a `Campaign` (2026-09-04): an
 on-disk, resumable store of thousands of trials that keeps the receive-plane
 field of each trial, so any detector inside the stored patch is a post-hoc
-question. The temporal mode stays planned.
+question. The fidelity-2 frozen-flow TIME AXIS is built (2026-09-13,
+`TemporalSpec`), and it is an opt-in: each layer drifts across one oversized
+strip screen, so a run gives a fade rate and a fade duration. A CROSSWIND takes
+a ROTATED thin strip by default. The fidelity-1 (FAST) temporal mode stays
+planned.
 
 A **temporal** side-step runs across the fidelity tiers, not along them (planned,
 NT6). Each statistical tier draws independent snapshots today, which give the

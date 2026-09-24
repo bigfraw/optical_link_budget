@@ -73,6 +73,7 @@ tiers (see Section 9).
   - [9f. The example scripts](#9f-the-example-scripts)
   - [9g. The campaign store (`olb/waveoptics/turbulence/campaign.py`)](#9g-the-campaign-store-olbwaveopticsturbulencecampaignpy)
   - [9h. The perfect-AO correction (`olb/waveoptics/compensation/`)](#9h-the-perfect-ao-correction-olbwaveopticscompensation)
+  - [9i. The frozen-flow time axis (`olb/waveoptics/turbulence/temporal.py`)](#9i-the-frozen-flow-time-axis-olbwaveopticsturbulencetemporalpy)
 - [10. The Schmidt foundation layer (`olb/waveoptics/schmidt/`)](#10-the-schmidt-foundation-layer-olbwaveopticsschmidt)
   - [10a. The transforms (`fourier.py`)](#10a-the-transforms-fourierpy)
   - [10b. The propagation kernels (`fresnel.py`)](#10b-the-propagation-kernels-fresnelpy)
@@ -621,7 +622,8 @@ when its trigger comes.
 
 The turbulent split-step layer is BUILT and self-checked. It moves a complex
 field along a path and it puts a random phase screen at each slab of that path.
-It gives one SNAPSHOT of the atmosphere for each seed. It carries NO time axis.
+By DEFAULT it gives one SNAPSHOT of the atmosphere for each seed, with no time
+axis. The frozen-flow time axis of Section 9i is an OPT-IN.
 
 Status: the sub-package builds NO Term itself, but its records ARE wired into the
 budgets as `fidelity=2` through `olb.models.waveoptics` (Section 11). The
@@ -645,7 +647,7 @@ The seven modules are:
 | `run.py` | The trial runner: one snapshot for each seed. |
 | `campaign.py` | A large set of trials on disk, stored as blocks. |
 | `fingerprint.py` | The content key that names one campaign (`cache_key`). |
-| `temporal.py` | The frozen-flow time axis. PLANNED, NOT BUILT. |
+| `temporal.py` | The frozen-flow time axis: the strip screens (Section 9i). |
 
 **Two screen generators.** The DEFAULT is the `olb` generator, the fast
 `ScreenFactory` of Section 9a. It imports numpy and scipy only, so a default
@@ -661,7 +663,8 @@ seed; the statistics agree (Section 9a).
 The import tiers follow the tiers of the vacuum package. `screens.py` and
 `splitstep.py` read the wave-optics core only. `sampling.py` and `run.py` read
 the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
-`temporal.py` imports numpy only.
+`temporal.py` reads `screens.py`, the propagator backend switch and the Bufton
+wind profile; it does not import the runner, so the seed rule has no cycle.
 
 ### 9a. The phase screens (`olb/waveoptics/turbulence/screens.py`)
 
@@ -684,7 +687,8 @@ the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
   screen is a thin, pure phase element, so the power does not change. It raises
   `ValueError` on a spherical field and on a wrong-shape phase array.
 - `ScreenFactory(n, pixel_m, L0_m=np.inf, l0_m=1e-6, subharmonics=True,
-  n_sub_levels=3, dtype=np.float64, lean=False)` — the FAST screen generator,
+  n_sub_levels=3, dtype=np.float64, lean=False, nx=None, table_dtype=None)` —
+  the FAST screen generator,
   and the
   DEFAULT of the runner (`screen_generator="olb"`). It caches the sqrt-PSD
   filter and the separable subharmonic basis ONE time for the grid, then it
@@ -698,7 +702,31 @@ the rest of `olb` (a scenario, the `Cn2` profiles, the Andrews layer).
   `aotools` path. It draws a DIFFERENT random atmosphere from `aotools` for the
   same seed. The broad validity pass shows the two agree in the mean collected
   power, the aperture `sigma2_I`, and the fade tail; see
-  `validation/waveoptics_speed/generator_validation.py`.
+  `validation/waveoptics_speed/generator_validation.py`. `table_dtype=np.float32`
+  (an OPT-IN, 2026-09-13) builds the FILTER TABLES in single precision. It
+  halves the peak memory of the build, which a large crosswind strip needs, and
+  it moves the screen at the rounding level only (max 1.1e-5 rad, `D(r)`
+  identical to six digits). None (the default) keeps the float64 tables of
+  record, so every screen stays bit-identical. The subharmonic tables are small
+  and they stay float64.
+
+**A STRIP: `nx=` (2026-09-13).** `nx` makes a RECTANGULAR screen of `n` rows and
+`nx` columns at one pitch. The frozen-flow time axis of Section 9i needs it: one
+strip holds the whole travel of one layer, and a frame is a crop of it. `nx=None`
+(the default) and `nx=n` both give the square screen of record, bit for bit, in
+both precisions and at both outer scales. A strip differs in two ways:
+
+- Each axis has its own fundamental frequency, so the amplitude factor of
+  Schmidt Eq. (9.78) carries `sqrt(dfy*dfx)`.
+- The 3 by 3 subharmonics give place to the BAND. The row `fy = 0` of the main
+  grid is cut out and drawn again as `2P+1` sub-rows in y, each keeping the fine
+  x sampling of the strip. The physics reason and the two refused routes are in
+  `docs/physics.md` Section 7.
+
+A strip needs a FINITE `L0_m`, else it raises `ValueError`: the Kolmogorov limit
+would give the long axis more low-frequency power than the short axis. A strip
+with `lean=True` raises `NotImplementedError`. The reach guard reads the SHORT
+axis. `make`, `make_from_noise` and `draw` all take a strip.
 
 **Make the screen AT the propagation pitch.** `phase_screen` takes the pitch and
 the pixel count of the propagation grid. Do not make a coarse screen and
@@ -793,7 +821,7 @@ The vacuum sizer `GridSpec.for_scenario()` is not sufficient for a turbulent
 path. Turbulence spreads the beam, so the grid needs a wider side, and it adds
 coherence structure at the Fried scale `r0`, so the grid needs a finer pixel.
 
-#### `turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf)`
+#### `turbulent_grid(scenario, geometry, *, preset="standard", cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=np.inf, h_gl=None)`
 
 It returns the tuple `(GridSpec, ScreenPlan, SamplingReport)`. The geometry gives
 `slant_range_m` (terrestrial) or `elevation_deg` (space), and the sizer takes the
@@ -810,6 +838,20 @@ array planner instead; `DEFAULT_HS` is now the fallback for that array caller
 ONLY. `cn2`, `hs`, `cn2_profile`, `h_top_m` are all space only. `L0_m` sits here
 so that one call site holds all the turbulence options; the SIZER does not read
 it, and the runner passes it to `phase_screen()`.
+
+**THE GROUND-LAYER KNOB `h_gl` (2026-09-13, default `None`).** It is a sequence
+of GROUND heights, in m. Each named height gets a screen of its OWN, at exactly
+that height; the slab edges of the forced region are the midpoints between two
+named heights, and the rest of the path keeps the equal-Rytov cut above the
+`n_f`-th edge of the plain plan. The edges still partition `[0, h_top]`, so the
+integrated `Cn2` and the Rytov weight of the path do not change: only the
+placement inside the bottom region moves. Use it for a site whose ground layer
+holds a thin, strong inversion, or for a temporal study that needs the SLOW
+ground wind on a screen of its own. `None` (the default) gives the plain plan,
+byte for byte. It needs the CONTINUOUS space planner: `hs`, `cn2_profile` or a
+terrestrial scenario raises `ValueError`, and so does a negative height, a
+height at or above `h_top`, a height at or above the `n_f`-th edge, and a count
+of heights that is not below the screen count.
 
 It raises `ValueError` on an unknown preset name, and on a terrestrial transmit
 terminal with no `Transmitter`. It WARNS on a sampling problem. It does not
@@ -951,11 +993,12 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, boost=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, temporal=None, h_gl=None, boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
-it. The trials are independent snapshots.
+it. The trials are independent snapshots, unless `temporal=` makes them the
+frames of one record.
 
 - `grid` and `plan` come together, or neither comes. `None` for both calls
   `turbulent_grid()`, and the result then carries the report.
@@ -1056,6 +1099,22 @@ it. The trials are independent snapshots.
   `None` (the default) reads the geometry: `max(angles) * max(z_g)`, with `z_g`
   the ground distance of a screen. A run with no point-ahead angle keeps the
   margin `0.0` and draws the screen of record.
+- `temporal` is the frozen-flow time axis (an OPT-IN, 2026-09-13, default OFF).
+  `None` (the default) keeps the independent-snapshot run, bit for bit. A
+  `TemporalSpec` turns the trials into the FRAMES of one record: trial `k` IS
+  frame `k`, at the time `k*dt_s`, and `start_index` counts frames. The strips
+  are built ONE time before the trial loop, and a frame then draws NO random
+  number. It needs a SPACE (downlink slab) plan; a terrestrial plan raises
+  `NotImplementedError`, and so does `temporal` with `point_ahead_rad`. The
+  CUDA route takes the plain loop and not the pipelined host draw. It uploads
+  each crop on the ALONG-TRACK route, and it holds the whole strip on the
+  device on the ROTATED route (`open_strips(..., on_device=True)`), so a
+  rotated frame uploads nothing. `TurbWaveResult.temporal`
+  holds the spec. See Section 9i.
+- `h_gl` is the sequence of forced GROUND heights of the screen plan, in m.
+  `None` (the default) keeps the plain equal-Rytov cut. It reaches the SIZER
+  only, so it does nothing when the caller gives its own `grid` and `plan`. See
+  `turbulent_grid()` above. `propagate_turbulent_field()` takes it too.
 
 **THE BLOCK CONTRACT (`start_index`).** The runner seeds trial `k` off
 `(seed, k)`, so a block of trials is a SLICE of one long run. A run of `n`
@@ -1444,7 +1503,8 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 
 | Name | Where | Why it is deferred |
 |---|---|---|
-| `TemporalScreens` | `temporal.py` | The frozen-flow time axis. The constructor and `step()` raise `NotImplementedError`. The class docstring holds the recorded design: one `aotools` `PhaseScreenVonKarman` for each layer, `add_row()` to extrude, and a layer drift velocity that is the vector sum of the Bufton wind (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3)) and the apparent translation `omega_slew * z_i` of a tracked satellite. See also Assemat, Wilson and Gendron, DOI 10.1364/OE.14.000988, and Taylor, DOI 10.1098/rspa.1938.0032. |
+| `temporal=` with `point_ahead_rad=` | `run.py` | The two windows on one strip. A point-ahead pass takes a laterally SHIFTED window, and a frame takes a window that MOVES with the wind; the pair needs its own design. `propagate_turbulent_scenario()` raises `NotImplementedError`. See backlog 2-P1b. |
+| `temporal=` on a terrestrial plan | `run.py` | A horizontal path has no slew and no Bufton wind profile, so it needs its own velocity model. `propagate_turbulent_scenario()` raises `NotImplementedError`. |
 | `folded_terrestrial()` | `run.py` | The double pass of a corner-cube retroreflector. The two passes share the same screens, so they are correlated. That correlation is the physics of the link, and it needs its own design. |
 | The `"retro"` direction | `run.py` | `propagate_turbulent_scenario()` raises `NotImplementedError`. The same correlated double pass. |
 | A co-moving screen | `screens.py`, `splitstep.py` | `Screen()` and `split_step()` raise `ValueError` on a spherical field. The split step runs on a FLAT grid only. Call `Convert()` first. |
@@ -1494,7 +1554,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None)`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation=None, store_screen_phase=False, point_ahead_rad=None, screen_margin_m=None, temporal=None, h_gl=None)`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1565,11 +1625,30 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   geometry. `None` on a REOPENED campaign reads the stored value from the
   manifest, exactly as `patch_radius_m` does, so a change of the automatic rule
   never breaks an older store. The RESOLVED value enters the fingerprint.
+- `temporal` passes to the runner (Section 9d), and the trials of the campaign
+  are then the FRAMES of one frozen-flow record. The campaign MOVES the strips
+  to `root_dir/strips`, whatever `strip_dir` the caller set, so a deleted
+  campaign takes its cache with it; `TemporalSpec.key()` holds no `strip_dir`,
+  so the move does not change the fingerprint. `Campaign.run()` builds the
+  strips ONE time in the calling process, before the pool opens, and each
+  worker then only opens the memory maps. The spec enters the manifest, and the
+  fingerprint when it is not `None`.
+- `h_gl` passes to the sizer (Section 9c). It enters the manifest, and the
+  fingerprint when it is not `None`.
 
 Attributes: `root_dir`, `scenario`, `geometry`, `seed`, `preset`, `block_size`,
 `patch_radius_m`, `grid`, `plan`, `patch`, `fingerprint`, `precision`,
 `compensation`, `n_modes_corrected`, `store_screen_phase`, `point_ahead_rad`,
-`screen_margin_m`, `screen_n`.
+`screen_margin_m`, `screen_n`, `temporal`, `h_gl`, `dt_s`.
+
+#### `Campaign.t_s(rows=None)`
+
+It gives the time of one or more stored frames, in s. `rows=None` takes every
+stored trial. THE TIME IS DERIVED, `row * dt_s`, and it is NEVER a stored
+column: a block file holds a FIXED column list, so a new column would break
+every older block. `map_trials` puts the same value in
+`TrialRecord.scalars["t_s"]`. A snapshot campaign has no time axis, and the call
+raises `ValueError`.
 
 **The fingerprint.** `fingerprint` is `cache_key(...)` from
 `olb/waveoptics/turbulence/fingerprint.py`: one SHA-256 of everything that
@@ -1581,8 +1660,9 @@ stores it, and an existing campaign whose fingerprint does not match raises.
 **THE APPEND-ONLY TAIL RULE.** An option that came after the first campaigns
 enters the key ONLY when it is not its default: `precision` when it is
 `"single"`, `fft_backend` when it is not `"numpy"`, `compensation` when it is not
-`None`, `store_screen_phase` when it is `True`, and `point_ahead_rad` with
-`screen_margin_m` when the run makes a point-ahead pass. A default therefore adds NO
+`None`, `store_screen_phase` when it is `True`, `point_ahead_rad` with
+`screen_margin_m` when the run makes a point-ahead pass, and `temporal` with
+`h_gl` when they are not `None`. A default therefore adds NO
 line to the hashed text, so every key that a stored campaign holds stays valid.
 Follow that rule for each new option.
 This key came from the P4 scalar cache (`cache.py`), which `Campaign` replaced
@@ -1733,8 +1813,9 @@ A property. The number of trials on disk, counted from block 0 with no gap.
 | File | What it holds |
 |---|---|
 | `block_{b:05d}.npz` | One block. The five per-trial scalar columns (`collected_power`, `smf_eta`, `mmf_eta`, `eta_turb`, `wall_time_s`; `NaN` marks a `None`) and the `complex64` `fields` rows. A campaign with `store_screen_phase=True` adds ONE more array, the `float32` `screen_phase` rows. A campaign with a POINT-AHEAD pass adds THREE more: `eta_turb_pa` (`(n_trials, n_angles)`), the `complex64` `fields_pa` and the `float32` `screen_phase_pa`. A block that a run wrote without an array holds no such array, and a reader gives `None`, so an OLD block file still reads. |
-| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the precision, the FFT backend, the compensation stack, the screen-phase switch, the point-ahead angles, the screen margin, the olb version, the scenario text, the grid, the plan and the patch shape. A manifest from before an option reads that option's default (no compensation, no stored screen phase, no point-ahead angle, `"double"`, `"numpy"`). |
+| `manifest.json` | The fingerprint, the seed, the preset, the block size, the patch radius, the sizing aperture, the screen generator, the outer scale, the subharmonics flag, the precision, the FFT backend, the compensation stack, the screen-phase switch, the point-ahead angles, the screen margin, the temporal spec key with its `dt_s`, the forced ground heights, the olb version, the scenario text, the grid, the plan and the patch shape. A manifest from before an option reads that option's default (no compensation, no stored screen phase, no point-ahead angle, no temporal record, no forced ground height, `"double"`, `"numpy"`). |
 | `patch_indices.npy` | The flat pixel indices of the `FieldPatch`. |
+| `strips/r{record:04d}_s{j:02d}.npy` | The strip of layer `j` of a frozen-flow record (Section 9i). A snapshot campaign has no such folder. The strips are a deletable cache: the seed rebuilds them. |
 
 A block file holds ONE block, and the parent writes it with an atomic replace.
 So a stopped campaign keeps every finished block.
@@ -2021,6 +2102,117 @@ into `(-pi, pi]`. For a complex field the difference is one product,
 **PISTON IS UNOBSERVABLE** from slopes: its influence column is zero, so the fit
 returns `0.0` for `j = 1`. A piston is a constant phase, and it does not change a
 coupling efficiency.
+
+### 9i. The frozen-flow time axis (`olb/waveoptics/turbulence/temporal.py`)
+
+Each layer gets ONE oversized rectangular screen, a STRIP, and a FRAME is a crop
+of that strip at an integer pixel offset. So the atmosphere MOVES, and the run
+gives a fade RATE and a fade DURATION. The physics, the velocity model, the seam
+rule and the measured gates are in `docs/physics.md` Section 7. It is an OPT-IN,
+and a default run still draws independent snapshots, bit for bit.
+
+```python
+from olb.waveoptics.turbulence import Campaign, TemporalSpec
+
+spec = TemporalSpec(dt_s=5e-4, n_frames=4000, strip_dir="strips")
+camp = Campaign(scn, geom, root, seed=20260913, temporal=spec)
+camp.run(4000)
+t = camp.t_s()                       # the derived time axis, in s.
+```
+
+- `TemporalSpec(dt_s, n_frames, strip_dir, record=0, wind_ground_m_s=10.0,
+  wind_dir_deg=0.0, slew_rad_s=None, pad_outer_scales=2.0, rotated=None,
+  rot_margin=0.07)` — a frozen dataclass
+  that names ONE record. `record` separates two records of one campaign: they
+  hold different strips and the same statistics. `slew_rad_s=None` reads
+  `geometry.slew_deg_s`.
+- `TemporalSpec.resolve_rotated()` — the ROUTE of the spec, True rotated or
+  False along track. `rotated=None` (the DEFAULT from 2026-09-13) is AUTO: a
+  CROSSWIND (`wind_dir_deg` not a multiple of 180 deg) takes the ROTATED
+  route, and a wind along track keeps the axis-aligned box, bit for bit. An
+  explicit True or False overrides. The test reads the wind DIRECTION and not
+  the plan, because the crosswind part of a layer is `V(h) sin(wind_dir)` and
+  the Bufton `V(h)` is never 0, so the two tests are the same one and `key()`
+  stays a pure function of the spec.
+- `TemporalSpec.key()` gives the stable string that the fingerprint reads, and
+  it OMITS `strip_dir`, because the strips are a cache. It also omits
+  `rotated` and `rot_margin` while the RESOLVED route is the along-track one
+  (the append-only tail rule of `precision` and `fft_backend`), so every key
+  of an older along-track record stays valid. The key holds the RESOLVED
+  value, so `rotated=None` on a crosswind and `rotated=True` name the SAME
+  record.
+- `strip_plan(plan, grid, spec, geometry, L0_m)` — a `StripPlan`: the drift
+  `v_x_m_s` and `v_y_m_s` of each layer, the `(ny, nx)` shape of each strip (the
+  column count rounds up to a multiple of `STRIP_ALIGN = 32`), and the seam pad
+  in pixels. `L0_m` must be FINITE. With `spec.resolve_rotated()` it gives the
+  ROTATED
+  plan instead: one THIN strip for each layer along that layer's RESULTANT
+  velocity, plus `theta` (the angle of each layer) and `m_crop` (the padded
+  crop side of EACH layer, `n(|cos theta_j| + |sin theta_j| + 2 rot_margin)`,
+  a tuple with one value for each layer, 2026-09-13). `rot_margin` is now the
+  taper ROLL-OFF past the geometric rotation footprint, not the whole margin,
+  and its default is 0.07. A layer that walks along x therefore asks for a
+  much smaller crop than a layer that walks at 45 deg, and the crop pixels
+  drive the cost of a frame.
+- `frame_offsets(sp, k)` — the `(oy, ox)` pixel offset of each layer at frame
+  `k`, from the ABSOLUTE position. A negative speed starts at the far end and
+  walks back, so the window stays inside the strip.
+- `strip_paths(spec, n_screens)` — the file path of each strip.
+- `build_strips(sp, r0_m, paths, L0_m, subharmonics, seeds, dtype=np.float32,
+  table_dtype=None)` — it writes each strip to its own file. `table_dtype=
+  np.float32` (an OPT-IN, 2026-09-13) builds the `ScreenFactory` filter tables
+  in single precision, which halves the peak memory of a large (crosswind) box
+  at a rounding-level change of the screen (max 1.1e-5 rad, D(r) identical to
+  six digits; `validation/temporal_screens/table_precision.py`). None keeps
+  the float64 tables of record. The call is IDEMPOTENT: a strip that
+  already sits on disk is skipped, and each file goes through a temporary name
+  and `os.replace`, so a killed run leaves no half file. It builds ONE layer at
+  a time under the host `"scipy"` FFT backend, and it restores the backend it
+  found. The RUNNER owns the seed rule (`run._screen_seed`), so this module
+  takes the integer seeds as an argument and imports no runner.
+- `open_strips(paths, on_device=False)` — the strips as read-only memory maps.
+  A pool then shares ONE page cache, so a strip costs no private worker
+  memory. `on_device=True` uploads the strips to the CUDA device ONE time
+  instead, which the runner does for the ROTATED route under the `"cupy"`
+  backend: a frame then crops and turns them where the field is and it uploads
+  nothing. The call falls back to the memory map, with a warning, when the
+  strips need more than half the free device memory.
+- `frame_stack(strips, sp, k)` — a generator of the `n` by `n` phase of each
+  layer at frame `k`. Each screen is a VIEW, so the call copies nothing. On
+  the ROTATED plan it takes the padded crop of the side `sp.m_crop` OF THAT
+  LAYER, turns it back with `rotate_fourier` under the end taper, and cuts the
+  central `n` by `n`; that route copies.
+- `rotate_fourier(patch, theta_rad, taper=None)` — the EXACT Fourier three-shear rotation
+  of a square patch, `out(p) = patch(R(theta) p)` about the centre (Unser,
+  Thevenaz and Yaroslavsky, DOI 10.1109/83.469963). A rotation is an x-shear,
+  a y-shear and an x-shear, and each shear translates one line by a phase ramp
+  on its 1-D transform (the Fourier shift theorem, Schmidt,
+  DOI 10.1117/3.866274, Ch. 2). It runs on the array module of the FFT
+  backend, so it runs on the device under `"cupy"`. It does NOT smooth the
+  Fresnel-scale structure, which a real-space bilinear or cubic rotation does.
+  TWO ERRORS STAY: the modes in the CORNERS of the frequency square leave the
+  square, and a shear WRAPS the non-periodic edge of a crop, so the caller
+  must cut a central window out of a patch that carries a margin. `taper` is
+  the width of the FLAT top of a 1-D raised-cosine window that the call puts
+  on the ends of every line BEFORE EACH of the three shears (2026-09-13). It
+  removes most of the wrap. A single 2-D window does NOT work, because the two
+  later shears undo it. `frame_stack` passes the rotation footprint
+  `n(|cos t| + |sin t|)`, so the kept frame reads only the flat top. None (the
+  default) keeps the plain call, which the validation scripts use as the
+  control.
+
+THE ROTATED STRIP IS THE CROSSWIND DEFAULT (2026-09-13, backlog 2-P1b item 10),
+and the runner and `Campaign` read it: a `TemporalSpec` threads through
+`propagate_turbulent_scenario` and `Campaign` as it is, and the runner picks the
+route from `strip_plan`. A CROSSWIND turns the walk of a
+layer away from the x axis, so the axis-aligned box grows its SHORT axis: the
+30 deg hero at `wind_dir_deg = 90` asks for a 11897 x 43744 box (520 Mpx) for
+one jet-level layer. The rotated thin strip of the same layer is 1080 x 44576
+(48 Mpx) at the old plan-wide `rot_margin=0.5`, and it builds in 6.7 s against
+137.4 s. The per-layer crop side and the end taper (2026-09-13) cut that
+further. The gate is `validation/temporal_screens/rotated_strip_gate.py`, the
+taper measurement is `validation/temporal_screens/rotation_taper.py`, and the
+cost and parity table is `validation/temporal_screens/README.md`.
 
 ---
 

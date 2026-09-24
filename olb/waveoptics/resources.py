@@ -107,6 +107,11 @@ def worker_memory_bytes(n, precision="single", block_size=1, patch_pixels=0,
       so a run with no point-ahead pass reads the number it always read;
     - the base of the interpreter with numpy, scipy and olb.
 
+    THE STRIPS OF A FROZEN-FLOW RECORD ARE NOT COUNTED. A worker OPENS each
+    strip as a read-only memory map, so every worker shares ONE page cache and
+    a strip costs no private memory. The formula does not change. See
+    olb.waveoptics.turbulence.temporal.open_strips.
+
     The whole is scaled by WORKER_SAFETY. The estimate sits above the measured
     working set on purpose: a pool that starts too many workers is killed,
     and a pool that starts one too few loses a few percent.

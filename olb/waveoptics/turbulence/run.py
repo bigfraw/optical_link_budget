@@ -54,6 +54,8 @@ from ..sources import GaussBeam
 from .sampling import PRESETS, resolve_outer_scale, turbulent_grid
 from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
+from .temporal import (build_strips, frame_stack, open_strips, strip_paths,
+                       strip_plan)
 
 # THE SLOPE FIT MUST HOLD ENOUGH MODES. The slope metric and the direct phase
 # metric alias an unfitted mode differently, so a short slope fit reads the
@@ -92,11 +94,13 @@ RUN_OPTIONS = (
     "preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m", "subharmonics",
     "screen_generator", "precision", "fft_backend", "compensation",
     "store_screen_phase", "point_ahead_rad", "screen_margin_m",
+    "temporal", "h_gl",
 )
 
 # The subset that the grid sizer (sampling.turbulent_grid) reads. A wrapper
 # that sizes the grid itself pulls these out of the run options.
-GRID_OPTIONS = ("preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m")
+GRID_OPTIONS = ("preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m",
+                "h_gl")
 
 
 def split_run_options(runner_kwargs, *, where):
@@ -145,7 +149,12 @@ _RUN_OPTION_EXEMPT = {
     # The single-snapshot diagnostic returns the field and stores no patch, so
     # there is nowhere to keep the summed screen phase (that array lives on a
     # stored patch). The correction it supports reads the phase in-line.
-    "propagate_turbulent_field": {"store_screen_phase"},
+    #
+    # `temporal` names a RECORD of many frames, and this diagnostic gives ONE
+    # field. A caller that wants frame k of a record runs
+    # propagate_turbulent_scenario with start_index=k and n_trials=1. So the
+    # option has no meaning here.
+    "propagate_turbulent_field": {"store_screen_phase", "temporal"},
 }
 
 # The entry points that do NOT restate the options but forward a validated
@@ -480,6 +489,33 @@ def _host_array(a):
         A numpy array.
     """
     return a.get() if hasattr(a, "get") else a
+
+
+def _uploaded(screens):
+    """Yield each host screen as an array on the CUDA device.
+
+    A temporal frame is a VIEW of a memory map on the host, so the device route
+    must copy it up. The view is not contiguous, and the upload needs a
+    contiguous buffer.
+
+    A ROTATED frame is ALREADY on the device: `frame_stack` runs the three
+    shears on the array module of the FFT backend. So a device array passes
+    through, because numpy refuses to read one.
+
+    # ponytail: the strips stay on the host, so a device run pays one upload
+    # for each screen of each frame (about 9 MiB per frame at 1024 px). Hold
+    # the strips on the device when that cost matters.
+
+    Args:
+        screens: an iterable of host arrays.
+
+    Yields:
+        One device array for each input array.
+    """
+    xpm = xp()
+    for scr in screens:
+        yield (scr if isinstance(scr, xpm.ndarray)
+               else xpm.asarray(np.ascontiguousarray(scr)))
 
 
 def _summing(screens, box):
@@ -840,6 +876,10 @@ class TurbWaveResult:
         screen_phase_pa: the summed screen phase of each point-ahead window at
                       the patch pixels, a float32 array of the shape
                       (n_angles, n_trials, n_patch), or None.
+        temporal:     the TemporalSpec of a frozen-flow RECORD, or None for a
+                      set of independent snapshots. Trial k is then frame k of
+                      the record, at the time k * dt_s. See
+                      olb.waveoptics.turbulence.temporal.
     """
 
     trials: list
@@ -859,6 +899,7 @@ class TurbWaveResult:
     screen_n: int = None
     fields_pa: np.ndarray = None
     screen_phase_pa: np.ndarray = None
+    temporal: object = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -1368,7 +1409,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  fft_backend="numpy", compensation=None,
                                  store_screen_phase=False,
                                  point_ahead_rad=None, screen_margin_m=None,
-                                 boost=True):
+                                 temporal=None, h_gl=None, boost=True):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -1557,6 +1598,25 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       the plan, and each pass takes its own window. A run with
                       no point-ahead angle draws the screen of record, bit for
                       bit.
+        temporal:     an optional TemporalSpec (an OPT-IN, default OFF). It
+                      turns the trials into the FRAMES of one frozen-flow
+                      RECORD: each layer gets one oversized STRIP screen, and
+                      frame k is the crop of that strip at the integer pixel
+                      offset of the time k*dt. So trial k IS frame k, and
+                      start_index counts frames. The strips are built one time
+                      (they are a deletable, seed-rebuildable cache) under
+                      `TemporalSpec.strip_dir`. It needs a SPACE (downlink
+                      slab) plan, and it does not go together with
+                      point_ahead_rad. None (the default) keeps the
+                      independent-snapshot run, bit for bit. See
+                      olb.waveoptics.turbulence.temporal, and Taylor,
+                      DOI 10.1098/rspa.1938.0032.
+        h_gl:         an optional sequence of GROUND heights, in m. Each named
+                      height gets a screen of its own, at exactly that height.
+                      None (the default) keeps the plain equal-Rytov cut. It
+                      only reaches the SIZER, so it does nothing when the
+                      caller gives its own grid and plan. See
+                      sampling.turbulent_grid.
         boost:        True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS) one time at entry. A windowless run
@@ -1618,6 +1678,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 "make_from_noise, and the 'olb-lean' and 'aotools' generators "
                 "have no such split.")
 
+    # ---- the frozen-flow time axis (an OPT-IN, default OFF) ----
+    if temporal is not None and pa_angles is not None:
+        raise NotImplementedError(
+            "propagate_turbulent_scenario: temporal and point_ahead_rad do not "
+            "go together yet. A point-ahead pass takes a laterally SHIFTED "
+            "window of the same screen, and a frame takes a window that MOVES "
+            "with the wind. The two windows on one strip need their own "
+            "design. See docs/backlog.md.")
+
     range_m = np.asarray(geometry.slant_range_m, dtype=float)
     if range_m.size != 1:
         raise ValueError(
@@ -1633,7 +1702,15 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     if grid is None:
         grid, plan, report = turbulent_grid(
             scenario, geometry, preset=p, cn2=cn2, hs=hs,
-            cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m)
+            cn2_profile=cn2_profile, h_top_m=h_top_m, L0_m=L0_m, h_gl=h_gl)
+
+    if temporal is not None and plan.direction != "down":
+        raise NotImplementedError(
+            "propagate_turbulent_scenario: the frozen-flow time axis is built "
+            f"for the DOWNLINK slab of a space link, and this plan is "
+            f"{plan.direction!r}. A horizontal path has no slew and no Bufton "
+            "wind profile, so it needs its own velocity model. See "
+            "olb.waveoptics.turbulence.temporal.")
 
     # THE OVERSIZE DRAW. The margin and the window offsets read the finished
     # plan, so they resolve here. With no point-ahead angle the margin is 0.0
@@ -1744,6 +1821,26 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
         seed_entropy = _resolve_seed(seed)
         n_screens = int(plan.z_m.size)
+
+        # THE STRIPS OF A TEMPORAL RECORD. They are built ONE time, before the
+        # trial loop, and they are a deletable cache: the seed rebuilds them.
+        # Then each frame is a CROP of an open memory map, so a frame draws no
+        # random number. See olb.waveoptics.turbulence.temporal.
+        strips = sp = None
+        if temporal is not None:
+            sp = strip_plan(plan, grid, temporal, geometry, L0_m)
+            paths = strip_paths(temporal, n_screens)
+            build_strips(sp, plan.r0_m, paths, L0_m, subharmonics,
+                         [_screen_seed(seed_entropy, temporal.record, j)
+                          for j in range(n_screens)],
+                         dtype=(np.float32 if cdtype == np.complex64
+                                else np.float64))
+            # THE ROTATED ROUTE ON THE DEVICE holds the strips on the device,
+            # so a frame crops and turns them where the field is and it
+            # uploads nothing. `open_strips` falls back to the memory map,
+            # with a warning, when the strips do not fit.
+            strips = open_strips(paths, on_device=(device_route
+                                                   and sp.m_crop is not None))
 
         # THE BACKEND COMES BEFORE THE SCREEN FACTORY. ScreenFactory reads the
         # array module of the backend ONE time, in __init__, so a factory that
@@ -1857,7 +1954,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # The seed of screen j does not depend on the order, so the values
             # do not change.
             noise = None
-            if stack is None and pa_angles is not None:
+            if stack is None and strips is not None:
+                # A FRAME, not a draw: the crop of each open strip at the
+                # integer pixel offset of the time k*dt. The device route
+                # uploads each crop, because the strips stay on the host.
+                stack = frame_stack(strips, sp, k)
+                if device:
+                    stack = _uploaded(stack)
+            elif stack is None and pa_angles is not None:
                 # ONE DRAW FEEDS EVERY PASS. draw(rng) makes exactly the random
                 # numbers that make(r0, rng) makes, in the same order, so the
                 # beacon pass is the pass of record.
@@ -1992,7 +2096,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         ks = list(range(int(start_index), int(start_index) + int(n_trials)))
         # A POINT-AHEAD trial draws its own noise inside run_one, because every
         # pass reads it. So it takes the plain loop, not the pipelined branch.
-        if device and factory is not None and pa_angles is None:
+        if (device and factory is not None and pa_angles is None
+                and temporal is None):
             # THE PIPELINED HOST DRAW (the plan of record, 2026-09-06). The
             # white noise stays a numpy PCG64 draw on the host, seeded by
             # _screen_seed exactly as the host route seeds it, so the device
@@ -2049,7 +2154,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                           point_ahead_rad=pa_angles,
                           screen_margin_m=margin_m, screen_n=int(n_draw),
                           fields_pa=fields_pa,
-                          screen_phase_pa=screen_phase_pa)
+                          screen_phase_pa=screen_phase_pa,
+                          temporal=temporal)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -2059,7 +2165,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
                               subharmonics=True, screen_generator="olb",
                               precision="single", fft_backend="numpy",
                               compensation=None, point_ahead_rad=None,
-                              screen_margin_m=None):
+                              screen_margin_m=None, h_gl=None):
     """Propagate ONE snapshot and give back the complex receive-plane field.
 
     This is a DIAGNOSTIC entry point, for a picture of the received field. It
@@ -2130,6 +2236,9 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
         screen_margin_m: the extra screen width of the shifted window, in m.
                       None (the default) reads the geometry. See
                       propagate_turbulent_scenario.
+        h_gl:         an optional sequence of GROUND heights, in m, for the
+                      sizer. None (the default) keeps the plain equal-Rytov
+                      cut. See sampling.turbulent_grid.
 
     Returns:
         A tuple (F_rx, grid, plan). F_rx is the receive-plane Field, corrected
@@ -2183,7 +2292,7 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     if grid is None:
         grid, plan, _ = turbulent_grid(scenario, geometry, preset=p, cn2=cn2,
                                        hs=hs, cn2_profile=cn2_profile,
-                                       h_top_m=h_top_m, L0_m=L0_m)
+                                       h_top_m=h_top_m, L0_m=L0_m, h_gl=h_gl)
 
     lam = scenario.tx_terminal.wavelength_m
     mask = super_gaussian_boundary(grid.n, p.boundary_width_frac)

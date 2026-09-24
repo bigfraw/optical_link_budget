@@ -1745,6 +1745,148 @@ integer-pixel shift. Backlog 0-P1.
 
 The measured validity is in Section 9n.
 
+### The frozen-flow time axis (an opt-in, 2026-09-13)
+
+File: `olb/waveoptics/turbulence/temporal.py`. Backlog 2-P1. The axis is OFF by
+default (`temporal=None`), so every earlier fidelity-2 number stays what it was.
+
+**What the code models.** The atmosphere does not change shape while it drifts
+across the line of sight. That is the frozen-flow hypothesis of Taylor,
+DOI 10.1098/rspa.1938.0032. So each layer of the plan gets ONE oversized
+rectangular screen, a STRIP, at the pitch of the propagation grid, and a FRAME
+is a crop of that strip at an integer pixel offset. Frame `k` is trial `k`, at
+the time `k*dt`.
+
+**The velocity of a layer** is a 2-D vector with two parts:
+
+    v_x = omega_slew * h + V_Bufton(h) * cos(dir)
+    v_y =                  V_Bufton(h) * sin(dir)
+
+`V_Bufton` is the Bufton wind profile of Andrews and Phillips,
+DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3), printed p. 481, called with
+`ws = 0`. `ws = 0` is the point: the Bufton `ws*h` term IS the slew, and the
+code adds the slew itself. `omega_slew` is
+`olb.geometry.CircularOrbit.slew_deg_s` in rad/s, and it multiplies the
+ALTITUDE `h` of the layer, NOT its slant distance, because that rate is
+`v*sin(el)/h_sat` and a slant distance counts the `1/sin(el)` factor a second
+time.
+
+**The shift is an integer number of pixels**, and it comes from the ABSOLUTE
+position `v*k*dt`, never from a sum of steps. So the rounding error stays under
+half a pixel for every frame of the record, and no interpolation touches the
+screen statistics. THE SLOW LAYERS STUTTER, though: a layer that moves less than
+one pixel in one step advances in jumps of 0 or 1 px. See backlog 2-P1b, open
+end 1.
+
+**The seam.** A Fourier screen is periodic, so the far end of a strip joins its
+near end. The strip therefore carries a pad of two outer scales past the travel.
+The von Karman phase covariance at `2 L0` is about 4e-6 of the variance
+(Assemat and Wilson, DOI 10.1364/OE.14.000988, Eq. (5)), so the seam is not
+measurable in the record.
+
+**The strip needs its own low-frequency rule.** The row `fy = 0` of the main
+grid carries the power of every frequency with `|fy| < dfy/2`, and that row
+holds NO structure along y. On a square grid the row is thin and the 3 by 3
+subharmonics repair it. On a strip the row is the widest part of the spectrum,
+because `dfy` is many times `dfx`. So `ScreenFactory` cuts that row out and
+draws it again as `2P+1` sub-rows in y, each keeping the FINE x sampling: the
+BAND. It is the subdivision of Schmidt, DOI 10.1117/3.866274, Ch. 9, Eq. (9.81),
+printed p. 169 (from Lane, Glindemann and Dainty,
+DOI 10.1088/0959-7174/2/3/003), applied to ONE axis. Two other routes were
+measured and refused: per-axis 3 by 3 subharmonics read `D(r)` 8 to 23 percent
+LOW along y, and a square-spaced subharmonic box makes a COMB along x that
+repeats every 34.6 m.
+
+**The route that was rejected** is the row-by-row extrusion of Assemat and
+Wilson, DOI 10.1364/OE.14.000988, which `aotools` implements. It
+over-correlates its own axis when the frame side is 0.1 to 0.35 of the outer
+scale, and that band IS the production regime
+(`validation/screens/FINDINGS.md`, Q5 point 4, Q6, Q8). It is also slow:
+`add_row` costs 0.93 ms per row at 512 px and 2.38 ms at 1024 px, and it must
+make EVERY intermediate row of the travel, against 12 to 26 us for one strip
+column. It wins on MEMORY only, and only under about 1 GiB of spare memory.
+
+**What the gates measure** (`validation/temporal_screens/`, 2026-09-13):
+
+| Gate | Result |
+|---|---|
+| (a) the strip statistics | `D(r)` is 0.95 to 1.00 of the von Karman law on BOTH axes, 14 of 14 bands. |
+| (b) Taylor and the spectrum | `D(tau) / D(v tau)` is 0.98 to 1.02, and the temporal PSD exponent is -2.643 +/- 0.054 against the -8/3 law. 9 of 9 bands. |
+| (c) frame 0 against a snapshot | The aperture `sigma2_I` ratio is 0.939 +/- 0.251 and the SMF eta ratio is 1.039 +/- 0.215 (256 trials, rapid), both inside 2 SE. This is THE gate that proves the route. |
+| (d) the tilt spectrum | The low band reads -0.56 against the -2/3 law (PASS), and the corner sits at 38 Hz, between the `0.3 V/D` pupil corners of the layers (5 to 56 Hz). |
+| (e) the fade rate and duration | The hero campaign RAN on the bigfraw GPU (2026-09-13, 8 records of 4000 frames at `dt = 0.5 ms`, 16 s for each elevation, 727 s wall). Both elevations hold the 20-event band. |
+
+**The first temporal fade numbers** (5 percent level of the pooled series, an
+event is a maximal run of frames under it; the rate bar is Poisson and the
+duration bar is 2 SE):
+
+| case | level below the median | events | rate [1/s] | mean duration [ms] | longest [ms] |
+|---|---|---|---|---|---|
+| 30 deg SMF | 12.60 dB | 596 | 37.25 +/- 1.53 | 1.342 +/- 0.089 | 9.5 |
+| 30 deg bucket | 0.49 dB | 407 | 25.44 +/- 1.26 | 1.966 +/- 0.143 | 7.0 |
+| 20 deg SMF | 12.33 dB | 562 | 35.12 +/- 1.48 | 1.423 +/- 0.100 | 11.5 |
+| 20 deg bucket | 0.85 dB | 291 | 18.19 +/- 1.07 | 2.749 +/- 0.215 | 9.5 |
+
+TWO CAUTIONS. The median SMF event lasts 1.0 ms, which is 2 frames, so
+`dt = 0.5 ms` only just resolves the SMF fade duration; a finer `dt` is the
+next study. These are the FIRST temporal fade numbers of the package, and no
+reference model checks them; `olb/turbulence/andrews/temporal.py` holds an
+analytic fade rate and fade duration that still have no external check
+(backlog 0-N6).
+
+**The Greenwood frequency is the wrong reference for a tilt corner.** `f_G` is a
+PHASE quantity that does not know the pupil (Greenwood,
+DOI 10.1364/JOSA.67.000390); the record reads 642 Hz at its own layer
+velocities. The tilt of a 0.7 m pupil breaks on the `V/D` scale instead
+(Tyler, DOI 10.1364/JOSAA.11.000358). `dt` must still resolve `1/f_G`.
+
+**Sizing** (the hero downlink at 30 deg, standard preset, single precision,
+`Vg = 10 m/s`): `n = 512`, `dx = 6.86 mm`, 9 screens, layer speeds 11 to
+137 m/s, and about 0.6 GB of float32 strips for a 2 s record at `dt = 0.5 ms`.
+The strips are a deletable cache: the seed rebuilds them.
+
+**The ground-layer knob `h_gl`** (default `None`, byte-identical) puts a screen
+at each named ground height and cuts the rest of the path equal-Rytov, with the
+turbulence conserved. The hero plan does not need it: its lowest screen already
+sits at 80 m with 73 percent of the `Cn2` (`r0 = 15.4 cm`) at 11.3 m/s.
+
+**A CROSSWIND takes a ROTATED thin strip (the default from 2026-09-13).** The
+walk of a layer is a VECTOR. A wind across the track turns that walk off the x
+axis, so an axis-aligned box must hold the perpendicular travel too, and its
+SHORT axis grows: the 30 deg hero at `wind_dir_deg = 90` asks for a 520 Mpx box
+for one jet-level layer against 48 Mpx for a thin strip. So the code holds ONE
+THIN strip for each layer ALONG that layer's resultant velocity, and it turns
+each frame back onto the lab axes. `TemporalSpec.rotated = None` is AUTO: a wind
+direction that is not a multiple of 180 deg takes the rotated route, and a wind
+along the track keeps the box, bit for bit.
+
+THE ROTATION IS EXACT. It is the three-shear rotation
+`R(a) = Sx(-tan(a/2)) Sy(sin a) Sx(-tan(a/2))` of Unser, Thevenaz and
+Yaroslavsky, DOI 10.1109/83.469963, and each shear translates one line by a
+phase ramp on its 1-D transform (the Fourier shift theorem, Schmidt,
+DOI 10.1117/3.866274, Ch. 2). So it does NOT smooth the Fresnel-scale
+structure. A real-space bilinear control loses 15 to 18 percent of `D(1 px)`,
+which is why interpolation is not the tool.
+
+TWO EDGE EFFECTS STAY. First, a grid-aligned `n` by `n` frame rotated by `t`
+reads a footprint of `n(|cos t| + |sin t|)`, so the crop of a layer must carry
+that corner margin. Second, a shear reads each line as PERIODIC, so the step
+between the two ends of a crop rings inward. A 1-D raised-cosine taper on the
+ends of every line, applied BEFORE EACH of the three shears, cures the second:
+the edge ring falls from about 1.8e-2 rad to about 5e-3 rad. A single 2-D window
+does NOT work, because the two later shears undo it. What is left is the
+CORNER-MODE loss: the modes in the corners of the frequency square leave the
+square under a rotation, which costs 1.5 percent of the outer Nyquist ring at
+45 deg and nothing measurable at 6.5 deg.
+
+THE VERDICT. The three routes (along track, exact box, rotated) are the SAME
+screen inside a few percent on every quantity a receiver sees, and a POOLED
+rotated record (10 s of atmosphere) matches independent snapshots on the bucket
+and on the point receiver at every band, and on the SMF mean and the SMF p5.
+The tables are in `validation/temporal_screens/README.md`, sections "Are the
+three routes the same screen?", "Step 4" and "Step 5". The open ends are
+backlog 2-P1b.
+
 ### Two numerical gotchas
 
 - **The subharmonics fight the periodic propagator.** The subharmonic content of
@@ -1784,7 +1926,9 @@ anti-pattern.
 
 ### Assumptions and limits
 
-- SNAPSHOT only. There is no fade rate and no fade duration.
+- SNAPSHOT only by DEFAULT: there is then no fade rate and no fade duration.
+  The frozen-flow time axis is an OPT-IN (`temporal=`, see the subsection
+  above), and it gives both.
 - The `"retro"` direction and `folded_terrestrial()` raise
   `NotImplementedError`. The two passes of a retroreflector share the same
   screens, so they are correlated, and that correlation needs its own design.
