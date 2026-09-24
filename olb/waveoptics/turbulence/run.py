@@ -2024,12 +2024,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 s = 0 if angle_index is None else int(pa_shifts[angle_index][j])
                 yield scr[0:grid.n, s:s + grid.n]
 
-        def run_one(k, stack=None):
+        def run_one(k, stack=None, noise=None):
             """Run trial k. It touches only its own state and read-only setup.
 
             `stack` is the screen stack of the trial. None (the default) builds
             it here, one screen at a time. The CUDA route gives a stack that
-            the draw threads already fed.
+            the draw threads already fed. `noise` is the white noise of every
+            screen of a POINT-AHEAD trial that the draw threads already drew;
+            None draws it here.
 
             A POINT-AHEAD trial keeps the white noise of every screen, so each
             pass rebuilds the SAME screen on its own window. The noise is
@@ -2043,7 +2045,6 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # FFT and it caches the spare, so the peak is two screens, not one.
             # The seed of screen j does not depend on the order, so the values
             # do not change.
-            noise = None
             if stack is None and strips is not None:
                 # A FRAME, not a draw: the crop of each open strip at the
                 # integer pixel offset of the time k*dt. The device route
@@ -2055,9 +2056,10 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 # ONE DRAW FEEDS EVERY PASS. draw(rng) makes exactly the random
                 # numbers that make(r0, rng) makes, in the same order, so the
                 # beacon pass is the pass of record.
-                noise = [factory.draw(np.random.default_rng(
-                    _screen_seed(seed_entropy, k, j)))
-                    for j in range(n_screens)]
+                if noise is None:
+                    noise = [factory.draw(np.random.default_rng(
+                        _screen_seed(seed_entropy, k, j)))
+                        for j in range(n_screens)]
                 stack = windowed(noise, None)
             elif stack is None:
                 stack = (build_screen(_screen_seed(seed_entropy, k, j),
@@ -2182,10 +2184,13 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
 
         bar = _progress_bar(progress, n_trials, "turbulent trials")
         ks = list(range(int(start_index), int(start_index) + int(n_trials)))
-        # A POINT-AHEAD trial draws its own noise inside run_one, because every
-        # pass reads it. So it takes the plain loop, not the pipelined branch.
-        if (device and factory is not None and pa_angles is None
-                and temporal is None):
+        # A POINT-AHEAD trial takes the pipelined branch too (backlog 2-DV item
+        # 9, 2026-09-24): every pass of the trial rebuilds its screens from the
+        # SAME white noise, so the branch hands run_one the RAW noise, not the
+        # built screens. The seed is per (trial, screen), so the values do not
+        # move. The cost is the memory of about two trials of noise (the trial
+        # on the device and the next one in flight).
+        if device and factory is not None and temporal is None:
             # THE PIPELINED HOST DRAW (the plan of record, 2026-09-06). The
             # white noise stays a numpy PCG64 draw on the host, seeded by
             # _screen_seed exactly as the host route seeds it, so the device
@@ -2209,10 +2214,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 for i, k in enumerate(ks):
                     drawn, pending = pending, (submit(pool, ks[i + 1])
                                                if i + 1 < len(ks) else [])
-                    stack = (factory.make_from_noise(plan.r0_m[j],
-                                                     drawn[j].result())
-                             for j in range(n_screens))
-                    trials.append(run_one(k, stack=stack))
+                    if pa_angles is not None:
+                        trials.append(run_one(
+                            k, noise=[d.result() for d in drawn]))
+                    else:
+                        stack = (factory.make_from_noise(plan.r0_m[j],
+                                                         drawn[j].result())
+                                 for j in range(n_screens))
+                        trials.append(run_one(k, stack=stack))
                     del drawn
                     if bar is not None:
                         bar.update(1)
