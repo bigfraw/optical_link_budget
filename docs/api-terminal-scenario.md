@@ -90,12 +90,19 @@ truncation then reads the transmitter values. The `Terminal` `aperture_m` and
 | `divergence_rad` | float or None | rad | `None` | Transmit far-field 1/e^2 half-angle divergence. None means collimated (the diffraction limit). |
 | `aperture_m` | float or None | m | `None` | Transmit (beam director) aperture diameter. None means the transmitter shares the owning `Terminal` aperture (monostatic). |
 | `obscuration_ratio` | float or None | — | `None` | Central obscuration ratio of the transmit aperture. None means the transmitter shares the owning `Terminal` `obscuration_ratio`. Set 0.0 for an unobscured beam director on a terminal whose receive telescope is obscured. |
+| `shift_m` | tuple or None | m | `None` | The (x, y) offset of the transmit aperture centre from the `Terminal` aperture centre: a SIDE-MOUNTED beam director. None is a co-axial launch. Only the fidelity-2 uplink reads it. |
 
 Constraints:
 
 - `m2` must be at least 1.
 - A `None` for `aperture_m` or `obscuration_ratio` keeps the monostatic default.
   The value then comes from the owning `Terminal`.
+- A shifted launch (`shift_m`) takes TIP-TILT pre-compensation only. The main
+  (`Terminal`) aperture senses the tilt, and the fidelity-2 overlap applies it
+  as a plane over the shifted disc. A stack that removes more than 3 Noll modes
+  raises, because a higher mode fitted over one pupil does not describe another.
+- The repr omits an unset `shift_m`, so the fingerprint of every co-axial
+  campaign does not change.
 
 ### Detectors
 

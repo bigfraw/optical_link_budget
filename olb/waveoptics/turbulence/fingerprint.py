@@ -87,7 +87,8 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
               cn2=None, h_top_m=None, grid=None, plan=None,
               precision="double", fft_backend="numpy", compensation=None,
               store_screen_phase=False, point_ahead_rad=None,
-              screen_margin_m=0.0, temporal=None, h_gl=None):
+              screen_margin_m=0.0, temporal=None, h_gl=None,
+              start_waist_frac=None):
     """Give the content hash that names a stored run.
 
     The key holds EVERYTHING that changes a trial: the scenario hardware, the
@@ -141,6 +142,10 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         h_gl:             the forced ground heights of the screen plan, in m,
                           or None. It enters the key when it is not None,
                           because it moves the screens.
+        start_waist_frac: the RESOLVED Gaussian slab start (a fraction of the
+                          grid side), or None for the plane-wave start. It
+                          enters the key when it is not None, because the
+                          start field changes every trial.
 
     Returns:
         A 64-character hex string.
@@ -167,6 +172,8 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
         tail.append(f"temporal={temporal.key()}")
     if h_gl is not None:
         tail.append(f"h_gl={tuple(float(v) for v in h_gl)!r}")
+    if start_waist_frac is not None:
+        tail.append(f"start_waist_frac={float(start_waist_frac)!r}")
     preset_name = preset if isinstance(preset, str) else getattr(
         preset, "name", repr(preset))
     blob = "\n".join([
@@ -258,6 +265,10 @@ if __name__ == '__main__':
     assert kpa != cache_key(scn, geom, seed=7, point_ahead_rad=(0.0, 6e-5),
                             **common)
     assert k0 != cache_key(scn, geom, seed=7, screen_margin_m=0.5, **common)
+
+    # ---- the Gaussian slab start enters the key only when it is set ----
+    assert k0 == cache_key(scn, geom, seed=7, start_waist_frac=None, **common)
+    assert k0 != cache_key(scn, geom, seed=7, start_waist_frac=0.3, **common)
 
     # ---- the temporal record and the ground layers key only when set ----
     from .temporal import TemporalSpec

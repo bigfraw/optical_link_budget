@@ -96,7 +96,28 @@ the untruncated source Gaussian:
     loss_db = -10*log10(eta)
 
 Here `a` is the aperture radius, `w_T` is the Gaussian waist (1/e^2 radius) at the
-aperture, and `Cr` is the linear central-obscuration ratio. The efficiency goes to
+aperture, and `Cr` is the linear central-obscuration ratio.
+
+A DIVERGED launch (Section 2b) reaches the aperture with a curved phase front
+of radius `R` (`olb.beam.launch_curvature`). The on-axis far field is then the
+annulus integral of `exp(-r^2 (1/w_T^2 + i k / (2R)))`, so `alpha^2` takes an
+imaginary part, the defocus parameter of Klein and Degnan
+(DOI 10.1364/AO.13.002134):
+
+    beta = k a^2 / (2 |R|)
+    eta  = |exp(-(alpha^2 + i beta)) - exp(-(alpha^2 + i beta) Cr^2)|^2
+
+The reference is the untruncated curved beam, which is the beam of the
+geometric spreading Term. So the two Terms multiply to the exact on-axis far
+field of the clipped, diverged launch. A collimated launch has `beta = 0` and
+the form above, bit for bit. A hard edge on a curved phase front can remove
+out-of-phase Fresnel zones, so `eta` can pass 1 (a small gain). Before
+2026-09-24 the Term took `beta = 0` at every divergence and over-read a
+diverged link (backlog 2-DV item 8). Measured: geometric plus truncation
+equals a grid Fraunhofer sum of the clipped launch to 0.06 dB at 20, 45 and
+73 deg for 8.2, 85 and 200 urad (the AETHER-11 terminal).
+
+The efficiency goes to
 1 when the aperture is much wider than the beam. It goes to 0 when the aperture is
 much smaller than the beam. The classic optimal truncation is near alpha = 1.12.
 
@@ -117,8 +138,9 @@ For an unobscured corner-cube (Cr = 0) the correction is +3.01 dB.
 
 #### Inputs and outputs
 
-- Inputs: transmit aperture diameter, transmit waist `w_T`, obscuration ratio.
-  A bistatic beam director overrides the aperture and obscuration.
+- Inputs: transmit aperture diameter, transmit waist `w_T`, obscuration ratio,
+  and (for `beta`) the launch divergence and the wavelength. A bistatic beam
+  director overrides the aperture and obscuration.
 - Output: truncation loss [dB], positive.
 
 #### Assumptions and limits
@@ -1630,8 +1652,11 @@ The measured validity is in Section 9l.
 ### The point-ahead (anisoplanatic) pre-compensation (an opt-in, 2026-09-11)
 
 File: `olb/waveoptics/turbulence/run.py`. Backlog 2-P4. The pass is OFF by
-default (`point_ahead_rad=None`), so every earlier fidelity-2 number stays what
-it was.
+default for every scenario EXCEPT a space uplink with
+`precompensation=DownlinkBeacon()`: from 2026-09-24 the default
+`point_ahead_rad="auto"` (with `compensation="auto"`) turns that scenario into
+a corrected point-ahead run (`run.resolve_precompensation`, backlog 2-DV item
+5). An explicit `point_ahead_rad=None` keeps the old run.
 
 **What the code models.** A ground station senses the DOWNLINK beacon and it
 launches the uplink beam `theta` ahead of that beacon. `theta` is the

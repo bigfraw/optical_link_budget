@@ -25,6 +25,23 @@ prefactor double-counts a normalisation the untruncated-source reference already
 carries. The removal is validated against a numerical Fraunhofer propagation of a
 truncated Gaussian (tn2_kepler test_gauss_prop).
 
+A DIVERGED launch (Transmitter.divergence_rad, a virtual waist behind the
+aperture; see olb.beam.virtual_waist) reaches the aperture with a CURVED
+phase front of radius R (olb.beam.launch_curvature). The on-axis far field is
+then the integral of exp(-r^2 (1/w_T^2 + i k / (2 R))) over the annulus, so
+alpha^2 takes an imaginary part, the defocus parameter of Klein and Degnan
+(DOI 10.1364/AO.13.002134):
+
+    beta = k a^2 / (2 R)
+    eta  = |exp(-(alpha^2 + i beta)) - exp(-(alpha^2 + i beta) Cr^2)|^2
+
+The reference is the UNTRUNCATED curved beam, which is the beam of the
+geometric spreading Term (a Gaussian from the virtual waist). So the two Terms
+multiply to the exact on-axis far field of the clipped, diverged launch. A
+collimated beam has beta = 0 and the form above. Before 2026-09-24 the Term
+took beta = 0 at every divergence, which over-read a diverged link by 0.7 to
+2.7 dB (validation/uplink_divergence, verdict 7; backlog 2-DV item 8).
+
 The transmitter is the ground station for an uplink, or the satellite for a
 downlink. The same code serves both.
 
@@ -45,6 +62,7 @@ no-turbulence field propagation is the check for a link that this Term flags.
 
 import numpy as np
 
+from ..beam import launch_curvature
 from ..results import Term
 from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
 
@@ -55,7 +73,7 @@ from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
 TRUNCATION_NEAR_FIELD_ALPHA = 1.5
 
 
-def gaussian_efficiency(alpha, obscuration_ratio=0.0):
+def gaussian_efficiency(alpha, obscuration_ratio=0.0, beta=0.0):
     '''
     On-axis truncation efficiency of a Gaussian beam in a circular aperture.
 
@@ -65,16 +83,38 @@ def gaussian_efficiency(alpha, obscuration_ratio=0.0):
         obscuration_ratio : float
             Linear central-obscuration ratio Cr (obscuration diameter / aperture
             diameter). 0 = unobscured.
+        beta : float
+            The defocus parameter k a^2 / (2 R) of a curved launch phase front
+            of radius R (Klein and Degnan, DOI 10.1364/AO.13.002134). 0 = a
+            flat phase front (a collimated launch).
 
     Returns:
         float or ndarray
             Efficiency eta in (0, 1].
     '''
-    a2 = np.asarray(alpha, dtype=float) ** 2
-    return (np.exp(-a2) - np.exp(-a2 * obscuration_ratio ** 2)) ** 2
+    a2 = np.asarray(alpha, dtype=float) ** 2 + 1j * beta
+    return np.abs(np.exp(-a2) - np.exp(-a2 * obscuration_ratio ** 2)) ** 2
 
 
-def tx_efficiency_loss_db(tx_aperture_m, tx_waist_m, obscuration_ratio=0.0):
+def launch_defocus_beta(tx_aperture_m, tx_waist_m, divergence_rad=None,
+                        wavelength=1550e-9):
+    '''
+    The defocus parameter beta = k a^2 / (2 |R|) of a diverged launch.
+
+    R is the phase-front radius at the aperture, olb.beam.launch_curvature
+    (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 4, Eqs. (7) and (8)). The
+    sign of R does not change eta, so the magnitude serves. A collimated launch
+    gives 0.0.
+    '''
+    f0 = launch_curvature(tx_waist_m, divergence_rad, wavelength)
+    if not np.isfinite(f0):
+        return 0.0
+    k = 2 * np.pi / wavelength
+    return float(k * (tx_aperture_m / 2) ** 2 / (2 * abs(f0)))
+
+
+def tx_efficiency_loss_db(tx_aperture_m, tx_waist_m, obscuration_ratio=0.0,
+                          divergence_rad=None, wavelength=1550e-9):
     '''
     Transmit truncation loss of a Gaussian beam at a circular aperture.
 
@@ -85,13 +125,19 @@ def tx_efficiency_loss_db(tx_aperture_m, tx_waist_m, obscuration_ratio=0.0):
             Gaussian waist (1/e^2 radius) at the aperture [m].
         obscuration_ratio : float
             Linear central-obscuration ratio Cr. 0 = unobscured.
+        divergence_rad : float, optional
+            Far-field HALF-angle divergence [rad]. None = collimated.
+        wavelength : float
+            Wavelength [m]. Read only for a diverged launch.
 
     Returns:
         float
             Truncation loss [dB], positive.
     '''
     alpha = (tx_aperture_m / 2) / tx_waist_m
-    eta = gaussian_efficiency(alpha, obscuration_ratio)
+    beta = launch_defocus_beta(tx_aperture_m, tx_waist_m, divergence_rad,
+                               wavelength)
+    eta = gaussian_efficiency(alpha, obscuration_ratio, beta)
     return -10 * np.log10(eta)
 
 
@@ -165,12 +211,16 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
     obscuration_ratio = (t.obscuration_ratio if t.obscuration_ratio is not None
                          else tx.obscuration_ratio)
     alpha = (aperture_m / 2) / waist_m
-    loss = tx_efficiency_loss_db(aperture_m, waist_m, obscuration_ratio)
+    beta = launch_defocus_beta(aperture_m, waist_m, t.divergence_rad,
+                               tx.wavelength_m)
+    loss = tx_efficiency_loss_db(aperture_m, waist_m, obscuration_ratio,
+                                 t.divergence_rad, tx.wavelength_m)
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_NA,
         spectrum=SPECTRUM_NA,
-        validity="On-axis FAR-FIELD gain of a truncated Gaussian, referenced "
+        validity="On-axis FAR-FIELD gain of a truncated Gaussian (with the "
+                 "launch phase-front curvature of a diverged beam), referenced "
                  "to the untruncated source. Paraxial. No turbulence. Fails "
                  "for a receiver inside the Rayleigh range zR=pi*w_T^2/lambda "
                  "when the beam is hard truncated (alpha<~1): near-field "
@@ -196,10 +246,11 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
         name="transmit Gaussian efficiency",
         category="system",
         mean_db=float(loss),
-        note=f"aperture truncation, alpha={alpha:.3f}, "
+        note=f"aperture truncation, alpha={alpha:.3f}, beta={beta:.3f}, "
              f"Cr={obscuration_ratio:g}",
-        meta={"alpha": float(alpha),
-              "eta": float(gaussian_efficiency(alpha, obscuration_ratio))},
+        meta={"alpha": float(alpha), "beta": float(beta),
+              "eta": float(gaussian_efficiency(alpha, obscuration_ratio,
+                                               beta))},
         assumptions=assumptions,
     )
 
@@ -275,6 +326,26 @@ if __name__ == '__main__':
         direction="uplink")
     assert abs(tx_gaussian_efficiency_term(bistatic).mean_db
                - tx_gaussian_efficiency_term(monostatic).mean_db) < 1e-9
+
+    # A DIVERGED launch: beta > 0, and a collimated one keeps beta = 0 (the
+    # old number, bit for bit). The exact check: the complex form equals a
+    # direct radial quadrature of the curved, clipped Gaussian.
+    assert launch_defocus_beta(0.15, 0.06) == 0.0
+    assert tx_efficiency_loss_db(0.15, 0.06, 0.3) == tx_efficiency_loss_db(
+        0.15, 0.06, 0.3, divergence_rad=None)
+    a, w, cr, lam = 0.075, 0.06, 0.3, 1550e-9
+    for div in (85e-6, 200e-6):
+        f0 = launch_curvature(w, div, lam)
+        r = np.linspace(cr * a, a, 200001)
+        e = np.exp(-r ** 2 / w ** 2 - 1j * np.pi * r ** 2 / (lam * f0)) * r
+        c = 1 / w ** 2 + 1j * np.pi / (lam * f0)     # untruncated: 1/(2c)
+        quad = abs(np.trapezoid(e, r)) ** 2 * abs(2 * c) ** 2
+        got = gaussian_efficiency(a / w, cr,
+                                  launch_defocus_beta(2 * a, w, div, lam))
+        assert abs(got / quad - 1) < 1e-6, (div, got, quad)
+        print(f"diverged {div * 1e6:.0f} urad: truncation "
+              f"{-10 * np.log10(got):.3f} dB (collimated "
+              f"{tx_efficiency_loss_db(2 * a, w, cr):.3f} dB)")
 
     print(f"TN-2 transmit truncation loss: {tn2:.2f} dB")
     print(f"Term: {term.name}  {term.mean_db:.2f} dB  ({term.note})")
