@@ -40,15 +40,79 @@ from ..models.gaussian_efficiency import (uniform_aperture_correction_db,
                                           tx_gaussian_efficiency_term)
 from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
-from ..terminal import Terminal, Transmitter
+from scipy.special import j1
+
+from ..terminal import Terminal, Transmitter, SpoiledCornerCube
 from ..turbulence.profiles import default_cn2_profile
 from .uplink import uplink_turbulence_term, TX_TRUNCATION_MIN_DB
 from .downlink import downlink_scintillation_term
 
+# The first zero of J1: past it, the station sits outside the Airy core.
+AIRY_FIRST_NULL_X = 3.8317
+
+
+def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry"):
+    '''
+    The loss of the return lobe that the velocity aberration moves off the station.
+
+    A corner cube returns the beam along the incoming ray in ITS frame. The
+    satellite moves, so in the ground frame the return leaves at the
+    aberration angle theta = 2 v_perp / c. That is the point-ahead angle
+    (J. J. Degnan, Geodynamics Series 25, 133 (1993), DOI 10.1029/GD025p0133).
+    The far field of the unobscured cube aperture D is the Airy pattern, so the
+    station reads the fraction [2 J1(x) / x]^2 of the on-axis peak, with
+    x = pi D theta / lambda (M. Born and E. Wolf, Principles of Optics, 7th ed.,
+    Sec. 8.5.2, DOI 10.1017/CBO9781139644181). The on-axis spread of the lobe is
+    the down-leg geometric Term; this Term is the offset only.
+
+    Parameters:
+        scenario : SpaceScenario
+            The retro link. `space.aperture_m` is the cube aperture.
+        geometry : CircularOrbit
+            Gives point_ahead_rad when point_ahead_rad="geometry".
+        point_ahead_rad : "geometry" or float
+            The aberration angle [rad]. A float overrides the geometry (the PAA
+            case); 0 gives a 0 dB Term.
+
+    Returns:
+        Term
+            Category "geometric", deterministic.
+    '''
+    theta = (geometry.point_ahead_rad if isinstance(point_ahead_rad, str)
+             and point_ahead_rad == "geometry" else point_ahead_rad)
+    theta = np.asarray(theta, dtype=float)
+    D, lam = scenario.space.aperture_m, scenario.space.wavelength_m
+    x = np.pi * D * theta / lam
+    xs = np.where(x > 0, x, 1.0)
+    airy = np.where(x > 0, (2 * j1(xs) / xs) ** 2, 1.0)   # -> 1 as x -> 0
+    with np.errstate(divide="ignore"):
+        loss_db = -10 * np.log10(airy)
+    assumptions = Assumptions(
+        beam_type=BEAM_PLANE_WAVE, turbulence_regime=REGIME_NA,
+        spectrum=SPECTRUM_NA,
+        validity="A standard corner cube with an Airy far field (a circular, "
+                 "unobscured aperture, a flat incident wavefront, no dihedral "
+                 "offset, no polarisation split). The aberration angle is the "
+                 "point-ahead angle 2 v_perp / c. Monostatic: the offset is "
+                 "measured from the transmitter.",
+    )
+    if np.any(x >= AIRY_FIRST_NULL_X):
+        assumptions.flag(
+            f"PAST THE AIRY NULL: x = pi D theta / lambda = {float(np.max(x)):.2f} "
+            f">= {AIRY_FIRST_NULL_X}, so the station sits outside the Airy core. "
+            "The real cube pattern (hexagonal pupil, polarisation) differs most "
+            "there, so the loss is indicative only. A spoiled cube is the fix.")
+    return Term(name="velocity aberration", category="geometric",
+                mean_db=loss_db if loss_db.ndim else float(loss_db),
+                note="return lobe offset by the velocity aberration 2 v_perp / c",
+                meta={"point_ahead_rad": theta, "x": x},
+                assumptions=assumptions)
+
 
 def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                        tau_zenith=None, n_samples=3000, cn2_profile=None,
-                       retro_loss_db=0.0, fast_params=None):
+                       retro_loss_db=0.0, fast_params=None,
+                       point_ahead_rad="geometry"):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 
@@ -89,6 +153,11 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             needs its own design (see CLAUDE.md, the deferred folded double pass).
         fast_params : dict, optional
             Extra FAST parameters for the fidelity-1 down-leg coupling.
+        point_ahead_rad : "geometry" or float
+            The velocity-aberration angle of the return [rad] (the PAA case).
+            "geometry" reads geometry.point_ahead_rad; a float overrides it.
+            The kind of retro is `scenario.space.retroreflector` (None is the
+            standard CornerCube; a SpoiledCornerCube raises, not built).
 
     Returns:
         Budget
@@ -97,7 +166,13 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
     Raises:
         ValueError
             If fidelity is not 0 or 1 (fidelity=2 is deferred for retro).
+        NotImplementedError
+            If the retroreflector is a SpoiledCornerCube.
     '''
+    if isinstance(scenario.space.retroreflector, SpoiledCornerCube):
+        raise NotImplementedError(
+            "a SpoiledCornerCube (dihedral-angle offset) is not built. Its "
+            "return is six beams on a ring, not one Airy lobe. Use CornerCube.")
     if fidelity == 2:
         raise ValueError(
             "fidelity=2 (wave optics) is not supported for a retro link. The "
@@ -176,6 +251,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         geometric_loss_term(down_scn, geometry),
         slant_extinction_term(down_scn, geometry, tau_zenith=tau),
         tophat_term,
+        retro_velocity_aberration_term(scenario, geometry, point_ahead_rad),
     ]
     # The return-leg receive term follows the ground receiver, exactly as
     # downlink_budget does: a bucket receiver (no detector or a plain Aperture) is
@@ -207,8 +283,8 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                      "short terrestrial link. The reflected wavefront is flat at "
                      "the satellite; the return is a plane wave. The "
                      "retroreflector aperture is modelled as a Gaussian waist of "
-                     "half the aperture diameter. The model does not include "
-                     "velocity aberration or point-ahead loss on the return.",
+                     "half the aperture diameter. The velocity aberration of "
+                     "the return is its own Term.",
         ),
     )
 
@@ -237,11 +313,11 @@ if __name__ == '__main__':
     retro_geom = CircularOrbit(altitude_m=1500e3, elevation_deg=elevation)
 
     retro = retro_space_budget(retro_scn, retro_geom)
-    # 9 terms: the up-leg carries the opt-in launch-truncation term because the
+    # 10 terms (9 + the velocity aberration): the up-leg carries the opt-in launch-truncation term because the
     # 0.15 m beam director truncates the 0.06 m waist beam. With turbulence on
     # there is NO standalone up-leg pointing Term (the jitter folds into the
     # coupled-flux turbulence Term).
-    assert retro.to_frame().shape[0] == 9, retro.to_frame().shape
+    assert retro.to_frame().shape[0] == 10, retro.to_frame().shape
     assert not any(t.category == "pointing" for t in retro.terms)
     names = [t.name for t in retro.terms]
     assert "uplink transmit Gaussian efficiency" in names, names
@@ -292,6 +368,32 @@ if __name__ == '__main__':
                     if t.name == "downlink scintillation")
     folded = merge_assumptions(up_turb.assumptions, down_cpl.assumptions)
     assert set(up_turb.assumptions.provenance) <= set(folded.provenance)
+
+    # --- velocity aberration (the PAA case) ----------------------------------
+    va = next(t for t in retro.terms if t.name == "downlink velocity aberration")
+    x = va.meta["x"]
+    assert abs(va.mean_db + 10 * np.log10((2 * j1(x) / x) ** 2)) < 1e-12
+    # A 5 cm cube at 1500 km, 30 deg sits inside the Airy core (x ~ 2.4, the
+    # D_opt point), so no flag; x past the null is flagged.
+    assert 0 < x < AIRY_FIRST_NULL_X and not va.assumptions.violations, x
+    far = retro_velocity_aberration_term(retro_scn, retro_geom, 50e-6)
+    assert far.meta["x"] > AIRY_FIRST_NULL_X and far.assumptions.violations
+    # The PAA override: 0 is a 0 dB Term; a 1 cm cube at 50 urad is ~1.14 dB.
+    zero = retro_velocity_aberration_term(retro_scn, retro_geom, 0.0)
+    assert zero.mean_db == 0.0 and not zero.assumptions.violations
+    small = replace(retro_scn, space=Terminal(aperture_m=0.01))
+    one_cm = retro_velocity_aberration_term(small, retro_geom, 50e-6)
+    assert abs(one_cm.mean_db - 1.14) < 0.005, one_cm.mean_db
+    # The spoiled kind is a stub.
+    from ..terminal import SpoiledCornerCube as _Spoiled
+    try:
+        retro_space_budget(replace(retro_scn, space=Terminal(
+            aperture_m=0.05, retroreflector=_Spoiled(5e-6))), retro_geom)
+        raise AssertionError("a SpoiledCornerCube must raise")
+    except NotImplementedError:
+        pass
+    print(f"velocity aberration: theta = {va.meta['point_ahead_rad']*1e6:.1f} urad, "
+          f"x = {x:.2f}, loss = {va.mean_db:.2f} dB")
 
     print("retro (space) assumptions:")
     retro.check()

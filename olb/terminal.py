@@ -344,6 +344,40 @@ Detector = Union[Aperture, SMF, MMF, Camera]
 Compensation = Union[TipTilt, AO]
 
 
+# --- Retroreflectors ----------------------------------------------------------
+
+@dataclass
+class CornerCube:
+    '''
+    The standard corner-cube retroreflector: three faces at exactly 90 deg.
+
+    In its own frame it sends ONE beam back along the incoming ray. Its far
+    field is the Airy pattern of its unobscured aperture (the Terminal
+    aperture_m). This is the default kind when a Terminal sets no
+    retroreflector.
+    '''
+    pass
+
+
+@dataclass
+class SpoiledCornerCube:
+    '''
+    PLANNED, NOT BUILT. A corner cube with a dihedral-angle offset.
+
+    The offset splits the return into six beams on a ring about the incoming
+    ray, so a large cube can put its return on the velocity-aberration angle.
+    A budget raises NotImplementedError for this kind.
+
+    Parameters:
+        dihedral_offset_rad : float
+            The offset of each dihedral angle from 90 deg [rad].
+    '''
+    dihedral_offset_rad: float = 0.0
+
+
+Retroreflector = Union[CornerCube, SpoiledCornerCube]
+
+
 # --- The terminal -----------------------------------------------------------
 
 @dataclass
@@ -370,6 +404,9 @@ class Terminal:
         compensation : list
             The ordered wavefront-compensation stack. It may be empty. An empty
             stack leaves the piston-removed turbulence.
+        retroreflector : CornerCube or SpoiledCornerCube, optional
+            The kind of a passive retroreflector (the space terminal of a
+            retro link). None means the standard CornerCube.
     '''
     aperture_m: float
     obscuration_ratio: float = 0.0
@@ -378,12 +415,24 @@ class Terminal:
     transmitter: Optional[Transmitter] = None
     detector: Optional[Detector] = None
     compensation: list[Compensation] = field(default_factory=list)
+    retroreflector: Optional[Retroreflector] = None
+
+    def __repr__(self):
+        # A campaign fingerprint holds this text. An unset retroreflector adds
+        # nothing, so every stored key stays the text of the generated repr.
+        return "Terminal(" + ", ".join(
+            f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
+            if f.name != "retroreflector" or self.retroreflector is not None) + ")"
 
 
 if __name__ == '__main__':
     # Pure-data self-check. No physics here.
     t = Terminal(aperture_m=0.7)
     assert t.detector is None and t.compensation == [] and t.obscuration_ratio == 0.0
+    # An unset retroreflector stays out of the repr (the campaign keys).
+    assert "retroreflector" not in repr(t), repr(t)
+    assert "CornerCube()" in repr(Terminal(aperture_m=0.05,
+                                           retroreflector=CornerCube()))
     assert t.transmitter is None and t.wavelength_m == 1550e-9
     assert t.pointing_jitter_rad == 0.0
 
