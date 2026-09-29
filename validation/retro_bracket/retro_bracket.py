@@ -51,6 +51,7 @@ The smoke run on the laptop reads the stored smoke campaign:
 import argparse
 import json
 import os
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -153,6 +154,9 @@ def main():
     ap.add_argument("--fixed-arcsec", type=float, nargs="*",
                     default=list(pa.FIXED_ARCSEC))
     ap.add_argument("--workers", default=None)
+    ap.add_argument("--run-workers", default=None,
+                    help="compute the missing trials first with this pool "
+                         "(an int or \"auto\"); unset computes none")
     args = ap.parse_args()
     pa.PRESET = args.preset
     pa.FIXED_ARCSEC = tuple(args.fixed_arcsec)
@@ -170,6 +174,13 @@ def main():
     rng = np.random.default_rng(BOOT_SEED)
     for el in args.elevations:
         camp, _warn = pa.campaign_of(el, "base", args)
+        if args.run_workers is not None and camp.n_stored < args.n_trials:
+            rw = (args.run_workers if args.run_workers == "auto"
+                  else int(args.run_workers))
+            t0 = time.perf_counter()
+            camp.run(args.n_trials, workers=rw)
+            say(f"el {el:g}: computed to {camp.n_stored} trials in "
+                f"{time.perf_counter() - t0:.0f} s")
         n = min(args.n_trials, camp.n_stored)
         if n < 2:
             raise SystemExit(f"el {el:g}: no stored trials in the campaign store")
