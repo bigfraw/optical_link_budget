@@ -51,7 +51,7 @@ from .downlink import downlink_scintillation_term
 AIRY_FIRST_NULL_X = 3.8317
 
 
-def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry"):
+def retro_velocity_aberration_term(scenario, geometry, aberration_rad="geometry"):
     '''
     The loss of the return lobe that the velocity aberration moves off the station.
 
@@ -68,9 +68,9 @@ def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry
     Parameters:
         scenario : SpaceScenario
             The retro link. `space.aperture_m` is the cube aperture.
-        geometry : CircularOrbit
-            Gives point_ahead_rad when point_ahead_rad="geometry".
-        point_ahead_rad : "geometry" or float
+        geometry : CircularOrbit or TLEPass
+            Gives point_ahead_rad when aberration_rad="geometry".
+        aberration_rad : "geometry" or float
             The aberration angle [rad]. A float overrides the geometry (the PAA
             case); 0 gives a 0 dB Term.
 
@@ -78,8 +78,8 @@ def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry
         Term
             Category "geometric", deterministic.
     '''
-    theta = (geometry.point_ahead_rad if isinstance(point_ahead_rad, str)
-             and point_ahead_rad == "geometry" else point_ahead_rad)
+    theta = (geometry.point_ahead_rad if isinstance(aberration_rad, str)
+             and aberration_rad == "geometry" else aberration_rad)
     theta = np.asarray(theta, dtype=float)
     D, lam = scenario.space.aperture_m, scenario.space.wavelength_m
     x = np.pi * D * theta / lam
@@ -105,14 +105,14 @@ def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry
     return Term(name="velocity aberration", category="geometric",
                 mean_db=loss_db if loss_db.ndim else float(loss_db),
                 note="return lobe offset by the velocity aberration 2 v_perp / c",
-                meta={"point_ahead_rad": theta, "x": x},
+                meta={"aberration_rad": theta, "x": x},
                 assumptions=assumptions)
 
 
 def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                        tau_zenith=None, n_samples=3000, cn2_profile=None,
                        retro_loss_db=0.0, fast_params=None,
-                       point_ahead_rad="geometry", wave=None):
+                       aberration_rad="geometry", wave=None):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 
@@ -164,7 +164,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             bundle holds no vacuum record.
         fast_params : dict, optional
             Extra FAST parameters for the fidelity-1 down-leg coupling.
-        point_ahead_rad : "geometry" or float
+        aberration_rad : "geometry" or float
             The velocity-aberration angle of the return [rad] (the PAA case).
             "geometry" reads geometry.point_ahead_rad; a float overrides it.
             The kind of retro is `scenario.space.retroreflector` (None is the
@@ -260,7 +260,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         geometric_loss_term(down_scn, geometry),
         slant_extinction_term(down_scn, geometry, tau_zenith=tau),
         tophat_term,
-        retro_velocity_aberration_term(scenario, geometry, point_ahead_rad),
+        retro_velocity_aberration_term(scenario, geometry, aberration_rad),
     ]
     # The return-leg receive term follows the ground receiver, exactly as
     # downlink_budget does: a bucket receiver (no detector or a plain Aperture) is
@@ -482,7 +482,7 @@ if __name__ == '__main__':
         raise AssertionError("a SpoiledCornerCube must raise")
     except NotImplementedError:
         pass
-    print(f"velocity aberration: theta = {va.meta['point_ahead_rad']*1e6:.1f} urad, "
+    print(f"velocity aberration: theta = {va.meta['aberration_rad']*1e6:.1f} urad, "
           f"x = {x:.2f}, loss = {va.mean_db:.2f} dB")
 
     # --- fidelity 2: ONE Term holds both legs of each trial -----------------
