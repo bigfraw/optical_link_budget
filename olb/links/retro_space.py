@@ -33,8 +33,8 @@ from dataclasses import replace
 import numpy as np
 
 from ..results import Budget, Term
-from ..assumptions import (Assumptions, merge_assumptions, BEAM_PLANE_WAVE,
-                          REGIME_NA, SPECTRUM_NA)
+from ..assumptions import (Assumptions, merge_assumptions, BEAM_GAUSSIAN,
+                          BEAM_PLANE_WAVE, REGIME_NA, SPECTRUM_NA)
 from ..models.geometric import geometric_loss_term
 from ..models.gaussian_efficiency import (uniform_aperture_correction_db,
                                           tx_gaussian_efficiency_term)
@@ -112,13 +112,14 @@ def retro_velocity_aberration_term(scenario, geometry, point_ahead_rad="geometry
 def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                        tau_zenith=None, n_samples=3000, cn2_profile=None,
                        retro_loss_db=0.0, fast_params=None,
-                       point_ahead_rad="geometry"):
+                       point_ahead_rad="geometry", wave=None):
     '''
     Assemble the retroreflected ground-to-space budget as a retransmission.
 
     Retroreflection is modelled as a retransmission: the up-leg carries the
     launch power to the retro aperture, and the down-leg re-emits the captured
-    power back to the ground receiver. The two legs use independent turbulence.
+    power back to the ground receiver. At fidelity 0 and 1 the two legs use
+    independent turbulence; fidelity 2 correlates them (see `fidelity`).
     The retroreflector aperture is the hinge: it is the up-leg receive aperture
     and the down-leg transmit aperture. The losses are dB, so the Terms add and
     the sum is the retransmission chain (see the module docstring).
@@ -144,13 +145,23 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         retro_loss_db : float
             Fixed loss of the retroreflection [dB].
         fidelity : int
-            The down-leg receive-coupling fidelity: 1 (the default, FAST modal
-            overlap) or 0 (analytic mean-only). The UP-leg turbulence stays the
+            0, 1 (the default) or 2. At 0 and 1 it is the down-leg
+            receive-coupling fidelity: 1 is the FAST modal overlap, 0 the
+            analytic mean-only coupling. The UP-leg turbulence stays the
             coupled-flux Monte Carlo at either value (there is no analytic
-            mean-only uncorrected uplink model, so the up-leg is fidelity 1
-            regardless). fidelity=2 (wave optics) is NOT supported: the folded
-            double pass shares its screens (the two legs are correlated), which
-            needs its own design (see CLAUDE.md, the deferred folded double pass).
+            mean-only uncorrected uplink model). The two legs are INDEPENDENT
+            there, which under-reads the fade of a fibre return (the Term
+            flags it; validation/retro_bracket). At 2 (wave optics) ONE
+            stochastic Term holds BOTH legs of each trial, from a retro wave
+            record (`wave`): the up leg and the return of one pulse share one
+            line, and the wind moves the air between them over 2R/c
+            (olb.waveoptics.turbulence.run.retro_sensing_geometry). Fidelity 2
+            takes a bucket (None or Aperture) or an SMF receiver.
+        wave : Fidelity2Bundle or Campaign, optional
+            The retro wave record of fidelity 2, from
+            olb.models.waveoptics.run_fidelity2 on THIS retro scenario, or a
+            retro Campaign. The space geometric loss is analytic, so the
+            bundle holds no vacuum record.
         fast_params : dict, optional
             Extra FAST parameters for the fidelity-1 down-leg coupling.
         point_ahead_rad : "geometry" or float
@@ -165,22 +176,19 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
 
     Raises:
         ValueError
-            If fidelity is not 0 or 1 (fidelity=2 is deferred for retro).
+            If fidelity is not 0, 1 or 2, or a fidelity-2 call has no retro
+            wave record, a vacuum record, or more than one line of sight.
         NotImplementedError
-            If the retroreflector is a SpoiledCornerCube.
+            If the retroreflector is a SpoiledCornerCube, or a fidelity-2
+            receiver is an MMF or a Camera.
     '''
     if isinstance(scenario.space.retroreflector, SpoiledCornerCube):
         raise NotImplementedError(
             "a SpoiledCornerCube (dihedral-angle offset) is not built. Its "
             "return is six beams on a ring, not one Airy lobe. Use CornerCube.")
-    if fidelity == 2:
-        raise ValueError(
-            "fidelity=2 (wave optics) is not supported for a retro link. The "
-            "folded double pass shares its screens, so the two legs are "
-            "correlated; that needs its own design. Use fidelity=0 or 1."
-        )
-    if fidelity not in (0, 1):
-        raise ValueError(f"fidelity must be 0 or 1 for retro, got {fidelity!r}.")
+    if fidelity not in (0, 1, 2):
+        raise ValueError(f"fidelity must be 0, 1 or 2 for retro, got "
+                         f"{fidelity!r}.")
     smf_fidelity = "fast" if fidelity == 1 else "mean"
     retro_aperture_m = scenario.space.aperture_m
     wavelength = scenario.space.wavelength_m
@@ -210,8 +218,9 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
     # Up-leg pointing jitter folds into the coupled-flux turbulence Term (it
     # shares the beam-wander displacement), so add the standalone pointing Term
     # only when the turbulence Term is off. Adding both double-counts the jitter.
-    # See olb.links.uplink.uplink_budget.
-    if not turbulence:
+    # See olb.links.uplink.uplink_budget. The wave-optics Term holds no jitter,
+    # so fidelity 2 always keeps it.
+    if not turbulence or fidelity == 2:
         up_terms.append(pointing_loss_term(up_scn, geometry))
     # The launch aperture truncates the up-leg beam, exactly as uplink_budget
     # does. Opt-in: it fires only when the ground transmitter truncates the beam
@@ -223,7 +232,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         eff = tx_gaussian_efficiency_term(up_scn, geometry)
         if eff.mean_db > TX_TRUNCATION_MIN_DB:
             up_terms.append(eff)
-    if turbulence:
+    if turbulence and fidelity != 2:
         up_terms.append(uplink_turbulence_term(up_scn, geometry, n_samples=n_samples,
                                                cn2_profile=cn2_profile))
     for t in up_terms:
@@ -259,13 +268,25 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
     # Aperture() are the SAME bucket. An SMF detector adds the fibre-coupling loss.
     rx = down_scn.rx_terminal
     detector = rx.detector if rx is not None else None
-    from ..terminal import Aperture
-    if detector is not None and not isinstance(detector, Aperture):
+    from ..terminal import Aperture, SMF
+    wave_terms = []
+    if fidelity == 2:
+        wave_terms = _retro_fidelity2_terms(scenario, geometry, wave,
+                                            turbulence)
+    elif detector is not None and not isinstance(detector, Aperture):
         # Import here to break the downlink <-> coupling import cycle.
         from ..models.coupling import downlink_coupling_term
-        down_terms.append(downlink_coupling_term(down_scn, geometry, n_samples=n_samples,
-                                           smf_fidelity=smf_fidelity,
-                                           fast_params=fast_params))
+        cpl = downlink_coupling_term(down_scn, geometry, n_samples=n_samples,
+                                     smf_fidelity=smf_fidelity,
+                                     fast_params=fast_params)
+        if isinstance(detector, SMF) and turbulence:
+            cpl.assumptions.flag(
+                "INDEPENDENT LEGS: the up leg and a FIBRE return fade TOGETHER "
+                "(they share one line through the air), and this rung draws "
+                "them apart, so it under-reads the fade (2.5 to 9 dB at p5 on "
+                "the hero 0.7 m case, validation/retro_bracket). Use "
+                "fidelity=2 for the fade.")
+        down_terms.append(cpl)
     else:
         down_terms.append(downlink_scintillation_term(down_scn, geometry))
     for t in down_terms:
@@ -288,7 +309,76 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
         ),
     )
 
-    return Budget(up_terms + down_terms + [retro_term], scenario=scenario)
+    return Budget(up_terms + down_terms + wave_terms + [retro_term],
+                  scenario=scenario)
+
+
+def _retro_fidelity2_terms(scenario, geometry, wave, turbulence):
+    """Give the ONE stochastic Term of a fidelity-2 retro budget.
+
+    Each trial of a retro wave record holds both legs of one pulse: the up leg
+    as the reciprocity overlap eta_turb (on the wind-shifted window; Shapiro,
+    DOI 10.1364/JOSA.61.000492) and the return as the ground receiver
+    (collected_power, and smf_eta for a fibre). The loss of the trial is the
+    SUM of the two leg losses in dB, so the Term keeps their correlation. Both
+    scalars are vacuum-normalised, and smf_eta is the ABSOLUTE fibre coupling,
+    exactly as downlink_budget reads it; the analytic geometric Terms carry the
+    rest.
+
+    Returns:
+        A list with the Term, or an empty list when turbulence is off.
+    """
+    from ..models.waveoptics import resolve_wave, waveoptics_turbulence_term
+    from ..terminal import Aperture, SMF
+    detector = scenario.ground.detector
+    if detector is not None and not isinstance(detector, (Aperture, SMF)):
+        raise NotImplementedError(
+            f"the fidelity-2 retro takes a bucket or an SMF receiver, not "
+            f"{type(detector).__name__}.")
+    if np.asarray(geometry.elevation_deg, dtype=float).size != 1:
+        raise ValueError("the fidelity-2 retro takes ONE line of sight. Loop "
+                         "over the elevations (olb.sweep).")
+    if not turbulence:
+        if isinstance(detector, SMF):
+            raise ValueError(
+                "a fibre receiver at fidelity=2 with turbulence=False has no "
+                "coupling number (the space geometric loss is analytic). Use "
+                "fidelity 0 or 1, or an Aperture receiver.")
+        return []
+    wave = resolve_wave(wave)
+    rec = None if wave is None else wave.turbulent
+    if rec is None or getattr(rec, "retro_wind_ground_m_s", None) is None:
+        raise ValueError(
+            "fidelity=2 needs a RETRO wave record: run "
+            "olb.models.waveoptics.run_fidelity2 on this retro scenario, or "
+            "pass a retro Campaign as wave=.")
+    if wave.vacuum is not None:
+        raise ValueError("the fidelity-2 retro reads the ANALYTIC geometric "
+                         "loss; pass a bundle with vacuum=None.")
+    up = np.array([t.eta_turb for t in rec.trials], dtype=float)
+    ret = np.array([t.collected_power for t in rec.trials], dtype=float)
+    if isinstance(detector, SMF):
+        ret = ret * np.array([t.smf_eta for t in rec.trials], dtype=float)
+    term = waveoptics_turbulence_term(
+        rec, loss_db=-10.0 * np.log10(up * ret), beam_type=BEAM_GAUSSIAN,
+        name="retro turbulence (wave optics)",
+        L0_m=scenario.channel.site.outer_scale_m,
+        note="both legs of each trial: the up-leg overlap on the wind-shifted "
+             "window times the return at the ground receiver, vacuum-"
+             "normalised.",
+        meta_extra={"retro_wind_ground_m_s": rec.retro_wind_ground_m_s})
+    for reason in (
+            "FROZEN FLOW OVER THE ROUND TRIP: the up leg reads the air that the "
+            "Bufton wind moved in 2R/c (integer pixels, one wind direction, no "
+            "boiling; Taylor, DOI 10.1098/rspa.1938.0032).",
+            "NO ENHANCED BACKSCATTER: the model is two passes of one "
+            "atmosphere, not the coupled double passage of Andrews and "
+            "Phillips Ch. 13 (DOI 10.1117/3.626196).",
+            "POINT-SOURCE CUBE: the up leg is the on-axis overlap, so the cube "
+            "must be much smaller than the uplink coherence width at the "
+            "satellite."):
+        term.assumptions.flag(reason, source="retro_space_budget")
+    return [term]
 
 
 if __name__ == '__main__':
@@ -394,6 +484,40 @@ if __name__ == '__main__':
         pass
     print(f"velocity aberration: theta = {va.meta['point_ahead_rad']*1e6:.1f} urad, "
           f"x = {x:.2f}, loss = {va.mean_db:.2f} dB")
+
+    # --- fidelity 2: ONE Term holds both legs of each trial -----------------
+    from ..models.waveoptics import run_fidelity2
+    wave = run_fidelity2(retro_scn, retro_geom, n_trials=8, seed=5,
+                         preset="rapid", progress=False)
+    assert wave.vacuum is None and wave.turbulent.retro_wind_ground_m_s == 10.0
+    f2 = retro_space_budget(retro_scn, retro_geom, fidelity=2, wave=wave)
+    names2 = [t.name for t in f2.terms]
+    for want in ("retro turbulence (wave optics)", "uplink pointing",
+                 "downlink velocity aberration", "downlink top-hat correction"):
+        assert any(want in n for n in names2), (want, names2)
+    assert not any("coupled-flux" in n or "scintillation" in n
+                   for n in names2), names2
+    tw = next(t for t in f2.terms if t.name == "retro turbulence (wave optics)")
+    legs = np.array([t.eta_turb * t.collected_power
+                     for t in wave.turbulent.trials])
+    assert abs(tw.mean_db - np.mean(-10 * np.log10(legs))) < 1e-9, tw.mean_db
+    assert any("FROZEN FLOW" in v for v in tw.assumptions.violations)
+    # A record of another direction is not a retro record.
+    up_wave = run_fidelity2(replace(retro_scn, direction="uplink"), retro_geom,
+                            n_trials=2, seed=5, preset="rapid", progress=False)
+    try:
+        retro_space_budget(retro_scn, retro_geom, fidelity=2, wave=up_wave)
+        raise AssertionError("an uplink record must not feed a retro budget")
+    except ValueError:
+        pass
+    # Fidelity 0/1 draw the legs apart: a fibre return says so.
+    smf_scn = replace(retro_scn, ground=replace(retro_scn.ground,
+                                                detector=SMF()))
+    f0 = retro_space_budget(smf_scn, retro_geom, fidelity=0)
+    cpl0 = next(t for t in f0.terms if t.category == "coupling")
+    assert any("INDEPENDENT LEGS" in v for v in cpl0.assumptions.violations)
+    print(f"retro fidelity 2 (8 trials): turbulence {tw.mean_db:.2f} dB mean, "
+          f"total {f2.to_frame()['mean_db'].sum():.2f} dB")
 
     print("retro (space) assumptions:")
     retro.check()

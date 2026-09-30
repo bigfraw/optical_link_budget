@@ -112,21 +112,60 @@ dt = 2R/c (about 6.1 ms at 30 deg and 8.0 ms at 20 deg for 500 km). The PA
 pairing puts the up leg of one pulse against the return of a pulse sent 2R/c
 EARLIER, which is the pre-compensated-uplink geometry (2-P4), not the retro.
 
-So the SAME column is the dt -> 0 limit of the right geometry. The wind moves
-the air 6 to 25 cm in that time, which is small against the 0.7 m aperture, so
-the tilt that drives the SMF tail stays mostly shared. The truth for an SMF
-return is probably NEAR SAME, and INDEP under-reads the p5 fade by more like
-5 to 9 dB. The bucket verdict does not change (SAME is also uncorrelated).
+So the SAME column is the dt -> 0 limit of the right geometry, and the owner
+agreed the argument (2026-09-30). The runner now models it (`direction=
+"retro"`, below).
 
-This caveat is an ARGUMENT, not a measurement, and the owner has not yet
-agreed it. THE TEST: a frozen-flow record
-(`olb.waveoptics.turbulence.temporal.TemporalSpec`) with `dt_s = 2R/c` and
-`slew_rad_s = 0.0` (the line is Earth-fixed, so the slew does not count), with
-the up leg on frame k and the return leg on frame k + 1.
+## The retro run (2026-09-30): the right geometry, measured
+
+The runner takes `direction="retro"`
+(`olb.waveoptics.turbulence.run.retro_sensing_geometry`). Each trial draws ONE
+oversize atmosphere: the RETURN leg reads the unshifted window, and the UP leg
+reads a window shifted at each screen by the Bufton wind drift over the round
+trip, `|V(h)| * 2R/c` (Vg = 10 m/s, one wind direction, integer pixels). The
+margin is 24.2 cm at 30 deg and 31.7 cm at 20 deg (the screen grows from 512
+to 576 px). The script mode `--retro` builds these campaigns and compares the
+RETRO pairing (the same trial) with INDEP (all n^2 pairs of the same record):
+
+```
+python -m validation.retro_bracket.retro_bracket --retro --elevations 30 20 `
+    --n-trials 1000 --block-size 25 --fft-backend scipy --preset standard `
+    --n-boot 200 --run-workers 4
+```
+
+The run took 150 s (30 deg) and 170 s (20 deg) for the trials with 4 workers.
+The hero launch (0.35 m waist) only, 1000 trials for each elevation. RETRO
+minus INDEP, in dB:
+
+| return | el | rho | mean | p5 | p1 |
+| --- | --- | --- | --- | --- | --- |
+| SMF | 30 | +0.73 | -3.54 +/- 0.16 | +6.48 +/- 0.49 | +6.12 +/- 0.97 |
+| SMF | 20 | +0.59 | -3.36 +/- 0.19 | +2.85 +/- 0.48 | +3.36 +/- 1.96 |
+| bucket | 30 | +0.01 | -0.01 +/- 0.01 | -0.06 +/- 0.16 | -0.51 +/- 0.27 |
+| bucket | 20 | +0.08 | -0.05 +/- 0.02 | +0.06 +/- 0.21 | +0.01 +/- 0.29 |
+
+INDEP reference (mean / p5 / p1, dB): SMF 27.29 / 50.47 / 59.57 (30 deg) and
+31.42 / 52.09 / 59.43 (20 deg).
+
+THE READING:
+
+1. BUCKET: no correlation, as in every pairing above. Independent legs are
+   safe for a bucket return.
+2. SMF: the wind decorrelates the legs only in part. At 30 deg (dt = 6.1 ms)
+   the RETRO p5 penalty is +6.5 dB, near SAME (+7.2) and above the PA pairing
+   (+4.1). At 20 deg (dt = 8.0 ms, a larger drift) it is +2.9 dB, near the PA
+   pairing (+3.1) and far below SAME (+8.8). So the drift over the round trip
+   matters, and no fixed pairing stands in for it. The fidelity-2 retro budget
+   reads this record.
+3. The mean moves the other way (3.4 to 3.5 dB LESS loss than INDEP), so a link
+   sized on the mean hides the fade.
 
 ## Open
 
-- The measurement above (SAME at dt = 2R/c).
 - A tip-tilt receive loop on the return leg: it removes part of the shared
   tilt, so the SMF gap can shrink.
-- A rerun on the bigfraw campaigns (the same case at the bigfraw key).
+- The sensitivity to Vg and to the wind direction of each layer (the model
+  takes one direction for all layers).
+- The small launch (0.06 m) on a retro campaign (the up leg of a retro record
+  reads the scenario launch only).
+- A rerun on bigfraw at more trials.

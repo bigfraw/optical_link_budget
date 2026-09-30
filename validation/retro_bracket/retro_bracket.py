@@ -143,6 +143,59 @@ def bracket(u0, u_pa, d, n_boot, rng):
     return out
 
 
+def retro_campaign(el, args):
+    """Build (or reopen) the RETRO campaign of the hero case at one elevation.
+
+    Each trial holds both legs of one pulse: the up leg (eta_turb) on the
+    window that the Bufton wind moved in 2R/c, and the return (the ground
+    receiver) on the unshifted window. See
+    olb.waveoptics.turbulence.run.retro_sensing_geometry.
+    """
+    from olb.waveoptics.turbulence import Campaign
+    scn, geom = pa.hero_uplink(el)
+    scn = replace(scn, direction="retro", precompensation=None)
+    root = os.path.join(pa.campaigns_root(), f"el{el:02.0f}", "retro")
+    return Campaign(scn, geom, root, seed=pa.SEED, preset=args.preset,
+                    block_size=int(args.block_size), L0_m=25.0,
+                    precision="single", fft_backend=args.fft_backend)
+
+
+def run_retro(args, say, rng, record):
+    """Compare the RETRO pairing with INDEP legs of the same record."""
+    say("retro campaigns: the wind-shifted RETRO pairing minus INDEP, in dB")
+    for el in args.elevations:
+        camp = retro_campaign(el, args)
+        if args.run_workers is not None and camp.n_stored < args.n_trials:
+            rw = (args.run_workers if args.run_workers == "auto"
+                  else int(args.run_workers))
+            t0 = time.perf_counter()
+            camp.run(args.n_trials, workers=rw)
+            say(f"el {el:g}: computed to {camp.n_stored} trials in "
+                f"{time.perf_counter() - t0:.0f} s")
+        n = min(args.n_trials, camp.n_stored)
+        trials = camp.load(n, fields=False).trials
+        up = np.array([t.eta_turb for t in trials])
+        coll = np.array([t.collected_power for t in trials])
+        down = {"SMF": coll * np.array([t.smf_eta for t in trials]),
+                "bucket": coll / coll.mean()}
+        for rx, d in down.items():
+            key = f"el{el:g} | hero 0.35 m | return {rx} | RETRO"
+            res = bracket(up, up[:, None][:, :0], d, args.n_boot, rng)
+            record[key] = {"n_trials": n,
+                           "wind_ground_m_s": camp.retro_wind_ground_m_s,
+                           "screen_margin_m": camp.screen_margin_m, **res}
+            m, p5, p1 = res["indep"]
+            r = res["same"]
+            cells = "  ".join(f"{nm} {v:+5.2f}+/-{s:4.2f}" for nm, v, s in zip(
+                ("mean", "p5", "p1"), r["delta_db"], r["se_db"]))
+            say()
+            say(f"{key}   ({n} trials, margin "
+                f"{camp.screen_margin_m * 100:.1f} cm)")
+            say(f"  INDEP (ref)          mean {m:6.2f}  p5 {p5:6.2f}  "
+                f"p1 {p1:6.2f}")
+            say(f"  RETRO (2R/c wind)    rho {r['rho_db']:+.2f}  {cells}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--elevations", type=float, nargs="+", default=[30, 20])
@@ -157,6 +210,9 @@ def main():
     ap.add_argument("--run-workers", default=None,
                     help="compute the missing trials first with this pool "
                          "(an int or \"auto\"); unset computes none")
+    ap.add_argument("--retro", action="store_true",
+                    help="read the RETRO campaigns (the wind-shifted up leg) "
+                         "in place of the point-ahead bracket")
     args = ap.parse_args()
     pa.PRESET = args.preset
     pa.FIXED_ARCSEC = tuple(args.fixed_arcsec)
@@ -169,10 +225,14 @@ def main():
         print(s, flush=True)
         lines.append(s)
 
-    say("retro bracket: pairing minus INDEP, in dB (positive = more loss)")
-    say(f"preset {args.preset}, seed {pa.SEED}, {args.n_boot} bootstraps")
     rng = np.random.default_rng(BOOT_SEED)
-    for el in args.elevations:
+    if args.retro:
+        say(f"preset {args.preset}, seed {pa.SEED}, {args.n_boot} bootstraps")
+        run_retro(args, say, rng, record)
+    else:
+        say("retro bracket: pairing minus INDEP, in dB (positive = more loss)")
+        say(f"preset {args.preset}, seed {pa.SEED}, {args.n_boot} bootstraps")
+    for el in ([] if args.retro else args.elevations):
         camp, _warn = pa.campaign_of(el, "base", args)
         if args.run_workers is not None and camp.n_stored < args.n_trials:
             rw = (args.run_workers if args.run_workers == "auto"
@@ -210,7 +270,8 @@ def main():
                             ("mean", "p5", "p1"), r["delta_db"], r["se_db"]))
                     say(f"  {lab:<20} rho {r['rho_db']:+.2f}  {cells}")
 
-    tag = "_".join(f"el{e:g}" for e in args.elevations)
+    tag = ("retro_" if args.retro else "") + "_".join(
+        f"el{e:g}" for e in args.elevations)
     with open(os.path.join(HERE, f"retro_bracket_{tag}.log"), "w") as f:
         f.write("\n".join(lines) + "\n")
     with open(os.path.join(HERE, f"retro_bracket_{tag}.json"), "w") as f:

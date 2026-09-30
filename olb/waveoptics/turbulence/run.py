@@ -55,8 +55,8 @@ from ..sources import GaussBeam
 from .sampling import PRESETS, resolve_outer_scale, turbulent_grid
 from .screens import ScreenFactory, phase_screen
 from .splitstep import split_step, super_gaussian_boundary
-from .temporal import (build_strips, frame_stack, open_strips, strip_paths,
-                       strip_plan)
+from .temporal import (build_strips, frame_stack, layer_wind, open_strips,
+                       strip_paths, strip_plan)
 
 # THE SLOPE FIT MUST HOLD ENOUGH MODES. The slope metric and the direct phase
 # metric alias an unfitted mode differently, so a short slope fit reads the
@@ -95,7 +95,7 @@ RUN_OPTIONS = (
     "preset", "cn2", "hs", "cn2_profile", "h_top_m", "L0_m", "subharmonics",
     "screen_generator", "precision", "fft_backend", "compensation",
     "store_screen_phase", "point_ahead_rad", "screen_margin_m",
-    "temporal", "h_gl", "start_waist_frac",
+    "temporal", "h_gl", "start_waist_frac", "retro_wind_ground_m_s",
 )
 
 # The subset that the grid sizer (sampling.turbulent_grid) reads. A wrapper
@@ -155,7 +155,12 @@ _RUN_OPTION_EXEMPT = {
     # field. A caller that wants frame k of a record runs
     # propagate_turbulent_scenario with start_index=k and n_trials=1. So the
     # option has no meaning here.
-    "propagate_turbulent_field": {"store_screen_phase", "temporal"},
+    #
+    # `retro_wind_ground_m_s` sets the up-leg window of a RETRO run, and this
+    # diagnostic refuses the retro direction: it gives one field, and a retro
+    # trial is two passes.
+    "propagate_turbulent_field": {"store_screen_phase", "temporal",
+                                  "retro_wind_ground_m_s"},
 }
 
 # The entry points that do NOT restate the options but forward a validated
@@ -908,6 +913,11 @@ class TurbWaveResult:
         start_waist_frac: the RESOLVED slab start of a space run (a fraction
                       of the grid side), or None for the plane-wave start. A
                       post-hoc reader builds its vacuum baseline from it.
+        retro_wind_ground_m_s: the Bufton ground wind of a RETRO run, in m/s,
+                      or None for any other run. In a retro record eta_turb is
+                      the UP leg (on the wind-shifted window) and the receive
+                      quantities and `fields` are the RETURN leg. See
+                      retro_sensing_geometry.
     """
 
     trials: list
@@ -929,6 +939,7 @@ class TurbWaveResult:
     screen_phase_pa: np.ndarray = None
     temporal: object = None
     start_waist_frac: float = None
+    retro_wind_ground_m_s: float = None
 
 
 def folded_terrestrial(*args, **kwargs):
@@ -1181,26 +1192,139 @@ def _screen_draw_n(n, margin_m, dx):
     return int(align * int(np.ceil(wanted / align)))
 
 
-def _resolve_screen_margin(screen_margin_m, pa_angles, plan):
+def _resolve_screen_margin(screen_margin_m, pa_angles, plan, retro=None):
     """Give the extra screen width of a run, in m.
 
     None reads the geometry: the widest window is the window of the largest
     angle at the screen that sits highest above the ground, so the margin is
-    max(angles) * max(z_g).
+    max(angles) * max(z_g). A RETRO run takes the largest wind shift of its
+    one up-leg window.
 
     Args:
         screen_margin_m: a float, or None for the automatic value.
         pa_angles:       the resolved point-ahead angles, or None.
         plan:            the ScreenPlan.
+        retro:           the SensingGeometry of a retro run, or None.
 
     Returns:
-        A float, in m. It is 0.0 when the run makes no point-ahead pass.
+        A float, in m. It is 0.0 when the run makes no shifted pass.
     """
-    if pa_angles is None:
+    if pa_angles is None and retro is None:
         return 0.0
     if screen_margin_m is not None:
         return float(screen_margin_m)
+    if retro is not None:
+        return float(np.max(retro.shift_m))
     return float(max(pa_angles) * _ground_distance(plan).max())
+
+
+# ---- the retro return: one atmosphere, two moments (backlog 2-P2) ----
+#
+# THE PHYSICS. A pulse goes up to the corner cube, and the return that reaches
+# the station comes back along the SAME line: the point-ahead lead and the turn
+# of the line of sight during the flight are the same angle 2 v_perp / c, so
+# they cancel. The two passes are 2R/c apart in TIME, and in that time each
+# layer drifts with its wind (Taylor frozen flow, DOI 10.1098/rspa.1938.0032).
+# So a retro trial reads ONE oversize draw through two windows: the RETURN leg
+# on the unshifted window, and the UP leg on a window shifted by
+# V(h_j) * 2R/c at each screen (the Bufton wind, Andrews and Phillips,
+# DOI 10.1117/3.626196, Ch. 12, Eq. (3), printed p. 481). Every layer shares
+# one wind direction and the statistics are isotropic, so the shift goes along
+# x. The two legs are interchangeable, so the window order does not matter.
+# The point-ahead angle enters the retro link ONE time, as the Airy loss of
+# olb.links.retro_space.retro_velocity_aberration_term, not here.
+
+# The Bufton ground wind Vg of a retro run, in m/s (the TemporalSpec default).
+RETRO_WIND_GROUND_M_S = 10.0
+C_LIGHT_M_S = 299792458.0
+
+
+def resolve_retro_wind(retro_wind_ground_m_s, scenario):
+    """Give the ground wind of a retro run, or None for any other run.
+
+    Args:
+        retro_wind_ground_m_s: None (the default: RETRO_WIND_GROUND_M_S for a
+                               retro run) or a float, in m/s.
+        scenario:              the scenario of the run.
+
+    Returns:
+        A float for a SPACE retro scenario, None otherwise.
+
+    Raises:
+        ValueError: a value comes with a scenario that is not a space retro,
+                    or the value is negative.
+    """
+    retro = hasattr(scenario, "ground") and scenario.direction == "retro"
+    if not retro:
+        if retro_wind_ground_m_s is not None:
+            raise ValueError(
+                "retro_wind_ground_m_s needs a SPACE scenario with "
+                f"direction='retro', not {scenario.direction!r}.")
+        return None
+    v = (RETRO_WIND_GROUND_M_S if retro_wind_ground_m_s is None
+         else float(retro_wind_ground_m_s))
+    if v < 0.0:
+        raise ValueError(f"retro_wind_ground_m_s must be >= 0, not {v!r}.")
+    return v
+
+
+def _check_retro(scenario, pa_angles, temporal, start_waist_frac,
+                 screen_generator, where):
+    """Raise when a retro run asks for an option it does not support.
+
+    Raises:
+        NotImplementedError: a point-ahead angle (the retro legs share one
+                    line), a temporal record, a Gaussian slab start or a
+                    diverged launch (the return leg needs the plane start, so
+                    one slab start cannot serve both legs).
+        ValueError: no ground Transmitter, or a screen generator other than
+                    "olb" (the two windows share ONE draw).
+    """
+    t = scenario.ground.transmitter
+    if t is None:
+        raise ValueError(f"{where}: a retro run needs a ground Transmitter.")
+    if pa_angles is not None:
+        raise NotImplementedError(
+            f"{where}: a retro run takes no point_ahead_rad. The up leg and "
+            "the return of one pulse share ONE line; the wind separates them. "
+            "See retro_sensing_geometry.")
+    if temporal is not None:
+        raise NotImplementedError(f"{where}: a retro run has no temporal "
+                                  "record yet.")
+    if start_waist_frac is not None or t.divergence_rad is not None:
+        raise NotImplementedError(
+            f"{where}: a retro run needs the PLANE slab start and a "
+            "collimated launch. The return leg is a plane wave from the cube, "
+            "and a diverged launch needs the Gaussian start, so one slab "
+            "start cannot serve both legs.")
+    if screen_generator != "olb":
+        raise ValueError(f"{where}: a retro run needs screen_generator='olb', "
+                         f"not {screen_generator!r}. The two windows share "
+                         "ONE draw.")
+
+
+def retro_sensing_geometry(plan, geometry, wind_ground_m_s):
+    """Give the SensingGeometry of the up-leg window of a retro run.
+
+    The shift at screen j is |V(h_j)| * 2R/c: the drift of that layer during
+    the round trip (see the note above). Vg = 0 does NOT give a zero shift:
+    the Bufton profile keeps its jet-stream term.
+
+    Args:
+        plan:            the ScreenPlan.
+        geometry:        the link geometry. It gives the slant range and the
+                         elevation.
+        wind_ground_m_s: the Bufton ground wind Vg, in m/s.
+
+    Returns:
+        A SensingGeometry.
+    """
+    _h, v = layer_wind(plan, geometry, wind_ground_m_s)
+    round_trip_s = 2.0 * float(np.ravel(np.asarray(
+        geometry.slant_range_m, dtype=float))[0]) / C_LIGHT_M_S
+    ones = np.ones(v.shape)
+    return SensingGeometry(shift_m=np.abs(v) * round_trip_s,
+                           cone_scale=ones, include=ones.astype(bool))
 
 
 def _screen_builder(screen_generator, grid, L0_m, subharmonics,
@@ -1577,7 +1701,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                                  store_screen_phase=False,
                                  point_ahead_rad="auto", screen_margin_m=None,
                                  temporal=None, h_gl=None,
-                                 start_waist_frac="auto", boost=True):
+                                 start_waist_frac="auto",
+                                 retro_wind_ground_m_s=None, boost=True):
     """Run a set of turbulent split-step trials for one scenario.
 
     Each trial makes a new screen stack and moves one field through it. The
@@ -1800,6 +1925,19 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                       collimated campaign that a reader overlaps with
                       diverged modes needs 0.3). The resolved value enters the
                       record. See GAUSS_START_WAIST_FRAC.
+        retro_wind_ground_m_s: the Bufton ground wind Vg of a RETRO run, in
+                      m/s. None (the default) takes RETRO_WIND_GROUND_M_S for
+                      a space scenario with direction="retro"; any other
+                      scenario must leave it None. A retro trial draws ONE
+                      oversize atmosphere and reads it through two windows:
+                      the RETURN leg on the unshifted window (collected_power,
+                      smf_eta, fields: the ground receiver) and the UP leg on
+                      a window shifted by V(h) * 2R/c at each screen
+                      (eta_turb: the reciprocity overlap of the ground
+                      transmit mode, the power a small corner cube catches).
+                      A retro run takes no point-ahead angle, no temporal
+                      record, no compensation, no Gaussian slab start and no
+                      diverged launch. See retro_sensing_geometry.
         boost:        True (the default) raises this process to the Above
                       Normal priority class and opts it out of power
                       throttling (EcoQoS) one time at entry. A windowless run
@@ -1823,7 +1961,9 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                             comes with a terrestrial scenario or with another
                             screen generator, or a point-ahead window falls off
                             the oversize screen.
-        NotImplementedError: the scenario direction is "retro".
+        NotImplementedError: a retro run asks for a point-ahead angle, a
+                            temporal record, a compensation stack, a Gaussian
+                            slab start or a diverged launch.
     """
     if boost:
         # THE PARENT BOOST LIVES HERE (backlog 2-I4, item 3). A windowless run
@@ -1836,20 +1976,20 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         boost_process_priority()
     cdtype = field_dtype(precision)
     is_space = hasattr(scenario, "ground")
-    if is_space and scenario.direction == "retro":
-        raise NotImplementedError(
-            "the retro direction is not built. A retroreflected link goes "
-            "through the SAME screens two times, so the two passes are "
-            "correlated. That is a separate design.")
     if (grid is None) != (plan is None):
         raise ValueError("propagate_turbulent_scenario: give grid AND plan "
                          "together, or give neither.")
     start_waist_frac = resolve_start_waist_frac(start_waist_frac, scenario)
     compensation, point_ahead_rad = resolve_precompensation(
         scenario, compensation, point_ahead_rad)
+    retro_wind = resolve_retro_wind(retro_wind_ground_m_s, scenario)
+    retro = retro_wind is not None
 
     # ---- the point ahead (an OPT-IN, default OFF) ----
     pa_angles = _resolve_point_ahead(point_ahead_rad, geometry)
+    if retro:
+        _check_retro(scenario, pa_angles, temporal, start_waist_frac,
+                     screen_generator, "propagate_turbulent_scenario")
     if pa_angles is not None:
         if not is_space:
             raise ValueError(
@@ -1901,12 +2041,18 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     # THE OVERSIZE DRAW. The margin and the window offsets read the finished
     # plan, so they resolve here. With no point-ahead angle the margin is 0.0
     # and n_draw is grid.n, so the draw does not move.
-    margin_m = _resolve_screen_margin(screen_margin_m, pa_angles, plan)
+    # A RETRO run makes ONE shifted pass, the up leg (see
+    # retro_sensing_geometry).
+    retro_geom = (retro_sensing_geometry(plan, geometry, retro_wind)
+                  if retro else None)
+    margin_m = _resolve_screen_margin(screen_margin_m, pa_angles, plan,
+                                      retro=retro_geom)
     n_draw = _screen_draw_n(grid.n, margin_m, grid.pixel_m)
     pa_shifts = None
-    if pa_angles is not None:
+    if pa_angles is not None or retro:
         pa_shifts = _screen_windows(
             plan, grid.n, grid.pixel_m, n_draw,
+            [retro_geom] if retro else
             [sensing_geometry(plan, None, a) for a in pa_angles])
 
     lam = scenario.tx_terminal.wavelength_m
@@ -1937,11 +2083,17 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
     # `circle` keeps exactly the pixels that `_clip` keeps (the self-check
     # asserts it), so the fit and the clip read the same pixels.
     comp_stack, n_modes = _resolve_compensation(scenario, compensation)
+    if retro and n_modes > 0:
+        raise NotImplementedError(
+            "propagate_turbulent_scenario: a retro run takes no compensation. "
+            "A pre-compensated retro senses the return and corrects a launch "
+            "that leaves along ANOTHER line, which is the point-ahead "
+            "geometry again. It is not built.")
     comp_source = "screens" if is_space else "slopes"
     comp_modes = None
     # A SIDE-MOUNTED uplink launch takes the tilt as a plane (backlog 2-DV
-    # item 10). See _uplink_corrected.
-    is_uplink = is_space and scenario.direction == "uplink"
+    # item 10). See _uplink_corrected. A retro run launches the up leg too.
+    is_uplink = is_space and scenario.direction in ("uplink", "retro")
     shifted = bool(is_uplink and _tx_shift_px(scenario.ground, grid.pixel_m))
     if is_uplink:
         _check_uplink_shift(scenario.ground, n_modes,
@@ -2005,7 +2157,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
             # number is a pure turbulence penalty. The flat screens share one
             # array, because Screen() does not change its input.
             psi_tx = None
-            if scenario.direction == "uplink":
+            if is_uplink:
                 psi_tx = _ground_transmit_mode(scenario.ground, grid,
                                                dtype=cdtype)
             # The receive field comes back to the host, so the clip, the power
@@ -2114,7 +2266,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
         # passes read the receive field on the host, so the trial takes the ONE
         # download of before.
         tail = patch_idx = psi_dev = None
-        if device and not need_sum and comp_modes is None and pa_angles is None:
+        if device and not need_sum and comp_modes is None and pa_shifts is None:
             wanted = [rx.detector] + list(detectors or ())
             if all(_DeviceTail.handles(d) for d in wanted):
                 tail = _DeviceTail(grid, rx.aperture_m, rx.obscuration_ratio,
@@ -2169,7 +2321,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 stack = frame_stack(strips, sp, k)
                 if device:
                     stack = _uploaded(stack)
-            elif stack is None and pa_angles is not None:
+            elif stack is None and pa_shifts is not None:
                 # ONE DRAW FEEDS EVERY PASS. draw(rng) makes exactly the random
                 # numbers that make(r0, rng) makes, in the same order, so the
                 # beacon pass is the pass of record.
@@ -2274,6 +2426,14 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                     E_up = _uplink_corrected(comp_modes, E_unc, coeffs, True)
                 o = reciprocity_overlap(E_up, psi_tx)
                 eta_turb = o / o_vac
+            if retro:
+                # THE UP LEG of a retro trial: the SAME draw on the window that
+                # the wind moved during the round trip. The receive quantities
+                # above are the RETURN leg, on the unshifted window.
+                F_up = to_host(split_step(F_start, plan.z_m,
+                                          windowed(screens, 0), plan.z_total_m,
+                                          boundary=mask))
+                eta_turb = reciprocity_overlap(F_up.field, psi_tx) / o_vac
             eta_turb_pa = None
             if pa_angles is not None:
                 # ONE EXTRA PASS FOR EACH ANGLE. The same start field and the
@@ -2341,7 +2501,7 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                 for i, k in enumerate(ks):
                     drawn, pending = pending, (submit(pool, ks[i + 1])
                                                if i + 1 < len(ks) else [])
-                    if pa_angles is not None:
+                    if pa_shifts is not None:
                         trials.append(run_one(
                             k, noise=[d.result() for d in drawn]))
                     else:
@@ -2380,7 +2540,8 @@ def propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None,
                           fields_pa=fields_pa,
                           screen_phase_pa=screen_phase_pa,
                           temporal=temporal,
-                          start_waist_frac=start_waist_frac)
+                          start_waist_frac=start_waist_frac,
+                          retro_wind_ground_m_s=retro_wind)
 
 
 def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
@@ -2485,7 +2646,8 @@ def propagate_turbulent_field(scenario, geometry, *, seed=0, trial=0,
     is_space = hasattr(scenario, "ground")
     if is_space and scenario.direction == "retro":
         raise NotImplementedError(
-            "the retro direction is not built. See "
+            "propagate_turbulent_field gives ONE field, and a retro trial is "
+            "two passes (the up leg and the return). Use "
             "propagate_turbulent_scenario.")
     if (grid is None) != (plan is None):
         raise ValueError("propagate_turbulent_field: give grid AND plan "
@@ -3790,11 +3952,66 @@ if __name__ == '__main__':
     retro_scn = SpaceScenario(ground=ground,
                               space=Terminal(aperture_m=0.30, wavelength_m=lam),
                               direction="retro", channel=Channel())
+    # ---- the RETRO run (backlog 2-P2): one draw, two windows ----
+    # With NO drift the up leg reads the SAME window as the return leg, so a
+    # retro record must equal the uplink record of the same seed and grid, bit
+    # for bit: the up leg IS the uplink overlap, and the return leg IS the
+    # ground receiver. The Bufton profile never gives a zero drift (its jet
+    # term stays at Vg = 0), so the check swaps in a zero-shift geometry for
+    # the one call and puts the real one back.
+    from dataclasses import replace
+    from ...terminal import TipTilt
+    up_scn = replace(retro_scn, direction="uplink")
+    g_rt, pl_rt, _ = turbulent_grid(up_scn, orbit30, preset="rapid", L0_m=25.0)
+    kw_rt = dict(n_trials=2, seed=11, preset="rapid", L0_m=25.0, grid=g_rt,
+                 plan=pl_rt)
+    rt_up = propagate_turbulent_scenario(up_scn, orbit30, **kw_rt)
+    _real_retro_geometry = retro_sensing_geometry
+
+    def retro_sensing_geometry(plan, geometry, wind_ground_m_s):
+        """The zero-drift geometry of the identity check."""
+        g = _real_retro_geometry(plan, geometry, wind_ground_m_s)
+        return SensingGeometry(shift_m=0.0 * g.shift_m,
+                               cone_scale=g.cone_scale, include=g.include)
+
+    rt_still = propagate_turbulent_scenario(retro_scn, orbit30, **kw_rt)
+    retro_sensing_geometry = _real_retro_geometry
+    assert rt_still.screen_n == g_rt.n, rt_still.screen_n
+    for a, b in zip(rt_still.trials, rt_up.trials):
+        assert a.eta_turb == b.eta_turb, (a.eta_turb, b.eta_turb)
+        assert a.collected_power == b.collected_power
+    # The default wind moves the up-leg window: the draw is wider, and the up
+    # leg reads other air.
+    rt_wind = propagate_turbulent_scenario(retro_scn, orbit30, **kw_rt)
+    assert rt_wind.retro_wind_ground_m_s == RETRO_WIND_GROUND_M_S
+    assert rt_wind.screen_n > g_rt.n and rt_wind.screen_margin_m > 0.0
+    assert any(a.eta_turb != b.eta_turb
+               for a, b in zip(rt_wind.trials, rt_still.trials))
+    shift = retro_sensing_geometry(pl_rt, orbit30, 10.0).shift_m
+    assert np.all(shift > 0.0) and shift.max() < 1.0, shift
+    print(f"  retro: zero drift == uplink record, bit for bit; the 10 m/s "
+          f"up-leg window moves {shift.min() * 100:.1f} to "
+          f"{shift.max() * 100:.1f} cm")
+    for bad, exc_type in (({"point_ahead_rad": 1e-5}, NotImplementedError),
+                          ({"compensation": [TipTilt()]}, NotImplementedError),
+                          ({"start_waist_frac": 0.3}, NotImplementedError)):
+        try:
+            propagate_turbulent_scenario(retro_scn, orbit30, preset="rapid",
+                                         grid=g_rt, plan=pl_rt, **bad)
+            raise AssertionError(f"retro with {bad} must raise")
+        except exc_type:
+            pass
     try:
-        propagate_turbulent_scenario(retro_scn, orbit30, preset="rapid")
-        raise AssertionError("retro must raise NotImplementedError")
-    except NotImplementedError as exc:
-        assert "retro" in str(exc), str(exc)
+        propagate_turbulent_scenario(up_scn, orbit30, preset="rapid",
+                                     retro_wind_ground_m_s=5.0)
+        raise AssertionError("a retro wind on an uplink must raise")
+    except ValueError:
+        pass
+    try:
+        propagate_turbulent_field(retro_scn, orbit30, preset="rapid")
+        raise AssertionError("the field diagnostic must refuse a retro run")
+    except NotImplementedError:
+        pass
     try:
         folded_terrestrial()
         raise AssertionError("folded_terrestrial must raise")

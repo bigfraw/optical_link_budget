@@ -86,8 +86,8 @@ from .run import (FieldPatch, TurbTrial, TurbWaveResult, _check_aperture,
                   _uplink_ground, clip_terminal,
                   _resolve_seed, _screen_seed, propagate_turbulent_scenario,
                   reciprocity_overlap, resolve_precompensation,
-                  resolve_start_waist_frac,
-                  space_vacuum_baseline)
+                  resolve_retro_wind, resolve_start_waist_frac,
+                  retro_sensing_geometry, space_vacuum_baseline)
 from .sampling import PRESETS, ScreenPlan, resolve_outer_scale, turbulent_grid
 from .splitstep import super_gaussian_boundary
 from .temporal import build_strips, strip_paths, strip_plan
@@ -701,7 +701,7 @@ class Campaign:
                  precision="single", fft_backend="numpy", compensation="auto",
                  store_screen_phase="auto", point_ahead_rad="auto",
                  screen_margin_m=None, temporal=None, h_gl=None,
-                 start_waist_frac="auto"):
+                 start_waist_frac="auto", retro_wind_ground_m_s=None):
         """Open a campaign, or make a new one.
 
         A missing `root_dir` is made. An EXISTING `root_dir` is checked: the
@@ -847,6 +847,13 @@ class Campaign:
                            resolved value enters the fingerprint and the
                            manifest when it is not None. See
                            olb.waveoptics.turbulence.run.resolve_start_waist_frac.
+            retro_wind_ground_m_s: the Bufton ground wind of a RETRO campaign,
+                           in m/s. None takes the runner default for a space
+                           scenario with direction="retro"; any other scenario
+                           must leave it None. The resolved value enters the
+                           fingerprint and the manifest of a retro campaign
+                           only. See
+                           olb.waveoptics.turbulence.run.retro_sensing_geometry.
 
         Raises:
             ValueError: the seed is not an integer, the precision name is
@@ -919,6 +926,8 @@ class Campaign:
                                                         "strips")))
         self.h_gl = (None if h_gl is None else
                      tuple(float(v) for v in np.ravel(np.asarray(h_gl))))
+        self.retro_wind_ground_m_s = resolve_retro_wind(retro_wind_ground_m_s,
+                                                        scenario)
 
         # Load the manifest FIRST when this store exists, so a reopened campaign
         # reads its stored patch radius from the manifest, NOT from the None
@@ -973,7 +982,8 @@ class Campaign:
                 point_ahead_rad=self.point_ahead_rad,
                 screen_margin_m=self.screen_margin_m,
                 temporal=self.temporal, h_gl=self.h_gl,
-                start_waist_frac=self.start_waist_frac)
+                start_waist_frac=self.start_waist_frac,
+                retro_wind_ground_m_s=self.retro_wind_ground_m_s)
 
         if stored_manifest is not None:
             man = stored_manifest
@@ -1025,11 +1035,15 @@ class Campaign:
             screen_margin_m: the caller value, or None.
             man:             the stored manifest dict, or None for a new store.
         """
-        if screen_margin_m is None and self.point_ahead_rad is not None \
+        retro = (None if self.retro_wind_ground_m_s is None else
+                 retro_sensing_geometry(self.plan, self.geometry,
+                                        self.retro_wind_ground_m_s))
+        shifted = self.point_ahead_rad is not None or retro is not None
+        if screen_margin_m is None and shifted \
                 and man is not None and "screen_margin_m" in man:
             screen_margin_m = float(man["screen_margin_m"])
         self.screen_margin_m = _resolve_screen_margin(
-            screen_margin_m, self.point_ahead_rad, self.plan)
+            screen_margin_m, self.point_ahead_rad, self.plan, retro=retro)
         self.screen_n = _screen_draw_n(self.grid.n, self.screen_margin_m,
                                        self.grid.pixel_m)
 
@@ -1065,6 +1079,7 @@ class Campaign:
                 "dt_s": self.dt_s,
                 "h_gl": (None if self.h_gl is None else list(self.h_gl)),
                 "start_waist_frac": self.start_waist_frac,
+                "retro_wind_ground_m_s": self.retro_wind_ground_m_s,
                 "fingerprint": self.fingerprint}
         # A manifest that a version before the precision switch wrote holds no
         # "precision" key. It is a double-precision store, so read it as one.
@@ -1079,6 +1094,7 @@ class Campaign:
                     "screen_n": int(self.grid.n),
                     "temporal": None, "dt_s": None, "h_gl": None,
                     "start_waist_frac": None,
+                    "retro_wind_ground_m_s": None,
                     "sizing_divergence_rad": None}
         for field, value in want.items():
             got = man.get(field, defaults.get(field))
@@ -1118,6 +1134,7 @@ class Campaign:
             "dt_s": self.dt_s,
             "h_gl": (None if self.h_gl is None else list(self.h_gl)),
             "start_waist_frac": self.start_waist_frac,
+            "retro_wind_ground_m_s": self.retro_wind_ground_m_s,
             "L0_m": None if not np.isfinite(self.L0_m) else self.L0_m,
             "subharmonics": self.subharmonics,
             "olb_version": olb_version,
@@ -1234,7 +1251,8 @@ class Campaign:
                 "point_ahead_rad": self.point_ahead_rad,
                 "screen_margin_m": self.screen_margin_m,
                 "temporal": self.temporal, "h_gl": self.h_gl,
-                "start_waist_frac": self.start_waist_frac}
+                "start_waist_frac": self.start_waist_frac,
+                "retro_wind_ground_m_s": self.retro_wind_ground_m_s}
 
     def worker_memory_bytes(self):
         """Estimate the peak memory of one pool worker of this campaign.
@@ -1248,6 +1266,7 @@ class Campaign:
         """
         patch_pixels = 0 if self.patch is None else int(self.patch.indices.size)
         n_screens = (0 if self.point_ahead_rad is None
+                     and self.retro_wind_ground_m_s is None
                      else int(self.plan.z_m.size))
         return worker_memory_bytes(self.grid.n, self.precision,
                                    block_size=self.block_size,
@@ -1463,7 +1482,8 @@ class Campaign:
                        if stack_pa else None),
             screen_phase_pa=(np.concatenate(phase_pa, axis=1)[:, :n]
                              if phase_pa else None),
-            temporal=self.temporal, start_waist_frac=self.start_waist_frac)
+            temporal=self.temporal, start_waist_frac=self.start_waist_frac,
+            retro_wind_ground_m_s=self.retro_wind_ground_m_s)
 
     def field(self, row, *, compact=True):
         """Give one STORED trial back as a Field.
@@ -2303,6 +2323,36 @@ if __name__ == '__main__':
                 return float(np.abs(rec.arrays_pa[1]).sum())
             assert np.all(camp8.map_trials(_shapes) > 0.0)
 
+            # ---- 11c. a RETRO campaign round-trips through the store ----
+            # TWO BLOCKS must equal the native run, trial for trial. The wind
+            # keys the campaign, and a reopen reads the stored margin.
+            rt_scn = replace(up_scn, direction="retro")
+            rootR = tempfile.mkdtemp(prefix="olb_campaign_selfcheck_retro_")
+            rootR2 = tempfile.mkdtemp(prefix="olb_campaign_selfcheck_retro2_")
+            try:
+                campR = Campaign(rt_scn, orbit, rootR, **common)
+                assert campR.retro_wind_ground_m_s == 10.0
+                assert campR.screen_n > campR.grid.n, campR.screen_n
+                assert campR.run(8) == 8
+                reR = Campaign(rt_scn, orbit, rootR, **common)
+                assert reR.fingerprint == campR.fingerprint
+                assert reR.screen_margin_m == campR.screen_margin_m
+                assert Campaign(rt_scn, orbit, rootR2,
+                                retro_wind_ground_m_s=5.0,
+                                **common).fingerprint != campR.fingerprint
+                gotR = campR.load(8)
+                assert gotR.retro_wind_ground_m_s == 10.0
+                nativeR = propagate_turbulent_scenario(
+                    rt_scn, orbit, n_trials=8, seed=common["seed"],
+                    preset=common["preset"], grid=campR.grid, plan=campR.plan,
+                    patch_radius_m=campR.patch_radius_m,
+                    screen_margin_m=campR.screen_margin_m, L0_m=campR.L0_m)
+                for a, b in zip(gotR.trials, nativeR.trials):
+                    assert a.eta_turb == b.eta_turb, (a.eta_turb, b.eta_turb)
+                    assert a.collected_power == b.collected_power
+            finally:
+                shutil.rmtree(rootR, ignore_errors=True)
+                shutil.rmtree(rootR2, ignore_errors=True)
             # ---- 11a. the point-ahead POST-HOC reads ----
             # THE STORED-PLANE ROUTE. A CORRECTED campaign of the same seed
             # gives the reference numbers, and recouple_point_ahead must
