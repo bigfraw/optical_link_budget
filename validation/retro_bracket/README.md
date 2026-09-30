@@ -1,7 +1,23 @@
 # The retro bracket: do the two legs of a retro link fade together?
 
-Date: 2026-09-29. Branch `retro-velocity-aberration`. Machine: the laptop
-(`bigfraw` was offline), on the CPU with `fft_backend="scipy"`.
+Date: 2026-09-29 and 2026-09-30. Branch `retro-velocity-aberration`.
+Machine: the laptop (`bigfraw` was offline), on the CPU with
+`fft_backend="scipy"`.
+
+This folder is the record of the fidelity-2 SPACE retro design. Read it in
+this order:
+
+1. The bracket (below): three pairings of the two legs on the point-ahead
+   campaigns.
+2. The geometry caveat: the point-ahead pairing is the WRONG model, because
+   the two passes of one pulse share one line.
+3. The route choice: the wind-shift window against a frozen-flow strip
+   (`retro_screen_sizes.py`).
+4. The retro run: the built route, measured (`--retro`).
+
+Two companion studies: `../point_ahead_geometry/` (where the angle comes from
+and where olb uses it) and `../retro_velocity_aberration/` (the Airy loss of
+the return lobe).
 
 ## The purpose
 
@@ -115,6 +131,35 @@ EARLIER, which is the pre-compensated-uplink geometry (2-P4), not the retro.
 So the SAME column is the dt -> 0 limit of the right geometry, and the owner
 agreed the argument (2026-09-30). The runner now models it (`direction=
 "retro"`, below).
+
+## The route choice (2026-09-30): a shifted window, not a strip
+
+Two routes give the up leg and the return of one pulse 2R/c apart with the
+wind drift between them. `retro_screen_sizes.py` sizes both on the hero
+production grid (512 px, 9 screens, `standard`, L0 = 25 m, Vg = 10 m/s); it
+propagates nothing:
+
+```
+python -m validation.retro_bracket.retro_screen_sizes
+```
+
+| altitude, el | 2R/c | largest drift | SHIFT route: screen, stack | STRIP route (slew 0, 2 frames): longest strip, record |
+| --- | --- | --- | --- | --- |
+| 500 km, 30 deg | 6.07 ms | 24.2 cm (35 px) | 576 px, 11 MB (1.27x) | 7840 px, 138 MB (15.3x) |
+| 500 km, 20 deg | 7.96 ms | 31.7 cm (37 px) | 576 px, 11 MB (1.27x) | 6336 px, 111 MB (12.3x) |
+| 1000 km, 30 deg | 11.36 ms | 45.3 cm (66 px) | 608 px, 13 MB (1.41x) | 7872 px, 138 MB (15.3x) |
+| 1000 km, 20 deg | 14.15 ms | 56.4 cm (65 px) | 608 px, 13 MB (1.41x) | 6368 px, 111 MB (12.3x) |
+
+The plain stack is 9 MB. The drift by screen at 500 km, 30 deg is 8.5, 15.8,
+21.4, 24.2, 21.9, 11.5, 7.7, 6.7 and 6.5 cm (the jet layers drift most).
+
+THE READING. The real drift is a few tens of cm, but a strip carries a seam
+pad of 2 L0 = 50 m (about 7300 px), which pays only over a long record. A
+retro needs an INDEPENDENT atmosphere for each trial, so a strip record would
+build about 140 MB to use two frames. The shift route grows the draw by the
+largest drift only. The split step is two 512 px passes on both routes. The
+owner chose the SHIFT route (2026-09-30). For comparison, the point-ahead
+draw of the same case is 768 px (2.25x).
 
 ## The retro run (2026-09-30): the right geometry, measured
 

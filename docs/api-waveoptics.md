@@ -1002,7 +1002,7 @@ hand.
 
 ### 9d. The trial runner (`olb/waveoptics/turbulence/run.py`)
 
-#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation="auto", store_screen_phase=False, point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto", boost=True)`
+#### `propagate_turbulent_scenario(scenario, geometry, *, n_trials=1, seed=None, preset="standard", grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, threader=None, screen_generator="olb", progress=False, detectors=None, start_index=0, patch_radius_m=None, precision="single", fft_backend="numpy", compensation="auto", store_screen_phase=False, point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto", retro_wind_ground_m_s=None, boost=True)`
 
 It runs a set of turbulent split-step trials for one scenario and it returns a
 `TurbWaveResult`. Each trial makes a NEW screen stack and moves one field through
@@ -1017,7 +1017,24 @@ frames of one record.
   `turbulent_grid()` above.
 - The geometry must give ONE range. More than one raises `ValueError`. Loop in
   the caller.
-- A `"retro"` direction raises `NotImplementedError`.
+- A space `"retro"` direction runs (2026-09-30, backlog 2-P2). Each trial
+  draws ONE oversize atmosphere and reads it through two windows: the RETURN
+  leg on the unshifted window (`collected_power`, `smf_eta`, `fields`: the
+  ground receiver) and the UP leg on a window shifted at each screen by
+  `|V(h)| * 2R/c`, the Bufton wind drift over the round trip
+  (`retro_sensing_geometry`; `eta_turb`: the reciprocity overlap of the ground
+  transmit mode). The up leg and the return of one pulse share ONE line (the
+  point-ahead lead and the turn of the line of sight during the flight
+  cancel), so only the wind separates them. `retro_wind_ground_m_s` sets the
+  Bufton ground wind Vg (None takes `RETRO_WIND_GROUND_M_S = 10.0` m/s for a
+  retro scenario; any other scenario must leave it None). Vg = 0 is NOT a
+  zero drift: the Bufton jet term stays. The margin is the largest shift
+  (24.2 cm at 30 deg and 31.7 cm at 20 deg for the 500 km hero case), and
+  `TurbWaveResult.retro_wind_ground_m_s` records the value. A retro run
+  refuses a point-ahead angle, a temporal record, a compensation stack, a
+  Gaussian slab start and a diverged launch (`NotImplementedError`), and a
+  generator other than `"olb"` (`ValueError`). `propagate_turbulent_field()`
+  refuses a retro scenario, because a retro trial is two passes.
 - `start_waist_frac` is the START FIELD of a space slab (a RUN OPTION,
   2026-09-24, backlog 2-DV item 1). `"auto"` (the default) takes a Gaussian
   of `GAUSS_START_WAIST_FRAC = 0.3` times the grid side for a DIVERGED uplink
@@ -1548,7 +1565,6 @@ Each of these raises. Each one is a deliberate deferral, not a defect.
 | `temporal=` with `point_ahead_rad=` | `run.py` | The two windows on one strip. A point-ahead pass takes a laterally SHIFTED window, and a frame takes a window that MOVES with the wind; the pair needs its own design. `propagate_turbulent_scenario()` raises `NotImplementedError`. See backlog 2-P1b. |
 | `temporal=` on a terrestrial plan | `run.py` | A horizontal path has no slew and no Bufton wind profile, so it needs its own velocity model. `propagate_turbulent_scenario()` raises `NotImplementedError`. |
 | `folded_terrestrial()` | `run.py` | The double pass of a corner-cube retroreflector. The two passes share the same screens, so they are correlated. That correlation is the physics of the link, and it needs its own design. |
-| The `"retro"` direction | `run.py` | `propagate_turbulent_scenario()` raises `NotImplementedError`. The same correlated double pass. |
 | A co-moving screen | `screens.py`, `splitstep.py` | `Screen()` and `split_step()` raise `ValueError` on a spherical field. The split step runs on a FLAT grid only. Call `Convert()` first. |
 
 ### 9f. The example scripts
@@ -1596,7 +1612,7 @@ Import it from the sub-package:
 from olb.waveoptics.turbulence import Campaign
 ```
 
-#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, sizing_divergence_rad=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation="auto", store_screen_phase="auto", point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto")`
+#### `Campaign(scenario, geometry, root_dir, *, seed, preset="standard", block_size=100, patch_radius_m=None, sizing_aperture_m=None, sizing_divergence_rad=None, grid=None, plan=None, cn2=None, hs=None, cn2_profile=None, h_top_m=None, L0_m=None, subharmonics=True, screen_generator="olb", precision="single", fft_backend="numpy", compensation="auto", store_screen_phase="auto", point_ahead_rad="auto", screen_margin_m=None, temporal=None, h_gl=None, start_waist_frac="auto", retro_wind_ground_m_s=None)`
 
 It opens a campaign, or it makes a new one. A `Campaign` names ONE physics case:
 one scenario, one geometry, one grid, one screen plan, one seed.
@@ -1610,6 +1626,9 @@ one scenario, one geometry, one grid, one screen plan, one seed.
   read: the grid takes the `lambda / (4 theta)` rule and the `"auto"` start
   takes the Gaussian. It enters the manifest, like `sizing_aperture_m`. The
   default patch covers a shifted transmit disc (`Transmitter.shift_m`).
+- `retro_wind_ground_m_s` is the retro option of the runner. The resolved
+  value enters the fingerprint and the manifest of a RETRO campaign only, and
+  a reopen reads the stored screen margin.
 - A point-ahead campaign draws WIDER screens, so it does NOT pair trial for
   trial with a plain campaign of the same seed. Compare statistics, or read
   the `"none"` case of `uplink_overlaps` as the baseline.

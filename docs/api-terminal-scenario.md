@@ -24,6 +24,7 @@ Modules: `olb.terminal`, `olb.scenario`, `olb.geometry`.
   - [`Transmitter`](#transmitter)
   - [Detectors](#detectors)
   - [Compensation stack](#compensation-stack)
+  - [Retroreflectors](#retroreflectors)
   - [Snippet: monostatic and bistatic terminals](#snippet-monostatic-and-bistatic-terminals)
 - [2. Scenario families (`olb.scenario`)](#2-scenario-families-olbscenario)
   - [`SpaceScenario`](#spacescenario)
@@ -56,6 +57,7 @@ One optical terminal: aperture, transmitter, compensation, and detector.
 | `transmitter` | `Transmitter` or None | — | `None` | The transmit source. None means the terminal only receives. |
 | `detector` | `Aperture`, `SMF`, `MMF`, or `Camera`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
 | `compensation` | list of `TipTilt` or `AO` | — | `[]` | The ordered wavefront-compensation stack. It may be empty. |
+| `retroreflector` | `CornerCube` or `SpoiledCornerCube`, or None | — | `None` | The kind of a passive retroreflector (the space terminal of a retro link). None means the standard `CornerCube`. The repr leaves out an unset value, so no stored campaign key moves. |
 
 Constraints:
 
@@ -300,6 +302,22 @@ record gets a loud `UNCORRECTED` flag on its Term. See
 [api-budget.md](api-budget.md) and [api-waveoptics.md](api-waveoptics.md)
 Section 9h.
 
+### Retroreflectors
+
+The space `Terminal` of a retro link is a passive retroreflector. Its
+`aperture_m` is the cube aperture, and its `retroreflector` field sets the
+kind.
+
+- `CornerCube()` — the standard corner cube: three faces at exactly 90 deg.
+  It sends ONE beam back along the incoming ray in its own frame, and its far
+  field is the Airy pattern of its unobscured aperture. It has no fields.
+- `SpoiledCornerCube(dihedral_offset_rad=0.0)` — PLANNED, NOT BUILT. A
+  dihedral-angle offset splits the return into six beams on a ring, so a large
+  cube can put its return on the velocity-aberration angle.
+  `retro_space_budget` raises `NotImplementedError` for it.
+
+`Retroreflector = Union[CornerCube, SpoiledCornerCube]`.
+
 ### Snippet: monostatic and bistatic terminals
 
 ```python
@@ -480,7 +498,12 @@ Constructor: `CircularOrbit(altitude_m, elevation_deg)`.
 Provides to a model:
 
 - `slant_range_m` — the ground-station to satellite range.
-- `point_ahead_rad` — the point-ahead angle from the finite speed of light.
+- `point_ahead_rad` — the point-ahead angle from the finite speed of light,
+  `2 v_orb sin(el) / c`. FLAG (backlog 0-P18): this is a flat-Earth form. It
+  is exact at the zenith only and it reads LOW away from it (25.6 urad at
+  30 deg for a 420 km orbit, where the exact overhead pass gives about
+  30 urad). It also cannot hold the off-track spread of a real pass. Use a
+  `TLEPass` for the exact angle.
 - `slew_deg_s` — the apparent line-of-sight slew rate.
 
 ### `HorizontalPath`
@@ -514,12 +537,24 @@ Constructor: `TLEPass(tle_line1, tle_line2, lat_deg, lon_deg, alt_m, times, name
 | `times` | skyfield Time | — | Array of times to sample the pass at. |
 | `name` | str | — | Satellite name (cosmetic). Default `""`. |
 
-After construction, `elevation_deg`, `azimuth_deg`, and `slant_range_m` are
-arrays over `times`. Elevation is negative when the satellite is below the
-horizon. Use the mask `elevation_deg > 0` for the visible pass.
+After construction, `elevation_deg`, `azimuth_deg`, `slant_range_m`, and
+`point_ahead_rad` are arrays over `times`. Elevation is negative when the
+satellite is below the horizon. Use the mask `elevation_deg > 0` for the
+visible pass.
 
-Provides to a model: `elevation_deg`, `azimuth_deg`, `slant_range_m`, and
-`times`.
+`point_ahead_rad` is 2 v_perp / c, with v_perp the velocity of the satellite
+RELATIVE TO THE STATION across the line of sight, in the inertial (GCRS)
+frame that skyfield gives (Degnan, DOI 10.1029/GD025p0133). The station
+velocity holds the rotation of the Earth, so a geostationary satellite reads
+17.4 urad from its sub-point and about 18 to 18.5 urad from 40 deg latitude.
+The `olb.geometry` self-check matches it to the inertial line-of-sight turn
+between t - R/c and t + R/c. It is the exact value; the `CircularOrbit` form
+v_orb sin(el) is an overhead-pass approximation that reads low away from the
+zenith (25.6 urad at 30 deg for a 420 km orbit, where an ISS pass reads 28 to
+35 urad).
+
+Provides to a model: `elevation_deg`, `azimuth_deg`, `slant_range_m`,
+`point_ahead_rad`, and `times`.
 
 #### `TLEPass.from_window`
 

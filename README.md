@@ -226,7 +226,10 @@ stochastic turbulence Term. The caller precomputes both with
 `olb.models.waveoptics.run_fidelity2`, or passes a `Campaign` (2026-09-04): an
 on-disk, resumable store of thousands of trials that keeps the receive-plane
 field of each trial, so any detector inside the stored patch is a post-hoc
-question. The fidelity-2 frozen-flow TIME AXIS is built (2026-09-13,
+question. A SPACE retro link runs at fidelity 2 (2026-09-30): each trial
+reads ONE atmosphere through two windows, the return and an up leg that the
+wind moved during the round trip 2R/c, so the budget keeps the correlation of
+the two legs. The fidelity-2 frozen-flow TIME AXIS is built (2026-09-13,
 `TemporalSpec`), and it is an opt-in: each layer drifts across one oversized
 strip screen, so a run gives a fade rate and a fade duration. A CROSSWIND takes
 a ROTATED thin strip by default. The fidelity-1 (FAST) temporal mode stays
