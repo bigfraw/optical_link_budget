@@ -641,3 +641,19 @@ ISS passes, and background on the spoiled cube (not built). See
 | File | Purpose |
 | --- | --- |
 | [retro_velocity_aberration/airy_aberration.py](retro_velocity_aberration/airy_aberration.py) | The tables: the loss against x, typical cubes at 50 urad and at the 500 km, 30 deg geometry, the numeric check of the best cube size, and the loss over one day of ISS passes. |
+
+## retro_array_speckle/
+
+The target speckle of a multi-cube retroreflector array (2026-10-01): a
+DESIGN RECORD, nothing simulated yet. The light of the cubes interferes at
+the station, so a coherent (CW) return fades with no atmosphere (exponential
+statistics; the lidar cross section is only the mean). The atmosphere is the
+same for every cube on both legs, so the received field factorizes into the
+ONE-point fidelity-2 retro record times a cheap array factor. It gives the
+mechanisms, the reducers (polarization, integration, linewidth, the pulse
+case), and the simulation plan with gates. Triggered by a LAGEOS-1 pass over
+Yarragadee. See [retro_array_speckle/README.md](retro_array_speckle/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [retro_array_speckle/lageos_pass.py](retro_array_speckle/lageos_pass.py) | The 2026-10-01 LAGEOS-1 pass: the match to the mount readout, the point-ahead angle, and the single unspoiled cube Airy loss at 532 and 1064 nm. |
