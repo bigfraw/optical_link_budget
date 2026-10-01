@@ -35,4 +35,5 @@ validation/waveoptics_pointahead/campaigns_smoke/
 validation/uplink_divergence/campaigns/
 validation/uplink_divergence/*.npy
 validation/temporal_screens/campaigns/
+validation/temporal_screens/campaigns_sp/
 validation/retro_bracket/campaigns/
