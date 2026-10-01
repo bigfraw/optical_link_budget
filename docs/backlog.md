@@ -316,6 +316,43 @@ are from 2026-08-26 and can drift.
   olb/turbulence/andrews/beam.py:163, and
   olb/turbulence/gaussian_fried.py:181 keeps the old signature and delegates
   to it (crosscheck GF-17). Deliberate, to match the Dios weak regime.
+- **0-P18. DONE (2026-09-30, branch `spherical-point-ahead`, option B). The
+  `CircularOrbit` point-ahead angle WAS a flat-Earth form.** `tangential_velocity`
+  is now `v_orb cos(eta)` and `apparent_slew_rate` is `v_perp / (L sin(el))`
+  (the flat form divided by `h_sat`, and `L sin(el) < h_sat` on the sphere).
+  The `olb.geometry` self-check matches both to a direct in-plane orbit to
+  1e-5. The off-track spread stays a `TLEPass` job. NUMBER MOVES: the retro
+  self-check velocity aberration 7.30 to 20.27 dB (5 cm, 1500 km, 30 deg);
+  the Stone point-ahead Term at 60 deg, AO(60) 4.12 to 4.25 dB; the FAST
+  `DTHETA` 9.01 to 9.25 arcsec there; the slew of the time axis 1.31x at
+  500 km, 30 deg. A stored point-ahead campaign keeps its stored angles, so
+  `point_ahead_rad="geometry"` makes a new key and a new run. The slew was
+  NOT in the key, so `Campaign` now RESOLVES `TemporalSpec.slew_rad_s` from
+  the geometry before the key: every time-axis campaign has a NEW key, and a
+  reopened older store raises on the manifest check instead of mixing two
+  slews. The strips are bit-identical. The record of the flag follows.
+  (Flagged 2026-09-30.) `SatellitePass.tangential_velocity` is
+  `v_orb * sin(el)` (olb/geometry.py). Two errors:
+  - EARTH CURVATURE. For an overhead pass the exact value is
+    `v_orb * cos(eta)`, with the nadir angle
+    `sin(eta) = R_E cos(el) / (R_E + h)`. `sin(el)` equals `cos(eta)` only
+    at the zenith or when `h -> 0`, so the form reads LOW away from the
+    zenith: 25.6 against about 30 urad at 30 deg for a 420 km orbit.
+  - ELEVATION IS NOT ENOUGH. At one elevation an overhead pass and an
+    off-track pass have different `v_perp`. A real ISS pass
+    (`TLEPass.point_ahead_rad`, exact) reads 28 to 35 urad at 30 deg and 19
+    to 43 urad at 10 deg, where the form gives 25.6 and 8.9 urad. The
+    rotation of the Earth adds or removes up to about 0.4 km/s more.
+  THE CANDIDATE FIX is `cos(eta)` in place of `sin(el)`: exact for an
+  overhead pass with the Earth rotation off. It is NOT a strict lower bound:
+  the rotation takes a real pass below it (28.4 against 29.8 urad at 30 deg,
+  `validation/point_ahead_geometry/`). The off-track spread needs a
+  `TLEPass`. It is a NUMBER MOVE for
+  every reader of the angle: the fidelity-0 Stone point-ahead Term, the FAST
+  `DTHETA`, the fidelity-2 point-ahead window (`point_ahead_rad="geometry"`),
+  the retro velocity-aberration Airy Term, and the stored point-ahead
+  campaigns (their angles are in the key). `apparent_slew_rate` reads the
+  same `v_perp`.
 
 ### Numerical and validation issues
 
@@ -1467,9 +1504,18 @@ The path forward for each is a second reference or a derivation.
      (3)), a variable `dt` (item (5)), ONE wind direction for every layer, and
      NO boiling (the model is pure Taylor frozen flow, DOI
      10.1098/rspa.1938.0032).
-- **2-P2. The folded / retro double pass is a stub.** `folded_terrestrial`
-  and the `"retro"` direction raise (run.py:231, :443, :608). The two
-  passes share screens, so they are correlated; that needs its own design.
+- **2-P2. The folded / retro double pass.** SPACE: DONE (2026-09-30,
+  branch `retro-velocity-aberration`). The runner takes
+  `direction="retro"`: one oversize draw, the return on the unshifted
+  window, the up leg on a window shifted by the Bufton wind drift over 2R/c
+  (`retro_sensing_geometry`), and `retro_space_budget(fidelity=2)` reads it
+  as ONE Term with both legs. The velocity-aberration Airy Term is on every
+  rung. `validation/retro_bracket/README.md` holds the measurement. OPEN:
+  a tip-tilt return loop, the sensitivity to Vg and to a per-layer wind
+  direction, the `SpoiledCornerCube`, a pre-compensated retro (it senses the
+  return and corrects a launch on ANOTHER line, the point-ahead geometry
+  again), and a temporal retro. TERRESTRIAL: `folded_terrestrial` is still a
+  stub (backlog 0-P2).
 - **2-P3. No co-moving (spherical) screen.** `split_step` takes a flat grid
   only; a long slant path pays the pixel cost.
   UPDATE (2026-09-06, owner-flagged): the TERRESTRIAL backbone (2-TC) shows

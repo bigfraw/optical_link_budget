@@ -43,7 +43,10 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   spatial-only coupling), `optimal_focus`, and `defocus_m`; `Camera` is a
   focal-plane array with `pixel_pitch_m`, `n_pixels`, `focal_length_m`, and
   `defocus_m`), and a
-  `compensation` stack (`TipTilt`, `AO`). `defocus_m` puts the detector at
+  `compensation` stack (`TipTilt`, `AO`), and an optional `retroreflector`
+  (`CornerCube`, the default for None, the `SpoiledCornerCube` stub that
+  the retro budget refuses, or `LidarCrossSection(sigma_m2)`, the effective
+  cross section of an array or a spoiled cube; the repr omits an unset value). `defocus_m` puts the detector at
   z = f + defocus_m; 0.0 is the nominal focal plane. `Detector = Union[Aperture,
   SMF, MMF, Camera]`. A `Camera` is DIAGNOSTIC: no budget builds a coupling Term
   for it, `terrestrial_budget` and `downlink_budget(fidelity=2)` treat it like an
@@ -187,7 +190,15 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   flags (`NO SCINTILLATION, NO FADE`, plus the extended-Marechal limit flag). See
   backlog 0-W1 and 1-2), `downlink.py`
   (`downlink_scintillation_term`, `downlink_budget`), `retro_space.py`
-  (`retro_space_budget`; retroreflection as a retransmission, SPACE only).
+  (`retro_space_budget`; retroreflection as a retransmission, SPACE only;
+  `retro_velocity_aberration_term` is the Airy loss of the return lobe that
+  the velocity aberration 2 v_perp / c moves off the station, on every rung,
+  with `aberration_rad` as the PAA override; a `LidarCrossSection` retro
+  swaps the down-leg spread, top-hat and aberration Terms for ONE radar-equation
+  Term, `retro_cross_section_term` (the mean return, fidelity 0/1 only; 2026-10-01);
+  at fidelity 0/1 the legs are
+  independent and a fibre return flags INDEPENDENT LEGS; `fidelity=2` reads a
+  retro wave record as ONE Term with both legs of each trial).
   `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
   `olb/links/__init__.py` (there is no `retro.py` file). A short terrestrial
   retro link needs its own module.
@@ -326,7 +337,16 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   `fft_backend="numpy"` (the default) | "scipy" (an OPT-IN) | "cupy" (an
   OPT-IN, the CUDA device), which the runner
   sets BEFORE it builds the screen factory and always restores; the
-  `folded_terrestrial` stub.
+  `folded_terrestrial` stub. THE SPACE RETRO (2026-09-30, backlog 2-P2):
+  `direction="retro"` draws ONE oversize atmosphere for a trial; the RETURN
+  leg reads the unshifted window (the ground receiver) and the UP leg
+  (`eta_turb`) a window shifted by the Bufton wind drift `|V(h)| * 2R/c`
+  (`retro_sensing_geometry`, `temporal.layer_wind`), because the two passes
+  of one pulse share ONE line and only the wind separates them. The option
+  `retro_wind_ground_m_s` (default 10 m/s for a retro scenario) keys a retro
+  campaign only; Vg = 0 is NOT a zero drift (the jet term stays). A retro
+  run refuses point-ahead, temporal, compensation, a Gaussian start and a
+  diverged launch.
   THE CUDA BACKEND (an OPT-IN, 2026-09-07, backlog 2-N8) runs the split step,
   the boundary mask, the phase screens, the one-time vacuum SETUP and the
   receive-plane TAIL (the clip, the power, the single-mode coupling and the
@@ -645,6 +665,23 @@ Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
 
 Open items:
 
+- **The fidelity-2 SPACE RETRO is BUILT (2026-09-30, branch
+  `retro-velocity-aberration`, backlog 2-P2).** The runner, the `Campaign`
+  option and `retro_space_budget(fidelity=2)` are in the architecture
+  bullets. THE GEOMETRY: the point-ahead angle does NOT separate the two
+  passes of one pulse; it enters the retro one time, as the velocity
+  aberration Airy Term (a NUMBER MOVE for every fidelity-0/1 retro budget:
+  +7.30 dB on the self-check case, a 5 cm cube at 1500 km, and 20.27 dB
+  from 2026-09-30 with the spherical `CircularOrbit` angle, backlog 0-P18). THE
+  MEASUREMENT (`validation/retro_bracket/`, laptop, 1000 trials, hero 0.7 m
+  launch): a fibre return fades WITH the up leg, so independent legs
+  under-read the p5 fade by 6.5 dB at 30 deg and 2.9 dB at 20 deg; a bucket
+  return does not correlate. The independent-legs route is DROPPED (owner,
+  2026-09-29). OPEN: a tip-tilt return loop, the Vg and wind-direction
+  sensitivity, the `SpoiledCornerCube`, a pre-compensated retro, a temporal
+  retro, and a check of the two cited DOIs (Degnan 10.1029/GD025p0133, Born
+  and Wolf 10.1017/CBO9781139644181).
+
 - **Backlog 2-DV is WORKED THROUGH (2026-09-24, branch
   `uplink-precomp-divergence`): the diverged, TT-pre-compensated fidelity-2
   uplink of the AETHER-11 study (`C:\repos\satcom\NG`, `OLB_CHANGES.md`)
@@ -696,7 +733,10 @@ Open items:
   time in the parent and each worker opens a memory map, so the pool shares one
   page cache. The frames ARE the trials, so `start_index` addresses them, and
   `t_s` is DERIVED (`row * dt_s`), never a stored column. `temporal=` and
-  `h_gl=` enter the fingerprint tail only when non-default. GUARDS: temporal
+  `h_gl=` enter the fingerprint tail only when non-default. From 2026-09-30
+  `Campaign` resolves `slew_rad_s` from the geometry before the key (backlog
+  0-P18 moved the slew), so every time-axis key MOVED and an older record
+  raises on reopen. GUARDS: temporal
   plus `point_ahead_rad` raises, and a non-downlink plan raises. THE GATES
   (`validation/temporal_screens/`): (a) the strip D(r) is 0.95 to 1.00 of the
   law on BOTH axes, 14 of 14 bands; (b) D(tau)/D(v tau) is 0.98 to 1.02 and the
@@ -1069,8 +1109,9 @@ Open items:
   the space full-path scatter. All default budgets are UNCHANGED (terrestrial
   fidelity=0, downlink/uplink fidelity=1). Fidelity 1 is
   UNAVAILABLE for terrestrial (raises, backlog 1-1); fidelity 0 is unavailable
-  for an uncorrected uplink (raises); fidelity 2 is unavailable for retro
-  (raises — the folded double pass shares screens), and, for a PRE-COMPENSATED
+  for an uncorrected uplink (raises); fidelity 2 for a SPACE retro reads a
+  retro wave record (2026-09-30; the terrestrial folded retro is still a
+  stub), and, for a PRE-COMPENSATED
   uplink, it needs a CORRECTED wave record from 2026-09-07 (an uncorrected one
   raises; see the perfect-AO item below). The turbulence Term carries a SNAPSHOT-ONLY flag (fade depth, not
   rate/duration) and an under-sampled-tail quantile warning
@@ -1094,8 +1135,8 @@ Open items:
   generator is self-contained (numpy and scipy only);
   `aotools` is now the opt-in reference generator only (LGPL-3.0, the optional
   `screens` extra). Deliberately deferred:
-  a co-moving (spherical) screen, and the folded/retro double pass (correlated
-  screens). `examples/waveoptics/` demonstrates the layer with twelve scripts
+  a co-moving (spherical) screen, and the TERRESTRIAL folded retro double
+  pass (the space retro is built, see the run.py bullet). `examples/waveoptics/` demonstrates the layer with twelve scripts
   (three vacuum, three turbulent, the budget-wiring demo, two multimode-fibre
   demos, the camera demo, the campaign demo, and the point-ahead demo
   `uplink_point_ahead.py`). Every script that runs a Monte

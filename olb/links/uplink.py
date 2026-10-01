@@ -364,13 +364,12 @@ def uplink_point_ahead_term(scenario, geometry, hs=None, cn2_profile=None,
                  "NEITHER Term models the scintillation, so it must not be added "
                  "to a full uncorrected turbulence Term; the two stand in for the "
                  "corrected turbulence error. "
-                 "The point-ahead angle comes from geometry.point_ahead_rad, thus "
-                 "from my_analysis_modules.satellite.SatellitePass."
-                 "point_ahead_angle(). That function uses the simple form "
-                 "2 * v_orbit * sin(elevation) / c. It does not use the more "
-                 "general form 2 * omega_line_of_sight * slant_range / c, and its "
-                 "source file gives no citation. This is a limit of the input "
-                 "accuracy. This Term does not correct it. "
+                 "The point-ahead angle comes from geometry.point_ahead_rad. A "
+                 "CircularOrbit gives 2 v_orb cos(eta) / c, an OVERHEAD pass on a "
+                 "spherical Earth that does not turn (Degnan, "
+                 "DOI 10.1029/GD025p0133); an off-track pass and the rotation of "
+                 "the Earth move a real pass off it. A TLEPass gives the exact "
+                 "angle of a real pass. "
                  "This Term gives the mean loss only. It models no fade.",
     )
     # THE TILT CONVENTION (owner decision, 2026-09-11). The beacon tilt drives

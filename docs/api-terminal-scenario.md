@@ -24,6 +24,7 @@ Modules: `olb.terminal`, `olb.scenario`, `olb.geometry`.
   - [`Transmitter`](#transmitter)
   - [Detectors](#detectors)
   - [Compensation stack](#compensation-stack)
+  - [Retroreflectors](#retroreflectors)
   - [Snippet: monostatic and bistatic terminals](#snippet-monostatic-and-bistatic-terminals)
 - [2. Scenario families (`olb.scenario`)](#2-scenario-families-olbscenario)
   - [`SpaceScenario`](#spacescenario)
@@ -56,6 +57,7 @@ One optical terminal: aperture, transmitter, compensation, and detector.
 | `transmitter` | `Transmitter` or None | — | `None` | The transmit source. None means the terminal only receives. |
 | `detector` | `Aperture`, `SMF`, `MMF`, or `Camera`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
 | `compensation` | list of `TipTilt` or `AO` | — | `[]` | The ordered wavefront-compensation stack. It may be empty. |
+| `retroreflector` | `CornerCube`, `SpoiledCornerCube` or `LidarCrossSection`, or None | — | `None` | The kind of a passive retroreflector (the space terminal of a retro link). None means the standard `CornerCube`. The repr leaves out an unset value, so no stored campaign key moves. |
 
 Constraints:
 
@@ -300,6 +302,39 @@ record gets a loud `UNCORRECTED` flag on its Term. See
 [api-budget.md](api-budget.md) and [api-waveoptics.md](api-waveoptics.md)
 Section 9h.
 
+### Retroreflectors
+
+The space `Terminal` of a retro link is a passive retroreflector. Its
+`aperture_m` is the cube aperture, and its `retroreflector` field sets the
+kind.
+
+- `CornerCube()` — the standard corner cube: three faces at exactly 90 deg.
+  It sends ONE beam back along the incoming ray in its own frame, and its far
+  field is the Airy pattern of its unobscured aperture. It has no fields.
+- `SpoiledCornerCube(dihedral_offset_rad=0.0)` — PLANNED, NOT BUILT. A
+  dihedral-angle offset splits the return into six beams on a ring, so a large
+  cube can put its return on the velocity-aberration angle.
+  `retro_space_budget` raises `NotImplementedError` for it.
+- `LidarCrossSection(sigma_m2)` — the target given by its EFFECTIVE lidar
+  cross section toward the station, in m^2 (a multi-cube array such as
+  LAGEOS, or a spoiled cube with a published value). The value holds the cube
+  pattern at the aberration angle, so the budget adds no aberration Term. It
+  is the MEAN return (no target speckle), fidelity 0 and 1 only. The space
+  `aperture_m` stays the up-leg reference area; it cancels out of the total.
+
+  The cross section and the velocity aberration are ONE quantity. sigma is an
+  angular PATTERN, not one number, and the velocity aberration angle
+  `theta = 2 v_perp / c` (the SLR name; optical comms calls the same angle the
+  point-ahead angle) sets where on that pattern the station sits. A spoiled
+  cube moves the peak of the pattern out to theta. So give the EFFECTIVE sigma:
+  the pattern read at the aberration angle of the pass, at the link
+  wavelength. A PEAK sigma (on axis, for example `4 pi A^2 / lambda^2` for one
+  unspoiled cube) leaves out the aberration and overstates the return by tens
+  of dB. sigma is one scalar, so it holds one geometry; for an elevation sweep
+  give a value for each angle.
+
+`Retroreflector = Union[CornerCube, SpoiledCornerCube, LidarCrossSection]`.
+
 ### Snippet: monostatic and bistatic terminals
 
 ```python
@@ -480,8 +515,17 @@ Constructor: `CircularOrbit(altitude_m, elevation_deg)`.
 Provides to a model:
 
 - `slant_range_m` — the ground-station to satellite range.
-- `point_ahead_rad` — the point-ahead angle from the finite speed of light.
-- `slew_deg_s` — the apparent line-of-sight slew rate.
+- `point_ahead_rad` — the point-ahead angle from the finite speed of light,
+  `2 v_orb cos(eta) / c`, with the nadir angle
+  `sin(eta) = R_E cos(el) / (R_E + h)` (Degnan, DOI 10.1029/GD025p0133). It
+  is exact for an OVERHEAD pass on a spherical Earth that does not turn
+  (29.8 urad at 30 deg for a 420 km orbit). An off-track pass and the
+  rotation of the Earth move a real pass off it (28 to 35 urad for the ISS
+  at 30 deg). Use a `TLEPass` for the exact angle. Before 2026-09-30 it was
+  the flat-Earth form `2 v_orb sin(el) / c` (25.6 urad), backlog 0-P18.
+- `slew_deg_s` — the apparent line-of-sight slew rate, referenced to the
+  layer ALTITUDE: `v_perp / (L sin(el))` with L the slant range (the flat
+  form was `v_perp / h_sat`).
 
 ### `HorizontalPath`
 
@@ -514,12 +558,23 @@ Constructor: `TLEPass(tle_line1, tle_line2, lat_deg, lon_deg, alt_m, times, name
 | `times` | skyfield Time | — | Array of times to sample the pass at. |
 | `name` | str | — | Satellite name (cosmetic). Default `""`. |
 
-After construction, `elevation_deg`, `azimuth_deg`, and `slant_range_m` are
-arrays over `times`. Elevation is negative when the satellite is below the
-horizon. Use the mask `elevation_deg > 0` for the visible pass.
+After construction, `elevation_deg`, `azimuth_deg`, `slant_range_m`, and
+`point_ahead_rad` are arrays over `times`. Elevation is negative when the
+satellite is below the horizon. Use the mask `elevation_deg > 0` for the
+visible pass.
 
-Provides to a model: `elevation_deg`, `azimuth_deg`, `slant_range_m`, and
-`times`.
+`point_ahead_rad` is 2 v_perp / c, with v_perp the velocity of the satellite
+RELATIVE TO THE STATION across the line of sight, in the inertial (GCRS)
+frame that skyfield gives (Degnan, DOI 10.1029/GD025p0133). The station
+velocity holds the rotation of the Earth, so a geostationary satellite reads
+17.4 urad from its sub-point and about 18 to 18.5 urad from 40 deg latitude.
+The `olb.geometry` self-check matches it to the inertial line-of-sight turn
+between t - R/c and t + R/c. It is the exact value; the `CircularOrbit` form
+v_orb cos(eta) is the overhead pass with the Earth rotation off (29.8 urad at
+30 deg for a 420 km orbit, where an ISS pass reads 28 to 35 urad).
+
+Provides to a model: `elevation_deg`, `azimuth_deg`, `slant_range_m`,
+`point_ahead_rad`, and `times`.
 
 #### `TLEPass.from_window`
 

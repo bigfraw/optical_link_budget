@@ -45,7 +45,7 @@ loss. A `-3` dB Term is a gain and removes 3 dB of loss.
   - [The `fidelity` ladder](#the-fidelity-ladder)
   - [`uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, wave=None)`](#uplink_budgetscenario-geometry--fidelity1-turbulencetrue-tau_zenithnone-n_samples3000-cn2_profilenone-wavenone)
   - [`downlink_budget(scenario, geometry, *, fidelity=1, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, fast_params=None, scint_model="lognormal", wave=None)`](#downlink_budgetscenario-geometry--fidelity1-tau_zenithnone-scintillationtrue-turbulencetrue-n_samples2000-fast_paramsnone-scint_modellognormal-wavenone)
-  - [`retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None)`](#retro_space_budgetscenario-geometry--fidelity1-turbulencetrue-tau_zenithnone-n_samples3000-cn2_profilenone-retro_loss_db00-fast_paramsnone)
+  - [`retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None, aberration_rad="geometry", wave=None)`](#retro_space_budgetscenario-geometry--fidelity1-turbulencetrue-tau_zenithnone-n_samples3000-cn2_profilenone-retro_loss_db00-fast_paramsnone-aberration_radgeometry-wavenone)
   - [`terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True, turbulence=True, wave=None)`](#terrestrial_budgetscenario-geometry--fidelity0-scintillationtrue-turbulencetrue-wavenone)
   - [The bidirectional terrestrial wrapper (`olb/links/bidirectional.py`)](#the-bidirectional-terrestrial-wrapper-olblinksbidirectionalpy)
 - [Several detectors: `multi_detector_budgets` (`olb/multidetector.py`)](#several-detectors-multi_detector_budgets-olbmultidetectorpy)
@@ -326,7 +326,7 @@ a fixed set of Terms.
 |---|---|---|---|
 | `uplink_budget` | `olb/links/uplink.py` | Ground-to-space uplink | `fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, wave=None` |
 | `downlink_budget` | `olb/links/downlink.py` | Space-to-ground downlink | `fidelity=1, tau_zenith=None, scintillation=True, turbulence=True, n_samples=2000, fast_params=None, scint_model="lognormal", wave=None` |
-| `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None` |
+| `retro_space_budget` | `olb/links/retro_space.py` | Retroreflected ground-to-space | `fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None, aberration_rad="geometry", wave=None` |
 | `terrestrial_budget` | `olb/links/terrestrial.py` | Horizontal ground-to-ground | `fidelity=0, scintillation=True, turbulence=True, wave=None` |
 
 `tau_zenith=None` selects `extinction.DEFAULT_TAU_ZENITH`, which is `0.05`
@@ -721,7 +721,7 @@ Terms). The old `model="montecarlo"` value is gone.
 
 Examples: `examples/downlink_terminal.py`, `examples/build_a_link.py`.
 
-### `retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None)`
+### `retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True, tau_zenith=None, n_samples=3000, cn2_profile=None, retro_loss_db=0.0, fast_params=None, aberration_rad="geometry", wave=None)`
 
 Assemble the retroreflected ground-to-space budget as a retransmission. The
 retroreflector re-transmits the beam. The budget is an up-leg transmission
@@ -729,18 +729,38 @@ followed by a down-leg transmission, with the retro aperture as the hinge.
 
 The Terms are the up-leg Terms (geometric, atmospheric, opt-in launch
 truncation, and turbulence when `turbulence` is `True`), the down-leg Terms
-(geometric, atmospheric, top-hat correction, and the receive-side scintillation
-or coupling Term), and the fixed retro-reflection Term. The up-leg Term names
+(geometric, atmospheric, top-hat correction, velocity aberration, and the
+receive-side scintillation or coupling Term), and the fixed retro-reflection
+Term. The up-leg Term names
 carry an `"uplink "` prefix. The down-leg Term names carry a `"downlink "`
 prefix.
 
-- `fidelity` — the DOWN-leg receive-coupling model: `1` (the default, FAST modal
-  overlap) or `0` (analytic mean-only). The UP-leg turbulence stays the
-  coupled-flux Monte Carlo at either value, because there is no analytic
-  mean-only uncorrected uplink model. So the up-leg is fidelity 1 regardless.
-  `fidelity=2` (wave optics) is NOT supported and raises `ValueError`: the folded
-  double pass shares its screens (the two legs are correlated), which needs its
-  own design. A `fidelity` other than 0, 1, or 2 also raises.
+- `fidelity` — `0`, `1` (the default) or `2`. At `0` and `1` it is the
+  DOWN-leg receive-coupling model: `1` is the FAST modal overlap, `0` the
+  analytic mean-only coupling. The UP-leg turbulence stays the coupled-flux
+  Monte Carlo at either value, because there is no analytic mean-only
+  uncorrected uplink model. At `0` and `1` the two legs are INDEPENDENT, and an
+  `SMF` return carries the `INDEPENDENT LEGS` flag: a fibre return fades WITH
+  the up leg, so this rung under-reads its fade (see
+  `validation/retro_bracket/README.md`). At `2` (wave optics) the budget reads
+  a RETRO wave record (`wave`) and gives ONE stochastic Term,
+  `retro turbulence (wave optics)`, that holds BOTH legs of each trial (the
+  loss of a trial is `-10*log10(eta_turb * collected_power [* smf_eta])`). The
+  analytic geometric, extinction, top-hat, velocity-aberration, launch
+  truncation and retro Terms stay, and an up-leg pointing Term is always
+  added (the wave Term holds no jitter). Fidelity 2 takes a bucket (`None` or
+  `Aperture`) or an `SMF` receiver; an `MMF` or a `Camera` raises
+  `NotImplementedError`. It takes ONE line of sight. An `SMF` receiver with
+  `turbulence=False` raises (no coupling number). A `fidelity` other than 0,
+  1, or 2 raises.
+- `wave` — the fidelity-2 record: a `Fidelity2Bundle` from
+  `olb.models.waveoptics.run_fidelity2` on THIS retro scenario, or a retro
+  `Campaign`. A record that is not a retro record, or a bundle with a vacuum
+  record, raises `ValueError`.
+- `aberration_rad` — the velocity-aberration angle of the return, in rad (the
+  PAA case). `"geometry"` (the default) reads `geometry.point_ahead_rad` (a
+  `CircularOrbit` or a `TLEPass`); a
+  float overrides it, and `0.0` gives a 0 dB Term.
 - `turbulence` — add the up-leg coupled-flux turbulence Term when `True`. The
   up-leg jitter folds into the turbulence Term, exactly as the uplink does. A
   standalone up-leg pointing Term is added only when `turbulence` is `False`.
@@ -750,9 +770,44 @@ prefix.
   return-leg receive coupling follows the downlink rule. An `SMF` ground detector
   adds the fibre-coupling loss.
 
-This is the space model only. It assumes a long slant range, a fully diverged
-return, and independent turbulence on the two legs. Do not use it for a short
-terrestrial retro link.
+The kind of the retroreflector is `scenario.space.retroreflector`. `None`
+and `CornerCube()` are the standard corner cube. A `SpoiledCornerCube` raises
+`NotImplementedError` (it is not built).
+
+A `LidarCrossSection(sigma_m2)` target uses the radar (lidar) equation
+`P_r = P_t G_t / (4 pi R^2) * sigma * A_r / (4 pi R^2) * T^2` (Degnan,
+DOI 10.1029/GD025p0133). The down leg then holds the extinction, the
+receive Term, and ONE deterministic Term,
+`retro_cross_section_term(scenario, geometry)` (category `"geometric"`,
+loss `-10 log10(sigma A_r / (A_sat 4 pi R^2))`). It replaces the down-leg
+spread, the top-hat correction and the velocity-aberration Term, and
+`aberration_rad` is ignored. The up-leg geometric Term gives the power on
+the space aperture area `A_sat`, so `A_sat` cancels. A single unspoiled cube,
+`sigma = 4 pi A^2 / lambda^2`, gives the cube chain without the aberration
+Term (the self-check). It is the MEAN return: no target speckle
+(`validation/retro_array_speckle/`). Fidelity 2 raises.
+
+The cross section and the velocity aberration are ONE quantity. sigma is an
+angular PATTERN, not one number, and the velocity aberration angle
+`theta = 2 v_perp / c` (the SLR name; optical comms calls the same angle the
+point-ahead angle) sets where on that pattern the station sits. A spoiled
+cube moves the peak of the pattern out to theta. So give the EFFECTIVE sigma:
+the pattern read at the aberration angle of the pass, at the link
+wavelength. A PEAK sigma (on axis, for example `4 pi A^2 / lambda^2` for one
+unspoiled cube) leaves out the aberration and overstates the return by tens
+of dB. sigma is one scalar, so it holds one geometry; for an elevation sweep
+give a value for each angle.
+
+The down leg carries `retro_velocity_aberration_term(scenario, geometry,
+aberration_rad="geometry")`, a deterministic Term of category `"geometric"`.
+The satellite moves, so the cube sends its return lobe 2 v_perp / c off the
+station. The station reads the Airy fraction `[2 J1(x) / x]^2`, with
+`x = pi D theta / lambda`, of the on-axis peak. The Term flags `PAST THE AIRY
+NULL` when `x >= 3.8317`. Sources: Degnan, DOI 10.1029/GD025p0133; Born and
+Wolf, DOI 10.1017/CBO9781139644181.
+
+This is the space model only. It assumes a long slant range and a fully
+diverged return. Do not use it for a short terrestrial retro link.
 
 `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in
 `olb/links/__init__.py` (there is no `retro.py` file). Prefer

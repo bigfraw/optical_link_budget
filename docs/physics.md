@@ -136,6 +136,31 @@ Gaussian(w0 = aperture/2) geometric model to a top-hat is:
 
 For an unobscured corner-cube (Cr = 0) the correction is +3.01 dB.
 
+#### The velocity aberration
+
+A corner cube returns the beam along the incoming ray in ITS frame. The
+satellite moves, so in the ground frame the return lobe leaves at the angle
+theta = 2 v_perp / c off the station (Degnan, DOI 10.1029/GD025p0133). That is
+the point-ahead angle of the geometry (`CircularOrbit.point_ahead_rad`, or
+`TLEPass.point_ahead_rad`: 2 v_perp / c from the skyfield GCRS velocity of the
+satellite relative to the station, so the rotation of the Earth is in it and
+a geostationary satellite reads 17.4 urad from its sub-point; the
+`CircularOrbit` form `2 v_orb cos(eta) / c`, `sin(eta) = R_E cos(el) / (R_E + h)`,
+is the overhead pass on a sphere with the Earth rotation off; it replaced the
+flat-Earth `sin(el)` form on 2026-09-30, backlog 0-P18). The lobe is the Airy pattern of the
+unobscured cube aperture D (Born and Wolf, DOI 10.1017/CBO9781139644181,
+Sec. 8.5.2), so the station reads the fraction
+
+    loss_db = -10*log10( [2 J1(x) / x]^2 ),   x = pi D theta / lambda
+
+of the on-axis peak. The geometric Term gives the on-axis spread; this Term
+gives the offset only. The loss is 1.14 dB for a 1 cm cube at 50 urad and
+1550 nm, 7.30 dB at x = 2.41, and infinite at the first null x = 3.8317 (the
+Term flags that case). The return to the station scales as
+D^4 [2 J1(x) / x]^2, which peaks at x = 2.405, so the best cube size is about
+0.77 lambda / theta. `aberration_rad` overrides the angle (the PAA case).
+A spoiled (dihedral-offset) cube is not built.
+
 #### Inputs and outputs
 
 - Inputs: transmit aperture diameter, transmit waist `w_T`, obscuration ratio,
@@ -1793,8 +1818,11 @@ DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3), printed p. 481, called with
 code adds the slew itself. `omega_slew` is
 `olb.geometry.CircularOrbit.slew_deg_s` in rad/s, and it multiplies the
 ALTITUDE `h` of the layer, NOT its slant distance, because that rate is
-`v*sin(el)/h_sat` and a slant distance counts the `1/sin(el)` factor a second
-time.
+`v_perp/(L sin(el))` (L the slant range, v_perp the spherical overhead-pass
+value) and a slant distance counts the `1/sin(el)` factor a second time. The
+line of sight turns at `v_perp / L`, and a layer at altitude h sits at
+`h / sin(el)` along it, so the layer speed is `[v_perp / (L sin(el))] h`. On a
+flat Earth `L sin(el) = h_sat`, the form before 2026-09-30 (backlog 0-P18).
 
 **The shift is an integer number of pixels**, and it comes from the ABSOLUTE
 position `v*k*dt`, never from a sum of steps. So the rounding error stays under
@@ -1954,9 +1982,21 @@ anti-pattern.
 - SNAPSHOT only by DEFAULT: there is then no fade rate and no fade duration.
   The frozen-flow time axis is an OPT-IN (`temporal=`, see the subsection
   above), and it gives both.
-- The `"retro"` direction and `folded_terrestrial()` raise
-  `NotImplementedError`. The two passes of a retroreflector share the same
-  screens, so they are correlated, and that correlation needs its own design.
+- `folded_terrestrial()` raises `NotImplementedError`: the terrestrial
+  double pass is near field, and it needs the field at the cube and a second
+  full propagation. The SPACE `"retro"` direction runs (2026-09-30): the up
+  leg and the return of one pulse share ONE line, because the point-ahead
+  lead and the turn of the line of sight over the round trip 2R/c are the
+  same angle 2 v_perp / c. So one trial reads ONE draw through two windows,
+  and the up-leg window is shifted at each screen by the Bufton wind drift
+  `|V(h)| * 2R/c` (Andrews and Phillips, DOI 10.1117/3.626196, Ch. 12,
+  Eq. (3), printed p. 481; Taylor frozen flow, DOI
+  10.1098/rspa.1938.0032). Limits: one wind direction for every layer,
+  integer pixels, no boiling, and no enhanced backscatter (the coupled double
+  passage of Ch. 13). Measured on the hero 0.7 m case
+  (`validation/retro_bracket/`): a fibre return fades WITH the up leg (the
+  p5 fade is 6.5 dB deeper than independent legs at 30 deg and 2.9 dB at
+  20 deg), and a bucket return does not correlate.
 - The split step runs on a FLAT grid only. `Screen()` and `split_step()` raise on
   a spherical (co-moving) field.
 - The DEFAULT random draw comes from the self-contained `ScreenFactory`

@@ -344,6 +344,65 @@ Detector = Union[Aperture, SMF, MMF, Camera]
 Compensation = Union[TipTilt, AO]
 
 
+# --- Retroreflectors ----------------------------------------------------------
+
+@dataclass
+class CornerCube:
+    '''
+    The standard corner-cube retroreflector: three faces at exactly 90 deg.
+
+    In its own frame it sends ONE beam back along the incoming ray. Its far
+    field is the Airy pattern of its unobscured aperture (the Terminal
+    aperture_m). This is the default kind when a Terminal sets no
+    retroreflector.
+    '''
+    pass
+
+
+@dataclass
+class SpoiledCornerCube:
+    '''
+    PLANNED, NOT BUILT. A corner cube with a dihedral-angle offset.
+
+    The offset splits the return into six beams on a ring about the incoming
+    ray, so a large cube can put its return on the velocity-aberration angle.
+    A budget raises NotImplementedError for this kind.
+
+    Parameters:
+        dihedral_offset_rad : float
+            The offset of each dihedral angle from 90 deg [rad].
+    '''
+    dihedral_offset_rad: float = 0.0
+
+
+@dataclass
+class LidarCrossSection:
+    '''
+    A retroreflector given by its lidar (optical) cross section only.
+
+    Use it for a target that one cube does not describe, for example a
+    multi-cube array (LAGEOS) or a spoiled cube with a published value. The
+    cross section is the EFFECTIVE value toward the station: it already holds
+    the cube pattern at the velocity-aberration angle, the reflectivity, and
+    the array sum. It is the MEAN return: it holds no target speckle.
+
+    sigma is an angular pattern, and the velocity aberration angle
+    2 v_perp / c sets where the station sits on it (a spoiled cube moves the
+    peak out to that angle). Give the pattern READ AT the aberration angle of
+    the pass, at the link wavelength. A peak (on-axis) sigma leaves out the
+    aberration and overstates the return by tens of dB.
+    Fidelity 0 and 1 only.
+
+    Parameters:
+        sigma_m2 : float
+            The lidar cross section toward the station [m^2].
+    '''
+    sigma_m2: float
+
+
+Retroreflector = Union[CornerCube, SpoiledCornerCube, LidarCrossSection]
+
+
 # --- The terminal -----------------------------------------------------------
 
 @dataclass
@@ -370,6 +429,9 @@ class Terminal:
         compensation : list
             The ordered wavefront-compensation stack. It may be empty. An empty
             stack leaves the piston-removed turbulence.
+        retroreflector : CornerCube, SpoiledCornerCube or LidarCrossSection, optional
+            The kind of a passive retroreflector (the space terminal of a
+            retro link). None means the standard CornerCube.
     '''
     aperture_m: float
     obscuration_ratio: float = 0.0
@@ -378,12 +440,24 @@ class Terminal:
     transmitter: Optional[Transmitter] = None
     detector: Optional[Detector] = None
     compensation: list[Compensation] = field(default_factory=list)
+    retroreflector: Optional[Retroreflector] = None
+
+    def __repr__(self):
+        # A campaign fingerprint holds this text. An unset retroreflector adds
+        # nothing, so every stored key stays the text of the generated repr.
+        return "Terminal(" + ", ".join(
+            f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
+            if f.name != "retroreflector" or self.retroreflector is not None) + ")"
 
 
 if __name__ == '__main__':
     # Pure-data self-check. No physics here.
     t = Terminal(aperture_m=0.7)
     assert t.detector is None and t.compensation == [] and t.obscuration_ratio == 0.0
+    # An unset retroreflector stays out of the repr (the campaign keys).
+    assert "retroreflector" not in repr(t), repr(t)
+    assert "CornerCube()" in repr(Terminal(aperture_m=0.05,
+                                           retroreflector=CornerCube()))
     assert t.transmitter is None and t.wavelength_m == 1550e-9
     assert t.pointing_jitter_rad == 0.0
 

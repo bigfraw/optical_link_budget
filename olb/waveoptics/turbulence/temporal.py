@@ -38,11 +38,12 @@ THE VELOCITY OF A LAYER has two parts, and it is a 2-D vector:
      module calls it with ws = 0 (`olb.turbulence.profiles.v_wind`), so the
      slew is NOT counted two times, and it points at `wind_dir_deg`.
   2. THE SLEW. A tracked satellite drags the line of sight across each layer.
-     `olb.geometry.CircularOrbit.slew_deg_s` is v*sin(el)/h_sat, which is the
-     COEFFICIENT of the `ws*h` term of the Bufton profile, so the apparent
+     `olb.geometry.CircularOrbit.slew_deg_s` is v_perp/(L sin(el)), which is
+     the COEFFICIENT of the `ws*h` term of the Bufton profile, so the apparent
      speed at a layer is that rate times the ALTITUDE h of the layer, NOT times
-     its slant distance: omega_true * z_slant = (v sin(el)/h_sat) * h. It goes
-     along x, the long axis of the strip.
+     its slant distance: omega_true * z_slant = (v_perp/(L sin(el))) * h, with
+     v_perp the spherical overhead-pass value (backlog 0-P18). It goes along x,
+     the long axis of the strip.
 
 THE ROTATED STRIP (the CROSSWIND DEFAULT from 2026-09-13, backlog 2-P1b item
 10). A CROSSWIND
@@ -294,7 +295,9 @@ class TemporalSpec:
                           docstring.
         slew_rad_s:       the slew rate, in rad/s, or None to read the
                           geometry. See the module docstring for the altitude
-                          rule.
+                          rule. A `Campaign` RESOLVES None from its geometry
+                          (2026-09-30), so its key names the rate and a
+                          geometry change makes a new key.
         rotated:          True holds ONE THIN strip along the RESULTANT
                           velocity of each layer, and it turns every frame
                           back with `rotate_fourier`. False keeps the
@@ -404,6 +407,34 @@ class StripPlan:
     m_crop: tuple = None
 
 
+def layer_wind(plan, geometry, wind_ground_m_s):
+    """Give the altitude and the Bufton wind speed of each screen of a plan.
+
+    The wind is the Bufton profile with ws = 0 (`olb.turbulence.profiles
+    .v_wind`), so it holds NO slew term: a caller that tracks the satellite
+    adds the slew itself. The altitude reads the lowest elevation of the
+    geometry (the sizer convention: one line of sight).
+
+    Args:
+        plan:            the ScreenPlan of the run.
+        geometry:        the link geometry. It gives `elevation_deg`.
+        wind_ground_m_s: the ground wind Vg of the Bufton profile, in m/s.
+
+    Returns:
+        The pair (h, v): the altitude of each screen in m, and its wind speed
+        in m/s.
+    """
+    # The distance of each screen from the GROUND plane. A space plan counts
+    # z_m from the TOP of the slab. This is the rule of
+    # olb.waveoptics.turbulence.run._ground_distance, which owns it.
+    z = np.asarray(plan.z_m, dtype=float)
+    z_g = (float(plan.z_total_m) - z if plan.direction == "down" else z)
+    elevation = float(np.min(np.asarray(geometry.elevation_deg, dtype=float)))
+    h = z_g * np.sin(np.deg2rad(elevation))
+    return h, np.asarray(v_wind(h, ws=0.0, Vg=float(wind_ground_m_s)),
+                         dtype=float)
+
+
 def strip_plan(plan, grid, spec, geometry, L0_m):
     """Size the strip of every layer of a screen plan.
 
@@ -429,15 +460,7 @@ def strip_plan(plan, grid, spec, geometry, L0_m):
     if not np.isfinite(L0_m) or float(L0_m) <= 0.0:
         raise ValueError("strip_plan: the seam pad needs a FINITE outer scale "
                          f"L0_m, not {L0_m!r}.")
-    # The distance of each screen from the GROUND plane. A space plan counts
-    # z_m from the TOP of the slab. This is the rule of
-    # olb.waveoptics.turbulence.run._ground_distance, which owns it.
-    z = np.asarray(plan.z_m, dtype=float)
-    z_g = (float(plan.z_total_m) - z if plan.direction == "down" else z)
-
-    # The sizer convention: one line of sight, at the lowest elevation.
-    elevation = float(np.min(np.asarray(geometry.elevation_deg, dtype=float)))
-    h = z_g * np.sin(np.deg2rad(elevation))
+    h, v_buf = layer_wind(plan, geometry, spec.wind_ground_m_s)
 
     if spec.slew_rad_s is None:
         omega = np.deg2rad(float(np.ravel(
@@ -445,10 +468,6 @@ def strip_plan(plan, grid, spec, geometry, L0_m):
     else:
         omega = float(spec.slew_rad_s)
     v_slew = omega * h                       # See the module docstring.
-    # ws = 0: the slew is already in v_slew, so the Bufton slew term must not
-    # add it a second time.
-    v_buf = np.asarray(v_wind(h, ws=0.0, Vg=float(spec.wind_ground_m_s)),
-                       dtype=float)
     direction = np.deg2rad(float(spec.wind_dir_deg))
     v_x = v_slew + v_buf * np.cos(direction)
     v_y = v_buf * np.sin(direction)

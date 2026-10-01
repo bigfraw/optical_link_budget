@@ -594,3 +594,66 @@ run. See [campaign_resources/README.md](campaign_resources/README.md).
 | File | Purpose |
 | --- | --- |
 | [campaign_resources/campaign_resources.py](campaign_resources/campaign_resources.py) | The monitored run. `--workers <N>` / `--workers auto` / `--threads` select the parallelism, `--precision single` the element size. It samples the per-core utility and the working set over the run and reports whether the pool saturates the machine, alongside the trials-per-second throughput. |
+
+## retro_bracket/
+
+The fidelity-2 SPACE retro design record (2026-09-29 and 2026-09-30). Do the
+up leg and the return of a retro link fade together? It measures three
+pairings of the two legs (the same atmosphere, the point-ahead window,
+independent atmospheres), records why the point-ahead pairing is the WRONG
+geometry (the two passes of one pulse share one line, and only the wind moves
+the air between them over 2R/c), sizes the two routes that model the wind
+drift, and measures the built `direction="retro"` route. RESULT: a fibre
+return fades WITH the up leg (independent legs under-read the p5 fade by 6.5
+dB at 30 deg and 2.9 dB at 20 deg on the hero 0.7 m case); a bucket return
+does not correlate. See [retro_bracket/README.md](retro_bracket/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [retro_bracket/retro_bracket.py](retro_bracket/retro_bracket.py) | The driver. With no flag it reads the point-ahead `base` campaigns of `waveoptics_pointahead` and compares the SAME, PA and INDEP pairings (a paired bootstrap). `--retro` builds and reads the RETRO campaigns (the wind-shifted up-leg window) and compares the RETRO pairing with INDEP. `--run-workers` computes the missing trials first. |
+| [retro_bracket/retro_screen_sizes.py](retro_bracket/retro_screen_sizes.py) | The route choice. It sizes the shift route (one oversize draw) and the frozen-flow strip route (`slew_rad_s=0`, two frames) on the hero production grid at 500 and 1000 km. It propagates nothing. |
+
+## point_ahead_geometry/
+
+The point-ahead angle `2 v_perp / c` (2026-09-30): the check of the TLE
+calculator `TLEPass.point_ahead_rad` (the inertial line-of-sight turn over
+2R/c to 4e-6, GEO 17.41 urad from its sub-point, the ISS 18 to 50 urad), the
+error of the old flat-Earth `CircularOrbit` form (backlog 0-P18: 14 percent
+low at 30 deg, 55 percent at 10 deg; DONE 2026-09-30, `CircularOrbit` is now
+the overhead `cos(eta)` form), and the map of every place olb reads the
+angle and every place it must not. See
+[point_ahead_geometry/README.md](point_ahead_geometry/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [point_ahead_geometry/tle_point_ahead.py](point_ahead_geometry/tle_point_ahead.py) | The ISS over one day and a synthetic GEO: the definition check, the GEO closed form, and the TLE against the overhead `cos(eta)` form (now `CircularOrbit`) and the old flat `sin(el)` form by elevation. It needs `skyfield` only. |
+
+## retro_velocity_aberration/
+
+The velocity aberration of a corner-cube return (2026-09-30): the physics and
+the numbers of `retro_velocity_aberration_term`, the Airy loss
+`[2 J1(x) / x]^2` of the return lobe that the cube sends `2 v_perp / c` off
+the station. It gives the loss against the offset, typical cubes, the best
+cube size `D_opt = 0.765 lambda / theta` (2.4 cm at 50 urad), one day of real
+ISS passes, and background on the spoiled cube (not built). See
+[retro_velocity_aberration/README.md](retro_velocity_aberration/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [retro_velocity_aberration/airy_aberration.py](retro_velocity_aberration/airy_aberration.py) | The tables: the loss against x, typical cubes at 50 urad and at the 500 km, 30 deg geometry, the numeric check of the best cube size, and the loss over one day of ISS passes. |
+
+## retro_array_speckle/
+
+The target speckle of a multi-cube retroreflector array (2026-10-01): a
+DESIGN RECORD, nothing simulated yet. The light of the cubes interferes at
+the station, so a coherent (CW) return fades with no atmosphere (exponential
+statistics; the lidar cross section is only the mean). The atmosphere is the
+same for every cube on both legs, so the received field factorizes into the
+ONE-point fidelity-2 retro record times a cheap array factor. It gives the
+mechanisms, the reducers (polarization, integration, linewidth, the pulse
+case), and the simulation plan with gates. Triggered by a LAGEOS-1 pass over
+Yarragadee. See [retro_array_speckle/README.md](retro_array_speckle/README.md).
+
+| File | Purpose |
+| --- | --- |
+| [retro_array_speckle/lageos_pass.py](retro_array_speckle/lageos_pass.py) | The 2026-10-01 LAGEOS-1 pass: the match to the mount readout, the point-ahead angle, and the single unspoiled cube Airy loss at 532 and 1064 nm. |
