@@ -44,8 +44,9 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   focal-plane array with `pixel_pitch_m`, `n_pixels`, `focal_length_m`, and
   `defocus_m`), and a
   `compensation` stack (`TipTilt`, `AO`), and an optional `retroreflector`
-  (`CornerCube`, the default for None, or the `SpoiledCornerCube` stub that
-  the retro budget refuses; the repr omits an unset value). `defocus_m` puts the detector at
+  (`CornerCube`, the default for None, the `SpoiledCornerCube` stub that
+  the retro budget refuses, or `LidarCrossSection(sigma_m2)`, the effective
+  cross section of an array or a spoiled cube; the repr omits an unset value). `defocus_m` puts the detector at
   z = f + defocus_m; 0.0 is the nominal focal plane. `Detector = Union[Aperture,
   SMF, MMF, Camera]`. A `Camera` is DIAGNOSTIC: no budget builds a coupling Term
   for it, `terrestrial_budget` and `downlink_budget(fidelity=2)` treat it like an
@@ -192,7 +193,10 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   (`retro_space_budget`; retroreflection as a retransmission, SPACE only;
   `retro_velocity_aberration_term` is the Airy loss of the return lobe that
   the velocity aberration 2 v_perp / c moves off the station, on every rung,
-  with `aberration_rad` as the PAA override; at fidelity 0/1 the legs are
+  with `aberration_rad` as the PAA override; a `LidarCrossSection` retro
+  swaps the down-leg spread, top-hat and aberration Terms for ONE radar-equation
+  Term, `retro_cross_section_term` (the mean return, fidelity 0/1 only; 2026-10-01);
+  at fidelity 0/1 the legs are
   independent and a fibre return flags INDEPENDENT LEGS; `fidelity=2` reads a
   retro wave record as ONE Term with both legs of each trial).
   `retro_budget` is a backward-compatible alias of `retro_space_budget`, kept in

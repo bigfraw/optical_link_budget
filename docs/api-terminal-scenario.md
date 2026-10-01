@@ -57,7 +57,7 @@ One optical terminal: aperture, transmitter, compensation, and detector.
 | `transmitter` | `Transmitter` or None | — | `None` | The transmit source. None means the terminal only receives. |
 | `detector` | `Aperture`, `SMF`, `MMF`, or `Camera`, or None | — | `None` | The detector front end. None means no receive-coupling Term. |
 | `compensation` | list of `TipTilt` or `AO` | — | `[]` | The ordered wavefront-compensation stack. It may be empty. |
-| `retroreflector` | `CornerCube` or `SpoiledCornerCube`, or None | — | `None` | The kind of a passive retroreflector (the space terminal of a retro link). None means the standard `CornerCube`. The repr leaves out an unset value, so no stored campaign key moves. |
+| `retroreflector` | `CornerCube`, `SpoiledCornerCube` or `LidarCrossSection`, or None | — | `None` | The kind of a passive retroreflector (the space terminal of a retro link). None means the standard `CornerCube`. The repr leaves out an unset value, so no stored campaign key moves. |
 
 Constraints:
 
@@ -315,8 +315,25 @@ kind.
   dihedral-angle offset splits the return into six beams on a ring, so a large
   cube can put its return on the velocity-aberration angle.
   `retro_space_budget` raises `NotImplementedError` for it.
+- `LidarCrossSection(sigma_m2)` — the target given by its EFFECTIVE lidar
+  cross section toward the station, in m^2 (a multi-cube array such as
+  LAGEOS, or a spoiled cube with a published value). The value holds the cube
+  pattern at the aberration angle, so the budget adds no aberration Term. It
+  is the MEAN return (no target speckle), fidelity 0 and 1 only. The space
+  `aperture_m` stays the up-leg reference area; it cancels out of the total.
 
-`Retroreflector = Union[CornerCube, SpoiledCornerCube]`.
+  The cross section and the velocity aberration are ONE quantity. sigma is an
+  angular PATTERN, not one number, and the velocity aberration angle
+  `theta = 2 v_perp / c` (the SLR name; optical comms calls the same angle the
+  point-ahead angle) sets where on that pattern the station sits. A spoiled
+  cube moves the peak of the pattern out to theta. So give the EFFECTIVE sigma:
+  the pattern read at the aberration angle of the pass, at the link
+  wavelength. A PEAK sigma (on axis, for example `4 pi A^2 / lambda^2` for one
+  unspoiled cube) leaves out the aberration and overstates the return by tens
+  of dB. sigma is one scalar, so it holds one geometry; for an elevation sweep
+  give a value for each angle.
+
+`Retroreflector = Union[CornerCube, SpoiledCornerCube, LidarCrossSection]`.
 
 ### Snippet: monostatic and bistatic terminals
 

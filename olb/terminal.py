@@ -375,7 +375,32 @@ class SpoiledCornerCube:
     dihedral_offset_rad: float = 0.0
 
 
-Retroreflector = Union[CornerCube, SpoiledCornerCube]
+@dataclass
+class LidarCrossSection:
+    '''
+    A retroreflector given by its lidar (optical) cross section only.
+
+    Use it for a target that one cube does not describe, for example a
+    multi-cube array (LAGEOS) or a spoiled cube with a published value. The
+    cross section is the EFFECTIVE value toward the station: it already holds
+    the cube pattern at the velocity-aberration angle, the reflectivity, and
+    the array sum. It is the MEAN return: it holds no target speckle.
+
+    sigma is an angular pattern, and the velocity aberration angle
+    2 v_perp / c sets where the station sits on it (a spoiled cube moves the
+    peak out to that angle). Give the pattern READ AT the aberration angle of
+    the pass, at the link wavelength. A peak (on-axis) sigma leaves out the
+    aberration and overstates the return by tens of dB.
+    Fidelity 0 and 1 only.
+
+    Parameters:
+        sigma_m2 : float
+            The lidar cross section toward the station [m^2].
+    '''
+    sigma_m2: float
+
+
+Retroreflector = Union[CornerCube, SpoiledCornerCube, LidarCrossSection]
 
 
 # --- The terminal -----------------------------------------------------------
@@ -404,7 +429,7 @@ class Terminal:
         compensation : list
             The ordered wavefront-compensation stack. It may be empty. An empty
             stack leaves the piston-removed turbulence.
-        retroreflector : CornerCube or SpoiledCornerCube, optional
+        retroreflector : CornerCube, SpoiledCornerCube or LidarCrossSection, optional
             The kind of a passive retroreflector (the space terminal of a
             retro link). None means the standard CornerCube.
     '''

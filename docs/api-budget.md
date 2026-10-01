@@ -774,6 +774,30 @@ The kind of the retroreflector is `scenario.space.retroreflector`. `None`
 and `CornerCube()` are the standard corner cube. A `SpoiledCornerCube` raises
 `NotImplementedError` (it is not built).
 
+A `LidarCrossSection(sigma_m2)` target uses the radar (lidar) equation
+`P_r = P_t G_t / (4 pi R^2) * sigma * A_r / (4 pi R^2) * T^2` (Degnan,
+DOI 10.1029/GD025p0133). The down leg then holds the extinction, the
+receive Term, and ONE deterministic Term,
+`retro_cross_section_term(scenario, geometry)` (category `"geometric"`,
+loss `-10 log10(sigma A_r / (A_sat 4 pi R^2))`). It replaces the down-leg
+spread, the top-hat correction and the velocity-aberration Term, and
+`aberration_rad` is ignored. The up-leg geometric Term gives the power on
+the space aperture area `A_sat`, so `A_sat` cancels. A single unspoiled cube,
+`sigma = 4 pi A^2 / lambda^2`, gives the cube chain without the aberration
+Term (the self-check). It is the MEAN return: no target speckle
+(`validation/retro_array_speckle/`). Fidelity 2 raises.
+
+The cross section and the velocity aberration are ONE quantity. sigma is an
+angular PATTERN, not one number, and the velocity aberration angle
+`theta = 2 v_perp / c` (the SLR name; optical comms calls the same angle the
+point-ahead angle) sets where on that pattern the station sits. A spoiled
+cube moves the peak of the pattern out to theta. So give the EFFECTIVE sigma:
+the pattern read at the aberration angle of the pass, at the link
+wavelength. A PEAK sigma (on axis, for example `4 pi A^2 / lambda^2` for one
+unspoiled cube) leaves out the aberration and overstates the return by tens
+of dB. sigma is one scalar, so it holds one geometry; for an elevation sweep
+give a value for each angle.
+
 The down leg carries `retro_velocity_aberration_term(scenario, geometry,
 aberration_rad="geometry")`, a deterministic Term of category `"geometric"`.
 The satellite moves, so the cube sends its return lobe 2 v_perp / c off the

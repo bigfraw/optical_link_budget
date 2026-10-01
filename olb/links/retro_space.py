@@ -42,7 +42,8 @@ from ..models.extinction import slant_extinction_term, DEFAULT_TAU_ZENITH
 from ..models.pointing import pointing_loss_term
 from scipy.special import j1
 
-from ..terminal import Terminal, Transmitter, SpoiledCornerCube
+from ..terminal import (Terminal, Transmitter, SpoiledCornerCube,
+                        LidarCrossSection)
 from ..turbulence.profiles import default_cn2_profile
 from .uplink import uplink_turbulence_term, TX_TRUNCATION_MIN_DB
 from .downlink import downlink_scintillation_term
@@ -109,6 +110,63 @@ def retro_velocity_aberration_term(scenario, geometry, aberration_rad="geometry"
                 assumptions=assumptions)
 
 
+def retro_cross_section_term(scenario, geometry):
+    '''
+    The return of a retro given by its lidar cross section (the radar equation).
+
+    The link equation of a laser-ranging target (J. J. Degnan, Geodynamics
+    Series 25, 133 (1993), DOI 10.1029/GD025p0133) is
+
+        P_r = P_t * G_t / (4 pi R^2) * sigma * A_r / (4 pi R^2) * T^2
+
+    The up-leg geometric Term already gives P_t * G_t / (4 pi R^2) * A_sat,
+    the power that falls on the space aperture area A_sat (far field, so the
+    irradiance is flat over A_sat). This Term is the rest of the chain:
+
+        P_r / P_hit = sigma * A_r / (A_sat * 4 pi R^2)
+
+    So A_sat cancels and the total does not depend on the space aperture_m
+    (it stays the up-leg reference area and the aperture-averaging size). A
+    single unspoiled cube, sigma = 4 pi A^2 / lambda^2, gives the top-hat
+    return A A_r / (lambda^2 R^2), which is the cube chain of
+    retro_space_budget without the aberration Term.
+
+    sigma must be the EFFECTIVE value: the cross-section pattern read at the
+    velocity aberration angle 2 v_perp / c of the pass (Degnan, above), at the
+    link wavelength. That is why this Term replaces the aberration Term. A
+    peak (on-axis) sigma leaves out the aberration and overstates the return.
+
+    Parameters:
+        scenario : SpaceScenario
+            The retro link. `space.retroreflector` is a LidarCrossSection.
+        geometry : CircularOrbit or TLEPass
+            Gives slant_range_m.
+
+    Returns:
+        Term
+            Category "geometric", deterministic.
+    '''
+    sigma = scenario.space.retroreflector.sigma_m2
+    a_sat = np.pi * scenario.space.aperture_m ** 2 / 4
+    g = scenario.ground
+    a_rx = np.pi * g.aperture_m ** 2 / 4 * (1 - g.obscuration_ratio ** 2)
+    R = np.asarray(geometry.slant_range_m, dtype=float)
+    loss_db = -10 * np.log10(sigma * a_rx / (a_sat * 4 * np.pi * R ** 2))
+    assumptions = Assumptions(
+        beam_type=BEAM_PLANE_WAVE, turbulence_regime=REGIME_NA,
+        spectrum=SPECTRUM_NA,
+        validity="Radar (lidar) equation with the EFFECTIVE cross section "
+                 "toward the station: it holds the cube pattern at the "
+                 "velocity-aberration angle, so no aberration Term is added. "
+                 "Far field on both legs. MEAN return: no target speckle "
+                 "(validation/retro_array_speckle).",
+    )
+    return Term(name="lidar cross section", category="geometric",
+                mean_db=loss_db if loss_db.ndim else float(loss_db),
+                note=f"sigma = {sigma:.3g} m^2",
+                meta={"sigma_m2": sigma}, assumptions=assumptions)
+
+
 def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                        tau_zenith=None, n_samples=3000, cn2_profile=None,
                        retro_loss_db=0.0, fast_params=None,
@@ -168,7 +226,10 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             The velocity-aberration angle of the return [rad] (the PAA case).
             "geometry" reads geometry.point_ahead_rad; a float overrides it.
             The kind of retro is `scenario.space.retroreflector` (None is the
-            standard CornerCube; a SpoiledCornerCube raises, not built).
+            standard CornerCube; a SpoiledCornerCube raises, not built). A
+            LidarCrossSection ignores it: its sigma already holds the
+            aberration. It replaces the down-leg spread, top-hat and
+            aberration Terms with retro_cross_section_term (fidelity 0, 1).
 
     Returns:
         Budget
@@ -179,13 +240,20 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
             If fidelity is not 0, 1 or 2, or a fidelity-2 call has no retro
             wave record, a vacuum record, or more than one line of sight.
         NotImplementedError
-            If the retroreflector is a SpoiledCornerCube, or a fidelity-2
+            If the retroreflector is a SpoiledCornerCube, a fidelity-2 budget
+            has a LidarCrossSection, or a fidelity-2
             receiver is an MMF or a Camera.
     '''
     if isinstance(scenario.space.retroreflector, SpoiledCornerCube):
         raise NotImplementedError(
             "a SpoiledCornerCube (dihedral-angle offset) is not built. Its "
-            "return is six beams on a ring, not one Airy lobe. Use CornerCube.")
+            "return is six beams on a ring, not one Airy lobe. Use CornerCube, "
+            "or LidarCrossSection with its published cross section.")
+    lidar = isinstance(scenario.space.retroreflector, LidarCrossSection)
+    if lidar and fidelity == 2:
+        raise NotImplementedError(
+            "a LidarCrossSection is the MEAN return of fidelity 0 and 1; the "
+            "fidelity-2 retro record models one corner cube.")
     if fidelity not in (0, 1, 2):
         raise ValueError(f"fidelity must be 0, 1 or 2 for retro, got "
                          f"{fidelity!r}.")
@@ -256,12 +324,20 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
                      "lobe).",
         ),
     )
-    down_terms = [
-        geometric_loss_term(down_scn, geometry),
-        slant_extinction_term(down_scn, geometry, tau_zenith=tau),
-        tophat_term,
-        retro_velocity_aberration_term(scenario, geometry, aberration_rad),
-    ]
+    if lidar:
+        # The cross section replaces the cube re-emission: the spread, the
+        # top-hat and the aberration are all inside sigma.
+        down_terms = [
+            slant_extinction_term(down_scn, geometry, tau_zenith=tau),
+            retro_cross_section_term(scenario, geometry),
+        ]
+    else:
+        down_terms = [
+            geometric_loss_term(down_scn, geometry),
+            slant_extinction_term(down_scn, geometry, tau_zenith=tau),
+            tophat_term,
+            retro_velocity_aberration_term(scenario, geometry, aberration_rad),
+        ]
     # The return-leg receive term follows the ground receiver, exactly as
     # downlink_budget does: a bucket receiver (no detector or a plain Aperture) is
     # phase-insensitive and gets the standalone plane-wave scintillation. None and
@@ -484,6 +560,31 @@ if __name__ == '__main__':
         pass
     print(f"velocity aberration: theta = {va.meta['aberration_rad']*1e6:.1f} urad, "
           f"x = {x:.2f}, loss = {va.mean_db:.2f} dB")
+
+    # --- lidar cross section (the radar equation) ----------------------------
+    # One unspoiled cube, sigma = 4 pi A^2 / lambda^2, is the cube chain
+    # without the aberration Term (both are far field), and the space
+    # aperture cancels out of the total.
+    lam_c, D_c = retro_scn.space.wavelength_m, retro_scn.space.aperture_m
+    A_c = np.pi * D_c ** 2 / 4
+    lcs = LidarCrossSection(4 * np.pi * A_c ** 2 / lam_c ** 2)
+    cube0 = retro_space_budget(retro_scn, retro_geom, fidelity=0,
+                               turbulence=False)
+    tot = lambda b: sum(float(t.mean_db) for t in b.terms)
+    want = tot(cube0) - va.mean_db
+    for D_ref in (D_c, 0.6):
+        b = retro_space_budget(replace(retro_scn, space=Terminal(
+            aperture_m=D_ref, retroreflector=lcs)), retro_geom, fidelity=0,
+            turbulence=False)
+        assert abs(tot(b) - want) < 0.01, (D_ref, tot(b), want)
+    try:
+        retro_space_budget(replace(retro_scn, space=Terminal(
+            aperture_m=0.6, retroreflector=lcs)), retro_geom, fidelity=2)
+        raise AssertionError("a LidarCrossSection must raise at fidelity 2")
+    except NotImplementedError:
+        pass
+    print(f"lidar cross section: sigma = {lcs.sigma_m2:.3g} m^2 equals the "
+          f"cube chain without aberration ({want:.2f} dB)")
 
     # --- fidelity 2: ONE Term holds both legs of each trial -----------------
     from ..models.waveoptics import run_fidelity2
