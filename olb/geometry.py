@@ -67,9 +67,20 @@ class SatellitePass:
         Return the satellite velocity across the line of sight [m/s].
 
         This is the orbital-speed component transverse to the line of sight, as
-        the ground station sees it.
+        the ground station sees it, for an OVERHEAD pass on a SPHERICAL Earth
+        that does not turn. The velocity is horizontal at the SATELLITE, so
+        v_perp = v_orb cos(eta), with the nadir angle eta from the sine rule of
+        the centre-station-satellite triangle,
+        sin(eta) = R_E cos(el) / (R_E + h) (Degnan, DOI 10.1029/GD025p0133).
+        The flat-Earth form v_orb sin(el) is the h -> 0 limit; at 30 deg it
+        read 16 percent low at 500 km and 30 percent low at 1500 km (backlog
+        0-P18). An off-track pass and the
+        rotation of the Earth move a real pass off this value; use a TLEPass.
         '''
-        return self.satellite.orbital_speed * np.sin(np.radians(self.elevation))
+        Re = _EARTH_RADIUS
+        h = self.satellite.altitude
+        sin_eta = Re * np.cos(np.radians(self.elevation)) / (Re + h)
+        return self.satellite.orbital_speed * np.sqrt(1.0 - sin_eta ** 2)
 
     def slant_range(self):
         '''Return the slant range from the ground station to the satellite [m].'''
@@ -92,16 +103,22 @@ class SatellitePass:
         '''Return the apparent angular slew rate of the line of sight [deg/s].
 
         THE RATE IS REFERENCED TO THE ALTITUDE, not to the slant range. It is
-        v*sin(el)/h_sat, which is the coefficient of the `ws*h` term of the
-        Bufton wind profile with h the ALTITUDE of a layer (Andrews and
-        Phillips, DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3), printed
-        p. 481). So the apparent speed at a layer is this rate times the
-        ALTITUDE of the layer, and NOT times its slant distance: a slant
-        distance counts the 1/sin(el) factor a second time. The frozen-flow
-        time axis reads it that way (see
+        the coefficient of the `ws*h` term of the Bufton wind profile with h
+        the ALTITUDE of a layer (Andrews and Phillips, DOI 10.1117/3.626196,
+        Ch. 12, Eqs. (2) and (3), printed p. 481). So the apparent speed at a
+        layer is this rate times the ALTITUDE of the layer, and NOT times its
+        slant distance. The frozen-flow time axis reads it that way (see
         olb.waveoptics.turbulence.temporal.strip_plan).
+
+        The line of sight turns at omega = v_perp / L (L the slant range), and
+        a layer at altitude h sits at the slant distance h / sin(el) (a thin,
+        plane-parallel atmosphere). So the layer speed is
+        omega h / sin(el) = [v_perp / (L sin(el))] h, and this rate is
+        v_perp / (L sin(el)). On a flat Earth L sin(el) = h_sat; on the sphere
+        L sin(el) < h_sat (backlog 0-P18).
         '''
-        return np.rad2deg(self.tangential_velocity() / self.satellite.altitude)
+        return np.rad2deg(self.tangential_velocity()
+                          / (self.slant_range() * np.sin(np.radians(self.elevation))))
 
 
 class CircularOrbit:
@@ -233,6 +250,37 @@ class TLEPass:
 
 
 if __name__ == '__main__':
+    # ---- the CircularOrbit overhead pass, against a direct in-plane orbit ----
+    # Station at (0, R_E); satellite at the central angle g on a circle of
+    # radius R_E + h. The line-of-sight angle, differenced in time, is omega;
+    # v_perp = omega * L, and the rate referenced to the altitude is
+    # omega / sin(el) (see apparent_slew_rate).
+    for h in (420e3, 1500e3):
+        sat = Satellite(h)
+        n = sat.orbital_speed / (_EARTH_RADIUS + h)
+        g = np.linspace(0.0, 0.3, 3001)
+        dt = 1e-3
+
+        def los(t):
+            a = g + n * t
+            return np.arctan2((_EARTH_RADIUS + h) * np.cos(a) - _EARTH_RADIUS,
+                              (_EARTH_RADIUS + h) * np.sin(a))
+        el_deg = np.rad2deg(los(0.0))
+        omega = np.abs(los(dt) - los(-dt)) / (2 * dt)
+        keep = el_deg > 10.0
+        orb = CircularOrbit(h, el_deg[keep])
+        assert np.allclose(orb.point_ahead_rad,
+                           2 * omega[keep] * orb.slant_range_m / _C, rtol=1e-5)
+        assert np.allclose(np.deg2rad(orb.slew_deg_s),
+                           omega[keep] / np.sin(np.radians(el_deg[keep])), rtol=1e-5)
+    # The zenith keeps the old flat value; 420 km, 30 deg reads the 29.8 urad
+    # of validation/point_ahead_geometry (the flat form gave 25.6).
+    assert np.isclose(CircularOrbit(420e3, 90.0).point_ahead_rad,
+                      2 * Satellite(420e3).orbital_speed / _C)
+    assert abs(CircularOrbit(420e3, 30.0).point_ahead_rad * 1e6 - 29.8) < 0.1
+    print(f"CircularOrbit 420 km: {CircularOrbit(420e3, 30.0).point_ahead_rad * 1e6:.2f}"
+          f" urad at 30 deg (overhead sphere)")
+
     # ---- the TLE point-ahead angle, against two independent routes ----
     from skyfield.api import load, wgs84, EarthSatellite
     ts = load.timescale()

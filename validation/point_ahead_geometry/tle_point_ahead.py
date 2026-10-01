@@ -4,7 +4,9 @@ The point-ahead angle is 2 v_perp / c, with v_perp the velocity of the
 satellite relative to the station across the line of sight, in the inertial
 frame (Degnan, DOI 10.1029/GD025p0133). `olb.geometry.TLEPass.point_ahead_rad`
 takes v_perp from the skyfield GCRS velocity. This script checks it three ways
-and compares the analytic `CircularOrbit` form `2 v_orb sin(el) / c`:
+and compares the analytic `CircularOrbit` form (the overhead closed form
+below since 2026-09-30, backlog 0-P18) and the old flat-Earth form
+`2 v_orb sin(el) / c`:
 
 1. THE DEFINITION. The lead is the turn of the INERTIAL line of sight between
    t - R/c and t + R/c. The script propagates the satellite to those two times
@@ -75,7 +77,7 @@ def main():
     print(f"\n  3. by elevation (h = {H_ISS / 1e3:.0f} km, v_orb = "
           f"{v_orb / 1e3:.2f} km/s), in urad:")
     print(f"  {'el':>5} {'ISS TLE (min-max)':>18} {'overhead cos(eta)':>18} "
-          f"{'CircularOrbit sin(el)':>22}")
+          f"{'old flat sin(el)':>22}")
     for e in (85, 60, 45, 30, 20, 10):
         sel = np.abs(el - e) < 1.0
         eta = np.arcsin(_EARTH_RADIUS * np.cos(np.radians(e))
@@ -83,9 +85,11 @@ def main():
         closed = 2 * v_orb * np.cos(eta) / _C
         circ = float(np.ravel(CircularOrbit(
             altitude_m=H_ISS, elevation_deg=[e]).point_ahead_rad)[0])
+        assert abs(circ / closed - 1) < 1e-9, (circ, closed)
+        flat = 2 * v_orb * np.sin(np.radians(e)) / _C
         tle_txt = (f"{pa[sel].min() * 1e6:6.1f} - {pa[sel].max() * 1e6:5.1f}"
                    if sel.any() else "(no sample)")
-        print(f"  {e:5d} {tle_txt:>18} {closed * 1e6:18.1f} {circ * 1e6:22.1f}")
+        print(f"  {e:5d} {tle_txt:>18} {closed * 1e6:18.1f} {flat * 1e6:22.1f}")
 
     # ---- 2. GEO ----
     sub = wgs84.subpoint(EarthSatellite(*GEO, "GEO", ts).at(

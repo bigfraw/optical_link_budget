@@ -920,10 +920,18 @@ class Campaign:
         # directory; the campaign moves it under its own root, so a deleted
         # campaign takes its cache with it. `strip_dir` is not part of
         # `TemporalSpec.key()`, so the move does not change the fingerprint.
-        self.temporal = (None if temporal is None else
-                         replace(temporal,
-                                 strip_dir=os.path.join(str(root_dir),
-                                                        "strips")))
+        # THE SLEW IS RESOLVED HERE, so the key names the rate and not None: a
+        # geometry change (backlog 0-P18 moved the slew) then makes a new key,
+        # and a resume never mixes two slews. The expression is the one of
+        # `strip_plan`, so the strips do not change.
+        if temporal is not None:
+            slew = temporal.slew_rad_s
+            if slew is None:
+                slew = float(np.deg2rad(float(np.ravel(
+                    np.asarray(geometry.slew_deg_s, dtype=float))[0])))
+            temporal = replace(temporal, slew_rad_s=slew,
+                               strip_dir=os.path.join(str(root_dir), "strips"))
+        self.temporal = temporal
         self.h_gl = (None if h_gl is None else
                      tuple(float(v) for v in np.ravel(np.asarray(h_gl))))
         self.retro_wind_ground_m_s = resolve_retro_wind(retro_wind_ground_m_s,
@@ -2451,6 +2459,12 @@ if __name__ == '__main__':
                 man11 = _json.load(fh)
             assert man11["dt_s"] == 5e-4 and man11["temporal"] is not None
             assert "strip_dir" not in man11["temporal"], man11["temporal"]
+            # The key names the RESOLVED slew, not None, and an explicit
+            # slew of the same value names the same record.
+            omega11 = float(np.deg2rad(float(np.ravel(orbit.slew_deg_s)[0])))
+            assert f"slew_rad_s={omega11!r}" in man11["temporal"], man11
+            assert Campaign(scn, orbit, root11, **common, temporal=replace(
+                spec, slew_rad_s=omega11)).fingerprint == camp11.fingerprint
             got11 = camp11.load(8)
             native11 = propagate_turbulent_scenario(
                 scn, orbit, n_trials=8, seed=common["seed"],

@@ -618,14 +618,15 @@ does not correlate. See [retro_bracket/README.md](retro_bracket/README.md).
 The point-ahead angle `2 v_perp / c` (2026-09-30): the check of the TLE
 calculator `TLEPass.point_ahead_rad` (the inertial line-of-sight turn over
 2R/c to 4e-6, GEO 17.41 urad from its sub-point, the ISS 18 to 50 urad), the
-error of the flat-Earth `CircularOrbit` form (backlog 0-P18: 14 percent low
-at 30 deg, 55 percent at 10 deg), and the map of every place olb reads the
+error of the old flat-Earth `CircularOrbit` form (backlog 0-P18: 14 percent
+low at 30 deg, 55 percent at 10 deg; DONE 2026-09-30, `CircularOrbit` is now
+the overhead `cos(eta)` form), and the map of every place olb reads the
 angle and every place it must not. See
 [point_ahead_geometry/README.md](point_ahead_geometry/README.md).
 
 | File | Purpose |
 | --- | --- |
-| [point_ahead_geometry/tle_point_ahead.py](point_ahead_geometry/tle_point_ahead.py) | The ISS over one day and a synthetic GEO: the definition check, the GEO closed form, and the TLE against the overhead `cos(eta)` form and the `CircularOrbit` `sin(el)` form by elevation. It needs `skyfield` only. |
+| [point_ahead_geometry/tle_point_ahead.py](point_ahead_geometry/tle_point_ahead.py) | The ISS over one day and a synthetic GEO: the definition check, the GEO closed form, and the TLE against the overhead `cos(eta)` form (now `CircularOrbit`) and the old flat `sin(el)` form by elevation. It needs `skyfield` only. |
 
 ## retro_velocity_aberration/
 

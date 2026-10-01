@@ -139,6 +139,9 @@ def cache_key(scenario, geometry, *, preset, seed, screen_generator,
                           different atmosphere from an independent snapshot.
                           The key of a spec holds no `strip_dir`, because the
                           strips are a deletable cache that the seed rebuilds.
+                          A `Campaign` passes the spec with `slew_rad_s`
+                          RESOLVED from the geometry, so the key names the
+                          slew rate.
         h_gl:             the forced ground heights of the screen plan, in m,
                           or None. It enters the key when it is not None,
                           because it moves the screens.

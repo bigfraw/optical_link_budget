@@ -15,7 +15,9 @@ The script gives:
    D^2 (the capture) * D^2 (the on-axis gain) * [2 J1(x) / x]^2, which is
    proportional to [x J1(x)]^2 and peaks where d(x J1)/dx = x J0(x) = 0, the
    first zero of J0, x = 2.405;
-4. the loss over one day of real ISS passes.
+4. the loss over one day of real ISS passes;
+5. the loss of a 5 cm and a 35 mm cube from the flat CircularOrbit angle against the
+   overhead spherical angle, 20 to 90 deg, 500 and 1500 km (backlog 0-P18).
 
 Run from the repository root:
 
@@ -26,7 +28,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import j1, jn_zeros
 
-from olb.geometry import CircularOrbit, TLEPass
+from olb.geometry import _C, CircularOrbit, Satellite, TLEPass
 from olb.links.retro_space import retro_velocity_aberration_term
 from olb.scenario import Channel, SpaceScenario
 from olb.terminal import Terminal, Transmitter
@@ -93,6 +95,21 @@ def main():
             retro(D, 420e3), iss).mean_db)[vis]
         print(f"   {D * 100:3.0f} cm cube: {loss.min():6.2f} to "
               f"{loss.max():6.2f} dB (median {np.median(loss):.2f} dB)")
+
+    print("\n5. the flat CircularOrbit angle against the overhead spherical "
+          "angle (backlog 0-P18)")
+    for D, h in ((D, h) for D in (0.05, 0.035) for h in (500e3, 1500e3)):
+        print(f"   {D * 1e3:.0f} mm, {h / 1e3:4.0f} km: {'el':>3} {'th flat':>8} {'th sph':>7}"
+              f" {'loss flat':>10} {'loss sph':>9} {'delta':>7}")
+        for el in range(20, 91, 10):
+            # The old flat-Earth form 2 v_orb sin(el) / c, against the
+            # CircularOrbit overhead pass on a sphere, 2 v_orb cos(eta) / c
+            # (Degnan, DOI 10.1029/GD025p0133; see ../point_ahead_geometry/).
+            flat = 2 * Satellite(h).orbital_speed * np.sin(np.radians(el)) / _C
+            sph = float(np.ravel(CircularOrbit(h, [el]).point_ahead_rad)[0])
+            lf, ls = (airy_loss_db(np.pi * D * t / LAM) for t in (flat, sph))
+            print(f"   {'':14} {el:3d} {flat * 1e6:8.1f} {sph * 1e6:7.1f}"
+                  f" {lf:10.1f} {ls:9.1f} {ls - lf:+7.1f}")
 
 
 if __name__ == "__main__":

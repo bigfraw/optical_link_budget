@@ -38,11 +38,12 @@ THE VELOCITY OF A LAYER has two parts, and it is a 2-D vector:
      module calls it with ws = 0 (`olb.turbulence.profiles.v_wind`), so the
      slew is NOT counted two times, and it points at `wind_dir_deg`.
   2. THE SLEW. A tracked satellite drags the line of sight across each layer.
-     `olb.geometry.CircularOrbit.slew_deg_s` is v*sin(el)/h_sat, which is the
-     COEFFICIENT of the `ws*h` term of the Bufton profile, so the apparent
+     `olb.geometry.CircularOrbit.slew_deg_s` is v_perp/(L sin(el)), which is
+     the COEFFICIENT of the `ws*h` term of the Bufton profile, so the apparent
      speed at a layer is that rate times the ALTITUDE h of the layer, NOT times
-     its slant distance: omega_true * z_slant = (v sin(el)/h_sat) * h. It goes
-     along x, the long axis of the strip.
+     its slant distance: omega_true * z_slant = (v_perp/(L sin(el))) * h, with
+     v_perp the spherical overhead-pass value (backlog 0-P18). It goes along x,
+     the long axis of the strip.
 
 THE ROTATED STRIP (the CROSSWIND DEFAULT from 2026-09-13, backlog 2-P1b item
 10). A CROSSWIND
@@ -294,7 +295,9 @@ class TemporalSpec:
                           docstring.
         slew_rad_s:       the slew rate, in rad/s, or None to read the
                           geometry. See the module docstring for the altitude
-                          rule.
+                          rule. A `Campaign` RESOLVES None from its geometry
+                          (2026-09-30), so its key names the rate and a
+                          geometry change makes a new key.
         rotated:          True holds ONE THIN strip along the RESULTANT
                           velocity of each layer, and it turns every frame
                           back with `rotate_fourier`. False keeps the

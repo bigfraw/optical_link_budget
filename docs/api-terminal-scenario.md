@@ -516,12 +516,16 @@ Provides to a model:
 
 - `slant_range_m` — the ground-station to satellite range.
 - `point_ahead_rad` — the point-ahead angle from the finite speed of light,
-  `2 v_orb sin(el) / c`. FLAG (backlog 0-P18): this is a flat-Earth form. It
-  is exact at the zenith only and it reads LOW away from it (25.6 urad at
-  30 deg for a 420 km orbit, where the exact overhead pass gives about
-  30 urad). It also cannot hold the off-track spread of a real pass. Use a
-  `TLEPass` for the exact angle.
-- `slew_deg_s` — the apparent line-of-sight slew rate.
+  `2 v_orb cos(eta) / c`, with the nadir angle
+  `sin(eta) = R_E cos(el) / (R_E + h)` (Degnan, DOI 10.1029/GD025p0133). It
+  is exact for an OVERHEAD pass on a spherical Earth that does not turn
+  (29.8 urad at 30 deg for a 420 km orbit). An off-track pass and the
+  rotation of the Earth move a real pass off it (28 to 35 urad for the ISS
+  at 30 deg). Use a `TLEPass` for the exact angle. Before 2026-09-30 it was
+  the flat-Earth form `2 v_orb sin(el) / c` (25.6 urad), backlog 0-P18.
+- `slew_deg_s` — the apparent line-of-sight slew rate, referenced to the
+  layer ALTITUDE: `v_perp / (L sin(el))` with L the slant range (the flat
+  form was `v_perp / h_sat`).
 
 ### `HorizontalPath`
 
@@ -566,9 +570,8 @@ velocity holds the rotation of the Earth, so a geostationary satellite reads
 17.4 urad from its sub-point and about 18 to 18.5 urad from 40 deg latitude.
 The `olb.geometry` self-check matches it to the inertial line-of-sight turn
 between t - R/c and t + R/c. It is the exact value; the `CircularOrbit` form
-v_orb sin(el) is an overhead-pass approximation that reads low away from the
-zenith (25.6 urad at 30 deg for a 420 km orbit, where an ISS pass reads 28 to
-35 urad).
+v_orb cos(eta) is the overhead pass with the Earth rotation off (29.8 urad at
+30 deg for a 420 km orbit, where an ISS pass reads 28 to 35 urad).
 
 Provides to a model: `elevation_deg`, `azimuth_deg`, `slant_range_m`,
 `point_ahead_rad`, and `times`.

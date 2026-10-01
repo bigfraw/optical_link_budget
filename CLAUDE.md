@@ -671,7 +671,8 @@ Open items:
   bullets. THE GEOMETRY: the point-ahead angle does NOT separate the two
   passes of one pulse; it enters the retro one time, as the velocity
   aberration Airy Term (a NUMBER MOVE for every fidelity-0/1 retro budget:
-  +7.30 dB on the self-check case, a 5 cm cube at 1500 km). THE
+  +7.30 dB on the self-check case, a 5 cm cube at 1500 km, and 20.27 dB
+  from 2026-09-30 with the spherical `CircularOrbit` angle, backlog 0-P18). THE
   MEASUREMENT (`validation/retro_bracket/`, laptop, 1000 trials, hero 0.7 m
   launch): a fibre return fades WITH the up leg, so independent legs
   under-read the p5 fade by 6.5 dB at 30 deg and 2.9 dB at 20 deg; a bucket
@@ -732,7 +733,10 @@ Open items:
   time in the parent and each worker opens a memory map, so the pool shares one
   page cache. The frames ARE the trials, so `start_index` addresses them, and
   `t_s` is DERIVED (`row * dt_s`), never a stored column. `temporal=` and
-  `h_gl=` enter the fingerprint tail only when non-default. GUARDS: temporal
+  `h_gl=` enter the fingerprint tail only when non-default. From 2026-09-30
+  `Campaign` resolves `slew_rad_s` from the geometry before the key (backlog
+  0-P18 moved the slew), so every time-axis key MOVED and an older record
+  raises on reopen. GUARDS: temporal
   plus `point_ahead_rad` raises, and a non-downlink plan raises. THE GATES
   (`validation/temporal_screens/`): (a) the strip D(r) is 0.95 to 1.00 of the
   law on BOTH axes, 14 of 14 bands; (b) D(tau)/D(v tau) is 0.98 to 1.02 and the

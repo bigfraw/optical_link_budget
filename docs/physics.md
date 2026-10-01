@@ -145,8 +145,9 @@ the point-ahead angle of the geometry (`CircularOrbit.point_ahead_rad`, or
 `TLEPass.point_ahead_rad`: 2 v_perp / c from the skyfield GCRS velocity of the
 satellite relative to the station, so the rotation of the Earth is in it and
 a geostationary satellite reads 17.4 urad from its sub-point; the
-`CircularOrbit` form `2 v_orb sin(el) / c` is a flat-Earth approximation that
-reads low away from the zenith, backlog 0-P18). The lobe is the Airy pattern of the
+`CircularOrbit` form `2 v_orb cos(eta) / c`, `sin(eta) = R_E cos(el) / (R_E + h)`,
+is the overhead pass on a sphere with the Earth rotation off; it replaced the
+flat-Earth `sin(el)` form on 2026-09-30, backlog 0-P18). The lobe is the Airy pattern of the
 unobscured cube aperture D (Born and Wolf, DOI 10.1017/CBO9781139644181,
 Sec. 8.5.2), so the station reads the fraction
 
@@ -1817,8 +1818,11 @@ DOI 10.1117/3.626196, Ch. 12, Eqs. (2) and (3), printed p. 481, called with
 code adds the slew itself. `omega_slew` is
 `olb.geometry.CircularOrbit.slew_deg_s` in rad/s, and it multiplies the
 ALTITUDE `h` of the layer, NOT its slant distance, because that rate is
-`v*sin(el)/h_sat` and a slant distance counts the `1/sin(el)` factor a second
-time.
+`v_perp/(L sin(el))` (L the slant range, v_perp the spherical overhead-pass
+value) and a slant distance counts the `1/sin(el)` factor a second time. The
+line of sight turns at `v_perp / L`, and a layer at altitude h sits at
+`h / sin(el)` along it, so the layer speed is `[v_perp / (L sin(el))] h`. On a
+flat Earth `L sin(el) = h_sat`, the form before 2026-09-30 (backlog 0-P18).
 
 **The shift is an integer number of pixels**, and it comes from the ABSOLUTE
 position `v*k*dt`, never from a sum of steps. So the rounding error stays under

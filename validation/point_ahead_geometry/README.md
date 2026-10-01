@@ -12,7 +12,8 @@ things:
 
 1. The TLE calculator `olb.geometry.TLEPass.point_ahead_rad` (new on
    2026-09-30) and its checks.
-2. The error of the analytic `CircularOrbit` form (backlog 0-P18).
+2. The error of the old analytic `CircularOrbit` form (backlog 0-P18, DONE
+   2026-09-30).
 3. The map of every place olb reads the angle, and every place it must NOT.
 
 ## The run line
@@ -50,7 +51,9 @@ check.
 
 ## 2. The CircularOrbit form (backlog 0-P18)
 
-`CircularOrbit.point_ahead_rad` is `2 v_orb sin(el) / c`. It is a FLAT-EARTH
+UP TO 2026-09-30 `CircularOrbit.point_ahead_rad` was `2 v_orb sin(el) / c`
+(the column "old flat" below). Now it IS the overhead `cos(eta)` form, and
+the script asserts that. The old form was a FLAT-EARTH
 form of an overhead pass. For an overhead pass the velocity is horizontal at
 the SATELLITE, so the exact value is `v_orb cos(eta)`, with the nadir angle
 `sin(eta) = R_E cos(el) / (R_E + h)`. `sin(el)` equals `cos(eta)` only at the
@@ -58,7 +61,7 @@ zenith or when `h -> 0`.
 
 h = 420 km, `v_orb` = 7.66 km/s, in urad:
 
-| el (deg) | ISS TLE (min to max) | overhead `cos(eta)` | `CircularOrbit` `sin(el)` |
+| el (deg) | ISS TLE (min to max) | overhead `cos(eta)` | old flat `sin(el)` |
 | --- | --- | --- | --- |
 | 85 | 49.2 | 50.9 | 50.9 |
 | 60 | 48.7 to 49.2 | 45.1 | 44.3 |
@@ -79,8 +82,11 @@ THE READING:
    the Earth adds or removes up to about 0.4 km/s, so a real pass can read
    below it (28.4 against 29.8 urad at 30 deg).
 
-The fix is OWNER-GATED (backlog 0-P18), because it moves every reader of the
-angle (the list below) and the key of every stored point-ahead campaign.
+The fix is DONE (2026-09-30, option B of backlog 0-P18, branch
+`spherical-point-ahead`): `CircularOrbit` gives the overhead `cos(eta)` form,
+and the slew rate reads `v_perp / (L sin(el))`. It moved every reader of the
+angle (the list below), and a stored point-ahead campaign with
+`"geometry"` angles now makes a new key.
 
 ## 3. Where olb uses the angle
 

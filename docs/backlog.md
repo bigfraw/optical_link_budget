@@ -316,8 +316,22 @@ are from 2026-08-26 and can drift.
   olb/turbulence/andrews/beam.py:163, and
   olb/turbulence/gaussian_fried.py:181 keeps the old signature and delegates
   to it (crosscheck GF-17). Deliberate, to match the Dios weak regime.
-- **0-P18. The `CircularOrbit` point-ahead angle is a flat-Earth form**
-  (flagged 2026-09-30, OWNER-GATED). `SatellitePass.tangential_velocity` is
+- **0-P18. DONE (2026-09-30, branch `spherical-point-ahead`, option B). The
+  `CircularOrbit` point-ahead angle WAS a flat-Earth form.** `tangential_velocity`
+  is now `v_orb cos(eta)` and `apparent_slew_rate` is `v_perp / (L sin(el))`
+  (the flat form divided by `h_sat`, and `L sin(el) < h_sat` on the sphere).
+  The `olb.geometry` self-check matches both to a direct in-plane orbit to
+  1e-5. The off-track spread stays a `TLEPass` job. NUMBER MOVES: the retro
+  self-check velocity aberration 7.30 to 20.27 dB (5 cm, 1500 km, 30 deg);
+  the Stone point-ahead Term at 60 deg, AO(60) 4.12 to 4.25 dB; the FAST
+  `DTHETA` 9.01 to 9.25 arcsec there; the slew of the time axis 1.31x at
+  500 km, 30 deg. A stored point-ahead campaign keeps its stored angles, so
+  `point_ahead_rad="geometry"` makes a new key and a new run. The slew was
+  NOT in the key, so `Campaign` now RESOLVES `TemporalSpec.slew_rad_s` from
+  the geometry before the key: every time-axis campaign has a NEW key, and a
+  reopened older store raises on the manifest check instead of mixing two
+  slews. The strips are bit-identical. The record of the flag follows.
+  (Flagged 2026-09-30.) `SatellitePass.tangential_velocity` is
   `v_orb * sin(el)` (olb/geometry.py). Two errors:
   - EARTH CURVATURE. For an overhead pass the exact value is
     `v_orb * cos(eta)`, with the nadir angle
