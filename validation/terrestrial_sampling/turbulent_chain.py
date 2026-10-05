@@ -42,6 +42,7 @@ import numpy as np
 from olb.waveoptics.field import Begin
 from olb.waveoptics.grid import GridSpec
 from olb.waveoptics.mmf import mmf_coupling_efficiency
+from olb.waveoptics.priority import boost_process_priority
 from olb.waveoptics.propagators import set_fft_backend, xp
 from olb.waveoptics.schmidt.fresnel import super_gaussian_absorber
 from olb.waveoptics.schmidt.turbulence import max_partial_step
@@ -231,6 +232,7 @@ def main():
         summary()
         return
     os.makedirs(DATA, exist_ok=True)
+    boost_process_priority()          # an ssh launch on bigfraw is throttled
     set_fft_backend(args.backend)
     for name in args.routes:
         t = time.perf_counter()
