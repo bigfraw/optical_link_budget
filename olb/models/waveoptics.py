@@ -579,11 +579,7 @@ def waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *,
     the vacuum-optics Term (launch to collected power) with no double-count,
     because it is relative to the collected power.
 
-    The focal length follows the SAME rule as the turbulent runner
-    (olb.waveoptics.turbulence.run): an explicit MMF.focal_length_m wins; else
-    MMF.optimal_focus matches the spot to the core through the a=1.12
-    spot-to-core parameter (Shaklan and Roddier, Appl. Opt. 27 (1988) 2334,
-    DOI 10.1364/AO.27.002334); else it raises.
+    The focal length is MMF.focal_length_m, a design input; None raises.
 
     Parameters:
         vacuum_result : WaveResult
@@ -607,21 +603,17 @@ def waveoptics_vacuum_mmf_term(vacuum_result, detector, aperture_m, *,
 
     Raises:
         ValueError
-            If the detector sets no focal length and no optimal_focus.
+            If the detector sets no focal length.
     '''
     from ..waveoptics.mmf import mmf_coupling_efficiency
     collected = vacuum_result.stages[3][1]      # "after rx clip"
     lam = collected.lam
-    if detector.focal_length_m is not None:
-        f_mmf = float(detector.focal_length_m)
-    elif detector.optimal_focus:
-        f_mmf = (np.pi * (aperture_m / 2.0) * detector.core_radius_m
-                 / (lam * 1.12))
-    else:
+    if detector.focal_length_m is None:
         raise ValueError(
-            "the MMF detector needs a focal length to focus the field. Set "
-            "MMF.focal_length_m, or set MMF.optimal_focus=True to match the "
-            "spot to the core.")
+            "the MMF detector needs MMF.focal_length_m to focus the field. An "
+            "MMF focal length is a design input: a multimode light bucket "
+            "captures more at a shorter f, up to the numerical aperture.")
+    f_mmf = float(detector.focal_length_m)
     eta = float(mmf_coupling_efficiency(
         collected, aperture_m, detector.core_radius_m, f_mmf,
         numerical_aperture=detector.numerical_aperture,

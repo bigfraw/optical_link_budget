@@ -259,31 +259,20 @@ def _progress_bar(progress, total, desc):
 def _mmf_focal_length(detector, aperture_m, lam):
     """Give the focal length of the multimode-fibre coupling optic, in m.
 
-    An explicit MMF.focal_length_m wins. Else MMF.optimal_focus matches the spot
-    to the core through the a = 1.12 spot-to-core parameter. Source: Shaklan and
-    Roddier, Appl. Opt. 27 (1988) 2334, DOI 10.1364/AO.27.002334. This is the
-    SAME rule as olb.models.coupling.terrestrial._mmf_focal_length.
-
-    Args:
-        detector:   the MMF detector.
-        aperture_m: the receive aperture diameter, in m.
-        lam:        the wavelength, in m.
-
-    Returns:
-        The focal length, in m.
+    It is MMF.focal_length_m, a design input. An MMF has no optimal_focus:
+    the old rule matched the spot to the CORE, and a multimode light bucket
+    captures more at a shorter f, up to the numerical aperture (removed
+    2026-10-07). The aperture and the wavelength are kept for the call sites.
 
     Raises:
-        ValueError: the detector sets no focal length and no optimal_focus.
+        ValueError: the detector sets no focal length.
     """
-    if detector.focal_length_m is not None:
-        return float(detector.focal_length_m)
-    if detector.optimal_focus:
-        return (np.pi * (aperture_m / 2.0) * detector.core_radius_m
-                / (lam * 1.12))
-    raise ValueError(
-        "the MMF detector needs a focal length to focus the field. "
-        "Set MMF.focal_length_m, or set MMF.optimal_focus=True to "
-        "match the spot to the core.")
+    if detector.focal_length_m is None:
+        raise ValueError(
+        "the MMF detector needs MMF.focal_length_m to focus the field. An "
+        "MMF focal length is a design input: a multimode light bucket "
+        "captures more at a shorter f, up to the numerical aperture.")
+    return float(detector.focal_length_m)
 
 
 def _detector_eta(detector, collected, aperture_m, lam):

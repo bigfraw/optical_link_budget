@@ -2608,10 +2608,8 @@ relative to the COLLECTED power, it composes with the vacuum-optics Term
 (`waveoptics_vacuum_term`, launch to collected power) with NO double-count.
 
 It is the vacuum companion of `waveoptics_mmf_coupling_term`. The focal length
-follows the SAME rule as the turbulent runner: an explicit `MMF.focal_length_m`
-wins; else `MMF.optimal_focus` matches the spot to the core through the
-`a = 1.12` spot-to-core parameter (Shaklan and Roddier, Appl. Opt. 27 (1988)
-2334, DOI 10.1364/AO.27.002334); else it raises `ValueError`.
+is `MMF.focal_length_m`, a design input (an MMF has no `optimal_focus`); None
+raises `ValueError`.
 
 `aperture_m` is the receive aperture DIAMETER, in m. The Term meta holds
 `mmf_eta`, `focal_length_m` and `defocus_m`.

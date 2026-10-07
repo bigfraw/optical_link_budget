@@ -249,7 +249,7 @@ def defocus_phase(field, defocus_m, focal_length_m):
     if focal_length_m is None:
         raise ValueError(
             'defocus_phase: a non-zero defocus needs a focal length. Set the '
-            'detector focal_length_m, or set optimal_focus=True.')
+            'detector focal_length_m (or SMF.optimal_focus=True).')
     return np.exp(-1j * np.pi * defocus_m * field.mgrid_Rsquared
                   / (field.lam * focal_length_m ** 2))
 

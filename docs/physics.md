@@ -1417,8 +1417,10 @@ focal spot (that would need a re-truncated aperture).
   The MMF coupling Term reads the same wander model and asks for the check
   too (owner decision, 2026-09-04): a strong path now flags it, where before
   it read ok.
-- The MMF `optimal_focus` is a geometric spot-to-core match, not a mode-overlap
-  optimum: a shorter focal length captures more, up to the numerical-aperture gate.
+- The MMF focal length is a design input. The old `optimal_focus` spot-to-core
+  match is REMOVED (2026-10-07): a shorter focal length captures more, up to the
+  numerical-aperture gate, and the static Gaussian-spot capture it quoted
+  (about 92 percent) over-reads an Airy spot.
 - The MMF numerical-aperture gate is a flat power-transmission factor. It does not
   re-broaden the focal spot, and the spot itself stays diffraction-limited (no
   turbulence blur), so the full mode-count saturation is not modelled.

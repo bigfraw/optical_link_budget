@@ -197,23 +197,25 @@ etendue penalty a core-radius-only bucket misses (see `physics.md` section 6c).
 | Field | Type | Unit | Default | Meaning |
 |---|---|---|---|---|
 | `core_radius_m` | float | m | (required) | Core RADIUS of the multimode fibre in the fibre plane. |
-| `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic. None needs `optimal_focus=True`. |
+| `focal_length_m` | float or None | m | `None` | Focal length of the fibre-coupling optic, a design input. Every coupling Term needs it; None raises there. |
 | `numerical_aperture` | float or None | — | `None` | Fibre NA. None turns the angular gate OFF (spatial encircled energy only). A value gates the focusing cone by `min(1, (NA/NA_optic)^2)`. |
 | `sensitivity_dbm` | float or None | dBm | `None` | Required received power. None if only losses matter. |
-| `optimal_focus` | bool | — | `False` | Match the spot to the core (see below). |
 | `defocus_m` | float | m | `0.0` | Detector offset from the design focus. The core sits at `z = f + defocus_m`. `0.0` puts it at the nominal focal plane. A detector away from the TRUE focus sees a larger spot, so the core captures less. |
 | `frac` | float or None | — | `None` | The fraction of the received power that the beamsplitter sends to this detector (0 to 1). None means "take the remainder" (1.0 when the detector is alone). |
 
-`optimal_focus=True` derives the focal length so the spot radius is the core
-radius over 1.12 (the same `a=1.12` that a single-mode fibre uses):
-`f = pi*(D/2)*core_radius_m/(lambda*1.12)`. This gives about 92% static capture.
-It is a geometric spot-to-core match, NOT a mode-overlap optimum: a shorter focal
-length captures more, but the angular limit (`numerical_aperture`) then gates the
-extra capture. Set `focal_length_m` to override the derived value. As for an
-`SMF`, `optimal_focus` never moves the detector: the received-curvature focus
-shift is charged at the actual fibre plane, and
-`curvature_focus_shift(scenario)` gives the `defocus_m` of an aligned coupler
-(see `physics.md` section 6a).
+An `MMF` has NO `optimal_focus` (removed 2026-10-07). The old rule matched the
+spot to the CORE, `f = pi*(D/2)*core_radius_m/(lambda*1.12)`. That is the wrong
+design target for a light bucket: a shorter focal length captures more, up to
+the `numerical_aperture` gate at `f = D/(2 NA)`. The rule also claimed about
+92% static capture from a Gaussian spot, but a uniformly lit aperture focuses
+to an Airy spot whose rings fall outside the core: the wave optics of a 10 km,
+1 inch link read 0.69, and `f = 0.3 m` in place of 1.21 m gained 1.3 to 2.2 dB
+on the mean and up to 4.5 dB at p95
+(`validation/terrestrial_mmf_tiptilt/focal_sweep.py`). So the focal length is
+a design input. The `repr` still writes `optimal_focus=False`, so the key of a
+stored campaign does not move. The received-curvature focus shift is charged
+at the actual fibre plane, and `curvature_focus_shift(scenario)` gives the
+`defocus_m` of an aligned coupler (see `physics.md` section 6a).
 
 Import it as `from olb import MMF` (a top-level export), or as
 `from olb.terminal import MMF`.

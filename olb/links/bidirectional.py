@@ -50,7 +50,7 @@ import numpy as np
 from ..terminal import SMF, MMF
 from ..scenario import TerrestrialScenario
 from ..units import w0_to_div
-from ..models.coupling.terrestrial import _smf_optics, _mmf_focal_length
+from ..models.coupling.terrestrial import _smf_optics
 from .terrestrial import terrestrial_budget
 
 # The forward (near->far) and reverse (far->near) budgets of one bidirectional
@@ -64,8 +64,8 @@ def _resolve_focal_length(terminal, focal_length_m):
     resolved.
 
     An explicit focal_length_m always wins. Otherwise the model reads the detector
-    optics: an SMF uses _smf_optics, an MMF uses _mmf_focal_length (each honours
-    optimal_focus). An Aperture or no detector gives None unless focal_length_m is
+    optics: an SMF uses _smf_optics (it honours optimal_focus), an MMF reads its
+    focal_length_m. An Aperture or no detector gives None unless focal_length_m is
     set.
     '''
     if focal_length_m is not None:
@@ -75,7 +75,7 @@ def _resolve_focal_length(terminal, focal_length_m):
         f, _ = _smf_optics(detector, terminal.aperture_m, terminal.wavelength_m)
         return f
     if isinstance(detector, MMF):
-        return _mmf_focal_length(detector, terminal.aperture_m, terminal.wavelength_m)
+        return detector.focal_length_m
     return None
 
 
@@ -146,7 +146,7 @@ def defocused_terminal(terminal, dz_m, *, focal_length_m=None):
                 "defocused_terminal needs the collimator focal length to map the "
                 "defocus to a transmit divergence. Pass focal_length_m, or give the "
                 "terminal an SMF/MMF detector with the coupling optics set "
-                "(focal_length_m or optimal_focus)."
+                "(focal_length_m, or SMF.optimal_focus)."
             )
         W0 = terminal.transmitter.waist_m
         wavelength = terminal.wavelength_m
@@ -211,11 +211,15 @@ if __name__ == '__main__':
     chan = TerrestrialChannel(path_length_m=5e3, attenuation_db_per_km=0.5, cn2=1e-15)
     geom = HorizontalPath(5e3)
 
+    # The MMF test optic: the old core-matched f (a = 1.12) for a 25 um core
+    # behind the 0.2 m aperture, so the asserted numbers do not move.
+    f_mmf = np.pi * 0.1 * 25e-6 / (lam * 1.12)
+
     def _mono(jitter=5e-6):
         '''A monostatic terminal: a launch beam and an MMF light bucket.'''
         return Terminal(aperture_m=0.2, wavelength_m=lam, pointing_jitter_rad=jitter,
                         transmitter=Transmitter(waist_m=0.05, power_dbm=30),
-                        detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                        detector=MMF(core_radius_m=25e-6, focal_length_m=f_mmf,
                                      sensitivity_dbm=-38))
 
     near, far = _mono(), _mono()
@@ -259,7 +263,7 @@ if __name__ == '__main__':
     assert ok.transmitter.divergence_rad > theta_diff
     # A receive-only terminal (no transmitter) needs no focal length.
     rx_only = Terminal(aperture_m=0.2, wavelength_m=lam,
-                       detector=MMF(core_radius_m=25e-6, optimal_focus=True))
+                       detector=MMF(core_radius_m=25e-6, focal_length_m=f_mmf))
     assert defocused_terminal(rx_only, 3e-3).detector.defocus_m == 3e-3
 
     # --- bidirectional_terrestrial --------------------------------------------
