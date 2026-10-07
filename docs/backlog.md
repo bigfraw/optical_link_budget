@@ -1795,6 +1795,93 @@ The path forward for each is a second reference or a derivation.
   `"numpy"`, and a GPU run is a different fingerprint. A campaign of one
   process per device replaces the process pool. Every part of that plan is
   built.
+- **2-I5. A GENERAL grid-resolution rule: tie the output ERROR to
+  dimensionless sampling ratios (owner-flagged 2026-10-06; OPEN, not
+  started).**
+  THE PROBLEM. A paired-grid run (dx against dx/2) proves that a grid is good
+  enough for ONE link configuration only. Every new link needs its own
+  convergence study, which costs GPU hours. The `turbulent_grid` rules are
+  INPUT rules: 4 pixels per smallest feature (`grid.PIXELS_PER_FEATURE`, an
+  olb rule, not a book equation), the Schmidt geometry constraints, and the
+  scattering cone (Schmidt, DOI 10.1117/3.866274, Chs. 7 to 9). They tell
+  you that a grid CAN be wrong. They do not tell you HOW WRONG an output is,
+  so you cannot trade the accuracy against the cost. Example: the sizer asks
+  for 8192 px on the 10 km MMF link below, and 2048 px reads only 0.4 dB off
+  on the mean at Cn2 = 1e-15.
+
+  THE PROPOSAL. Write the requirement in DIMENSIONLESS RATIOS that any link
+  can compute from Andrews closed forms BEFORE a run (DOI 10.1117/3.626196),
+  measure the output bias against them one time, and read the grid of a new
+  link from a curve:
+  1. `rho0 / dx`: the pixels for each receiver coherence radius (Ch. 6,
+     coherence radius of a Gaussian beam). It controls the phase structure
+     that a fibre sees, and the slope tip-tilt fit.
+  2. `speckle / dx`: the pixels for each intensity correlation length (about
+     `rho0` when the turbulence is strong, the Fresnel scale `sqrt(L/k)` when
+     it is weak). It controls the scintillation and the bucket fade.
+  3. `D / dx`: the pixels across the receive aperture. It controls every
+     pupil quantity (the clip, the coupling overlap, the modal fit).
+  4. `w0 / dx`: the pixels across the launch waist. It controls the screens
+     near the transmitter and the beam wander.
+  Two OUTPUT diagnostics that also work for any link, read from the stored
+  receive field: (a) the fraction of the angular-spectrum power near the grid
+  Nyquist frequency (the bandwidth criterion of Schmidt Ch. 7, applied to the
+  result, not to the input); (b) the wrapped phase step for each pixel (the
+  runner already warns at 2.8 rad).
+
+  THE METHOD. Run paired grids (dx and dx/2, the SAME side and the SAME screen
+  plan, `run.refined_grid`) on a FEW deliberately different links (aperture,
+  path, waist, Cn2). Plot the bias of each output (mean fibre loss, p95, p99,
+  bucket index, point index, mean eta) against the four ratios. If the bias of
+  an output COLLAPSES onto one curve of one ratio, that curve is the rule: a new
+  link computes its ratios, reads the expected bias, and takes the cheapest
+  grid inside a stated tolerance (for example 0.5 dB). Each comparison uses a
+  bootstrap SE of the DIFFERENCE (`compare_grids.py`), because the two grids
+  draw independent atmospheres. Link this to 2-I3: the shipped default must
+  not ask the user to trade accuracy, and this rule is how the grid half of
+  that promise gets a source.
+
+  THE DATA THAT EXISTS (2026-10-06). The 10 km horizontal link, collimated
+  9.08 mm (1/e^2 diameter) launch from 1 in into a 1 in aperture, 105 um MMF,
+  NA 0.22, L0 = 25 m (`validation/terrestrial_mmf_tiptilt/`):
+  - The 1000-trial PAIR at Cn2 = 1e-15 (sigma_R^2 = 1.36, 9 screens, dx 3.88
+    against 1.94 mm, aperture 6.6 against 13.1 px, rho0 about 17 against 35
+    px). The 2048 px grid reads OPTIMISTIC, value +/- bootstrap SE of the
+    difference: collected power -0.27 +/- 0.14 dB (4096 px matches vacuum
+    to 0.02 dB), mean eta +0.022 +/- 0.001 (20 sigma), mean fibre loss
+    -0.42 +/- 0.14 dB, p95 -0.57 +/- 0.49 dB, p99 -1.70 +/- 0.56 dB; the
+    tip-tilt gain does not move (0.09 dB). The owner reads this as SMALL
+    ENOUGH to accept 2048 px at that Cn2.
+  - The 1000-trial PAIR at Cn2 = 5e-15 (sigma_R^2 = 6.8, 18 screens, dx 4.34
+    against 2.17 mm, 2026-10-07). The bias CHANGES SIGN: the 2048 px grid now
+    reads PESSIMISTIC: collected power +0.68 +/- 0.27 dB, mean eta -0.028
+    +/- 0.005, mean fibre loss +0.89 +/- 0.29 dB, median +1.01 +/- 0.31 dB;
+    p95 (+0.32 +/- 0.47) and p99 (+0.41 +/- 1.32) agree inside the noise. The
+    4096 px bucket sits within about 1 sigma of vacuum plus the W_LT spread,
+    the 2048 px bucket about 2 sigma off. So the coarse-grid error is NOT a
+    fixed offset: a rule must bound its MAGNITUDE, not correct its sign.
+  - The 10-trial SMOKE pairs at all three Cn2 (`smoke.py`,
+    `analyse_smoke.py`). At 1e-14 the 2048 px grid gives 5.3 px across the
+    aperture and rho0 = 3.5 px; the point index reads 2.95 +/- 0.59 against
+    1.93 +/- 0.29 at 4096 px (Andrews 1.67), the bucket variance 1.85 +/-
+    0.75 against 0.34 +/- 0.11, and the slope tip-tilt FAILS (mean eta 0.154
+    against 0.504; it fits `SLOPE_MIN_MODES = 21` modes from about 22 pupil
+    pixels). So the 1e-15 verdict does NOT carry to strong turbulence.
+  - The two-pitch study `validation/terrestrial_sampling/` (Cn2 = 1e-14, 20
+    trials, flat 2048 / 4096 / 8192 px and Schmidt two-pitch routes).
+  - The terrestrial backbone (2-TC, 12 cells) and the 10 km screen-count
+    sweep (2-TC1) hold the screen axis only, one grid for each cell.
+
+  FIRST STEP (cheap, no GPU): compute the four ratios and the near-Nyquist
+  power for the pairs that exist, and check whether the biases order with one
+  ratio. Only then spend GPU hours: the 1e-14 pair of the MMF link (about
+  0.5 h at 2048 px and 2 h at 4096 px; the 4096 px run is also its production
+  run), then a few cheap pairs on other links to test the collapse.
+
+  ALSO NOTED: the slope tip-tilt needs a pixel-count guard. `SLOPE_MIN_MODES`
+  should not exceed a fraction of the pupil pixels (`olb/waveoptics/
+  turbulence/run.py`), or a coarse pupil corrupts the fit without a warning.
+  The G-tilt column in `run.summarise` is the cross-check until then.
 - **2-I4. DONE (2026-09-09). The fidelity-2 entry points are UNIFIED behind a
   validated run-option pass-through.** The atmosphere and numeric options now
   have ONE owner: `olb.waveoptics.turbulence.run.RUN_OPTIONS`, the list the
