@@ -44,13 +44,17 @@ from olb.scenario import TerrestrialScenario, TerrestrialChannel
 from olb.geometry import HorizontalPath
 from olb.terminal import Terminal, Transmitter, MMF
 from olb.models.coupling import terrestrial_mmf_coupling_term
-from olb.models.coupling.terrestrial import _spot_offset_sigma, _mmf_focal_length
+from olb.models.coupling.terrestrial import _spot_offset_sigma
 from olb.links.bidirectional import defocused_terminal, bidirectional_terrestrial
 
 LAM = 1550e-9
 D_RX = 0.025                 # far aperture diameter [m]
 A_CORE = 25e-6            # multimode-fibre core radius [m]
 L_PATH = 1e3             # horizontal path length [m]
+# The focal length that matches the focal spot to the core (a = 1.12, Shaklan
+# and Roddier, DOI 10.1364/AO.27.002334). An MMF focal length is a design
+# input; this study keeps the value it was run with.
+F_MMF = np.pi * (D_RX / 2.0) * A_CORE / (LAM * 1.12)
 
 
 def _mmf_scenario(dz, *, jitter, cn2, focal_length):
@@ -76,8 +80,7 @@ def _mmf_term(dz, *, jitter=1e-6, cn2=1e-16, focal_length):
 
 
 def main():
-    # Optimal-focus focal length so the focal spot matches the core (a=1.12).
-    f = _mmf_focal_length(MMF(core_radius_m=A_CORE, optimal_focus=True), D_RX, LAM)
+    f = F_MMF
     w_s = LAM * f / (np.pi * (D_RX / 2.0))
     print(f"MMF receiver: D={D_RX} m, core radius={A_CORE * 1e6:.0f} um, "
           f"f={f:.2f} m, focal spot w_s={w_s * 1e6:.1f} um")
@@ -142,11 +145,11 @@ def main():
     print("(d) bidirectional wrapper: one dz drives divergence AND defocus:")
     near = Terminal(aperture_m=0.2, wavelength_m=LAM, pointing_jitter_rad=2e-6,
                     transmitter=Transmitter(waist_m=0.05, power_dbm=30),
-                    detector=MMF(core_radius_m=A_CORE, optimal_focus=True,
+                    detector=MMF(core_radius_m=A_CORE, focal_length_m=F_MMF,
                                  sensitivity_dbm=-38))
     far = Terminal(aperture_m=0.2, wavelength_m=LAM, pointing_jitter_rad=2e-6,
                    transmitter=Transmitter(waist_m=0.05, power_dbm=30),
-                   detector=MMF(core_radius_m=A_CORE, optimal_focus=True,
+                   detector=MMF(core_radius_m=A_CORE, focal_length_m=F_MMF,
                                 sensitivity_dbm=-38))
     chan = TerrestrialChannel(path_length_m=L_PATH, attenuation_db_per_km=0.5,
                               cn2=1e-16)

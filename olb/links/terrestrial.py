@@ -905,13 +905,18 @@ if __name__ == '__main__':
     # The MMF core coupling is now routed into the fidelity-2 budget. The
     # detector defocus grows the spot, which folds into the per-trial mmf_eta in
     # the run, so the coupling loss grows off the true focus.
+    # The MMF test optic: the spot matched to the 25 um core behind the 0.2 m
+    # aperture (a_core/w_s = 1.12), so a tip-tilt walks it off. An MMF focal
+    # length is a design input; this one keeps the asserted numbers.
+    F_MMF_TEST = np.pi * 0.1 * 25e-6 / (1550e-9 * 1.12)
+
     def _f2_mmf(defocus_m=0.0):
         s = TerrestrialScenario(
             near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
                           transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
             far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
                          pointing_jitter_rad=5e-6,
-                         detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                         detector=MMF(core_radius_m=25e-6, focal_length_m=F_MMF_TEST,
                                       defocus_m=defocus_m, sensitivity_dbm=-38)),
             channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
                                        cn2=1e-14))
@@ -950,7 +955,7 @@ if __name__ == '__main__':
                           transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
             far=Terminal(aperture_m=0.2, wavelength_m=1550e-9,
                          pointing_jitter_rad=5e-6,
-                         detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                         detector=MMF(core_radius_m=25e-6, focal_length_m=F_MMF_TEST,
                                       sensitivity_dbm=-38)),
             channel=TerrestrialChannel(path_length_m=3e3,
                                        attenuation_db_per_km=0.5, cn2=1e-14))
@@ -973,17 +978,17 @@ if __name__ == '__main__':
               f"{m_focus.mean_db:.2f} dB)")
 
     # --- MMF (multimode-fibre light bucket) ---------------------------------
-    def _mmf(core_radius=25e-6, focal=None, jitter=5e-6, far_aperture=0.2,
-             cn2=1e-15, optimal_focus=True):
-        # optimal_focus fills the spot to the core, so a tip-tilt walks it off and
-        # the Term carries a real fade. A weak Cn2 keeps the offset moderate.
+    def _mmf(core_radius=25e-6, focal=F_MMF_TEST, jitter=5e-6, far_aperture=0.2,
+             cn2=1e-15):
+        # The spot fills the core, so a tip-tilt walks it off and the Term
+        # carries a real fade. A weak Cn2 keeps the offset moderate.
         scn = TerrestrialScenario(
             near=Terminal(aperture_m=0.3, wavelength_m=1550e-9,
                           transmitter=Transmitter(waist_m=0.02, power_dbm=30)),
             far=Terminal(aperture_m=far_aperture, wavelength_m=1550e-9,
                          pointing_jitter_rad=jitter,
                          detector=MMF(core_radius_m=core_radius, focal_length_m=focal,
-                                      optimal_focus=optimal_focus, sensitivity_dbm=-38)),
+                                      sensitivity_dbm=-38)),
             channel=TerrestrialChannel(path_length_m=3e3, attenuation_db_per_km=0.5,
                                        cn2=cn2))
         return terrestrial_budget(scn, HorizontalPath(3e3))

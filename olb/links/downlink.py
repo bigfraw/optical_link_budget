@@ -826,7 +826,10 @@ if __name__ == '__main__':
     # baseline is subtracted.
     from ..terminal import MMF
     scn_mmf = _dl(Terminal(aperture_m=0.5, wavelength_m=lam,
-                           detector=MMF(core_radius_m=25e-6, optimal_focus=True,
+                           detector=MMF(core_radius_m=25e-6,
+                                        # the old core-matched f (a = 1.12)
+                                        focal_length_m=np.pi * 0.25 * 25e-6
+                                        / (lam * 1.12),
                                         numerical_aperture=0.2,
                                         sensitivity_dbm=-110)),
                   power=30)

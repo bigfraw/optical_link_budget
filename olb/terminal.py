@@ -215,8 +215,11 @@ class MMF:
         core_radius_m : float
             Core RADIUS of the multimode fibre in the fibre plane [m].
         focal_length_m : float, optional
-            Focal length of the fibre-coupling optic [m]. None needs
-            optimal_focus=True to derive it.
+            Focal length of the fibre-coupling optic [m]. Every coupling Term
+            needs it, and None raises there. An MMF has NO optimal_focus: the
+            old rule matched the spot to the CORE, and a multimode light bucket
+            captures more at a shorter f, up to the numerical aperture, so the
+            focal length is a design input (removed 2026-10-07).
         numerical_aperture : float, optional
             Fibre numerical aperture NA = n*sin(theta_a) (about 0.2 for a common
             step-index MMF). None turns the angular gate OFF, so the coupling is the
@@ -225,15 +228,6 @@ class MMF:
             within the acceptance cone is min(1, (NA/NA_optic)^2), NA_optic=(D/2)/f.
         sensitivity_dbm : float, optional
             Required received power [dBm]. None if only losses matter.
-        optimal_focus : bool
-            Design the fibre-coupling optic to match the spot to the core. When
-            True the model derives the focal length so the spot radius is the core
-            radius over 1.12 (the same a=1.12 that a single-mode fibre uses):
-            f = pi*(D/2)*core_radius_m/(lambda*1.12). This gives about 92% static
-            capture. It is a geometric spot-to-core match, NOT a mode-overlap
-            optimum: a shorter focal length captures more, but the angular limit
-            (numerical_aperture) then gates the extra capture. Set focal_length_m
-            to override the derived value.
         defocus_m : float
             Detector offset from the design focus [m]. The detector sits at
             z = f + defocus_m, so 0.0 puts it at focus. A nonzero value moves the
@@ -249,9 +243,19 @@ class MMF:
     focal_length_m: Optional[float] = None
     numerical_aperture: Optional[float] = None
     sensitivity_dbm: Optional[float] = None
-    optimal_focus: bool = False
     defocus_m: float = 0.0
     frac: Optional[float] = None
+
+    def __repr__(self):
+        # A campaign fingerprint holds this text. The removed optimal_focus
+        # field (2026-10-07) stays in it as False, so every stored key of an
+        # MMF with an explicit focal length stays the text of the old repr.
+        out = []
+        for f in fields(self):
+            out.append(f"{f.name}={getattr(self, f.name)!r}")
+            if f.name == "sensitivity_dbm":
+                out.append("optimal_focus=False")
+        return "MMF(" + ", ".join(out) + ")"
 
 
 @dataclass
@@ -506,16 +510,16 @@ if __name__ == '__main__':
     assert isinstance(mmf.detector, MMF)
     assert mmf.detector.core_radius_m == 25e-6 and mmf.detector.focal_length_m == 0.05
     assert mmf.detector.sensitivity_dbm == -38.0
-    assert mmf.detector.optimal_focus is False   # bare MMF is unchanged
+    assert not hasattr(mmf.detector, "optimal_focus")   # a design input only
+    # The repr keeps the old text, so a stored campaign key does not move.
+    assert repr(MMF(core_radius_m=2.5e-05, focal_length_m=0.1)) == (
+        "MMF(core_radius_m=2.5e-05, focal_length_m=0.1, numerical_aperture=None, "
+        "sensitivity_dbm=None, optimal_focus=False, defocus_m=0.0, frac=None)")
     assert mmf.detector.numerical_aperture is None   # angular gate off by default
     assert mmf.detector.defocus_m == 0.0 and MMF(core_radius_m=25e-6).defocus_m == 0.0
     # A numerical aperture turns on the angular acceptance gate.
     mmf_na = MMF(core_radius_m=25e-6, focal_length_m=0.05, numerical_aperture=0.2)
     assert mmf_na.numerical_aperture == 0.2
-
-    # optimal_focus derives the focal length, so only the core radius is needed.
-    mmf_focus = MMF(core_radius_m=25e-6, optimal_focus=True)
-    assert mmf_focus.focal_length_m is None and mmf_focus.optimal_focus is True
 
     # A Camera carries a pixel scale and a pixel count. The optics fields default
     # to None / 0.0, so a bare Camera is a sensor with no plate scale.

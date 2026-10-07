@@ -449,7 +449,7 @@ if __name__ == '__main__':
     from ...terminal import MMF
     scn_mmf = _downlink(Terminal(aperture_m=0.7, wavelength_m=lam,
                                  detector=MMF(core_radius_m=25e-6,
-                                              optimal_focus=True)))
+                                              focal_length_m=1.0)))
     try:
         downlink_coupling_term(scn_mmf, geom, hs=hs)
         raise AssertionError("an MMF detector must raise NotImplementedError")

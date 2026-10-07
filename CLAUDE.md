@@ -40,7 +40,12 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   `defocus_m`;
   `MMF` is a light bucket with `core_radius_m`, `focal_length_m`, an optional
   `numerical_aperture` (the angular acceptance gate; None keeps the old
-  spatial-only coupling), `optimal_focus`, and `defocus_m`; `Camera` is a
+  spatial-only coupling), and `defocus_m`. An `MMF` has NO `optimal_focus`
+  (removed 2026-10-07): the old rule matched the spot to the CORE, which is the
+  wrong target for a light bucket (a shorter f captures more, up to the NA
+  gate), so its `focal_length_m` is a design input and None raises in every
+  coupling Term; its `repr` still writes `optimal_focus=False`, so no stored
+  campaign key moves. `Camera` is a
   focal-plane array with `pixel_pitch_m`, `n_pixels`, `focal_length_m`, and
   `defocus_m`), and a
   `compensation` stack (`TipTilt`, `AO`), and an optional `retroreflector`

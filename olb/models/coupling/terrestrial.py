@@ -13,8 +13,9 @@ DIVERGING Gaussian, not a plane wave. So the true focus behind a coupling lens o
 focal length f is at z = f + dz_curv, with dz_curv = f^2/(R_rx - f). Every Term
 here ALWAYS charges that curvature defocus, at the ACTUAL fibre plane: the
 detector sits at z = f + defocus_m, so its distance from the true focus is
-dz_eff = defocus_m - dz_curv. The optimal_focus flag keeps its meaning (a
-focal-LENGTH rule) and never moves the detector. Use curvature_focus_shift to get
+dz_eff = defocus_m - dz_curv. The SMF optimal_focus flag keeps its meaning (a
+focal-LENGTH rule) and never moves the detector. An MMF has no such flag: its
+focal length is a design input. Use curvature_focus_shift to get
 dz_curv and set detector.defocus_m to it for a coupler aligned on the true focus.
 
 Sources:
@@ -83,31 +84,6 @@ def _smf_optics(detector, D, wavelength):
             # Optimal focus: pick f so a=SMF_OPTIMAL_A (the eta_max peak).
             f = np.pi * (D / 2.0) * w_m / (wavelength * SMF_OPTIMAL_A)
     return f, w_m
-
-
-def _mmf_focal_length(detector, D, wavelength):
-    '''
-    Resolve the focal length of a multimode-fibre detector, honouring optimal_focus.
-
-    An explicit focal_length_m always wins. With optimal_focus the model matches
-    the spot to the core: it picks f so the spot radius is the core radius over
-    SMF_OPTIMAL_A, that is a_core/w_s = SMF_OPTIMAL_A. So
-        f = pi*(D/2)*a_core / (lambda*SMF_OPTIMAL_A).
-    This is a geometric spot-to-core match (about 92% static capture), NOT a
-    mode-overlap optimum: a shorter f captures more, up to the practical numerical
-    aperture. Source of the a parameter: Shaklan and Roddier, Appl. Opt. 27 (1988)
-    2334, DOI 10.1364/AO.27.002334.
-
-    Returns:
-        float or None
-            The focal length [m], or None when the detector sets neither an
-            explicit focal length nor optimal_focus.
-    '''
-    if detector.focal_length_m is not None:
-        return detector.focal_length_m
-    if getattr(detector, "optimal_focus", False):
-        return np.pi * (D / 2.0) * detector.core_radius_m / (wavelength * SMF_OPTIMAL_A)
-    return None
 
 
 # --- the received-curvature focus shift --------------------------------------
@@ -195,7 +171,7 @@ def curvature_focus_shift(scenario):
     if isinstance(detector, SMF):
         f, _ = _smf_optics(detector, rx.aperture_m, rx.wavelength_m)
     elif isinstance(detector, MMF):
-        f = _mmf_focal_length(detector, rx.aperture_m, rx.wavelength_m)
+        f = detector.focal_length_m
     else:
         raise ValueError(
             "curvature_focus_shift needs an SMF or MMF detector on the receive "
@@ -203,7 +179,7 @@ def curvature_focus_shift(scenario):
     if f is None:
         raise ValueError(
             "curvature_focus_shift needs the coupling focal length. Set "
-            "focal_length_m, or set optimal_focus=True.")
+            "focal_length_m (or SMF.optimal_focus=True).")
     return _received_curvature(scenario, f)[1]
 
 
@@ -936,12 +912,12 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
             "terrestrial_mmf_coupling_term needs an MMF detector on the far terminal.")
     D = rx.aperture_m
     wavelength = rx.wavelength_m
-    f = _mmf_focal_length(detector, D, wavelength)
+    f = detector.focal_length_m
     if f is None:
         raise ValueError(
-            "terrestrial_mmf_coupling_term needs a focal length to map a tip-tilt "
-            "to a focal-plane displacement. Set MMF.focal_length_m, or set "
-            "MMF.optimal_focus=True to match the spot to the core."
+            "terrestrial_mmf_coupling_term needs MMF.focal_length_m, a design "
+            "input. A multimode light bucket captures more at a shorter f, up "
+            "to the numerical aperture, so no rule picks it for you."
         )
     a_core = detector.core_radius_m
     dz = float(detector.defocus_m)
@@ -1048,8 +1024,7 @@ def terrestrial_mmf_coupling_term(scenario, geometry, *, n_grid=64, turbulence=T
                  "displacement uses the ray-optics chief-ray lever "
                  "(f+dz)*theta with the PHYSICAL dz (Andrews and "
                  "Phillips 2005, Ch. 4, DOI 10.1117/3.626196; ray-optics chief-ray "
-                 "of a thin lens). optimal_focus is a focal-LENGTH rule; it never "
-                 "moves the detector. The "
+                 "of a thin lens). The "
                  "received tilt is the aperture angle of arrival at the "
                  "Gaussian r0 with the site outer scale (a weak-turbulence form, "
                  "tracked by a tip-tilt or AO "
@@ -1197,8 +1172,10 @@ if __name__ == '__main__':
     etas = _mmf_encircled_efficiency(offs, 8e-6, a_core)
     assert np.all(np.diff(etas) < 0.0), etas
 
-    # An MMF Term at optimal focus, so a tip-tilt walks it off. A real fade.
-    mmf = MMF(core_radius_m=a_core, optimal_focus=True, sensitivity_dbm=-38)
+    # An MMF Term with the spot matched to the core (a_core/w_s = 1.12), so a
+    # tip-tilt walks it off. A real fade.
+    f_mmf = np.pi * (D_test / 2.0) * a_core / (lam * 1.12)
+    mmf = MMF(core_radius_m=a_core, focal_length_m=f_mmf, sensitivity_dbm=-38)
     t_mmf = terrestrial_mmf_coupling_term(_terr(mmf, jitter=10e-6, cn2=1e-15), hpath)
     assert t_mmf.name == "receive coupling (MMF)" and t_mmf.category == "coupling"
     assert t_mmf.stochastic and t_mmf.quantile is not None and not t_mmf.mean_only
@@ -1208,13 +1185,7 @@ if __name__ == '__main__':
     t_mmf_calm = terrestrial_mmf_coupling_term(
         _terr(mmf, jitter=2e-6, cn2=1e-15), hpath)
     assert t_mmf.mean_db > t_mmf_calm.mean_db               # more jitter, more loss
-    # optimal_focus derives f to match the spot to the core (a_core/w_s=1.12).
-    f_mmf = np.pi * (D_test / 2.0) * a_core / (lam * 1.12)
-    t_explicit = terrestrial_mmf_coupling_term(
-        _terr(MMF(core_radius_m=a_core, focal_length_m=f_mmf), jitter=10e-6,
-              cn2=1e-15), hpath)
     assert np.isclose(t_mmf.meta["focal_length_m"], f_mmf)
-    assert np.isclose(t_mmf.mean_db, t_explicit.mean_db)
     # The received curvature is ALWAYS charged, so a fibre AT the focal plane is
     # dz_curv away from the true focus and does NOT reach the flat-wavefront
     # a_core/w_s=1.12 value. Move the fibre to the true focus and it does.
@@ -1247,7 +1218,7 @@ if __name__ == '__main__':
     assert np.isclose(t_tight_na.mean_db - t_mmf.mean_db, -10.0 * np.log10(0.25), atol=1e-6)
     assert any("does not guide the steep rays" in v
                for v in t_tight_na.assumptions.violations)
-    # An MMF with no focal length and no optimal_focus is refused.
+    # An MMF with no focal length is refused.
     try:
         terrestrial_mmf_coupling_term(_terr(MMF(core_radius_m=a_core)), hpath)
         raise AssertionError("MMF without a focal length must raise")

@@ -24,6 +24,7 @@ validation/campaign_resources/campaign_*/
 examples/waveoptics/_campaigns/
 validation/terrestrial_campaigns/campaigns/
 validation/terrestrial_screen_count/campaigns/
+validation/terrestrial_mmf_tiptilt/campaigns/
 validation/gpu_fft/_campaigns/
 validation/waveoptics_ao/campaigns/
 validation/posthoc_speed/campaigns/

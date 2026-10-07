@@ -249,7 +249,7 @@ def defocus_phase(field, defocus_m, focal_length_m):
     if focal_length_m is None:
         raise ValueError(
             'defocus_phase: a non-zero defocus needs a focal length. Set the '
-            'detector focal_length_m, or set optimal_focus=True.')
+            'detector focal_length_m (or SMF.optimal_focus=True).')
     return np.exp(-1j * np.pi * defocus_m * field.mgrid_Rsquared
                   / (field.lam * focal_length_m ** 2))
 
@@ -500,6 +500,11 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
     # pupil is already fine. See _resolve_auto_factor.
     upsample = _resolve_auto_factor(upsample, field, aperture_m, core_radius_m,
                                     focal_length_m, numerical_aperture, mask)
+    # A field with MARGIN past the aperture is not clipped yet, so clip it here
+    # at EVERY M. Before this guard an "auto" call that resolved to M=1 from
+    # the geometry (a fine pupil, an open NA gate) coupled the whole margined
+    # patch. A pre-clipped field has no margin, so its path does not change.
+    clip_here = mask is None and _has_margin(field, aperture_m)
 
     if upsample != 1:
         # The fine grid cannot read a coarse mask, and a mask before the
@@ -512,6 +517,7 @@ def mmf_coupling_efficiency(field, aperture_m, core_radius_m, focal_length_m,
                 'Pass the unmasked field with margin beyond the aperture; the '
                 'aperture clip is built internally from aperture_m.')
         field = _upsampled_field(field, upsample)
+    if upsample != 1 or clip_here:
         # The ANNULAR aperture clip on the fine grid: it keeps the pixels
         # (aperture_m/2)^2 >= rho^2 >= (obscuration_ratio*aperture_m/2)^2. With
         # obscuration_ratio=0.0 (the default) the lower bound is zero, so it is
@@ -760,6 +766,21 @@ if __name__ == '__main__':
     # upsample=1 is the DEFAULT and it is bit-identical to a plain call, so the
     # earlier assertions above already prove the default path is unchanged.
     assert mmf_coupling_efficiency(flat, D, a_large, f, upsample=1) == eta_large
+
+    # A MARGINED field that "auto" resolves to M=1 from the geometry (a fine
+    # pupil, an open NA gate) is still clipped at the aperture: it equals the
+    # same field with an explicit aperture mask.
+    # (The 10 km terrestrial MMF case: D = 25.4 mm, a 52.5 um core, the
+    # optimal-focus f = 1.207 m, a 1 mm pupil pixel.)
+    D_m, a_m, f_m = 0.0254, 52.5e-6, 1.207
+    pad = Begin(0.256, 1550e-9, 256)
+    rho2_p = pad.mgrid_Rsquared
+    pad.field = (rho2_p <= (1.5 * D_m / 2) ** 2).astype(complex)
+    assert _resolve_auto_factor('auto', pad, D_m, a_m, f_m, 0.22, None) == 1
+    e_auto = mmf_coupling_efficiency(pad, D_m, a_m, f_m, numerical_aperture=0.22)
+    e_mask = mmf_coupling_efficiency(pad, D_m, a_m, f_m, numerical_aperture=0.22,
+                                     mask=rho2_p <= (D_m / 2) ** 2)
+    assert e_auto == e_mask, (e_auto, e_mask)
 
     # A mask with upsample > 1 raises in BOTH functions: the coarse mask cannot
     # map to the fine grid, and the aperture clip is built internally.
