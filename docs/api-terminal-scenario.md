@@ -93,6 +93,7 @@ truncation then reads the transmitter values. The `Terminal` `aperture_m` and
 | `aperture_m` | float or None | m | `None` | Transmit (beam director) aperture diameter. None means the transmitter shares the owning `Terminal` aperture (monostatic). |
 | `obscuration_ratio` | float or None | — | `None` | Central obscuration ratio of the transmit aperture. None means the transmitter shares the owning `Terminal` `obscuration_ratio`. Set 0.0 for an unobscured beam director on a terminal whose receive telescope is obscured. |
 | `shift_m` | tuple or None | m | `None` | The (x, y) offset of the transmit aperture centre from the `Terminal` aperture centre: a SIDE-MOUNTED beam director. None is a co-axial launch. Only the fidelity-2 uplink reads it. |
+| `tilt_deg` | float or None | deg | `None` | The angle at which the launch sees its circular aperture (a window or a fold). The clip is then the projected ELLIPSE of semi-axes a cos(tilt_deg) along x and a along y. None is the circle. Only the fidelity-2 launch reads it. |
 
 Constraints:
 
@@ -105,6 +106,9 @@ Constraints:
   raises, because a higher mode fitted over one pupil does not describe another.
 - The repr omits an unset `shift_m`, so the fingerprint of every co-axial
   campaign does not change.
+- `tilt_deg` must be in [0, 90). The analytic truncation Terms
+  (`tx_gaussian_efficiency_term`, `uplink_fast_term`) raise on a tilt, and the
+  repr omits an unset tilt, so no stored campaign key moves.
 
 ### Detectors
 

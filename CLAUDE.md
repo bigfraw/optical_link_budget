@@ -34,7 +34,10 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   an optional `Transmitter` (`waist_m`, `power_dbm`, `m2`, `divergence_rad`,
   and the bistatic `aperture_m`/`obscuration_ratio`/`shift_m`; `shift_m` is a
   SIDE-MOUNTED launch that takes tip-tilt pre-compensation only, and its repr
-  omits an unset shift so no stored campaign key moves), an
+  omits an unset shift so no stored campaign key moves; `tilt_deg` views the
+  launch aperture at an angle, so the fidelity-2 launch clips the projected
+  ellipse, the analytic truncation Terms raise on it, and its repr omits an
+  unset tilt too), an
   optional `Detector` (`Aperture`, `SMF`, or `MMF`, each with `sensitivity_dbm`;
   `SMF` also carries `focal_length_m`, `mode_field_radius_m`, `optimal_focus`, and
   `defocus_m`;

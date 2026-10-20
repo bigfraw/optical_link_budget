@@ -80,6 +80,13 @@ class Transmitter:
             and applied as a plane over the shifted disc. A higher-order
             modal fit does not carry from one pupil to another, so a stack
             that removes more than 3 Noll modes raises.
+        tilt_deg : float, optional
+            The angle [deg] at which the launch sees its circular aperture
+            (for example a window or a fold at 45 deg). The clip is then the
+            projected ELLIPSE of semi-axes a cos(tilt_deg) along x and a
+            along y, with a the aperture radius. None (the default) is the
+            circle. Only the fidelity-2 launch reads it; the analytic
+            truncation Terms raise on it.
     '''
     waist_m: float
     power_dbm: Optional[float] = None
@@ -88,14 +95,16 @@ class Transmitter:
     aperture_m: Optional[float] = None
     obscuration_ratio: Optional[float] = None
     shift_m: Optional[tuple] = None
+    tilt_deg: Optional[float] = None
 
     def __repr__(self):
-        # A campaign fingerprint holds this text. An unset shift adds nothing,
-        # so the text of every co-axial launch (and every stored key) stays
-        # the text of the generated dataclass repr.
+        # A campaign fingerprint holds this text. An unset shift or tilt adds
+        # nothing, so the text of every co-axial circular launch (and every
+        # stored key) stays the text of the generated dataclass repr.
         return "Transmitter(" + ", ".join(
             f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
-            if f.name != "shift_m" or self.shift_m is not None) + ")"
+            if f.name not in ("shift_m", "tilt_deg")
+            or getattr(self, f.name) is not None) + ")"
 
 
 # --- Detector front ends ----------------------------------------------------

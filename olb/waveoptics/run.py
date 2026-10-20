@@ -118,6 +118,30 @@ def _clip(Fin, aperture_m, obscuration_ratio):
     return Fout
 
 
+def _launch_clip(Fin, tx):
+    """Clip a field at the launch aperture of a transmitting Terminal.
+
+    It is the circular `_clip` of `_launch_aperture`. A Transmitter.tilt_deg
+    views that circle at an angle, so the clip is the orthographic projection
+    of the circle: the ellipse (x / (a cos t))^2 + (y / a)^2 <= 1, with a the
+    aperture radius (the projected area is A cos t; Born and Wolf,
+    DOI 10.1017/CBO9781139644181, Sec. 4.8). The ellipse sits inside the
+    circle, so the circular pixels of every other clip do not change.
+    """
+    aperture_m, obscuration = _launch_aperture(tx)
+    Fout = _clip(Fin, aperture_m, obscuration)
+    tilt = tx.transmitter.tilt_deg
+    if tilt is None:
+        return Fout
+    if not 0.0 <= tilt < 90.0:
+        raise ValueError(f"Transmitter.tilt_deg must be in [0, 90), not {tilt}.")
+    a = aperture_m / 2
+    Y, X = Fout.mgrid_cartesian
+    Fout.field = Fout.field * ((X / (a * np.cos(np.radians(tilt)))) ** 2
+                               + (Y / a) ** 2 <= 1.0)
+    return Fout
+
+
 def _smf_focal_length(detector, aperture_m, lam):
     """Give the focal length of the single-mode-fibre coupling optic, in m.
 
@@ -242,8 +266,7 @@ def propagate_scenario(scenario, geometry, grid=None, precision="single"):
     power_launch = Power(launch)
 
     # ---- the launch-aperture clip ----
-    tx_aperture_m, tx_obscuration = _launch_aperture(tx)
-    clipped = _clip(launch, tx_aperture_m, tx_obscuration)
+    clipped = _launch_clip(launch, tx)
     power_clipped = Power(clipped)
     tx_truncation_db = _loss_db(power_clipped, power_launch)
 
@@ -334,6 +357,32 @@ if __name__ == '__main__':
     # The launch is normal. The default is single precision, so the power
     # holds to about 1e-7, not 1e-9.
     assert abs(Power(far.stages[0][1]) - 1.0) < 1e-5
+
+    # ---- case 1b: the launch seen at an angle (Transmitter.tilt_deg) ----
+    # waist 40 mm, aperture 100 mm. tilt 0 is the circle; tilt 45 clips the
+    # projected ellipse, and its loss matches a fine integral of the Gaussian
+    # over that ellipse. An unset tilt leaves the repr (the campaign key) alone.
+    assert "tilt_deg" not in repr(Transmitter(waist_m=0.04))
+
+    def tilted(tilt):
+        scn = TerrestrialScenario(
+            near=Terminal(aperture_m=0.10, wavelength_m=lam,
+                          transmitter=Transmitter(waist_m=0.04, tilt_deg=tilt)),
+            far=Terminal(aperture_m=0.20, wavelength_m=lam),
+            channel=TerrestrialChannel(path_length_m=30e3))
+        return propagate_scenario(scn, HorizontalPath(30e3),
+                                  grid=GridSpec(4.0, 2048)).tx_truncation_db
+
+    xf = np.linspace(-0.05, 0.05, 4001)
+    Xf, Yf = np.meshgrid(xf, xf)
+    gf = np.exp(-2 * (Xf ** 2 + Yf ** 2) / 0.04 ** 2)
+    ell = (Xf / (0.05 * np.cos(np.radians(45)))) ** 2 + (Yf / 0.05) ** 2 <= 1
+    want = -10 * np.log10(gf[ell].sum() * (xf[1] - xf[0]) ** 2
+                          / (np.pi * 0.04 ** 2 / 2))
+    t0, t45 = tilted(0.0), tilted(45.0)
+    assert abs(t0 - tilted(None)) < 1e-6, (t0, tilted(None))
+    assert abs(t45 - want) < 0.03, (t45, want)
+    assert t45 > t0 + 0.3, (t45, t0)
 
     # ---- case 2: near field, hard truncation ----
     # waist 120 mm, tx aperture 150 mm (alpha = 0.625), range 1 km. The

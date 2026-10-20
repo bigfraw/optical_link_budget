@@ -456,6 +456,10 @@ def uplink_fast_term(scenario, geometry, *, hs=None, cn2_profile=None,
             "terminal; an empty list is the uncorrected (NOAO) launch."
         )
 
+    if tx.transmitter.tilt_deg is not None:
+        raise NotImplementedError(
+            "uplink_fast_term models a circular launch aperture; "
+            "Transmitter.tilt_deg (an elliptical clip) is fidelity 2 only.")
     # Bistatic override (see olb.terminal.Transmitter): the Transmitter values
     # win when they are set, else the owning Terminal values apply.
     D = (tx.transmitter.aperture_m if tx.transmitter.aperture_m is not None

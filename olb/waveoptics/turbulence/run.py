@@ -49,8 +49,8 @@ from ..mmf import defocus_phase as mmf_defocus_phase
 from ..mmf import mmf_coupling_efficiency
 from ..priority import boost_process_priority
 from ..propagators import GForvard, set_fft_backend, xp
-from ..run import (_clip, _launch_aperture, _normalised_gauss, _smf_eta,
-                   _smf_focal_length)
+from ..run import (_clip, _launch_aperture, _launch_clip, _normalised_gauss,
+                   _smf_eta, _smf_focal_length)
 from ..sources import GaussBeam
 from .sampling import PRESETS, resolve_outer_scale, turbulent_grid
 from .screens import ScreenFactory, phase_screen
@@ -1484,7 +1484,7 @@ def _start_field(scenario, grid, lam, is_space, dtype=np.complex128,
                                            dtype=dtype), w_v))
     if offset > 0:
         F0 = GForvard(F0, offset)
-    return _clip(F0, *_launch_aperture(tx))
+    return _launch_clip(F0, tx)
 
 
 def _tx_shift_px(ground, pixel_m):
@@ -1567,8 +1567,7 @@ def _ground_transmit_mode(ground, grid, dtype=np.complex128):
                                           dtype=dtype), w_v))
     if offset > 0:
         F = GForvard(F, offset)
-    aperture_m, obscuration = _launch_aperture(ground)
-    psi = _clip(F, aperture_m, obscuration).field
+    psi = _launch_clip(F, ground).field
     psi = psi / np.sqrt((np.abs(psi) ** 2).sum())
     # A SIDE-MOUNTED launch (Transmitter.shift_m) sits off the centre. The
     # mode is zero outside its disc, so a roll moves it with no wrap while the

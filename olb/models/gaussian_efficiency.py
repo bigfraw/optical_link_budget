@@ -203,6 +203,10 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
     '''
     tx = scenario.tx_terminal
     t = tx.transmitter
+    if t.tilt_deg is not None:
+        raise NotImplementedError(
+            "tx_gaussian_efficiency_term models a circular launch aperture; "
+            "Transmitter.tilt_deg (an elliptical clip) is fidelity 2 only.")
     waist_m = t.waist_m
     # Bistatic override: a Transmitter may carry its own beam-director aperture
     # and obscuration. When either is None, fall back to the owning Terminal
