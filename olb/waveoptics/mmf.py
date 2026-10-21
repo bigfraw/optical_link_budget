@@ -190,7 +190,10 @@ def _fourier_upsample(E, factor):
     nf = factor * n
     spectrum = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(E)))
     padded = np.zeros((nf, nf), dtype=spectrum.dtype)
-    lo = (nf - n) // 2
+    # The spectrum centre (n // 2) must land on the new centre (nf // 2). For
+    # an ODD n, (nf - n) // 2 sits one bin short, which is a linear phase ramp
+    # of one cycle over the grid side (lam / side of tilt).
+    lo = nf // 2 - n // 2
     padded[lo:lo + n, lo:lo + n] = spectrum
     e_up = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(padded)))
     return e_up * (factor * factor)
@@ -893,4 +896,11 @@ if __name__ == '__main__':
           f"{auto_etas.max():.4f}  (analytic {eta_analytic:.4f})")
     print(f"  obscured (0.3) annular     {eta_obsc:.4f}  (full disc "
           f"{eta_disc:.4f})")
+    # An ODD grid must upsample with no phase ramp: a flat Gaussian stays flat.
+    xo = np.arange(33) - 16
+    go = np.exp(-(xo[:, None] ** 2 + xo[None, :] ** 2) / 40.0).astype(complex)
+    uo = _fourier_upsample(go, 4)
+    ramp = np.abs(np.angle(uo[np.abs(uo) > 0.1 * np.abs(uo).max()])).max()
+    assert ramp < 1e-9, f"odd-grid upsample phase ramp {ramp:.3g} rad"
+    print(f"  odd-grid upsample (33 px)  max phase {ramp:.1e} rad")
     print("mmf coupling self-check passed")
