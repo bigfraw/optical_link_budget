@@ -529,6 +529,13 @@ receive-aperture clip, and the fibre coupling. `grid=None` derives the grid with
 A deliberately diverged beam starts at a virtual waist behind the aperture (see
 `olb.beam`). Then the beam has the asked-for radius in the aperture plane.
 
+A `Transmitter.tilt_deg` views the circular launch aperture at an angle (a
+window or a fold). The launch clip is then the projected ellipse
+`(x / (a cos t))^2 + (y / a)^2 <= 1`, with `a` the aperture radius (Born and
+Wolf, DOI 10.1017/CBO9781139644181, Sec. 4.8). The ellipse sits inside the
+circle. The turbulent runner (Section 9d) starts from the same clipped launch.
+An unset tilt gives the circle and changes no campaign key.
+
 The propagation step selects one of three routes: the exact ABCD route, the flat
 `Fresnel` convolution, or the co-moving lens recipe. `GridSpec.for_scenario()`
 selects the grid route, and `grid.scaled` records it. See Section 7.

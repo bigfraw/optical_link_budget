@@ -172,6 +172,9 @@ A spoiled (dihedral-offset) cube is not built.
 #### Assumptions and limits
 
 - Paraxial beam. No turbulence.
+- A circular launch aperture only. A `Transmitter.tilt_deg` (the aperture
+  seen at an angle, an elliptical clip) raises `NotImplementedError`; only the
+  fidelity-2 launch models it (`docs/api-waveoptics.md` Section 6).
 - WITHOUT a geometry: the on-axis far-field gain above, referenced to the
   untruncated source.
 - WITH a geometry (every budget passes one; 2026-10-26): the EXACT paraxial
