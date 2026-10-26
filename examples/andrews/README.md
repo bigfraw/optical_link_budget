@@ -59,6 +59,14 @@ list is honest about that split.
   `angle_of_arrival.aperture_arrival_angle_variance`.
 - **The Term adapter.** `olb/models/fade.py` turns any irradiance model into the
   three Term faces. Any new distribution needs no new decibel code.
+- **The curvature-general Fried parameter.** It is closed at both layers.
+  `andrews.beam.beam_params(w0, lambda, z, f0)` feeds
+  `andrews.structure.coherence_radius(..., wave="gaussian", beam=...)`, which
+  `beam_and_coherence.py` shows, and the terrestrial fibre-coupling call site
+  reads the launch curvature `f0` through `olb.beam.launch_curvature` (olb Gap 3).
+  The single-path `gaussian_fried.gaussian_fried_parameter` keeps its collimated
+  signature; the budgets use the profile form, which is general in `f0`. See
+  `docs/physics.md` Section 5e.
 
 ### Available, but NOT wired into a budget
 
@@ -92,13 +100,6 @@ list is honest about that split.
   and the terrestrial Term still uses the Churnside fit.
 - **The K distribution and the lognormal-Rician PDF.** Both are built. No Term
   uses either.
-- **The curvature-general Fried parameter.** It is CLOSED at the physics layer:
-  `andrews.beam.beam_params(w0, lambda, z, f0)` feeds
-  `andrews.structure.coherence_radius(..., wave="gaussian", beam=...)`, which
-  `beam_and_coherence.py` shows. It is NOT closed at the model layer: the
-  single-path `gaussian_fried.gaussian_fried_parameter` keeps its collimated
-  signature, and the terrestrial fibre-coupling call site passes no `f0`. See
-  the CLAUDE.md "Next task" and `docs/physics.md` Section 5e.
 
 ### Documented refusals that the scripts show
 

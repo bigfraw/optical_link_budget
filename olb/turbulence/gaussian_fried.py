@@ -27,11 +27,10 @@ Physics (collimated Gaussian beam, isotropic turbulence):
         Lambda = Lambda0 / (Lambda0^2 + Theta0^2)
         Theta  = Theta0  / (Theta0^2 + Lambda0^2)
 
-NEW HOME. The beam parameters and the Rytov variance now live in the Andrews
-foundation package, `olb.turbulence.andrews.beam` and
-`olb.turbulence.andrews.scintillation`. Those modules are general in the input
-curvature f0. The three functions below keep their names and their signatures,
-but they call the new home. Use the new home for new code.
+The beam parameters and the Rytov variance live in the Andrews foundation
+package, `olb.turbulence.andrews.beam` and `olb.turbulence.andrews.scintillation`,
+which are general in the input curvature f0. The three functions below keep their
+names and their signatures and delegate to that package.
 '''
 
 import numpy as np
@@ -280,7 +279,7 @@ def spherical_wave_fried_parameter(z, cn2, wavelength):
     Conflict C-07 in docs/andrews-crosscheck.md. Do not replace the exact ratio
     with the rounded book row.
 
-    NEW HOME: this function delegates through `plane_wave_fried_parameter`,
+    This function delegates through `plane_wave_fried_parameter`,
     which calls `olb.turbulence.andrews.structure`. The book's own spherical
     row is `olb.turbulence.andrews.structure.coherence_radius` with
     wave="spherical".
@@ -492,8 +491,7 @@ if __name__ == '__main__':
 
     # Weighting direction (uplink). Put the same total turbulence near the ground
     # or near the top. The uplink is dominated by near-ground turbulence, so the
-    # ground-heavy profile must give the SMALLER r0. This fails on the old
-    # (1 - xi) weight, which inverts the direction.
+    # ground-heavy profile must give the SMALLER r0.
     hs_w = np.linspace(1.0, 20e3, 400)
     ground_heavy = 1e-15 * np.exp(-hs_w / 500.0)
     top_heavy = 1e-15 * np.exp(-(hs_w[-1] - hs_w) / 500.0)

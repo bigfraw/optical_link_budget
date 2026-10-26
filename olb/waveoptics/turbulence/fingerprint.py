@@ -18,10 +18,6 @@ at a fixed set of heights), the block size, any caller-supplied grid and plan,
 and `KEY_VERSION`. So two runs that share a key are the same physics, and a
 change to any input gives a new key.
 
-HISTORY. The key was born in the retired `cache.py` (the P4 scalar cache of
-2026-08-29). `Campaign` replaced that cache on 2026-09-04, and the key moved
-here. Nothing changed in it, so an existing campaign manifest still matches.
-
 Sources:
 - The seed contract and the trial body: olb.waveoptics.turbulence.run.
 - The store that reads the key: olb.waveoptics.turbulence.campaign.
@@ -33,8 +29,7 @@ import numpy as np
 
 # Bump when the stored physics changes (a new trial scalar, a spectrum fix, a
 # grid-sizer change). It enters the key, so an old store never feeds a new
-# build. It keeps the value of the retired cache, so an existing campaign
-# manifest still matches.
+# build.
 KEY_VERSION = 1
 
 

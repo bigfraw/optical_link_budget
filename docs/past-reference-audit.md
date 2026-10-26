@@ -17,6 +17,33 @@ Categories:
 
 Actions: DELETE, REWRITE (present tense only), MOVE (to backlog), KEEP (with reason).
 
+## 0. Status (2026-09-13, branch `docs-cleanup-past-references`)
+
+The mechanical passes are DONE. The scope was narrowed by the owner to one goal:
+DELETE prose that describes how the code USED TO BE implemented, and nothing
+else.
+
+- **Section 2 (FIX FIRST)** — DONE. All nine wrong notes corrected (item 7, the
+  p5 value, was already fixed by the 2-P5 work).
+- **Section 3 (vendoring history)** — DONE. No in-scope `my_analysis_modules`,
+  `_deps.py`, `fso_spot_size`, `tn2_kepler`, or `cache.py` reference remains.
+- **Section 5 (recurring stamps)** — the "used-to-be" content is DONE:
+  prior-bug narratives (category C), migration and rename change-logs
+  ("NEW HOME", the `cache.py` HISTORY blocks, "retired inline faces"), and the
+  `legacy array planner` -> `discrete-array planner` rename (a misleading label
+  on a still-supported feature). DELIBERATELY NOT DONE (owner decision): the
+  tense rewording of `now` / `still` / `today` / `unchanged` (category F), and
+  the standalone stripping of dates and backlog/work-package ids that sit in
+  otherwise-current text. A date or id was removed only when it was part of a
+  historical sentence that was itself deleted.
+- **Section 4 (whole status-narrative sections)** — DEFERRED to a separate
+  session. The owner decision for that pass is MOVE to `docs/backlog.md` and
+  leave a present-tense pointer. Not started: the README Roadmap, physics.md
+  Section 9 (measured validity, KEEP and prune), the architecture.md refactor
+  change-log, the api-waveoptics.md status note, and the example-README status
+  blocks.
+- **Section 6 (KEEP)** — honored.
+
 ## 1. Totals
 
 | Area | Entries | Dominant | Worst files |

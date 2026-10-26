@@ -13,9 +13,8 @@ Install the package from the repository root:
 pip install -e .
 ```
 
-`olb` is self-contained and needs no sibling repository. The physics kernels it
-once borrowed from `my_analysis_modules` are now vendored into olb (see the
-README "Dependency" section).
+`olb` is self-contained and needs no sibling repository. Its physics kernels are
+vendored (see the README "Dependencies" section).
 
 `fast-aosim` is an optional extra (`pip install fast-aosim`). It adds two things:
 

@@ -510,11 +510,10 @@ get the coupling fade, raise the fidelity: `fidelity=1` (statistical) or
 quantile-less vacuum-optics Term) is NOT mean_only, so it does not lock the
 budget.
 
-## 6. Self-contained: the vendored physics (formerly `my_analysis_modules`)
+## 6. Self-contained: the vendored physics
 
-olb no longer depends on `my_analysis_modules`. It once borrowed shared physics
-kernels from that sibling repo through a single seam, `olb/_deps.py`. Those
-kernels are now VENDORED into olb, each in its natural home:
+olb is self-contained: it needs no sibling repository. Its physics kernels are
+vendored, each in its natural home:
 
 - the dB and beam unit conversions -> [`olb/units.py`](../olb/units.py);
 - the Gaussian-beam `gaussz`/`zR` -> [`olb/beam.py`](../olb/beam.py);
@@ -524,9 +523,8 @@ kernels are now VENDORED into olb, each in its natural home:
 - the Dios coupled-flux kernels ->
   [`olb/turbulence/coupled_flux.py`](../olb/turbulence/coupled_flux.py).
 
-`_deps.py` is deleted. Each vendored copy is verbatim and keeps its source
-citation; the coupled-flux vendoring was cross-validated bit-for-bit against the
-original. The `fast` package (FAST fibre coupling / HV57 Cn2) and `aotools` (the
+Each vendored copy keeps its source citation. The `fast` package (FAST fibre
+coupling / HV57 Cn2) and `aotools` (the
 fidelity-2 phase screens) stay optional third-party dependencies that the
 relevant modules import lazily.
 

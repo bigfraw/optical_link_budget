@@ -480,7 +480,7 @@ def angle_of_arrival_variance(D, wavelength, z, cn2, *,
     '''
     Return the angle-of-arrival (tilt) variance across a collecting lens [rad^2].
 
-    TILT DEFINITION - THE OWNER MADE THIS CHOICE. This function returns the
+    TILT DEFINITION. This function returns the
     ANDREWS GRADIENT TILT (G-tilt). Andrews defines the tilt as the total phase
     difference across the pupil divided by the pupil width (Ch. 6, Eqs. (80) to
     (82), printed p. 200), which is what a CENTROID TRACKER measures. It is NOT

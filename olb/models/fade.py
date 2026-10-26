@@ -151,14 +151,13 @@ if __name__ == '__main__':
     assert abs(gg_draws.mean() - gg_term.mean_db) < 0.01
 
     # === reduction ==========================================================
-    # Byte parity with the RETIRED inline lognormal faces. olb/links/downlink.py
-    # and olb/links/terrestrial.py once built the three dB faces inline; they now
-    # route through this adapter (backlog I-2 / crosscheck TL-01..04). Rebuild the
-    # retired formula here and assert the downlink Term (which now uses the
-    # adapter) reproduces it, so a future change to the adapter cannot silently
-    # move the budget numbers. The mean and the sampler are BYTE identical; the
-    # quantile matches to machine precision (~1e-16 dB), because the adapter takes
-    # -10 log10(exp(x)) where the retired code took -10 x / ln10 directly.
+    # Byte parity with the reference closed form. olb/links/downlink.py and
+    # olb/links/terrestrial.py route the three dB lognormal faces through this
+    # adapter. Rebuild the reference closed form here and assert the downlink Term
+    # reproduces it, so a future change to the adapter cannot silently move the
+    # budget numbers. The mean and the sampler are BYTE identical; the quantile
+    # matches to machine precision (~1e-16 dB), because the adapter takes
+    # -10 log10(exp(x)) where the closed form takes -10 x / ln10 directly.
     # Scenario: a 0.7 m ground aperture at 1550 nm, a 600 km orbit, 30 deg.
     from scipy.stats import norm
     from ..scenario import SpaceScenario, Channel
@@ -177,7 +176,7 @@ if __name__ == '__main__':
     term = downlink_scintillation_term(scenario, CircularOrbit(600e3, 30.0),
                                        cn2_profile=cn2)
 
-    # The retired inline faces, verbatim from the old downlink/terrestrial code.
+    # The reference closed form for the three dB faces.
     sigma2_P = term.meta["sigma2_P"]
     sl2 = np.log(1.0 + sigma2_P)
     sl = np.sqrt(sl2)
@@ -187,7 +186,7 @@ if __name__ == '__main__':
         rng.lognormal(mean=-sl2 / 2.0, sigma=sl, size=n))
 
     d_mean = abs(term.mean_db - old_mean)
-    print(f"[reduce ] downlink Term vs retired inline mean err = {d_mean:.3e} dB "
+    print(f"[reduce ] downlink Term vs reference closed form mean err = {d_mean:.3e} dB "
           f"({term.mean_db:.6f} dB)")
     assert d_mean == 0.0
 
@@ -197,7 +196,7 @@ if __name__ == '__main__':
               f"({term.quantile_db(p):.6f} dB)")
         assert d_q < 1e-12
 
-    # The sampler agrees draw for draw with the retired one at the same seed.
+    # The sampler agrees draw for draw with the reference closed form at the same seed.
     a = term.sample_db(50_000, np.random.default_rng(1234))
     b = old_sampler(50_000, np.random.default_rng(1234))
     print(f"[reduce ] sampler err = {np.max(np.abs(a - b)):.3e} dB "

@@ -141,7 +141,7 @@ def aperture_arrival_angle_variance(D, r0, wavelength, *, L0=None, l0=1e-3):
     on `l0` (it only sets the sub-inner-scale branch). This is the received-tilt
     model of record for a terrestrial fibre (backlog 1-9, physics.md 9m).
 
-    TILT DEFINITION - THE OWNER MADE THIS CHOICE. This function returns the
+    TILT DEFINITION. This function returns the
     ANDREWS GRADIENT TILT (G-tilt), which is what a centroid tracker measures.
     Andrews defines the tilt as the total phase difference across the pupil
     divided by the pupil width. It is NOT the Noll Zernike tilt.
@@ -181,7 +181,8 @@ def aperture_arrival_angle_variance(D, r0, wavelength, *, L0=None, l0=1e-3):
     aperture, sqrt(L/k) << D (Ch. 6, text below Eq. (83), printed p. 200). This
     function does not gate on that condition.
 
-    NEW HOME: `olb.turbulence.andrews.structure.angle_of_arrival_variance`. That
+    The general form is
+    `olb.turbulence.andrews.structure.angle_of_arrival_variance`. That
     function takes Cn2 and the path length directly, and it also gives the
     inner-scale and outer-scale branches of Ch. 6, Eq. (83).
     '''

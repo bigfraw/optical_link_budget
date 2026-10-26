@@ -124,8 +124,7 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
     # Representative draw per elevation -> table mean + validity metadata. Open
     # the collection context around the PHYSICS CALLS only. _flux_result and its
     # coupled-flux dependencies own their assumptions, so the hard-tier Dios
-    # reliability-edge check on sigma_x^2 fires automatically here; the factory no
-    # longer hand-computes that gate (WP3b migration).
+    # reliability-edge check on sigma_x^2 fires automatically here.
     with trace_assumptions() as trace:
         reps = [_flux_result(w0, e, r, wavelength, hs, cn2_profile, hv57_A,
                              n_samples, n_apertures, divergence_rad=divergence_rad,
@@ -161,9 +160,9 @@ def uplink_turbulence_term(scenario, geometry, n_samples=3000, n_apertures=1,
                  "on this fade is UNRESOLVED (see the investigation note).",
     )
     # The Dios sigma_x^2 hard gate is now the TRACED reliability-edge check on
-    # _flux_result (olb.turbulence.uplink_flux), so the factory no longer computes
-    # it by hand. A strong slab still yields a source-prefixed violation, and it
-    # still turns weak_fluctuation_valid False in the meta below.
+    # _flux_result (olb.turbulence.uplink_flux). A strong slab still yields a
+    # source-prefixed violation, and it still turns weak_fluctuation_valid False
+    # in the meta below.
     #
     # The launch obscuration is a scenario-level fact the physics never sees (the
     # coupled-flux index reads only the waist w0, the Transmitter override else the
@@ -1067,7 +1066,7 @@ if __name__ == '__main__':
     # Divergence: it now enters the beam broadening AND the scintillation index.
     # A diverged beam is wider and more spherical-wave-like, so it both dilutes
     # the broadening loss and scintillates less. Neither link raises a
-    # divergence-specific violation, because the model no longer approximates it.
+    # divergence-specific violation, because the model does not approximate it.
     from ..units import w0_to_div
     tx0 = scenario.tx_terminal
     theta_min = w0_to_div(tx0.transmitter.waist_m, tx0.wavelength_m)
@@ -1148,9 +1147,9 @@ if __name__ == '__main__':
     assert prov, "the turbulence Term must carry traced provenance"
     assert any("uplink_flux._flux_result" in s for s in prov), prov
     assert any("coupled_flux" in s for s in prov), prov
-    # (2) The migrated Dios sigma_x^2 hard gate is now the TRACED check: a strong
+    # (2) The Dios sigma_x^2 hard gate is now the TRACED check: a strong
     #     slab still yields not-ok, and the violation carries the physics source
-    #     prefix (not the old factory text).
+    #     prefix.
     assert not invalid_term.assumptions.ok
     assert any(v.startswith("[olb.turbulence.uplink_flux._flux_result]")
                and "sigma_x^2" in v

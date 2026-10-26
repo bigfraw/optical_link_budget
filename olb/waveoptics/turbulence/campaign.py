@@ -14,11 +14,8 @@ and the concatenation is the native run. See
 `olb.waveoptics.turbulence.run.propagate_turbulent_scenario` and its
 `start_index` argument.
 
-HISTORY. This module REPLACED the P4 scalar cache (`cache.py`, retired
-2026-09-04). That cache seeded each block from a SUB-SEED, so its blocks were
-not the trials of one native run, and it stored no field. This module keeps the
-native seeding and it stores the field. The content fingerprint of that cache
-lives on in `olb.waveoptics.turbulence.fingerprint`.
+The content fingerprint that names one campaign lives in
+`olb.waveoptics.turbulence.fingerprint`.
 
 THE STORED FIELD. Each trial stores the receive-plane field on a disc of the
 radius `patch_radius_m`, BEFORE the receive-aperture clip. Store the field at

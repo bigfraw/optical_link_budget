@@ -5,8 +5,9 @@ the beam at the launch aperture, it propagates the beam over the range, it
 clips the beam at the receive aperture, and it couples the beam into a
 single-mode fibre. It gives the losses of each step in positive dB.
 
-This is the fidelity-2 no-turbulence validator. It builds NO Term and it
-touches NO budget. Compare its numbers against the analytic fidelity-0 Terms
+This is the fidelity-2 no-turbulence validator. It builds no Term itself;
+olb.models.waveoptics turns its output into the deterministic fidelity-2 vacuum
+Term. Compare its numbers against the analytic fidelity-0 Terms
 (olb.models.geometric and olb.models.gaussian_efficiency). The two agree in the
 far field with a light truncation. They disagree in the near field with a hard
 truncation, because the analytic transmit efficiency is a far-field quantity.

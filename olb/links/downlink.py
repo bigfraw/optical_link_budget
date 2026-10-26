@@ -254,8 +254,8 @@ def _gamma_gamma_term(scenario, geometry, *, aperture_average, hs, cn2_profile):
             # The gamma-gamma Term is valid at ALL strengths, so this flag is
             # purely informational: is the case actually in the weak REGIME? Test
             # the true Rytov variance against the REGIME boundary (1.0), NOT the
-            # lognormal-PDF house rule (0.25) -- that was the factor-of-4 error of
-            # Conflict C-05. sigma2_R here is a plane wave, so Lambda is None.
+            # lognormal-PDF house rule (0.25). sigma2_R here is a plane wave, so
+            # Lambda is None.
             "rytov_regime": rytov_weak(float(np.max(sigma2_R))),
             "weak_fluctuation_valid": bool(np.all(np.asarray(sigma2_R)
                                                   < WEAK_REGIME_LIMIT)),
@@ -423,9 +423,9 @@ def _auto_select(scenario, geometry, *, aperture_average, hs, cn2_profile):
     The switch point is the lognormal-PDF house rule 0.25, DELIBERATELY tighter
     than the regime boundary sigma_R^2 = 1 (Andrews and Phillips, 2nd ed. (2005),
     DOI 10.1117/3.626196, Ch. 5, Eq. (15), printed p. 140; Ch. 12, Eq. (40),
-    printed p. 497). This is NOT the factor-of-4 conflation: the switch is a
-    PDF-fidelity decision, not a regime test. olb switches early because Ch. 11,
-    Sec. 11.3, printed p. 451, says the lognormal tail is too thin, and this
+    printed p. 497). The switch is a PDF-fidelity decision, not a regime test.
+    olb switches early because Ch. 11, Sec. 11.3, printed p. 451, says the
+    lognormal tail is too thin, and this
     selector reports fade depths from that tail. The gamma-gamma chain of
     Ch. 12, Eq. (40) is valid at every fluctuation strength, so the early switch
     costs no validity. See `LOGNORMAL_PDF_LIMIT` and Conflict C-05 in
@@ -710,7 +710,6 @@ if __name__ == '__main__':
     assert abs(sampled.mean() - term.mean_db) < 0.02, (sampled.mean(), term.mean_db)
 
     # Fidelity 2 is now a WHOLE-PATH budget route, not a scintillation model.
-    # "montecarlo" is gone from downlink_scintillation_term.
     try:
         downlink_scintillation_term(scenario, geom, model="montecarlo",
                                     cn2_profile=cn2)
