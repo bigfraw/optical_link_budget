@@ -1418,6 +1418,26 @@ core-radius-only bucket misses; the fibre mode capacity is `V^2/2` with
 None. It is a flat power-transmission factor only: it does not re-broaden the
 focal spot (that would need a re-truncated aperture).
 
+The MMF budget keeps the APERTURE fade (2026-10-26). A multimode fibre is a light
+bucket behind the receive aperture, so the power at the core is
+
+    P_core = P_aperture * eta_mmf(dx)
+
+`P_aperture` fades with the aperture-averaged scintillation (Section 5, the
+`scintillation` Term), and `eta_mmf` holds the static core capture and the
+walk-off fade. The two are factors of one product, so the budget adds their dB
+values and does not double-count. `terrestrial_budget(fidelity=0)` gives an MMF
+receiver BOTH Terms; before 2026-10-26 the coupling Term REPLACED the
+scintillation Term, so the MMF budget had no aperture fade. That was wrong: the
+fidelity-2 runs of a light bucket show that the fibre fade IS the bucket fade
+when `f*theta` is small against `a_core`. NUMBER MOVE: every fidelity-0
+terrestrial MMF budget gains the scintillation Term (its mean is
+`(5/ln 10) ln(1 + sigma2_P)` dB, and its fade margin grows by the bucket fade).
+Measured against fidelity 2 (Navantia, 1 km horizontal, 1 in and 2 in
+apertures, 105 um core, NA 0.22, Cn2 1e-15 to 1e-14, `sigma_R^2` 0.02 to 0.20):
+the MMF p99 moved from the mean (no fade) to within 0.25 dB of the field p99,
+and the fade above the mean is within 0.16 dB on every cell.
+
 #### Inputs and outputs
 
 - Inputs: the receive terminal (aperture, wavelength, fibre optics,
@@ -1466,6 +1486,15 @@ focal spot (that would need a re-truncated aperture).
 - The MMF numerical-aperture gate is a flat power-transmission factor. It does not
   re-broaden the focal spot, and the spot itself stays diffraction-limited (no
   turbulence blur), so the full mode-count saturation is not modelled.
+- The MMF budget draws the scintillation fade and the walk-off fade as
+  INDEPENDENT. This assumes that the aperture-averaged log-amplitude and the
+  aperture tilt are uncorrelated. In weak turbulence the aperture keeps the
+  small-scale amplitude and the tilt is the large-scale phase gradient, so the
+  cross-correlation is small (Andrews and Phillips 2005, Ch. 6 and Ch. 10,
+  DOI 10.1117/3.626196). The 1 km fidelity-2 check above supports it. Past
+  `sigma_R^2 = 1` the scintillation Term is out of its weak range and flags it
+  (the 10 km Navantia cells, `sigma_R^2` 1.4 to 13.6, miss the field p99 by
+  -3.3 to +4.2 dB).
 
 #### Source
 

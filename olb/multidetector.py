@@ -178,7 +178,8 @@ if __name__ == '__main__':
     assert abs(_splitter_db(b1) - 0.4576) < 1e-3, _splitter_db(b1)    # 90 percent
 
     # The camera arm is a power bucket at fidelity 0, so it gets the
-    # scintillation Term. The MMF arm gets the light-bucket coupling Term.
+    # scintillation Term. The MMF arm gets the scintillation Term too, plus the
+    # light-bucket coupling Term.
     assert any("scintillation" in t.name for t in b0.terms), \
         [t.name for t in b0.terms]
     assert any(t.category == "coupling" for t in b1.terms), \
