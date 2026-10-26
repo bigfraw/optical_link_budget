@@ -45,32 +45,41 @@ took beta = 0 at every divergence, which over-read a diverged link by 0.7 to
 The transmitter is the ground station for an uplink, or the satellite for a
 downlink. The same code serves both.
 
-NEAR-FIELD WARNING. eta is a FAR-FIELD quantity. It is the on-axis gain ratio
-that the truncated beam settles to far past the aperture. A pure untruncated
-Gaussian keeps a smooth on-axis intensity at every range, but the hard aperture
-edge does not: inside the Rayleigh range zR = pi*w_T^2/lambda the on-axis
-intensity OSCILLATES with range (Fresnel edge diffraction). So for a receiver
-inside zR (the terrestrial near-field case; zR is about 5 km for a 5 cm beam at
-1.55 um) the true on-axis intensity can sit above OR below this eta. Unlike the
-geometric spreading Term (exact at all ranges through gaussz) this Term does NOT
-self-correct, and unlike the single-mode-fibre eta_max the error is NOT
-conservative. It bites only when the beam is HARD truncated (alpha near or below
-1, so real power sits in the clipped wings) AND the receiver is inside zR. A
-lightly clipped beam (alpha >~ 1.5) or a far-field target is safe. A fidelity-2
-no-turbulence field propagation is the check for a link that this Term flags.
+FINITE RANGE. The eta above is a FAR-FIELD quantity: the on-axis gain ratio
+far past the aperture. The hard aperture edge changes the received pattern
+with range before the far field. Also, a receiver that is not small against
+the beam does not read the on-axis value. So on a short horizontal link the
+far-field eta can be wrong by more than 1 dB, in EITHER direction. Example: a
+36.3 mm (1/e^2 diameter) launch in a 50.8 mm aperture, a 50.8 mm receiver at
+1 km. The far-field eta gives 1.32 dB, and the true loss is 0.18 dB.
+
+When the Term gets a geometry, it uses the EXACT paraxial value at that range.
+The Fresnel diffraction integral of a circular field is a Hankel transform
+(Schmidt, DOI 10.1117/3.866274, Ch. 6; Andrews and Phillips,
+DOI 10.1117/3.626196, Ch. 4, the Huygens-Fresnel integral). At the range L
+the received field of the clipped launch is
+
+    U(rho) = (k / L) int_{Cr a}^{a} exp(-c r^2) J0(k r rho / L) r dr
+    c      = 1 / w_T^2 + i (k / 2) (1 / f0 - 1 / L)
+
+f0 is the launch phase-front radius (olb.beam.launch_curvature, negative for
+a diverged beam). The 1 / L part is the finite-range defocus of Klein and
+Degnan (DOI 10.1364/AO.13.002134). The power in the receive annulus is
+P = 2 pi int |U|^2 rho drho. The Term divides P by the received power of the
+UNTRUNCATED beam, which is the geometric spreading Term (olb.models.geometric).
+So the two Terms multiply to the exact received power of the clipped launch
+at every range. For a small receiver far away, the ratio goes to the
+far-field eta above. geometry=None keeps the far-field eta. The self-check
+compares the quadrature with olb.waveoptics.run.propagate_scenario.
 '''
 
 import numpy as np
+from scipy.special import j0
 
 from ..beam import launch_curvature
 from ..results import Term
 from ..assumptions import Assumptions, BEAM_GAUSSIAN, REGIME_NA, SPECTRUM_NA
-
-# The far-field eta is safe above this alpha: the aperture is wide enough that
-# almost no power sits in the clipped wings, so the near-field edge ripple is
-# negligible even inside the Rayleigh range. Below it, a receiver inside zR gets
-# an active near-field violation flag. See the NEAR-FIELD WARNING above.
-TRUNCATION_NEAR_FIELD_ALPHA = 1.5
+from .geometric import geometric_loss_db
 
 
 def gaussian_efficiency(alpha, obscuration_ratio=0.0, beta=0.0):
@@ -141,6 +150,51 @@ def tx_efficiency_loss_db(tx_aperture_m, tx_waist_m, obscuration_ratio=0.0,
     return -10 * np.log10(eta)
 
 
+def clipped_bucket_fraction(range_m, tx_aperture_m, tx_waist_m, rx_aperture_m,
+                            obscuration_ratio=0.0, rx_obscuration_ratio=0.0,
+                            divergence_rad=None, wavelength=1550e-9):
+    '''
+    Exact paraxial power of a clipped Gaussian launch in a receive annulus.
+
+    The function integrates the Fresnel (Hankel) form of FINITE RANGE in the
+    module docstring with the trapezoid rule on both radii. It is valid at
+    every range, in the near field and in the far field.
+
+    Parameters:
+        range_m : float
+            The range L from the launch aperture to the receiver [m].
+        tx_aperture_m, tx_waist_m : float
+            The launch aperture diameter and the Gaussian 1/e^2 radius [m].
+        rx_aperture_m : float
+            The receive aperture diameter [m].
+        obscuration_ratio, rx_obscuration_ratio : float
+            The launch and the receive linear obscuration ratios.
+        divergence_rad : float, optional
+            The launch far-field HALF-angle divergence [rad]. None = collimated.
+        wavelength : float
+            Wavelength [m].
+
+    Returns:
+        float
+            The received power as a fraction of the power of the UNTRUNCATED
+            launch Gaussian (pi w_T^2 / 2 at a unit peak amplitude).
+    '''
+    k = 2 * np.pi / wavelength
+    a, a_rx = tx_aperture_m / 2, rx_aperture_m / 2
+    f0 = launch_curvature(tx_waist_m, divergence_rad, wavelength)
+    c = 1 / tx_waist_m ** 2 + 0.5j * k * (1 / f0 - 1 / range_m)
+    # The sample count follows the largest phase across the two discs (the
+    # quadratic phase and the J0 argument). 400 samples hold a space link.
+    phase = abs(c.imag) * a ** 2 + k * a * a_rx / range_m
+    n = int(max(400, 6 * phase))
+    r = np.linspace(obscuration_ratio * a, a, n)
+    rho = np.linspace(rx_obscuration_ratio * a_rx, a_rx, n)
+    u = (k / range_m) * np.trapezoid(
+        np.exp(-c * r ** 2) * r * j0(k * np.outer(rho, r) / range_m), r, axis=1)
+    p = 2 * np.pi * np.trapezoid(np.abs(u) ** 2 * rho, rho)
+    return float(p / (np.pi * tx_waist_m ** 2 / 2))
+
+
 def uniform_aperture_correction_db(obscuration_ratio=0.0):
     '''
     Correction that turns the Gaussian(w0=aperture/2) far field into a top-hat.
@@ -179,12 +233,12 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
     '''
     Transmit Gaussian-efficiency (truncation) Term for a scenario.
 
-    The loss is range-independent. The geometry is read only to test the
-    near-field validity: a hard-truncated beam (alpha below
-    TRUNCATION_NEAR_FIELD_ALPHA) with a receiver inside the Rayleigh range
-    zR = pi*w_T^2/lambda breaks the far-field eta, so the Term flags it (see the
-    NEAR-FIELD WARNING in the module docstring). A far-field target or a widely
-    open aperture keeps the Term valid, and geometry=None skips the test.
+    With a geometry, the loss is the EXACT paraxial value at the range: the
+    received power of the clipped launch (clipped_bucket_fraction) over the
+    received power of the untruncated beam (the geometric spreading Term). So
+    it reads the receive aperture too, and it holds in the near field. With
+    geometry=None, the loss is the far-field eta (gaussian_efficiency). See
+    FINITE RANGE in the module docstring.
 
     Parameters:
         scenario : SpaceScenario or TerrestrialScenario
@@ -194,8 +248,8 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
             Terminal aperture_m and obscuration_ratio (monostatic). See
             olb.terminal.Transmitter and olb.scenario.
         geometry : object, optional
-            Read for slant_range_m to test the near-field validity only. None
-            skips the test (the loss is unchanged).
+            Read for slant_range_m (float or ndarray). None gives the
+            far-field eta.
 
     Returns:
         Term
@@ -213,39 +267,37 @@ def tx_gaussian_efficiency_term(scenario, geometry=None):
     alpha = (aperture_m / 2) / waist_m
     beta = launch_defocus_beta(aperture_m, waist_m, t.divergence_rad,
                                tx.wavelength_m)
-    loss = tx_efficiency_loss_db(aperture_m, waist_m, obscuration_ratio,
-                                 t.divergence_rad, tx.wavelength_m)
+    range_m = getattr(geometry, "slant_range_m", None)
+    if range_m is None:
+        loss = tx_efficiency_loss_db(aperture_m, waist_m, obscuration_ratio,
+                                     t.divergence_rad, tx.wavelength_m)
+    else:
+        # The exact received power of the clipped launch over that of the
+        # untruncated beam (the geometric spreading Term): see FINITE RANGE.
+        rx = scenario.rx_terminal
+        ranges = np.asarray(range_m, dtype=float)
+        exact = np.vectorize(lambda z: clipped_bucket_fraction(
+            z, aperture_m, waist_m, rx.aperture_m, obscuration_ratio,
+            rx.obscuration_ratio, t.divergence_rad, tx.wavelength_m))(ranges)
+        untruncated_db = geometric_loss_db(
+            ranges, waist_m, rx.aperture_m, tx.wavelength_m,
+            rx.obscuration_ratio, t.divergence_rad)
+        loss = -10 * np.log10(exact) - untruncated_db
+        loss = float(loss) if loss.ndim == 0 else loss
     assumptions = Assumptions(
         beam_type=BEAM_GAUSSIAN,
         turbulence_regime=REGIME_NA,
         spectrum=SPECTRUM_NA,
-        validity="On-axis FAR-FIELD gain of a truncated Gaussian (with the "
-                 "launch phase-front curvature of a diverged beam), referenced "
-                 "to the untruncated source. Paraxial. No turbulence. Fails "
-                 "for a receiver inside the Rayleigh range zR=pi*w_T^2/lambda "
-                 "when the beam is hard truncated (alpha<~1): near-field "
-                 "on-axis intensity oscillates (Fresnel edge diffraction) and "
-                 "this far-field eta does not self-correct. Verify such a link "
-                 "with a fidelity-2 no-turbulence field propagation.",
+        validity="Truncated Gaussian launch (with the launch phase-front "
+                 "curvature of a diverged beam), referenced to the untruncated "
+                 "beam. Paraxial. No turbulence. With a geometry: the exact "
+                 "Fresnel received power at the range, near and far field. "
+                 "Without a geometry: the on-axis FAR-FIELD gain only.",
     )
-    # Active near-field violation: a hard-truncated beam (small alpha) with a
-    # receiver inside the Rayleigh range breaks the far-field eta. The loss is
-    # geometry-dependent to test, so it is an active flag, not just the prose
-    # validity string. geometry=None (space budgets, always far field) skips it.
-    range_m = getattr(geometry, "slant_range_m", None)
-    if range_m is not None and alpha < TRUNCATION_NEAR_FIELD_ALPHA:
-        rayleigh_range_m = np.pi * waist_m ** 2 / tx.wavelength_m
-        if np.any(np.asarray(range_m, dtype=float) < rayleigh_range_m):
-            assumptions.flag(
-                f"Receiver is inside the Rayleigh range "
-                f"(zR={rayleigh_range_m:.3g} m) and the beam is hard truncated "
-                f"(alpha={alpha:.3f}): the far-field truncation eta does not "
-                f"hold. Verify with a fidelity-2 no-turbulence field propagation."
-            )
     return Term(
         name="transmit Gaussian efficiency",
         category="system",
-        mean_db=float(loss),
+        mean_db=loss,
         note=f"aperture truncation, alpha={alpha:.3f}, beta={beta:.3f}, "
              f"Cr={obscuration_ratio:g}",
         meta={"alpha": float(alpha), "beta": float(beta),
@@ -292,22 +344,73 @@ if __name__ == '__main__':
     assert np.isscalar(term.mean_db) and term.mean_db > 0
     assert 0.0 < term.meta["eta"] <= 1.0
     assert term.assumptions is not None
-    # geometry=None never flags (space budgets are always far field).
     assert term.assumptions.ok
 
-    # Near-field flag: a hard-truncated beam (alpha=0.625) with a receiver inside
-    # the Rayleigh range breaks the far-field eta. zR = pi*0.12^2/1.55e-6 ~ 29 km,
-    # so a 1 km receiver flags; a 600 km one does not; and geometry=None does not.
+    # Far field: with a geometry the exact Term goes to the far-field eta. A
+    # 600 km range and a 5 cm receiver agree to 0.02 dB (the launch Fresnel
+    # number a^2 / (lambda L) is still 0.006 there).
     from types import SimpleNamespace
-    near = tx_gaussian_efficiency_term(scn, SimpleNamespace(slant_range_m=1e3))
-    assert not near.assumptions.ok and "Rayleigh range" in near.assumptions.violations[0]
     far = tx_gaussian_efficiency_term(scn, SimpleNamespace(slant_range_m=600e3))
-    assert far.assumptions.ok
-    # A widely open aperture (alpha above the threshold) does not flag, even near.
-    open_scn = SpaceScenario(
-        ground=Terminal(aperture_m=0.6, transmitter=Transmitter(waist_m=0.12)),
-        space=Terminal(aperture_m=0.05), direction="uplink")   # alpha = 2.5
-    assert tx_gaussian_efficiency_term(open_scn, SimpleNamespace(slant_range_m=1e3)).assumptions.ok
+    assert abs(far.mean_db - term.mean_db) < 0.02, (far.mean_db, term.mean_db)
+    # An array of ranges gives an array of losses.
+    assert tx_gaussian_efficiency_term(
+        scn, SimpleNamespace(slant_range_m=np.array([5e5, 6e5]))).mean_db.shape == (2,)
+
+    # The denominator is the geometric spreading Term: an open launch aperture
+    # (no clip) gives a ratio of 1, collimated and diverged.
+    for div in (None, 2e-4):
+        geo = 10 ** (-geometric_loss_db(1e3, 0.025, 0.05, 1550e-9, 0.0, div) / 10)
+        ratio = clipped_bucket_fraction(1e3, 0.4, 0.025, 0.05,
+                                        divergence_rad=div) / geo
+        assert abs(ratio - 1) < 1e-3, (div, ratio)
+
+    # NEAR FIELD against the wave optics: a 36.3 mm (1/e^2 diameter) launch in
+    # a 50.8 mm aperture to a 50.8 mm receiver (zR = 668 m). At 1 km the
+    # far-field eta reads about 1.2 dB high; the exact Term agrees with
+    # propagate_scenario to 0.1 dB at 1 km and at 10 km.
+    import warnings
+    from ..scenario import TerrestrialScenario, TerrestrialChannel
+    from ..geometry import HorizontalPath
+    from ..models.geometric import geometric_loss_term
+    from ..waveoptics.run import propagate_scenario
+    end = Terminal(aperture_m=0.0508,
+                   transmitter=Transmitter(waist_m=16 * 2.27e-3 / 2))
+    for L in (1e3, 10e3):
+        terr = TerrestrialScenario(
+            near=end, far=end,
+            channel=TerrestrialChannel(path_length_m=L,
+                                       attenuation_db_per_km=0.0))
+        g = HorizontalPath(L)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            wave = propagate_scenario(terr, g, precision="double")
+        wave_db = wave.tx_truncation_db + wave.geometric_loss_db
+        geo_db = geometric_loss_term(terr, g).mean_db
+        exact_db = geo_db + tx_gaussian_efficiency_term(terr, g).mean_db
+        ff_db = geo_db + tx_gaussian_efficiency_term(terr).mean_db
+        assert abs(exact_db - wave_db) < 0.1, (L, exact_db, wave_db)
+        # The far-field eta is 1 dB or more high at 1 km and good at 10 km.
+        assert (ff_db - wave_db > 1.0 if L < 5e3
+                else abs(ff_db - wave_db) < 0.1), (L, ff_db, wave_db)
+        print(f"L = {L / 1e3:g} km: exact {exact_db:.3f} dB, far-field "
+              f"{ff_db:.3f} dB, wave optics {wave_db:.3f} dB")
+    # A HARD clip deep in the near field (examples/waveoptics/terrestrial_stages):
+    # alpha = 0.625, zR = 29 km, 1 km to a 0.2 m receiver. The far-field eta
+    # reads 8 dB high; the exact Term holds to 0.1 dB.
+    from ..waveoptics.grid import GridSpec
+    hard = TerrestrialScenario(
+        near=Terminal(aperture_m=0.15, transmitter=Transmitter(waist_m=0.12)),
+        far=Terminal(aperture_m=0.20),
+        channel=TerrestrialChannel(path_length_m=1e3, attenuation_db_per_km=0.0))
+    g = HorizontalPath(1e3)
+    wave = propagate_scenario(hard, g, grid=GridSpec(1.0, 1024),
+                              precision="double")
+    wave_db = wave.tx_truncation_db + wave.geometric_loss_db
+    exact_db = (geometric_loss_term(hard, g).mean_db
+                + tx_gaussian_efficiency_term(hard, g).mean_db)
+    assert abs(exact_db - wave_db) < 0.1, (exact_db, wave_db)
+    print(f"hard clip, 1 km: exact {exact_db:.3f} dB, wave optics "
+          f"{wave_db:.3f} dB")
 
     # Bistatic override: the launch truncation reads the Transmitter beam-director
     # aperture, NOT the (large) receive telescope aperture. A ground terminal with

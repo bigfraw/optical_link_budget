@@ -253,8 +253,8 @@ def main():
     print("  receiver sits in the absolute far field: 600 km is more than 100")
     print("  Rayleigh ranges. The near-field case is where they disagree. Run")
     print("  `python -m examples.waveoptics.terrestrial_stages` for that one:")
-    print("  a 1 km link inside a 29 km Rayleigh range, where the two totals")
-    print("  differ by more than 8 dB.")
+    print("  a 1 km link inside a 29 km Rayleigh range, where the far-field")
+    print("  totals differ by more than 8 dB.")
     plt.show()
 
 

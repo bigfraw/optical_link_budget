@@ -710,7 +710,7 @@ def _uplink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
         # launch-truncation Term is opt-in, the same rule as the analytic budget.
         geo = [geometric_loss_term(scenario, geometry)]
         eff = tx_gaussian_efficiency_term(scenario, geometry)
-        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+        if np.any(eff.mean_db > TX_TRUNCATION_MIN_DB):
             geo.append(eff)
     else:
         # The wave-optics vacuum Term (opt-in for space, vacuum="wave").
@@ -957,7 +957,7 @@ def uplink_budget(scenario, geometry, *, fidelity=1, turbulence=True,
     # The transmit Gaussian-efficiency (launch truncation) Term is opt-in.
     if tx.transmitter is not None:
         eff = tx_gaussian_efficiency_term(scenario, geometry)
-        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+        if np.any(eff.mean_db > TX_TRUNCATION_MIN_DB):
             terms.append(eff)
     if turbulence:
         if cn2_profile is None:

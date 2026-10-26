@@ -508,7 +508,7 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
     tx = scenario.tx_terminal
     if tx.transmitter is not None:
         eff = tx_gaussian_efficiency_term(scenario, geometry)
-        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+        if np.any(eff.mean_db > TX_TRUNCATION_MIN_DB):
             terms.append(eff)
     # The receive-side turbulence effect. An SMF detector on the far terminal
     # takes the fidelity-0 (mean-only) fibre-coupling Term, using the horizontal

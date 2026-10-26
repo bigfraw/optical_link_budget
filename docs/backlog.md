@@ -359,10 +359,14 @@ are from 2026-08-26 and can drift.
 - **0-N3. The budget adds dB losses / per-term p-quantiles.** Not a book
   form; it is a conservative upper bound (crosscheck RS-02, RS-03). Record
   the bound; consider a joint-sample check.
-- **0-N4. The near-field truncation flag is not conservative.** The true
-  value can sit above or below the far-field form
-  (olb/models/gaussian_efficiency.py:186–193). The fidelity-2 vacuum layer is
-  the verifier; consider an auto-route.
+- **0-N4. DONE (2026-10-26). The near-field truncation flag was not
+  conservative.** The flag also missed a real case: a 36.3 mm launch in a
+  50.8 mm aperture at 1 km (1.5 zR, so outside the flag) read 1.2 dB high. The
+  Term with a geometry now uses the EXACT Fresnel (Hankel) received power of
+  the clipped launch, `clipped_bucket_fraction`, so it holds in the near field
+  and the flag is removed. It agrees with `propagate_scenario` to 0.1 dB at
+  1 km and 10 km (physics.md Section 2a). A NUMBER MOVE for every budget with
+  a launch truncation.
 - **0-N5. The quasi-frequency has no upper limit of its own** (`b_2` grows
   as `f_max^{1/3}`; olb/turbulence/andrews/temporal.py:608). Any caller must
   set the band from the detector or an inner scale. Pairs with the

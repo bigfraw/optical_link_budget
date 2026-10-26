@@ -348,7 +348,7 @@ def _downlink_fidelity2_terms(scenario, geometry, wave, hs, cn2_profile,
         # launch-truncation Term is opt-in, the same rule as the analytic budget.
         geo = [geometric_loss_term(scenario, geometry)]
         eff = tx_gaussian_efficiency_term(scenario, geometry)
-        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+        if np.any(eff.mean_db > TX_TRUNCATION_MIN_DB):
             geo.append(eff)
         # No wave coupling baseline to cancel: the slab smf_eta is the ABSOLUTE
         # fibre coupling, so it stands alone in the SMF penalty below.
