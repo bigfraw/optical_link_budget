@@ -673,6 +673,22 @@ Ch. 7, Eq. (7.59), printed p. 127, at m = 1, not "Ch. 6".
 
 Open items:
 
+- **The launch-truncation Term is EXACT at the range (2026-10-26, backlog
+  0-N4).** `tx_gaussian_efficiency_term(scenario, geometry)` with a geometry
+  no longer applies the far-field Klein and Degnan eta at every range: it
+  integrates the Fresnel (Hankel) received power of the clipped launch in the
+  receive annulus (`clipped_bucket_fraction`) and divides by the untruncated
+  receive power of the geometric Term, so the two Terms multiply to the exact
+  received power in the near AND the far field. `geometry=None` keeps the
+  far-field eta. The Rayleigh-range flag and `TRUNCATION_NEAR_FIELD_ALPHA` are
+  REMOVED. WHY: a 36.3 mm launch in a 50.8 mm aperture at 1 km read 2.87 dB
+  against 1.70 dB from `propagate_scenario` (the flag did not fire, the range
+  was 1.5 zR); the exact Term reads 1.72 dB. A NUMBER MOVE for every budget
+  with a truncation: several dB on a short terrestrial link, 0.01 to 0.1 dB on
+  a space link. The Term now reads the receive aperture, and it gives an array
+  for an array of ranges (the five budget call sites test `np.any`).
+  physics.md Section 2a.
+
 - **The fidelity-2 SPACE RETRO is BUILT (2026-09-30, branch
   `retro-velocity-aberration`, backlog 2-P2).** The runner, the `Campaign`
   option and `retro_space_budget(fidelity=2)` are in the architecture

@@ -165,31 +165,48 @@ A spoiled (dihedral-offset) cube is not built.
 
 - Inputs: transmit aperture diameter, transmit waist `w_T`, obscuration ratio,
   and (for `beta`) the launch divergence and the wavelength. A bistatic beam
-  director overrides the aperture and obscuration.
-- Output: truncation loss [dB], positive.
+  director overrides the aperture and obscuration. With a geometry, also the
+  range and the receive aperture and obscuration.
+- Output: truncation loss [dB], positive (an array for an array of ranges).
 
 #### Assumptions and limits
 
-- On-axis far-field gain of a truncated Gaussian, referenced to the untruncated
-  source.
 - Paraxial beam. No turbulence.
-- The far-field form breaks in the near field. A hard-truncated beam that a
-  receiver sees inside the Rayleigh range `zR = pi*w_T^2/lambda` gets an on-axis
-  intensity that oscillates with range (Fresnel edge diffraction). The
-  `olb/waveoptics/` fidelity-2 layer is the no-turbulence check for such a link.
-  See [architecture.md](architecture.md) Section 1.
-- The Term now FLAGS that break. `tx_gaussian_efficiency_term(scenario,
-  geometry)` reads `geometry.slant_range_m` for the validity test only; the loss
-  stays range-independent. When `alpha` is below the module constant
-  `TRUNCATION_NEAR_FIELD_ALPHA = 1.5` AND a range sits inside `zR`, the Term sets
-  an ACTIVE assumptions violation, so `Budget.check()` reports it. A widely open
-  aperture (`alpha` at or above 1.5) keeps almost no power in the clipped wings,
-  so the near-field ripple is negligible. `geometry=None` skips the test, which
-  is the space-budget case: a space link is always far field.
-- The error is NOT conservative. Unlike the geometric spreading Term (exact at
-  every range through `gaussz`) this Term does not self-correct, and unlike the
-  single-mode-fibre `eta_max` of Section 6a the true value can sit above OR below
-  it. Verify a flagged link with a fidelity-2 no-turbulence field propagation.
+- WITHOUT a geometry: the on-axis far-field gain above, referenced to the
+  untruncated source.
+- WITH a geometry (every budget passes one; 2026-10-26): the EXACT paraxial
+  value at the range. The far-field form breaks on a short link, in EITHER
+  direction: the clip edge changes the received pattern with range, and a
+  receiver that is not small against the beam does not read the on-axis value.
+  The Fresnel integral of a circular field is a Hankel transform (Schmidt,
+  DOI 10.1117/3.866274, Ch. 6; Andrews and Phillips, DOI 10.1117/3.626196,
+  Ch. 4), so at the range L
+
+      U(rho) = (k / L) int_{Cr a}^{a} exp(-c r^2) J0(k r rho / L) r dr
+      c      = 1 / w_T^2 + i (k / 2) (1 / f0 - 1 / L)
+
+  with f0 the launch phase-front radius (negative for a diverged beam). The
+  1 / L part is the finite-range defocus of Klein and Degnan
+  (DOI 10.1364/AO.13.002134). `clipped_bucket_fraction` integrates
+  P = 2 pi int |U|^2 rho drho over the receive annulus, and the Term is P over
+  the received power of the UNTRUNCATED beam (the geometric spreading Term).
+  So the geometric Term and this Term multiply to the exact received power of
+  the clipped launch at every range, and the Term now reads the receive
+  aperture. For a small receiver far away it goes to the far-field eta.
+- Measured against `propagate_scenario` (the module self-check): a 36.3 mm
+  (1/e^2 diameter) launch in a 50.8 mm aperture to a 50.8 mm receiver
+  (zR = 668 m) reads 2.87 dB far-field, 1.72 dB exact and 1.70 dB wave at
+  1 km, and 18.96 / 18.93 / 19.02 dB at 10 km; the hard clip of
+  `examples/waveoptics/terrestrial_stages.py` (alpha = 0.625, 1 km, 0.2 m
+  receiver) reads 11.05 / 2.79 / 2.77 dB. A refined wave grid moves toward
+  the exact value (1 km: 1.696 to 1.718 dB). The old Rayleigh-range flag and
+  `TRUNCATION_NEAR_FIELD_ALPHA` are REMOVED: the Term no longer needs them.
+- NUMBER MOVE (2026-10-26): every budget with a launch truncation moves. A
+  terrestrial link moves by up to several dB (the bidirectional self-check:
+  13.16 to 13.00 dB; the terrestrial self-check with truncation: 21.65 to
+  20.95 dB). A space link moves by 0.01 to 0.1 dB, the launch Fresnel number
+  a^2 / (lambda L) of a few 1e-3 (the uplink self-check, alpha = 0.375:
+  18.52 to 18.46 dB).
 - Measured validity: see Sections 9c (the obscured launch pupil) and 9f (the
   vacuum geometric loss).
 

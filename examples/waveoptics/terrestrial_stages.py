@@ -168,8 +168,10 @@ def main():
     print(f"  fibre coupling loss   {result.smf_coupling_db:9.3f} dB "
           "(single-mode fibre, fidelity 2)")
     print("  all the numbers are losses in positive dB.")
-    print("  The analytic transmit efficiency is a FAR-FIELD form. The receiver")
-    print("  sits inside the Rayleigh range here, so the two totals disagree.")
+    print("  The fidelity-0 column uses the FAR-FIELD transmit efficiency. The")
+    print("  receiver sits inside the Rayleigh range here, so the two totals")
+    print("  disagree. The budget Term tx_gaussian_efficiency_term with a")
+    print("  geometry uses the exact Fresnel value and agrees to about 0.02 dB.")
 
     # ---- 2. the retro return leg, three primitives ----
     on_cube, back, collected = retro_leg(stages["at rx plane"])

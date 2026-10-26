@@ -298,7 +298,7 @@ def retro_space_budget(scenario, geometry, *, fidelity=1, turbulence=True,
     up_tx = up_scn.tx_terminal
     if up_tx.transmitter is not None:
         eff = tx_gaussian_efficiency_term(up_scn, geometry)
-        if eff.mean_db > TX_TRUNCATION_MIN_DB:
+        if np.any(eff.mean_db > TX_TRUNCATION_MIN_DB):
             up_terms.append(eff)
     if turbulence and fidelity != 2:
         up_terms.append(uplink_turbulence_term(up_scn, geometry, n_samples=n_samples,
