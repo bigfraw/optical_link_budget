@@ -62,7 +62,10 @@ built at one of three levels of rigour, chosen with a single `fidelity` argument
 on each budget (`terrestrial_budget`, `downlink_budget`, `uplink_budget`).
 
 - **Fidelity 0 — analytic.** A Term gives a closed-form loss. Cheap. It carries
-  the most assumptions (far-field, weak fluctuation, flat wavefront).
+  the most assumptions (far-field, weak fluctuation, flat wavefront). A
+  terrestrial MMF (light-bucket) receiver gets the aperture scintillation fade
+  AND the fibre coupling Term (static core capture plus tip-tilt walk-off),
+  drawn as independent fades (2026-10-26; before, it had no aperture fade).
 - **Fidelity 1 — statistical.** A Term gives samples, so the budget gives a
   Monte-Carlo fade (FAST modal coupling, the coupled-flux uplink). Fewer
   assumptions, a real fade, still not a full field solve.

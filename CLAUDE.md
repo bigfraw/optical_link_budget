@@ -215,8 +215,11 @@ at fidelity 2 with a corrected record. See the README fidelity ladder.
   aperture or no-detector receiver. An `SMF` detector takes the mean-only
   fibre-coupling Term, plus the receive tip-tilt walk-off fade Term
   (`terrestrial_smf_walkoff_term`) when the coupling optics are set. An `MMF`
-  (light bucket) takes the spot-in-core coupling Term plus the same walk-off fade
-  (`terrestrial_mmf_coupling_term`). The walk-off reads the received tip-tilt from
+  (light bucket) takes the aperture scintillation Term AND the spot-in-core
+  coupling Term with the same walk-off fade (`terrestrial_mmf_coupling_term`),
+  drawn as independent fades (2026-10-26, a NUMBER MOVE: before, the coupling
+  Term REPLACED the scintillation, so an MMF budget had no aperture fade and its
+  p99 read 0.5 to 2.2 dB low against fidelity 2 at 1 km; now within 0.25 dB). The walk-off reads the received tip-tilt from
   `olb.turbulence.angle_of_arrival`: since 2026-09-09 (backlog 1-9 decision (c))
   it is the APERTURE angle-of-arrival tilt at the Gaussian-beam r0, reduced by
   the site outer scale `Site.outer_scale_m` (von Karman Eq. (83),

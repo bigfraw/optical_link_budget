@@ -401,10 +401,12 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             (terrestrial_smf_coupling_term) plus the tip-tilt walk-off fade when
             the coupling optics are set. The mean-only Term locks the budget to
             fidelity 0 (it then refuses a fade margin);
-          * an MMF detector gets the multimode spot-in-core coupling plus the
-            walk-off fade (a real fade).
-        The coupling / scintillation Term REPLACES the standalone scintillation
-        for a fibre receiver (no double-count).
+          * an MMF detector (a light bucket) gets the aperture scintillation
+            Term AND the multimode coupling Term (spot-in-core static loss
+            plus the tip-tilt walk-off fade). The two fades are drawn as
+            independent (2026-10-26; before, the MMF had no aperture fade).
+        For an SMF receiver the coupling Term REPLACES the standalone
+        scintillation (no double-count).
       - fidelity=1 is UNAVAILABLE for a terrestrial link and raises. FAST is a
         far-field plane-wave-source model; a near-field finite Gaussian beam
         needs the split-step model of fidelity 2 (see backlog 1-1).
@@ -433,8 +435,8 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             0 (analytic, the default), 1 (unavailable, raises), or 2 (wave optics,
             needs `wave`).
         scintillation : bool
-            Add the fidelity-0 scintillation Term for an aperture / no-detector
-            receiver when True (the default).
+            Add the fidelity-0 scintillation Term for an aperture, MMF or
+            no-detector receiver when True (the default).
         turbulence : bool
             Master turbulence switch, at fidelity 0 AND fidelity 2. When False,
             drop EVERY turbulence quantity. At fidelity 0: no scintillation
@@ -539,9 +541,22 @@ def terrestrial_budget(scenario, geometry, *, fidelity=0, scintillation=True,
             terms.append(terrestrial_smf_walkoff_term(scenario, geometry,
                                           turbulence=turbulence))
     elif isinstance(rx.detector, MMF):
-        # An MMF (light bucket) replaces the scintillation Term with the geometric
-        # spot-in-core coupling plus the tip-tilt walk-off fade (no double-count).
+        # An MMF is a light bucket behind the aperture, so it keeps the aperture
+        # (bucket) scintillation fade AND it adds the fibre coupling Term: the
+        # static spot-in-core loss plus the tip-tilt walk-off fade. The two do
+        # not double-count: the scintillation is the power fluctuation into the
+        # aperture, and the coupling is the FRACTION of that power that reaches
+        # the core (a multiplicative factor, see terrestrial_mmf_coupling_term).
+        # The Budget draws the two fades independently. Assumption: the
+        # aperture-averaged log-amplitude and the aperture tilt are
+        # uncorrelated. In weak turbulence the aperture filter keeps the
+        # small-scale amplitude and the tilt is the large-scale phase gradient,
+        # so their cross-correlation is small (Andrews and Phillips 2005,
+        # Ch. 6 and Ch. 10, DOI 10.1117/3.626196). Measured against fidelity 2
+        # (Navantia 1 km MMF cells): the sum tracks the fibre p99.
         from ..models.coupling import terrestrial_mmf_coupling_term
+        if scintillation and turbulence:
+            terms.append(terrestrial_scintillation_term(scenario, geometry))
         terms.append(terrestrial_mmf_coupling_term(scenario, geometry, turbulence=turbulence))
     elif scintillation and turbulence:
         terms.append(terrestrial_scintillation_term(scenario, geometry))
@@ -995,13 +1010,23 @@ if __name__ == '__main__':
 
     mmf_budget = _mmf()
     mmf_names = [t.name for t in mmf_budget.terms]
-    # The MMF coupling Term replaces the scintillation Term (no double-count).
-    assert "receive coupling (MMF)" in mmf_names and "scintillation" not in mmf_names
+    # An MMF is a light bucket: it keeps the aperture scintillation fade AND
+    # the coupling Term (static spot-in-core loss + tip-tilt walk-off fade).
+    assert "receive coupling (MMF)" in mmf_names and "scintillation" in mmf_names
     mmf_term = next(t for t in mmf_budget.terms if t.category == "coupling")
-    # The MMF Term has a real fade, so the budget keeps its fade margin.
+    mmf_scint = next(t for t in mmf_budget.terms if t.name == "scintillation")
+    # Both Terms have a real fade; the walk-off fade is IN the coupling Term.
     assert not mmf_term.mean_only and mmf_budget.provides_fade
+    assert mmf_term.meta["walkoff_mean_db"] > 0.0, mmf_term.meta
+    assert mmf_term.quantile_db(0.99) > mmf_term.mean_db
+    assert mmf_scint.quantile_db(0.99) > mmf_scint.mean_db
     assert np.isfinite(mmf_budget.fade_margin_db(0.99))
     assert mmf_budget.fade_margin_db(0.99) > mmf_budget.total_loss_db()
+    # The MMF fade is deeper than the walk-off alone (the scintillation adds).
+    _no_scint = terrestrial_budget(mmf_budget.scenario, HorizontalPath(3e3),
+                                   scintillation=False)
+    assert "scintillation" not in [t.name for t in _no_scint.terms]
+    assert mmf_budget.fade_margin_db(0.99) > _no_scint.fade_margin_db(0.99)
 
     # A bucket (Aperture) detector adds the scintillation Term, and the budget
     # keeps its analytic fade (scintillation has a quantile; no mean-only term).

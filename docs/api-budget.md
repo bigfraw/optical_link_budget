@@ -858,11 +858,14 @@ far-terminal detector:
   tip-tilt is not counted two times. The coupling Term is mean-only, so it locks
   the budget to fidelity 0 and the budget refuses a fade margin. The walk-off
   Term carries a real fade, but the mean-only lock still holds.
-- An `MMF` (light-bucket) detector: the multimode-fibre coupling Term
-  (`terrestrial_mmf_coupling_term`) replaces the scintillation Term. It is the encircled
-  energy of the spot inside the hard core, displaced by the received tip-tilt
-  (a flat-top acceptance, not a mode overlap). It is not mean-only, so an MMF
-  budget keeps its fade.
+- An `MMF` (light-bucket) detector: the aperture scintillation Term AND the
+  multimode-fibre coupling Term (`terrestrial_mmf_coupling_term`). The coupling
+  Term is the encircled energy of the spot inside the hard core, displaced by
+  the received tip-tilt (a flat-top acceptance, not a mode overlap), so it holds
+  the static loss and the walk-off fade. The scintillation is the power into the
+  aperture and the coupling is the fraction of that power in the core, so the
+  two multiply and do not double-count. The budget draws the two fades as
+  independent (2026-10-26; before, the MMF had no aperture fade).
 
 The received CURVATURE is always charged. A terrestrial received beam is a
 diverging Gaussian, so the true focus of the coupling optic is BEYOND its focal
